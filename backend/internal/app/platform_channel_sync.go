@@ -153,7 +153,7 @@ func (s *Service) syncPlatformChannel(input PlatformChannelInput) error {
 		if err != nil || row == nil {
 			continue
 		}
-		config, err := platformModelCapabilityConfig(profile)
+		config, err := platformModelCapabilityConfig(profile, row.CapabilityConfigJSON)
 		if err != nil {
 			return err
 		}
@@ -168,8 +168,10 @@ func (s *Service) syncPlatformChannel(input PlatformChannelInput) error {
 	return nil
 }
 
-// platformModelCapabilityConfig 解析模型能力配置；视频模型缺省时套用内置默认值。
-func platformModelCapabilityConfig(profile PlatformChannelModel) (*ModelCapabilityConfig, error) {
+// platformModelCapabilityConfig 解析模型能力配置，优先级：
+// 本次提交的能力配置 → 数据库里已有的能力配置（避免后台只改密钥时把能力配置抹掉）
+// → 视频模型的内置默认值。
+func platformModelCapabilityConfig(profile PlatformChannelModel, stored string) (*ModelCapabilityConfig, error) {
 	raw := strings.TrimSpace(string(profile.CapabilityConfig))
 	if raw != "" && raw != "null" {
 		var config ModelCapabilityConfig
@@ -177,6 +179,12 @@ func platformModelCapabilityConfig(profile PlatformChannelModel) (*ModelCapabili
 			return nil, fmt.Errorf("模型 %s 的能力配置不是有效 JSON：%w", profile.Model, err)
 		}
 		return &config, nil
+	}
+	if existing := strings.TrimSpace(stored); existing != "" && existing != "null" {
+		var config ModelCapabilityConfig
+		if err := json.Unmarshal([]byte(existing), &config); err == nil {
+			return &config, nil
+		}
 	}
 	if !strings.EqualFold(strings.TrimSpace(profile.Capability), "video") {
 		return nil, fmt.Errorf("模型 %s 缺少能力配置（仅视频模型可缺省）", profile.Model)
