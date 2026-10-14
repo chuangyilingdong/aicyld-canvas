@@ -297,7 +297,8 @@ func ProtocolRequestFromInput(input Input) protocol.GenerationRequest {
 		Extra: map[string]any{
 			"videoSeconds": input.Config.VideoSeconds,
 			"audioVoice":   ResolvedAudioSpeechVoice(input.Config.Model, input.Config.AudioVoice),
-			"audioFormat":  defaultString(input.Config.AudioFormat, "mp3"),
+			"audioFormat":     defaultString(input.Config.AudioFormat, "mp3"),
+			"audioSampleRate": defaultString(input.Config.AudioSampleRate, "24000"),
 			"audioSpeed":   defaultString(input.Config.AudioSpeed, "1"),
 			"count":        input.Config.Count,
 		},

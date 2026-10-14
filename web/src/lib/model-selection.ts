@@ -143,7 +143,7 @@ export function modelRequestOptions(config: AiConfig, capability: ModelCapabilit
         case "video":
             return { size: config.size, videoSeconds: Number(config.videoSeconds), vquality: config.vquality, videoGenerateAudio: config.videoGenerateAudio === "true", videoWatermark: config.videoWatermark === "true" };
         case "audio":
-            return { audioVoice: config.audioVoice, audioFormat: config.audioFormat, audioSpeed: Number(config.audioSpeed), audioPitch: Number(config.audioPitch), audioVolume: Number(config.audioVolume) };
+            return { audioVoice: config.audioVoice, audioFormat: config.audioFormat, audioSampleRate: Number(config.audioSampleRate) || undefined, audioSpeed: Number(config.audioSpeed), audioPitch: Number(config.audioPitch), audioVolume: Number(config.audioVolume) };
         default:
             return {};
     }
@@ -211,6 +211,7 @@ function logicalOptionError(name: string) {
         videoWatermark: "水印设置",
         audioVoice: "音色",
         audioFormat: "音频格式",
+    audioSampleRate: "采样率",
         audioSpeed: "语速",
         audioPitch: "声调",
         audioVolume: "音量",

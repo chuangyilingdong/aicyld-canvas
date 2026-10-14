@@ -317,6 +317,7 @@ export function buildAudioGenerationMetadata(config: AiConfig): CanvasNodeMetada
         model: config.model,
         audioVoice: config.audioVoice,
         audioFormat: config.audioFormat,
+    audioSampleRate: config.audioSampleRate,
         audioSpeed: config.audioSpeed,
         audioPitch: config.audioPitch,
         audioVolume: config.audioVolume,
@@ -510,6 +511,7 @@ export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | u
         ...resolveAudioSpeechSettings(preferredModel, {
             audioVoice: node?.metadata?.audioVoice ?? config.audioVoice,
             audioFormat: node?.metadata?.audioFormat ?? config.audioFormat,
+        audioSampleRate: node?.metadata?.audioSampleRate ?? config.audioSampleRate,
             audioSpeed: node?.metadata?.audioSpeed ?? config.audioSpeed,
             audioPitch: node?.metadata?.audioPitch ?? config.audioPitch,
             audioVolume: node?.metadata?.audioVolume ?? config.audioVolume,

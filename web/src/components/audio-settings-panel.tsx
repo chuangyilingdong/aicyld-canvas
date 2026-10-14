@@ -1,11 +1,11 @@
 import { type ReactNode } from "react";
 
 import { ImageSettingsTheme } from "@/components/image-settings-panel";
-import { audioPitchLabel, audioSpeedLabel, audioSpeechProfile, audioVolumeLabel, normalizeAudioFormatValue, normalizeAudioPitchValue, normalizeAudioSpeedValue, normalizeAudioVolumeValue, normalizeAudioVoiceValue } from "@/lib/audio-generation";
+import { audioPitchLabel, audioSampleRateLabel, audioSpeedLabel, audioSpeechProfile, audioVolumeLabel, normalizeAudioFormatValue, normalizeAudioPitchValue, normalizeAudioSampleRateValue, normalizeAudioSpeedValue, normalizeAudioVolumeValue, normalizeAudioVoiceValue } from "@/lib/audio-generation";
 import { type CanvasTheme } from "@/lib/canvas-theme";
 import type { AiConfig } from "@/stores/use-config-store";
 
-type AudioSettingKey = "audioVoice" | "audioFormat" | "audioSpeed" | "audioPitch" | "audioVolume" | "audioInstructions";
+type AudioSettingKey = "audioVoice" | "audioFormat" | "audioSpeed" | "audioPitch" | "audioVolume" | "audioInstructions" | "audioSampleRate";
 
 type AudioSettingsPanelProps = {
     config: AiConfig;
@@ -20,6 +20,7 @@ export function AudioSettingsPanel({ config, onConfigChange, theme, showTitle = 
     const profile = audioSpeechProfile(model);
     const voice = normalizeAudioVoiceValue(config.audioVoice, model);
     const format = normalizeAudioFormatValue(config.audioFormat, model);
+    const sampleRate = normalizeAudioSampleRateValue(config.audioSampleRate, model);
     const speed = normalizeAudioSpeedValue(config.audioSpeed, model);
     const pitch = normalizeAudioPitchValue(config.audioPitch);
     const volume = normalizeAudioVolumeValue(config.audioVolume);
@@ -48,6 +49,17 @@ export function AudioSettingsPanel({ config, onConfigChange, theme, showTitle = 
                         ))}
                     </div>
                 </SettingGroup>
+                {profile.showSampleRate ? (
+                    <SettingGroup title="采样率" color={theme.node.muted}>
+                        <div className="grid grid-cols-3 gap-2.5">
+                            {profile.sampleRates.map((item) => (
+                                <OptionPill key={item.value} selected={sampleRate === item.value} theme={theme} onClick={() => onConfigChange("audioSampleRate", item.value)}>
+                                    {item.label}
+                                </OptionPill>
+                            ))}
+                        </div>
+                    </SettingGroup>
+                ) : null}
                 {profile.showSpeed ? (
                     <SettingGroup title="语速" color={theme.node.muted}>
                         <div className="grid grid-cols-4 gap-2.5">

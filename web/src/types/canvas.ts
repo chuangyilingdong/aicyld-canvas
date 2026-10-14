@@ -266,6 +266,7 @@ export type CanvasNodeMetadata = {
     watermark?: string;
     audioVoice?: string;
     audioFormat?: string;
+    audioSampleRate?: string;
     audioSpeed?: string;
     /** 原版 LibTV 音频节点的音高/音量控制；以字符串保存以兼容工作流字段。 */
     audioPitch?: string;

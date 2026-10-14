@@ -97,6 +97,7 @@ type Config struct {
 	ArkPrivateAssetUpload    string                    `json:"videoArkPrivateAssetUpload"`
 	AudioVoice               string                    `json:"audioVoice"`
 	AudioFormat              string                    `json:"audioFormat"`
+	AudioSampleRate          string                    `json:"audioSampleRate"`
 	AudioSpeed               string                    `json:"audioSpeed"`
 	AudioInstructions        string                    `json:"audioInstructions"`
 	SystemPrompt             string                    `json:"systemPrompt"`

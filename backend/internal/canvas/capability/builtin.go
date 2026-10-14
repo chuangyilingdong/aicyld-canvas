@@ -121,7 +121,7 @@ func generatedDraftFields(kind string) map[string]PatchField {
 	case "video":
 		names = append(names, "size", "seconds", "vquality", "generateAudio", "watermark")
 	case "audio":
-		names = append(names, "audioVoice", "audioFormat", "audioSpeed", "audioPitch", "audioVolume", "audioInstructions")
+		names = append(names, "audioVoice", "audioFormat", "audioSampleRate", "audioSpeed", "audioPitch", "audioVolume", "audioInstructions")
 	}
 	for index, name := range names {
 		max := 256

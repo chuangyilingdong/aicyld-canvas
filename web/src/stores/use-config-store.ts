@@ -99,6 +99,7 @@ function normalizeWorkflowFieldSourceName(value: unknown, capability?: RunningHu
         transparentbackground: "transparentBackground",
         audiovoice: "audioVoice",
         audioformat: "audioFormat",
+        audiosamplerate: "audioSampleRate",
         audiospeed: "audioSpeed",
         audioinstructions: "audioInstructions",
     };
@@ -404,6 +405,7 @@ export type AiConfig = {
     assistantModel: string;
     audioVoice: string;
     audioFormat: string;
+    audioSampleRate: string;
     audioSpeed: string;
     audioPitch: string;
     audioVolume: string;
@@ -450,6 +452,7 @@ export const defaultConfig: AiConfig = {
     assistantModel: "",
     audioVoice: "alloy",
     audioFormat: "mp3",
+    audioSampleRate: "24000",
     audioSpeed: "1",
     audioPitch: "0",
     audioVolume: "1",
@@ -778,6 +781,7 @@ export function normalizeConfigSnapshot(snapshot: ConfigStoreSnapshot | undefine
             assistantModel: typeof config.assistantModel === "string" ? config.assistantModel.trim() : "",
             audioVoice: config.audioVoice || defaultConfig.audioVoice,
             audioFormat: config.audioFormat || defaultConfig.audioFormat,
+            audioSampleRate: config.audioSampleRate || defaultConfig.audioSampleRate,
             audioSpeed: config.audioSpeed || defaultConfig.audioSpeed,
             audioPitch: config.audioPitch || defaultConfig.audioPitch,
             audioVolume: config.audioVolume || defaultConfig.audioVolume,

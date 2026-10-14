@@ -176,6 +176,7 @@ const NODE_MODEL_GENERATION_PARAMS: ReadonlyArray<keyof CanvasNodeMetadata> = [
     "watermark",
     "audioVoice",
     "audioFormat",
+    "audioSampleRate",
     "audioSpeed",
     "audioPitch",
     "audioVolume",

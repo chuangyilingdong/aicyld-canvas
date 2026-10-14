@@ -470,6 +470,7 @@ export function backendProviderConfig(config: AiConfig, mode: BackendGenerationM
         videoArkPrivateAssetUpload: config.videoArkPrivateAssetUpload == null ? undefined : String(config.videoArkPrivateAssetUpload),
         audioVoice: config.audioVoice,
         audioFormat: config.audioFormat,
+    audioSampleRate: config.audioSampleRate,
         audioSpeed: config.audioSpeed,
         audioPitch: config.audioPitch,
         audioVolume: config.audioVolume,
@@ -518,6 +519,7 @@ function workflowProviderConfig(config: AiConfig, requestConfig: ReturnType<type
         videoArkPrivateAssetUpload: config.videoArkPrivateAssetUpload,
         audioVoice: config.audioVoice,
         audioFormat: config.audioFormat,
+    audioSampleRate: config.audioSampleRate,
         audioSpeed: config.audioSpeed,
         audioPitch: config.audioPitch,
         audioVolume: config.audioVolume,
@@ -555,7 +557,7 @@ function logicalCapabilityOptions(config: AiConfig, mode: BackendGenerationMode)
             : mode === "video"
               ? { size: config.size, videoSeconds: Number(config.videoSeconds), vquality: config.vquality, videoGenerateAudio: config.videoGenerateAudio === "true", videoWatermark: config.videoWatermark === "true" }
               : mode === "audio"
-                ? { audioVoice: config.audioVoice, audioFormat: config.audioFormat, audioSpeed: Number(config.audioSpeed), audioPitch: Number(config.audioPitch), audioVolume: Number(config.audioVolume) }
+                ? { audioVoice: config.audioVoice, audioFormat: config.audioFormat, audioSampleRate: config.audioSampleRate, audioSpeed: Number(config.audioSpeed), audioPitch: Number(config.audioPitch), audioVolume: Number(config.audioVolume) }
                 : {};
     const filtered = Object.fromEntries(Object.entries(candidates).filter(([key]) => Boolean(spec?.options?.[key])));
     // 只把前台模型声明过的参数送进能力匹配。未声明的 quality 不能因为画布选了 4K 档位

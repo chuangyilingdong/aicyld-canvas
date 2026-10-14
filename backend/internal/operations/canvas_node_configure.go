@@ -132,6 +132,13 @@ func validateDraftValue(name, value string) error {
 			(name == "audioPitch" && (number < -12 || number > 12)) || (name == "audioVolume" && (number < 0 || number > 1)) {
 			return invalid()
 		}
+	case "audioSampleRate":
+		// 上游 doubao-seed-audio-1.0 只接受这几个采样率
+		switch value {
+		case "8000", "16000", "24000", "32000", "44100":
+		default:
+			return invalid()
+		}
 	case "audioFormat":
 		if !strings.Contains("|mp3|wav|pcm|flac|aac|opus|ogg|m4a|", "|"+value+"|") {
 			return invalid()

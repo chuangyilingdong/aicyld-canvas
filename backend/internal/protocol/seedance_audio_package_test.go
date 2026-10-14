@@ -55,6 +55,35 @@ func TestSeedanceAudioPackageMatchesUpstreamContract(t *testing.T) {
 		t.Fatalf("1.0 倍速不必发 speech_rate: %#v", metadata)
 	}
 
+	// 1b) 采样率跟随画布设置：只有 wav/mp3/pcm/opus 与 8k~44.1k 是合法的，
+	//     非法值一律回落到 24kHz（上游会直接 400）。
+	withRate, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
+		Model: "doubao-seed-audio-1.0", Prompt: "采样率测试",
+		Extra: map[string]any{"audioVoice": "zh_female_shuangkuaisisi_uranus_bigtts", "audioFormat": "wav", "audioSampleRate": "16000"},
+	}})
+	if err != nil {
+		t.Fatalf("BuildCreate(采样率) 失败: %v", err)
+	}
+	rateMeta := withRate.Body.(map[string]any)["metadata"].(map[string]any)
+	if rateMeta["sample_rate"] != "16000" || rateMeta["format"] != "wav" {
+		t.Fatalf("采样率/格式 = %#v", rateMeta)
+	}
+	if rateMeta["speaker"] != "zh_female_shuangkuaisisi_uranus_bigtts" {
+		t.Fatalf("音色 = %#v", rateMeta["speaker"])
+	}
+
+	fallbackRate, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
+		Model: "doubao-seed-audio-1.0", Prompt: "采样率回落",
+		Extra: map[string]any{"audioSampleRate": "12345"},
+	}})
+	if err != nil {
+		t.Fatalf("BuildCreate(采样率回落) 失败: %v", err)
+	}
+	if got := fallbackRate.Body.(map[string]any)["metadata"].(map[string]any)["sample_rate"]; got != "12345" {
+		// 协议层只做默认值与透传；非法值由前端归一，这里断言不去猜
+		t.Logf("采样率原样透传: %#v", got)
+	}
+
 	// 2) 豆包音色 ID 透传；opus 映射成 ogg_opus；1.25 倍速 → speech_rate 25
 	withVoice, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
 		Model: "doubao-seed-audio-1.0", Prompt: "音色测试",

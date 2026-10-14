@@ -120,6 +120,7 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, onConfigC
                 videoWatermark: node.metadata?.watermark || globalConfig.videoWatermark,
                 audioVoice: node.metadata?.audioVoice || globalConfig.audioVoice,
                 audioFormat: node.metadata?.audioFormat || globalConfig.audioFormat,
+                audioSampleRate: node.metadata?.audioSampleRate || globalConfig.audioSampleRate,
                 audioSpeed: node.metadata?.audioSpeed || globalConfig.audioSpeed,
                 audioPitch: node.metadata?.audioPitch || globalConfig.audioPitch,
                 audioVolume: node.metadata?.audioVolume || globalConfig.audioVolume,
@@ -680,6 +681,7 @@ function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: Can
         ...resolveAudioSpeechSettings(model, {
             audioVoice: node.metadata?.audioVoice || globalConfig.audioVoice,
             audioFormat: node.metadata?.audioFormat || globalConfig.audioFormat,
+            audioSampleRate: node.metadata?.audioSampleRate || globalConfig.audioSampleRate,
             audioSpeed: node.metadata?.audioSpeed || globalConfig.audioSpeed,
             audioPitch: node.metadata?.audioPitch || globalConfig.audioPitch,
             audioVolume: node.metadata?.audioVolume || globalConfig.audioVolume,
@@ -739,6 +741,7 @@ function buildModelNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode
         ...resolveAudioSpeechSettings(model, {
             audioVoice: node.metadata?.audioVoice || globalConfig.audioVoice,
             audioFormat: node.metadata?.audioFormat || globalConfig.audioFormat,
+            audioSampleRate: node.metadata?.audioSampleRate || globalConfig.audioSampleRate,
             audioSpeed: node.metadata?.audioSpeed || globalConfig.audioSpeed,
             audioPitch: node.metadata?.audioPitch || globalConfig.audioPitch,
             audioVolume: node.metadata?.audioVolume || globalConfig.audioVolume,
@@ -759,6 +762,7 @@ function videoConfigPatch(key: keyof AiConfig, value: string) {
 function audioConfigPatch(key: CanvasAudioSettingKey, value: string) {
     if (key === "audioVoice") return { audioVoice: value };
     if (key === "audioFormat") return { audioFormat: value };
+    if (key === "audioSampleRate") return { audioSampleRate: value };
     if (key === "audioSpeed") return { audioSpeed: value };
     if (key === "audioPitch") return { audioPitch: value };
     if (key === "audioVolume") return { audioVolume: value };
