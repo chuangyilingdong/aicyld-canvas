@@ -35,13 +35,50 @@ const (
 )
 
 // ModelProfile 描述单个模型的能力与请求协议。
+// Variants 让「同一个画布模型 + 不同生成模式」路由到不同的上游 SKU
+// （服务端按请求的 operation / 参考素材数量等条件匹配，见 modelcatalog.SKUSelectorForIntent）。
 type ModelProfile struct {
-	Model            string          `json:"model"`
-	DisplayName      string          `json:"displayName,omitempty"`
-	Icon             string          `json:"icon,omitempty"`
-	Capability       string          `json:"capability"`
-	Protocol         string          `json:"protocol"`
+	Model       string `json:"model"`
+	DisplayName string `json:"displayName,omitempty"`
+	Icon        string `json:"icon,omitempty"`
+	Capability  string `json:"capability"`
+	Protocol    string `json:"protocol"`
+	// ProviderModelKey 是没有任何变体命中时的回退上游模型名（留空则与 Model 同名）。
+	ProviderModelKey string          `json:"providerModelKey,omitempty"`
 	CapabilityConfig json.RawMessage `json:"capabilityConfig,omitempty"`
+	Variants         []ModelVariant  `json:"variants,omitempty"`
+}
+
+// canonicalSelectorKey 把选择器键规范成服务端要求的写法（imageCount / videoSeconds 等驼峰）。
+// 服务端只接受 operation / quality / size / vquality / videoSeconds / imageCount 六个键。
+func canonicalSelectorKey(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "operation":
+		return "operation"
+	case "quality":
+		return "quality"
+	case "size":
+		return "size"
+	case "vquality":
+		return "vquality"
+	case "videoseconds":
+		return "videoSeconds"
+	case "imagecount":
+		return "imageCount"
+	default:
+		return ""
+	}
+}
+
+// ModelVariant 是「模式 → 上游 SKU」的一条映射。
+// Selector 可用键（服务端校验）：operation / quality / size / vquality / videoSeconds / imageCount。
+type ModelVariant struct {
+	Selector         map[string]string `json:"selector,omitempty"`
+	Operation        string            `json:"operation,omitempty"`
+	ProviderModelKey string            `json:"providerModelKey"`
+	Resolution       string            `json:"resolution,omitempty"`
+	VideoSeconds     int               `json:"videoSeconds,omitempty"`
+	Enabled          *bool             `json:"enabled,omitempty"`
 }
 
 // Channel 是一条平台统一渠道。
@@ -272,16 +309,30 @@ func CapabilityConfigFor(capability, model string) (json.RawMessage, bool) {
 		return nil, false
 	}
 }
-func seedanceProfile(model string) ModelProfile {
+
+// seedanceFamilyProfile 生成「家族模型 + 模式变体」预置条目：
+// 画布上只出现一个模型（display 可自定义），生成模式（文生/图生/参考）由变体路由到上游 SKU。
+func seedanceFamilyProfile(family, display string) ModelProfile {
+	imageVariant := func(count, provider string) ModelVariant {
+		return ModelVariant{Selector: map[string]string{"operation": "image_to_video", "imageCount": count}, ProviderModelKey: provider}
+	}
 	return ModelProfile{
-		Model: model, DisplayName: seedanceDisplayName(model, seedanceModeForModel(model)),
-		Capability: "video", Protocol: "newapi", CapabilityConfig: seedanceCapabilityConfigBody(seedanceModeForModel(model)),
+		Model: family, DisplayName: display, Capability: "video", Protocol: "newapi",
+		ProviderModelKey: family + "-t2v",
+		CapabilityConfig: seedanceCapabilityConfigBody("all"),
+		Variants: []ModelVariant{
+			{Operation: "text_to_video", ProviderModelKey: family + "-t2v"},
+			imageVariant("1", family+"-i2v"),
+			imageVariant("2", family+"-i2v"),
+			{Operation: "image_to_video", ProviderModelKey: family + "-multi"},
+			{Operation: "video_to_video", ProviderModelKey: family + "-multi"},
+		},
 	}
 }
 
 // platformProfile 用通用能力配置构造一个模型条目。
 func platformProfile(model, displayName, capability, protocol string) ModelProfile {
-	profile := ModelProfile{Model: model, DisplayName: displayName, Capability: capability, Protocol: protocol}
+	profile := ModelProfile{Model: model, DisplayName: displayName, Capability: capability, Protocol: protocol, ProviderModelKey: model}
 	if body, ok := CapabilityConfigFor(capability, model); ok {
 		profile.CapabilityConfig = body
 	}
@@ -293,16 +344,10 @@ func platformProfile(model, displayName, capability, protocol string) ModelProfi
 // （gemini-image，POST /v1beta/models/{model}:generateContent），文本走 chat/completions。
 func Defaults() []Channel {
 	profiles := []ModelProfile{
-		seedanceProfile("seedance-2.0-standard-t2v"),
-		seedanceProfile("seedance-2.0-standard-i2v"),
-		seedanceProfile("seedance-2.0-standard-multi"),
-		seedanceProfile("seedance-2.0-fast-t2v"),
-		seedanceProfile("seedance-2.0-fast-i2v"),
-		seedanceProfile("seedance-2.0-fast-multi"),
-		seedanceProfile("seedance-2.5-standard-t2v"),
-		seedanceProfile("seedance-2.5-standard-i2v"),
-		seedanceProfile("seedance-2.5-standard-multi"),
-		platformProfile("MiniMax-H3", "MiniMax H3（海螺·全能）", "video", "newapi"),
+		seedanceFamilyProfile("seedance-2.0-standard", "Seedance 2.0 标准"),
+		seedanceFamilyProfile("seedance-2.0-fast", "Seedance 2.0 快速"),
+		seedanceFamilyProfile("seedance-2.5-standard", "Seedance 2.5 标准"),
+		platformProfile("MiniMax-H3", "MiniMax H3", "video", "newapi"),
 		platformProfile("zhenzhen-image-nb-2.1-lowprice", "zhenzhen nb 2.1（特价）", "image", "newapi-image"),
 		platformProfile("zhenzhen-image-nb-pro-lowprice", "zhenzhen nb pro（特价）", "image", "newapi-image"),
 		platformProfile("zhenzhen-image-g-v2.5-lowprice", "zhenzhen g v2.5（特价）", "image", "newapi-image"),
@@ -615,6 +660,32 @@ func normalize(channel Channel) (Channel, error) {
 		profiles = append(profiles, normalized)
 	}
 	result.ModelProfiles = profiles
+	for index := range result.ModelProfiles {
+		variants := make([]ModelVariant, 0, len(result.ModelProfiles[index].Variants))
+		for _, variant := range result.ModelProfiles[index].Variants {
+			selector := make(map[string]string, len(variant.Selector)+1)
+			for key, value := range variant.Selector {
+				key = canonicalSelectorKey(key)
+				value = strings.TrimSpace(value)
+				if key != "" && value != "" {
+					selector[key] = value
+				}
+			}
+			if operation := strings.ToLower(strings.TrimSpace(variant.Operation)); operation != "" {
+				selector["operation"] = operation
+			}
+			providerModelKey := strings.TrimSpace(variant.ProviderModelKey)
+			if providerModelKey == "" || len(selector) == 0 {
+				continue
+			}
+			entry := variant
+			entry.Selector = selector
+			entry.Operation = ""
+			entry.ProviderModelKey = providerModelKey
+			variants = append(variants, entry)
+		}
+		result.ModelProfiles[index].Variants = variants
+	}
 	models := make([]string, 0, len(profiles)+len(result.Models))
 	for _, profile := range profiles {
 		models = append(models, profile.Model)

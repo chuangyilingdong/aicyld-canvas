@@ -22,7 +22,10 @@ type PlatformChannelModel struct {
 	DisplayName      string          `json:"displayName,omitempty"`
 	Capability       string          `json:"capability"`
 	Protocol         string          `json:"protocol"`
+	ProviderModelKey string          `json:"providerModelKey,omitempty"`
 	CapabilityConfig json.RawMessage `json:"capabilityConfig,omitempty"`
+	// Variants：模式 → 上游 SKU 的映射（画布端只显示一个模型，模式由这里路由）。
+	Variants []platformchannels.ModelVariant `json:"variants,omitempty"`
 }
 
 // PlatformChannelInput 是平台渠道在服务端的镜像输入。
@@ -35,6 +38,24 @@ type PlatformChannelInput struct {
 	Enabled          bool                   `json:"enabled"`
 	SortOrder        int                    `json:"sortOrder"`
 	Models           []PlatformChannelModel `json:"modelProfiles"`
+}
+
+// platformChannelVariants 把平台渠道的「模式 → 上游 SKU」映射转换为渠道模型变体。
+func platformChannelVariants(input []platformchannels.ModelVariant) []ChannelModelVariantRequest {
+	if len(input) == 0 {
+		return nil
+	}
+	result := make([]ChannelModelVariantRequest, 0, len(input))
+	for _, variant := range input {
+		result = append(result, ChannelModelVariantRequest{
+			Selector:         variant.Selector,
+			Resolution:       variant.Resolution,
+			VideoSeconds:     variant.VideoSeconds,
+			ProviderModelKey: variant.ProviderModelKey,
+			Enabled:          variant.Enabled,
+		})
+	}
+	return result
 }
 
 // platformChannelActor 是镜像写入使用的内部管理员身份（不对外暴露、不可登录）。
@@ -134,7 +155,9 @@ func (s *Service) syncPlatformChannel(input PlatformChannelInput) error {
 		itemEnabled := true
 		if _, err := s.SaveAdminChannelModel(actor, channelID, row.ID, ChannelModelRequest{
 			ModelKey: name, DisplayName: profile.DisplayName, Capability: profile.Capability,
-			Protocol: profile.Protocol, Enabled: &itemEnabled, CapabilityConfig: config,
+			Protocol: profile.Protocol, ProviderModelKey: profile.ProviderModelKey,
+			Enabled: &itemEnabled, CapabilityConfig: config,
+			Variants: platformChannelVariants(profile.Variants),
 		}); err != nil {
 			modelFailures = append(modelFailures, fmt.Sprintf("模型 %s 配置失败：%v", name, err))
 		}

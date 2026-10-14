@@ -96,7 +96,8 @@ func platformChannelSyncInputs(channels []platformchannels.Channel) []app.Platfo
 		for _, profile := range channel.ModelProfiles {
 			profiles = append(profiles, app.PlatformChannelModel{
 				Model: profile.Model, DisplayName: profile.DisplayName, Capability: profile.Capability,
-				Protocol: profile.Protocol, CapabilityConfig: profile.CapabilityConfig,
+				Protocol: profile.Protocol, ProviderModelKey: profile.ProviderModelKey,
+				CapabilityConfig: profile.CapabilityConfig, Variants: profile.Variants,
 			})
 		}
 		inputs = append(inputs, app.PlatformChannelInput{
