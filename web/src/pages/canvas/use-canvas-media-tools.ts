@@ -1120,7 +1120,7 @@ export function useCanvasMediaTools({
                     });
                     const image = result.images?.find((item) => item?.dataUrl);
                     if (!image?.dataUrl) throw new Error("后端任务没有返回图片");
-                    const outputDataUrl = inpaintRegion ? await compositeInpaintImage(sourceDataUrl, image.dataUrl, payload.maskDataUrl) : image.dataUrl;
+                    const outputDataUrl = inpaintRegion ? await compositeInpaintImage(sourceDataUrl, image.dataUrl, payload.maskDataUrl, inpaintRegion) : image.dataUrl;
                     const uploaded = await uploadImage(outputDataUrl);
                     const size = fitNodeSize(uploaded.width, uploaded.height, node.width, node.height);
                     const currentNode = nodesRef.current.find((item) => item.id === targetId);
