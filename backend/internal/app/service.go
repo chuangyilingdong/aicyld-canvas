@@ -169,7 +169,7 @@ func newService(repo *repository.Repository, dataDir string, options serviceOpti
 	service.assets = localasset.NewService(localasset.Dependencies{
 		DataDir:      dataDir,
 		Repository:   localasset.NewRepository(repo),
-		Blobs:        localasset.NewFileStore(dataDir),
+		Blobs:        localasset.NewOSSFileStore(dataDir),
 		Quota:        resourceQuota{svc: service},
 		Lifecycle:    resourceLifecycle{svc: service},
 		LocalStorage: localResourceStorage,

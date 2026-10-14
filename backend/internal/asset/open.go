@@ -138,6 +138,12 @@ func (s *Service) PrepareOwnedDelivery(userID string, resource *model.Resource, 
 		return nil, ResourceNotLocal()
 	}
 	_ = userID
-	_ = options
+	// 已镜像到对象存储的资源直接下发短时效签名直连地址（307），
+	// 未配置或尚未上传成功时保持本地流式读取。ForceProxy 用于强制回源的诊断场景。
+	if signer, ok := s.blobs.(ResourceSigner); ok && !options.ForceProxy {
+		if signed, ready := signer.SignedURL(resource.ObjectKey); ready && signed != "" {
+			return &ResourceDelivery{Resource: resource, RedirectURL: signed}, nil
+		}
+	}
 	return &ResourceDelivery{Resource: resource}, nil
 }

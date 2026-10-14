@@ -46,7 +46,7 @@ func (s *Service) resourceDomain() *localasset.Service {
 		}
 		s.assets = localasset.NewService(localasset.Dependencies{
 			Repository:   localasset.NewRepository(s.repo),
-			Blobs:        localasset.NewFileStore(s.dataDir),
+			Blobs:        localasset.NewOSSFileStore(s.dataDir),
 			Quota:        resourceQuota{svc: s},
 			Lifecycle:    resourceLifecycle{svc: s},
 			LocalStorage: s.localResourceStorage || s.IsLocalMode(),
