@@ -31,7 +31,7 @@ import {
     runBackendCanvasGenerationTask,
 } from "@/lib/canvas/canvas-project-generation";
 import { fitNodeSize, VIDEO_NODE_MAX_SIZE } from "@/lib/canvas/canvas-node-size";
-import { compositeEmotionImage, emotionGenerationSize, emotionProviderMask, normalizeEmotionPromptForProvider, resolveEmotionEditPlan } from "@/lib/canvas/canvas-emotion";
+import { compositeEmotionImage, emotionGenerationSizeForProfile, emotionProviderMask, normalizeEmotionPromptForProvider, resolveEmotionEditPlan } from "@/lib/canvas/canvas-emotion";
 import { DEFAULT_PORTRAIT_TEXTURE_SETTINGS } from "@/lib/canvas/canvas-portrait-texture";
 import { IMAGE_PROMPT_REVERSE } from "@/lib/prompts";
 import { createPortraitTextureNode } from "@/lib/canvas/canvas-image-source";
@@ -1228,19 +1228,34 @@ export function useCanvasMediaTools({
     }, [effectiveConfig, setConnections, setDialogNodeId, setLightingNodeId, setNodes, setSelectedConnectionId, setSelectedNodeIds]);
 
     const generateEmotionNode = useCallback(async (node: CanvasNodeData, payload: CanvasImageEmotionPayload) => {
-        if (!node.metadata?.content) return;
+        if (!node.metadata?.content) return false;
         const baseConfig = buildGenerationConfig(effectiveConfig, node, "image");
-        const providerSize = emotionGenerationSize(payload.editRegion);
-        const generationConfig = { ...baseConfig, count: "1", size: providerSize, quality: !baseConfig.quality || baseConfig.quality === "auto" ? "high" : baseConfig.quality };
-        if (!isAiConfigReady(generationConfig, generationConfig.model)) { navigateToSettings({ continueCreation: true }); return; }
-        if (resolveModelRequestConfig(generationConfig, generationConfig.model).interfaceType !== "openai-image") {
-            message.error("表情编辑需要支持多参考图编辑的 OpenAI Images 渠道");
-            return;
+        const generationConfig = { ...baseConfig, count: "1", size: baseConfig.size, quality: !baseConfig.quality || baseConfig.quality === "auto" ? "high" : baseConfig.quality };
+        if (!isAiConfigReady(generationConfig, generationConfig.model)) { navigateToSettings({ continueCreation: true }); return false; }
+        const imageProfile = modelCapabilityConfigFor(generationConfig, generationConfig.model).image;
+        const interfaceType = resolveModelRequestConfig(generationConfig, generationConfig.model).interfaceType;
+        // 表情编辑靠「脸部裁切 + 人物参考图」两张参考图做局部重绘：
+        // OpenAI Images 档天然支持；上游异步图片档（newapi-image 等）只要能力配置声明
+        // 能接多张参考图（>=2）同样可行，尺寸按该档能力取比例。
+        const referenceLimit = imageProfile?.references?.maxImages ?? 0;
+        // 上游把「图改图」单独挂成一个 SKU（模型名带 i2i / edit）；文生图档即使声明了
+        // 参考图上限也不会真的按参考图重绘，所以这里要求模型本身是图改图档。
+        const editCapableModel = /(^|[^a-z])(i2i|edit|inpaint)([^a-z]|$)/.test(
+            String(generationConfig.model || "").split("::").pop()?.toLowerCase() || "",
+        );
+        if (interfaceType !== "openai-image" && !(editCapableModel && referenceLimit >= 2)) {
+            message.error("表情编辑需要图改图（i2i）模型：请在图片节点上把模型换成「Seedream 5 Flash · 图改图」等支持图改图的模型");
+            return false;
         }
-        const imageProfile = modelCapabilityConfigFor(generationConfig, generationConfig.model).image!;
+        if (!imageProfile) {
+            message.error("当前图片模型缺少能力配置，无法进行表情编辑");
+            return false;
+        }
+        const providerSize = emotionGenerationSizeForProfile(imageProfile, payload.editRegion);
+        generationConfig.size = providerSize;
         const editPlan = resolveEmotionEditPlan(imageProfile.references.maskSupported);
         const source = nodeReferenceImage(node);
-        if (!source) return;
+        if (!source) return false;
         const editReference = {
             id: `${node.id}-${payload.presetId}-edit-region`,
             name: "emotion-edit-region.png",
@@ -1255,7 +1270,7 @@ export function useCanvasMediaTools({
         };
         const childId = nanoid();
         const styleExecution = resolveImageEditStyle(node, payload.prompt, generationConfig);
-        if (!styleExecution) return;
+        if (!styleExecution) return false;
         const { prompt: effectivePrompt, metadata: styleMetadata } = styleExecution;
         const providerPrompt = normalizeEmotionPromptForProvider(effectivePrompt);
         const generationMetadata = { ...buildImageGenerationMetadata("edit", generationConfig, 1, [source]), size: `${payload.imageWidth}x${payload.imageHeight}` };
@@ -1284,11 +1299,12 @@ export function useCanvasMediaTools({
             setNodes((current) => current.map((item) => item.id === childId ? finalizedNode : item));
             await persistMediaNodes([finalizedNode]);
         } catch (error) {
-            if (isGenerationCanceled(error)) return;
+            if (isGenerationCanceled(error)) return true;
             const details = generationErrorMessage(error);
             message.error(details);
             setNodes((current) => current.map((item) => item.id === childId ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_ERROR, errorDetails: details } } : item));
         } finally { finishGenerationRequest(childId, controller); setRunningNodeId(null); }
+        return true;
     }, [bindGenerationTask, effectiveConfig, finishGenerationRequest, isAiConfigReady, message, nodesRef, persistMediaNodes, projectId, resolveImageEditStyle, setConnections, setDialogNodeId, setNodes, setRunningNodeId, setSelectedConnectionId, setSelectedNodeIds, startGenerationRequest]);
 
     return {

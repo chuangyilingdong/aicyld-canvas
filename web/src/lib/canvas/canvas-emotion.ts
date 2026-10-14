@@ -237,6 +237,32 @@ export function emotionGenerationSize(region: CanvasEmotionEditRegion) {
     return "1024x1024";
 }
 
+/**
+ * 情绪编辑的尺寸要按渠道能力来：OpenAI Images 档吃像素尺寸，
+ * 上游异步图片档（newapi-image 等）只接受比例，此时把脸部区域映射到最近的比例。
+ */
+export function emotionGenerationSizeForProfile(
+    profile: { size?: { allowCustom?: boolean; values?: string[]; default?: string } } | undefined,
+    region: CanvasEmotionEditRegion,
+) {
+    const size = profile?.size;
+    const values = (size?.values || []).filter((item) => /^\d+:\d+$/.test(item));
+    if (!size || size.allowCustom || values.length === 0) return emotionGenerationSize(region);
+    const target = region.width / Math.max(1, region.height);
+    let best = size.default && values.includes(size.default) ? size.default : values[0];
+    let bestDelta = Number.POSITIVE_INFINITY;
+    for (const value of values) {
+        const [width, height] = value.split(":").map(Number);
+        if (!width || !height) continue;
+        const delta = Math.abs(width / height / target - 1);
+        if (delta < bestDelta) {
+            best = value;
+            bestDelta = delta;
+        }
+    }
+    return best;
+}
+
 // 模型只负责局部重绘；最终结果始终以源图为底，仅在羽化人脸蒙版内混合生成像素。
 export async function compositeEmotionImage(sourceDataUrl: string, generatedDataUrl: string, region: CanvasEmotionEditRegion, faceBox: CanvasFaceBox) {
     const [source, generated] = await Promise.all([loadImageBitmap(sourceDataUrl), loadImageBitmap(generatedDataUrl)]);

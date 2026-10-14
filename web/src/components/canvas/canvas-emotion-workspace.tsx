@@ -23,7 +23,8 @@ type CanvasEmotionWorkspaceProps = {
     dragOffset?: Position | null;
     isDragging?: boolean;
     onClose: () => void;
-    onConfirm: (payload: CanvasImageEmotionPayload) => void;
+    /** 返回 false 表示这次生成没有发起（例如渠道能力不支持），面板要回到可点状态。 */
+    onConfirm: (payload: CanvasImageEmotionPayload) => boolean | Promise<boolean> | void;
 };
 
 export function CanvasEmotionWorkspace({ node, viewport, containerRef, dragOffset, isDragging = false, onClose, onConfirm }: CanvasEmotionWorkspaceProps) {
@@ -94,7 +95,7 @@ export function CanvasEmotionWorkspace({ node, viewport, containerRef, dragOffse
         try {
             const artifacts = await buildEmotionImageArtifacts(dataUrl, character.faceBox, imageSize.width, imageSize.height);
             const params = { presetId: preset.id, intimacy: preset.intimacy, arousal: preset.arousal, characterName: character.name, faceBox: character.faceBox };
-            onConfirm({
+            const started = await onConfirm({
                 ...params,
                 label: preset.label,
                 prompt: buildEmotionPrompt(params, artifacts.editRegion),
@@ -105,6 +106,7 @@ export function CanvasEmotionWorkspace({ node, viewport, containerRef, dragOffse
                 imageWidth: artifacts.imageWidth,
                 imageHeight: artifacts.imageHeight,
             });
+            if (started === false) setStatus("editing");
         } catch (reason) {
             setStatus("editing");
             setError(reason instanceof Error ? reason.message : "生成前处理失败");

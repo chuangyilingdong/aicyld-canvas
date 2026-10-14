@@ -2,7 +2,7 @@
   "apiVersion": "beeftv.plugin/v2",
   "id": "newapi-image-task",
   "name": "NewAPI Image Task",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "AICYLD",
   "description": "上游把图片生成挂在异步任务接口时使用的声明式协议：POST /v1/video/generations 提交，GET /v1/video/generations/{task_id} 轮询取回图片地址。",
   "documentation": "# NewAPI Image Task\n\n部分中转站（如 ZhenZhen AI）把图片模型挂在与视频相同的异步任务接口下：\n\n- 提交：`POST /v1/video/generations`（JSON，`model` + `prompt`）\n- 轮询：`GET /v1/video/generations/{task_id}`\n- 产物：`data.data.content.image_url` / `image_urls`，或 `data.data.upstream.response.results[].url`\n\nProvider ID：`newapi-image`，能力：`image`，鉴权：`bearer`。\n",
@@ -116,6 +116,21 @@
                   "then": null,
                   "else": {
                     "$ref": "request.aspectRatio"
+                  }
+                }
+              }
+            },
+            "images": {
+              "$omitEmpty": {
+                "$map": {
+                  "from": {
+                    "$sortByOrder": {
+                      "$ref": "request.images"
+                    }
+                  },
+                  "as": "media",
+                  "in": {
+                    "$ref": "media.value"
                   }
                 }
               }
