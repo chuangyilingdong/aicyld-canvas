@@ -642,6 +642,8 @@ export async function persistCanvasDocument(id: string, patch: CanvasDocumentPer
             return;
         }
         await flushCanvasStorePersistence();
+        // 托管部署：每次画布文档变更都排一次服务端提交（500ms 去抖 + revision CAS）。
+        scheduleLocalCanvasBackendSync(id);
     } catch (error) {
         if (isCanvasSubmitControlError(error)) throw error;
         if (localMode && (shouldKeepCanvasCommitIdentity(error) || isCanvasRevisionConflict(error))) throw error;
