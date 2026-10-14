@@ -16,6 +16,7 @@ import { CanvasAssistantAttachments } from "./canvas-assistant-attachments";
 import { ASSISTANT_CONTINUE_PROMPT, ASSISTANT_STARTER_PROMPTS, assistantStatusNotice, assistantVisibleReply } from "./canvas-assistant-copy";
 import { CanvasAssistantComposer } from "./canvas-assistant-composer";
 import { CanvasAssistantReply, CanvasAssistantTurnView, CanvasAssistantUserMessage } from "./canvas-assistant-turn";
+import { workspaceCapabilities } from "@/services/workspace-mode";
 import { ASSISTANT_MAX_WIDTH, ASSISTANT_MIN_WIDTH, type CanvasAssistantController } from "./use-canvas-assistant";
 import "./canvas-assistant-sidebar.css";
 
@@ -126,7 +127,9 @@ export function CanvasAssistantSidebar(props: Props) {
         if (node && followLatestRef.current) node.scrollTop = node.scrollHeight;
     }, [turnCount, assistant.streamed, assistant.pendingUserText, assistant.lifecycleNotice, props.proposalFeedback]);
 
-    const notice = assistant.status && !assistant.status.available && assistant.status.reason !== "host_starting" ? assistantStatusNotice(assistant.status.reason) : null;
+    const notice = assistant.status && !assistant.status.available && assistant.status.reason !== "host_starting"
+        ? assistantStatusNotice(assistant.status.reason, { hosted: !workspaceCapabilities().local })
+        : null;
     const inputReady = draftLoaded && loadedDraftIdentity === draftIdentity;
     const composerDisabled = readOnly || !inputReady;
     const composerReason = readOnly ? "这个画布是只读的，不能让助手改动。" : !draftLoaded ? "正在读取未发送内容…" : loadedDraftIdentity !== draftIdentity ? "未能读取草稿，请重新读取后继续。" : undefined;

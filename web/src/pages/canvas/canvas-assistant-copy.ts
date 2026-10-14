@@ -16,13 +16,22 @@ export type AssistantStatusNotice = {
 /** 兜底文案：原因缺失或后端给了我们还不认识的值时用这一句。 */
 export const ASSISTANT_UNAVAILABLE_FALLBACK = "助手暂时用不了，请稍后再试";
 
-export function assistantStatusNotice(reason: string | undefined): AssistantStatusNotice {
+/**
+ * 托管部署（hb.aicyld.com.cn）下模型渠道由平台统一维护，画布内没有可编辑的模型配置页，
+ * 因此这两类原因不能再给「去模型配置 / 去连接」的按钮 —— 那会把人带到一个改不了东西的页面。
+ */
+export function assistantStatusNotice(reason: string | undefined, options: { hosted?: boolean } = {}): AssistantStatusNotice {
+    const hosted = options.hosted === true;
     switch (reason) {
         case "model_not_configured":
         case "model_protocol_unsupported":
-            return { text: "还没有可用的助手模型", actionLabel: "去模型配置", action: "model-settings" };
+            return hosted
+                ? { text: "还没有可用的助手模型（由平台统一配置）" }
+                : { text: "还没有可用的助手模型", actionLabel: "去模型配置", action: "model-settings" };
         case "credential_missing":
-            return { text: "灵动TV 还没连接好", actionLabel: "去连接", action: "model-settings" };
+            return hosted
+                ? { text: "灵动TV 还没连接好（由平台统一配置）" }
+                : { text: "灵动TV 还没连接好", actionLabel: "去连接", action: "model-settings" };
         case "host_starting":
             return { text: "助手正在启动…", starting: true };
         case "host_start_failed":
