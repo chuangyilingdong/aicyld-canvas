@@ -23,6 +23,46 @@ export function canvasFeatureModel(key: CanvasFeatureKey): string | undefined {
     return value ? value : undefined;
 }
 
+/** 平台是否下发了「功能 → 模型」映射（托管形态下为真，此时画布不让用户选模型）。 */
+export function hasPlatformFeatureModels() {
+    return Object.keys(featureModels).length > 0;
+}
+
+export type CanvasGenerationMode = "text" | "image" | "video" | "audio";
+
+const modeFeatureKeys: Record<CanvasGenerationMode, CanvasFeatureKey[]> = {
+    text: ["text.chat"],
+    image: ["image.t2i"],
+    video: ["video.t2v", "video.i2v", "video.multi"],
+    audio: ["audio.tts"],
+};
+
+const modeModelField: Record<CanvasGenerationMode, "textModel" | "imageModel" | "videoModel" | "audioModel"> = {
+    text: "textModel",
+    image: "imageModel",
+    video: "videoModel",
+    audio: "audioModel",
+};
+
+/** 某个生成模式对应的平台内置模型（未绑定则返回 undefined，调用方回退原逻辑）。 */
+export function canvasFeatureModelForMode(mode: CanvasGenerationMode): string | undefined {
+    for (const key of modeFeatureKeys[mode] || []) {
+        const model = canvasFeatureModel(key);
+        if (model) return model;
+    }
+    return undefined;
+}
+
+/** 把配置里的模型替换成平台内置模型（同时同步该模式的默认模型字段）。 */
+export function withPlatformFeatureModel<T extends { model?: string }, K extends CanvasGenerationMode>(
+    config: T,
+    mode: K,
+): T {
+    const model = canvasFeatureModelForMode(mode);
+    if (!model) return config;
+    return { ...config, model, [modeModelField[mode]]: model } as T;
+}
+
 /** 该模型是否本身就具备图改图（i2i）能力。 */
 export function isImageEditModel(model: string | undefined) {
     return /(^|[^a-z])(i2i|edit|inpaint)([^a-z]|$)/.test(String(model || "").split("::").pop()?.toLowerCase() || "");

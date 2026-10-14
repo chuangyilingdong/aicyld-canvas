@@ -10,6 +10,7 @@ import { ChevronDown, ChevronUp, Clapperboard, Copy, Expand, Film, Grid3X3, Imag
 import { CanvasResourceMentionTextarea } from "@/components/canvas/canvas-resource-mention-textarea";
 import { StoryboardAssetsCell } from "@/components/canvas/storyboard-assets-cell";
 import { ModelPicker } from "@/components/model-picker";
+import { hasPlatformFeatureModels } from "@/lib/canvas/feature-models";
 import { buildGenerationConfig } from "@/lib/canvas/canvas-project-generation";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import { pipelineStatusLabel, type CanvasStoryboardPipelineProgress, type StoryboardPipelineStage } from "@/lib/canvas/canvas-storyboard-progress";
@@ -413,7 +414,7 @@ export function CanvasScriptNodeContent({
                 <div className="flex min-w-0 items-center justify-end gap-2" onMouseDown={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()}>
                     <Tooltip title="脚本生成需要文本理解与结构化输出能力，仅展示文本模型；视频/图片模型无法生成分镜表" placement="topLeft">
                         <div className="mr-auto min-w-36 max-w-56 flex-1">
-                            <ModelPicker
+                            {hasPlatformFeatureModels() ? null : <ModelPicker
                                 className="!h-7 !w-full !min-w-0 !text-[var(--fs-tiny)] !font-normal [&_img]:!size-3 [&_.lucide]:!size-3"
                                 fullWidth
                                 config={generationConfig}
@@ -423,7 +424,7 @@ export function CanvasScriptNodeContent({
 
                                 onChange={onModelChange}
                                 onMissingConfig={() => navigateToSettings({ continueCreation: true })}
-                            />
+                            />}
                         </div>
                     </Tooltip>
                     {simpleMode ? (

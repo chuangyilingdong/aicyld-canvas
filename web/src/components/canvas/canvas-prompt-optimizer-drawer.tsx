@@ -5,6 +5,7 @@ import { Bubble, Sender, type BubbleItemType } from "@ant-design/x";
 import { ArrowUp, Check, ChevronDown, FileText, Image as ImageIcon, LoaderCircle, Music2, Sparkles, UserRound, Video, X } from "lucide-react";
 
 import { ModelPicker } from "@/components/model-picker";
+import { canvasFeatureModel, hasPlatformFeatureModels } from "@/lib/canvas/feature-models";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import type { PromptOptimizationMode, PromptOptimizationResult, PromptOptimizerProvider } from "@/lib/plugins/plugin-types";
 import type { AiConfig } from "@/stores/use-config-store";
@@ -143,7 +144,8 @@ export function CanvasPromptOptimizerDrawer({ open, children, prompt, generation
         abortRef.current?.abort();
         setDraftPrompt(prompt);
         setSubmittedPrompt(prompt.trim());
-        setActiveOptimizerModel(optimizerModel);
+        // 托管形态：优化模型由平台内置（text.chat），用户端不选模型。
+        setActiveOptimizerModel(optimizerModel || canvasFeatureModel("text.chat") || "");
         setSelectedReferenceIds(references.filter((reference) => reference.active).map((reference) => reference.id));
         setResult(null);
         setSelectedPrompt("");
@@ -438,7 +440,7 @@ export function CanvasPromptOptimizerDrawer({ open, children, prompt, generation
                     generationMode,
                     targetModel,
                     targetProtocol,
-                    optimizerModel: activeOptimizerModel || undefined,
+                    optimizerModel: activeOptimizerModel || canvasFeatureModel("text.chat") || undefined,
                     context: { texts: textContext, images: imageContext },
                 },
                 {
@@ -709,7 +711,7 @@ export function CanvasPromptOptimizerDrawer({ open, children, prompt, generation
                                 </Dropdown>
                             </div>
                             <div className="flex min-w-0 items-center gap-2">
-                                <ModelPicker
+                                {hasPlatformFeatureModels() ? null : <ModelPicker
                                     config={config}
                                     value={activeOptimizerModel}
                                     onChange={setActiveOptimizerModel}
@@ -719,7 +721,7 @@ export function CanvasPromptOptimizerDrawer({ open, children, prompt, generation
                                     variant="creation"
                                     className="canvas-prompt-optimizer-model-picker"
                                     popoverClassName="canvas-prompt-optimizer-model-popover"
-                                />
+                                />}
                                 <button
                                     type="button"
                                     className="canvas-prompt-optimizer-send"

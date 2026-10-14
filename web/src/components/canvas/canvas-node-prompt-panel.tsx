@@ -28,6 +28,7 @@ import { ModelPicker } from "@/components/model-picker";
 import { defaultConfig, modelOptionName, resolveModelChannel, selectableModelsByCapability, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { resolveAudioSpeechSettings } from "@/lib/audio-generation";
 import { resolveCanvasGenerationModel } from "@/lib/canvas/canvas-project-generation";
+import { canvasFeatureModelForMode, hasPlatformFeatureModels } from "@/lib/canvas/feature-models";
 import { clampPromptEditorModalSize, PROMPT_EDITOR_VIEWPORT_MARGIN } from "@/lib/canvas/canvas-prompt-editor-size";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { normalizeVideoDuration, normalizeVideoResolution } from "@/lib/video-generation-options";
@@ -160,6 +161,8 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
     };
     const config = buildNodeConfig(globalConfig, node, mode, requirements);
     const availableModels = selectableModelsByCapability(config, mode);
+    // 托管形态：模型由平台内置，画布不再让用户选模型。
+    const platformManagedModels = hasPlatformFeatureModels();
     const resolvedRequirements: ModelRequirements = {
         ...requirements,
         options: modelRequestOptions(config, mode),
@@ -385,20 +388,22 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                 <div className={expanded ? "min-w-0 flex-1" : "canvas-node-composer-model"}>
                     {availableModels.length ? (
                         <div className="flex min-w-0 flex-1 items-center gap-1">
-                            <div className="min-w-0 flex-1">
-                                <ModelPicker
-                                    className="!h-7 !w-full !min-w-0 !text-[var(--fs-tiny)] !font-normal [&_img]:!size-3 [&_.lucide]:!size-3"
-                                    fullWidth
-                                    config={config}
-                                    value={config.model}
-                                    onChange={(model) => onConfigChange(node.id, mode === "image" ? { model, ...defaultImageParamsForModel(config, model) } : { model })}
-                                    capability={mode}
-                                    requirements={resolvedRequirements}
-                                    onMissingConfig={() => navigateToSettings({ section: "channels", continueCreation: true })}
-                                    variant="creation"
-                                    showConfiguredModelName
-                                />
-                            </div>
+                            {platformManagedModels ? null : (
+                                <div className="min-w-0 flex-1">
+                                    <ModelPicker
+                                        className="!h-7 !w-full !min-w-0 !text-[var(--fs-tiny)] !font-normal [&_img]:!size-3 [&_.lucide]:!size-3"
+                                        fullWidth
+                                        config={config}
+                                        value={config.model}
+                                        onChange={(model) => onConfigChange(node.id, mode === "image" ? { model, ...defaultImageParamsForModel(config, model) } : { model })}
+                                        capability={mode}
+                                        requirements={resolvedRequirements}
+                                        onMissingConfig={() => navigateToSettings({ section: "channels", continueCreation: true })}
+                                        variant="creation"
+                                        showConfiguredModelName
+                                    />
+                                </div>
+                            )}
                             {mode === "video" ? (() => {
                                 // 与「配置节点」面板同一套可用性规则：按当前连接的参考素材判定模式是否可选。
                                 const modeInput = { textCount: 0, imageCount: requirements.input?.imageCount || 0, videoCount: requirements.input?.videoCount || 0, audioCount: requirements.input?.audioCount || 0, characterCount: 0 };
@@ -1118,7 +1123,8 @@ function defaultMode(type: CanvasNodeData["type"]): CanvasNodeGenerationMode {
 export function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: CanvasNodeGenerationMode, requirements: ModelRequirements): AiConfig {
     const defaultModel = mode === "image" ? globalConfig.imageModel : mode === "video" ? globalConfig.videoModel : mode === "audio" ? globalConfig.audioModel : globalConfig.textModel;
     const fallbackModel = mode === "image" ? defaultConfig.imageModel : mode === "video" ? defaultConfig.videoModel : mode === "audio" ? defaultConfig.audioModel : defaultConfig.textModel;
-    const preferredModel = resolveCanvasGenerationModel(globalConfig, node.metadata?.model, mode) || resolveCanvasGenerationModel(globalConfig, defaultModel, mode) || fallbackModel;
+    // 平台内置「功能 → 模型」：托管形态下直接用平台绑定的模型。
+    const preferredModel = canvasFeatureModelForMode(mode) || resolveCanvasGenerationModel(globalConfig, node.metadata?.model, mode) || resolveCanvasGenerationModel(globalConfig, defaultModel, mode) || fallbackModel;
     const model = resolveCompatibleModel(globalConfig, preferredModel, mode === "image" ? { ...requirements, imageSize: node.metadata?.size || globalConfig.size || defaultConfig.size } : requirements) || preferredModel;
     const defaults = resolveModelGenerationDefaults(
         globalConfig,

@@ -33,7 +33,7 @@ import {
 import { fitNodeSize, VIDEO_NODE_MAX_SIZE } from "@/lib/canvas/canvas-node-size";
 import { compositeEmotionImage, emotionGenerationSizeForProfile, emotionProviderMask, normalizeEmotionPromptForProvider, resolveEmotionEditPlan } from "@/lib/canvas/canvas-emotion";
 import { canvasInpaintRegionFromMask, compositeInpaintImage, drawInpaintSourceCrop, inpaintEditPrompt } from "@/lib/canvas/canvas-inpaint";
-import { isImageEditModel, resolveImageEditModel } from "@/lib/canvas/feature-models";
+import { canvasFeatureModelForMode, isImageEditModel, resolveImageEditModel } from "@/lib/canvas/feature-models";
 import { DEFAULT_PORTRAIT_TEXTURE_SETTINGS } from "@/lib/canvas/canvas-portrait-texture";
 import { IMAGE_PROMPT_REVERSE } from "@/lib/prompts";
 import { createPortraitTextureNode } from "@/lib/canvas/canvas-image-source";
@@ -249,7 +249,8 @@ export function useCanvasMediaTools({
             ...createCanvasNode(CanvasNodeType.Text, { x: textNode.position.x + textNode.width + gap + resultSpec.width / 2, y: centerY }, {
                 content: "",
                 generationMode: "text",
-                model: effectiveConfig.textModel || effectiveConfig.model || defaultConfig.textModel,
+                // 平台内置「功能 → 模型」：反推提示词用 text.chat 绑定的模型。
+                model: canvasFeatureModelForMode("text") || effectiveConfig.textModel || effectiveConfig.model || defaultConfig.textModel,
                 count: 1,
                 composerContent: "参考图片：@图片1\n任务说明：@文本1",
             }),
