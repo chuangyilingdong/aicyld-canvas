@@ -73,7 +73,7 @@ func Builtins() *Registry {
 	}
 	registry, err := NewRegistry(
 		openAIChatAdapter(), openAIResponsesAdapter(), claudeAdapter(),
-		openAIVideosAdapter(), newAPIChannel1Adapter(), newAPIVideosAdapter(), xAIVideosAdapter(), arkVideosAdapter(), jimengVideosAdapter(), geminiVeoAdapter(), novitaVideosAdapter(), miniMaxVideosAdapter(),
+		openAIVideosAdapter(), newAPIChannel1Adapter(), newAPIVideosAdapter(), newAPIImageAdapter(), xAIVideosAdapter(), arkVideosAdapter(), jimengVideosAdapter(), geminiVeoAdapter(), novitaVideosAdapter(), miniMaxVideosAdapter(),
 		agnesAdapter(),
 	)
 	if err != nil {
@@ -237,6 +237,19 @@ func newAPIVideosAdapter() Adapter {
 	})
 }
 
+// newAPIImageAdapter 用于「图片生成挂在上游异步任务接口」的中转站
+// （例如 ZhenZhen AI：POST /v1/video/generations 提交、轮询取回图片 URL）。
+func newAPIImageAdapter() Adapter {
+	info := metadata("newapi-image", "NewAPI 图片任务（异步）", "OpenAI compatible", CapabilityImage, "POST /v1/video/generations", "GET /v1/video/generations/{task_id}", "application/json")
+	info.Parameters = mediaParams()
+	return asyncMediaAdapter(info, CapabilityImage, func(r GenerationRequest) (RequestSpec, error) {
+		body := map[string]any{"model": r.Model, "prompt": r.Prompt}
+		if strings.TrimSpace(r.AspectRatio) != "" {
+			body["size"] = r.AspectRatio
+		}
+		return jsonSpec(http.MethodPost, "/v1/video/generations", body), nil
+	})
+}
 func newAPIChannel1Adapter() Adapter {
 	info := metadata("newapi-channel-1", "NewAPI 媒体任务", "NewAPI", CapabilityVideo, "POST /v1/videos", "GET /v1/videos/{task_id}", "application/json")
 	info.Parameters = videoParams()

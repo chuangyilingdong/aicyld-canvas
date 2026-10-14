@@ -27,6 +27,7 @@ const BUILTIN_PROTOCOL_CAPABILITIES: Record<ModelProtocol, ProtocolCapability> =
     "volcengine-ark-agent-plan-image": "image",
     "volcengine-jimeng-image": "image",
     newapi: "video",
+    "newapi-image": "image",
     "newapi-channel-1": "video",
     "newapi-channel-2": "video",
     "xai-video": "video",

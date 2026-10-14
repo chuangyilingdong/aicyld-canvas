@@ -129,7 +129,7 @@ func mustLoadCatalog() []ChannelPreset {
 
 func knownProtocol(value string) bool {
 	switch value {
-	case "chat-completion", "openai-response", "claude-api", "openai-image", "openai-audio", "async-audio", "newapi", "newapi-channel-1", "newapi-channel-2", "xai-video":
+	case "chat-completion", "openai-response", "claude-api", "openai-image", "openai-audio", "async-audio", "newapi", "newapi-image", "newapi-channel-1", "newapi-channel-2", "xai-video":
 		return true
 	default:
 		return false
