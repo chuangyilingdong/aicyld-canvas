@@ -250,16 +250,28 @@ const defaultImageCapabilityConfig = `{
   "image": {
     "references": { "promptMaxChars": 32000, "maxImages": 16, "maxImageBytes": 31457280, "maskSupported": false },
     "size": {
-      "parameter": "size",
-      "values": ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"],
+      "parameter": "aspect_ratio",
+      "values": ["1:1", "16:9", "9:16", "4:3", "3:4"],
       "default": "1:1",
-      "allowCustom": false
+      "allowCustom": false,
+      "presets": [
+        { "tier": "1k", "ratio": "1:1", "width": 1024, "height": 1024, "size": "1024x1024" },
+        { "tier": "1k", "ratio": "16:9", "width": 1280, "height": 720, "size": "1280x720" },
+        { "tier": "1k", "ratio": "9:16", "width": 720, "height": 1280, "size": "720x1280" },
+        { "tier": "1k", "ratio": "4:3", "width": 1152, "height": 864, "size": "1152x864" },
+        { "tier": "1k", "ratio": "3:4", "width": 864, "height": 1152, "size": "864x1152" },
+        { "tier": "2k", "ratio": "1:1", "width": 2048, "height": 2048, "size": "2048x2048" },
+        { "tier": "2k", "ratio": "16:9", "width": 2048, "height": 1152, "size": "2048x1152" },
+        { "tier": "2k", "ratio": "9:16", "width": 1152, "height": 2048, "size": "1152x2048" },
+        { "tier": "2k", "ratio": "4:3", "width": 2048, "height": 1536, "size": "2048x1536" },
+        { "tier": "2k", "ratio": "3:4", "width": 1536, "height": 2048, "size": "1536x2048" }
+      ]
     },
-    "quality": { "supported": false, "values": [], "default": "auto" },
+    "quality": { "supported": true, "values": ["1k", "2k"], "default": "1k" },
     "transparentBackground": { "supported": false, "default": false },
     "responseFormat": { "supported": true },
     "outputFormat": { "supported": true },
-    "maxOutputs": 15
+    "maxOutputs": 4
   }
 }`
 
@@ -324,7 +336,9 @@ func seedanceFamilyProfile(family, display string) ModelProfile {
 			{Operation: "text_to_video", ProviderModelKey: family + "-t2v"},
 			imageVariant("1", family+"-i2v"),
 			imageVariant("2", family+"-i2v"),
+			// 全能参考（图片参考分支）
 			{Operation: "image_to_video", ProviderModelKey: family + "-multi"},
+			// 全能参考（带视频参考分支）
 			{Operation: "video_to_video", ProviderModelKey: family + "-multi"},
 		},
 	}
