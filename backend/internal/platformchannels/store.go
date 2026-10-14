@@ -199,6 +199,79 @@ func seedanceCapabilityConfigBody(mode string) []byte {
 	return body
 }
 
+// 通用能力配置模板（文本 / 图片 / 通用视频）：口径与前端 lib/model-capabilities.ts 的默认值一致。
+const defaultTextCapabilityConfig = `{
+  "version": 1,
+  "text": {
+    "streaming": true,
+    "references": { "promptMaxChars": 32000, "maxImages": 0, "maxImageBytes": 0, "maxVideos": 0, "maxVideoBytes": 0 }
+  }
+}`
+
+const defaultImageCapabilityConfig = `{
+  "version": 1,
+  "image": {
+    "references": { "promptMaxChars": 32000, "maxImages": 16, "maxImageBytes": 31457280, "maskSupported": false },
+    "size": {
+      "parameter": "size",
+      "values": ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"],
+      "default": "1:1",
+      "allowCustom": true
+    },
+    "quality": { "supported": false, "values": [], "default": "auto" },
+    "transparentBackground": { "supported": false, "default": false },
+    "responseFormat": { "supported": true },
+    "outputFormat": { "supported": true },
+    "maxOutputs": 15
+  }
+}`
+
+const defaultVideoCapabilityConfig = `{
+  "version": 1,
+  "video": {
+    "references": {
+      "promptMaxChars": 4000,
+      "minImages": 0,
+      "maxImages": 9,
+      "maxImageBytes": 31457280,
+      "maxVideos": 0,
+      "maxVideoBytes": 0,
+      "maxVideoDurationSeconds": 0,
+      "maxAudios": 0,
+      "maxAudioBytes": 0,
+      "maxAudioDurationSeconds": 0
+    },
+    "duration": { "selection": "range", "min": 1, "max": 15, "step": 1, "default": 6 },
+    "ratios": ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"],
+    "defaultRatio": "16:9",
+    "resolutions": ["480p", "720p", "1080p"],
+    "defaultResolution": "720p",
+    "generateAudio": { "supported": false, "default": false },
+    "watermark": { "supported": false, "default": false },
+    "operations": ["text_to_video", "image_to_video"],
+    "defaultOperation": "text_to_video"
+  }
+}`
+
+// CapabilityConfigFor 返回模型能力配置：视频按模型名细分（Seedance 家族按 t2v/i2v/multi），
+// 图片与文本使用通用模板，音频能力不需要能力配置（返回空且 ok=true）。
+func CapabilityConfigFor(capability, model string) (json.RawMessage, bool) {
+	switch strings.ToLower(strings.TrimSpace(capability)) {
+	case "video":
+		if strings.Contains(strings.ToLower(strings.TrimSpace(model)), "seedance-2") {
+			return seedanceCapabilityConfigBody(seedanceModeForModel(model)), true
+		}
+		return json.RawMessage(defaultVideoCapabilityConfig), true
+	case "image":
+		return json.RawMessage(defaultImageCapabilityConfig), true
+	case "text":
+		return json.RawMessage(defaultTextCapabilityConfig), true
+	case "audio":
+		return nil, true
+	default:
+		return nil, false
+	}
+}
 func seedanceProfile(model string) ModelProfile {
 	return ModelProfile{
 		Model: model, DisplayName: seedanceDisplayName(model, seedanceModeForModel(model)),
@@ -206,16 +279,49 @@ func seedanceProfile(model string) ModelProfile {
 	}
 }
 
-// Defaults 是首次部署预置的渠道模板（阶段 4）：上游 ZhenZhen AI，
-// OpenAI 兼容的异步视频任务接口（POST /v1/videos），模型为上游真实 SKU。
+// platformProfile 用通用能力配置构造一个模型条目。
+func platformProfile(model, displayName, capability, protocol string) ModelProfile {
+	profile := ModelProfile{Model: model, DisplayName: displayName, Capability: capability, Protocol: protocol}
+	if body, ok := CapabilityConfigFor(capability, model); ok {
+		profile.CapabilityConfig = body
+	}
+	return profile
+}
+
+// Defaults 是首次部署预置的渠道模板：上游 ZhenZhen AI（api.seedance.nz）。
+// 视频走 OpenAI Videos（newapi，POST /v1/videos），图片走 Gemini generateContent
+// （gemini-image，POST /v1beta/models/{model}:generateContent），文本走 chat/completions。
 func Defaults() []Channel {
+	profiles := []ModelProfile{
+		seedanceProfile("seedance-2.0-standard-t2v"),
+		seedanceProfile("seedance-2.0-standard-i2v"),
+		seedanceProfile("seedance-2.0-standard-multi"),
+		seedanceProfile("seedance-2.0-fast-t2v"),
+		seedanceProfile("seedance-2.0-fast-i2v"),
+		seedanceProfile("seedance-2.0-fast-multi"),
+		seedanceProfile("seedance-2.5-standard-t2v"),
+		seedanceProfile("seedance-2.5-standard-i2v"),
+		seedanceProfile("seedance-2.5-standard-multi"),
+		platformProfile("MiniMax-H3", "MiniMax H3（海螺·全能）", "video", "newapi"),
+		platformProfile("zhenzhen-image-nb-2.1-lowprice", "zhenzhen nb 2.1（特价）", "image", "gemini-image"),
+		platformProfile("zhenzhen-image-nb-pro-lowprice", "zhenzhen nb pro（特价）", "image", "gemini-image"),
+		platformProfile("zhenzhen-image-g-v2.5-lowprice", "zhenzhen g v2.5（特价）", "image", "gemini-image"),
+		platformProfile("deepseek/deepseek-v4.1-flash", "DeepSeek V4.1 Flash", "text", "chat-completion"),
+		platformProfile("zhenzhen/g6-sol", "zhenzhen g6-sol", "text", "chat-completion"),
+		platformProfile("zhenzhen/g6-astra", "zhenzhen g6-astra", "text", "chat-completion"),
+		platformProfile("glm/glm-5.3-flash", "GLM 5.3 Flash", "text", "chat-completion"),
+	}
+	models := make([]string, 0, len(profiles))
+	for _, profile := range profiles {
+		models = append(models, profile.Model)
+	}
 	return []Channel{{
 		ID:               ChannelIDPrefix + "seedance",
-		Name:             "灵动TV 视频",
+		Name:             "灵动TV 平台模型",
 		BaseURL:          "https://api.seedance.nz",
 		APIFormat:        "openai",
-		Models:           []string{"seedance-2.0-standard-t2v", "seedance-2.0-standard-i2v", "seedance-2.0-standard-multi"},
-		ModelProfiles:    []ModelProfile{seedanceProfile("seedance-2.0-standard-t2v"), seedanceProfile("seedance-2.0-standard-i2v"), seedanceProfile("seedance-2.0-standard-multi")},
+		Models:           models,
+		ModelProfiles:    profiles,
 		ConcurrencyLimit: 3,
 		Enabled:          true,
 		SortOrder:        10,

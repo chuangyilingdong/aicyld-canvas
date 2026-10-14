@@ -37,35 +37,6 @@ type PlatformChannelInput struct {
 	Models           []PlatformChannelModel `json:"modelProfiles"`
 }
 
-// defaultPlatformVideoCapabilityConfig 是没有传入能力配置时的视频模型默认值，
-// 与前端 lib/model-capabilities.ts 的默认一致（见 isValidPlatformVideoConfig 的校验口径）。
-const defaultPlatformVideoCapabilityConfig = `{
-  "version": 1,
-  "video": {
-    "references": {
-      "promptMaxChars": 4000,
-      "minImages": 0,
-      "maxImages": 9,
-      "maxImageBytes": 31457280,
-      "maxVideos": 0,
-      "maxVideoBytes": 0,
-      "maxVideoDurationSeconds": 0,
-      "maxAudios": 0,
-      "maxAudioBytes": 0,
-      "maxAudioDurationSeconds": 0
-    },
-    "duration": { "selection": "range", "min": 1, "max": 15, "step": 1, "default": 6 },
-    "ratios": ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"],
-    "defaultRatio": "16:9",
-    "resolutions": ["480p", "720p", "1080p"],
-    "defaultResolution": "720p",
-    "generateAudio": { "supported": false, "default": false },
-    "watermark": { "supported": false, "default": false },
-    "operations": ["text_to_video", "image_to_video"],
-    "defaultOperation": "text_to_video"
-  }
-}`
-
 // platformChannelActor 是镜像写入使用的内部管理员身份（不对外暴露、不可登录）。
 func platformChannelActor() *model.User {
 	return &model.User{
@@ -145,6 +116,7 @@ func (s *Service) syncPlatformChannel(input PlatformChannelInput) error {
 	if err := s.syncInitialChannelModels(channel, names); err != nil {
 		return fmt.Errorf("同步系统渠道模型失败：%w", err)
 	}
+	modelFailures := make([]string, 0)
 	for _, profile := range input.Models {
 		name := strings.TrimSpace(profile.Model)
 		if name == "" {
@@ -156,15 +128,19 @@ func (s *Service) syncPlatformChannel(input PlatformChannelInput) error {
 		}
 		config, err := platformModelCapabilityConfig(profile, row.CapabilityConfigJSON)
 		if err != nil {
-			return err
+			modelFailures = append(modelFailures, err.Error())
+			continue
 		}
 		itemEnabled := true
 		if _, err := s.SaveAdminChannelModel(actor, channelID, row.ID, ChannelModelRequest{
 			ModelKey: name, DisplayName: profile.DisplayName, Capability: profile.Capability,
 			Protocol: profile.Protocol, Enabled: &itemEnabled, CapabilityConfig: config,
 		}); err != nil {
-			return fmt.Errorf("模型 %s 配置失败：%w", name, err)
+			modelFailures = append(modelFailures, fmt.Sprintf("模型 %s 配置失败：%v", name, err))
 		}
+	}
+	if len(modelFailures) > 0 {
+		return errors.New(strings.Join(modelFailures, "；"))
 	}
 	return nil
 }
@@ -187,19 +163,17 @@ func platformModelCapabilityConfig(profile PlatformChannelModel, stored string) 
 			return &config, nil
 		}
 	}
-	if !strings.EqualFold(strings.TrimSpace(profile.Capability), "video") {
-		return nil, fmt.Errorf("模型 %s 缺少能力配置（仅视频模型可缺省）", profile.Model)
+	// 按能力类型生成配置：视频按模型名细分（Seedance 家族识别 t2v/i2v/multi），
+	// 图片/文本用通用模板，音频不需要能力配置。口径与前端默认值一致。
+	body, ok := platformchannels.CapabilityConfigFor(profile.Capability, profile.Model)
+	if !ok {
+		return nil, fmt.Errorf("模型 %s 的能力类型 %q 不受支持", profile.Model, profile.Capability)
 	}
-	// Seedance 2 家族按上游 SKU 名生成模式化能力配置（t2v / i2v / multi），
-	// 与前端对 newapi + seedance-2 的默认口径一致，后台新增模型时无需手填。
+	if len(body) == 0 {
+		return nil, nil
+	}
 	var config ModelCapabilityConfig
-	if body, ok := platformchannels.VideoCapabilityConfigForModel(profile.Model); ok {
-		if err := json.Unmarshal(body, &config); err != nil {
-			return nil, err
-		}
-		return &config, nil
-	}
-	if err := json.Unmarshal([]byte(defaultPlatformVideoCapabilityConfig), &config); err != nil {
+	if err := json.Unmarshal(body, &config); err != nil {
 		return nil, err
 	}
 	return &config, nil
