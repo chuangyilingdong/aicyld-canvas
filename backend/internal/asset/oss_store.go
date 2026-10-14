@@ -1,6 +1,7 @@
 package asset
 
 import (
+	"errors"
 	"io"
 	"os"
 
@@ -44,12 +45,33 @@ func (s *OSSBlobStore) Write(objectKey string, body io.Reader) error {
 	return nil
 }
 
+// Open 打开本地对象；本地副本已被清理时按对象键从 OSS 回源后再打开。
+// 回源失败一律回落到原始错误，不改变「对象不存在」的语义。
 func (s *OSSBlobStore) Open(objectKey string) (*os.File, error) {
-	return s.inner.Open(objectKey)
+	file, err := s.inner.Open(objectKey)
+	if err == nil {
+		return file, nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	path, restoreErr := s.store.Restore(objectKey)
+	if restoreErr != nil {
+		return nil, err
+	}
+	return os.Open(path)
 }
 
+// Exists 报告对象是否可读：本地缺失但已镜像到 OSS 时同样视为可读（Open 会回源）。
 func (s *OSSBlobStore) Exists(objectKey string) error {
-	return s.inner.Exists(objectKey)
+	err := s.inner.Exists(objectKey)
+	if err == nil || !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if s.store.Uploaded(objectKey) {
+		return nil
+	}
+	return err
 }
 
 // Delete 先删本地再删远端：远端删除失败只记录日志，不阻塞资源删除。

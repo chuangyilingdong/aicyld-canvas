@@ -43,6 +43,9 @@ type Config struct {
 	SecretKey  string
 	PathPrefix string
 	SignedTTL  time.Duration
+	// LocalRetention > 0 时启用「本地副本清理」：已镜像到 OSS 且本地副本超过该时长未访问的文件会被删除，
+	// 之后读取时按对象键从 OSS 回源。默认 0 = 关闭。
+	LocalRetention time.Duration
 }
 
 // FromEnv 读取 CANVAS_OSS_* 配置。
@@ -57,13 +60,20 @@ func FromEnv() Config {
 			ttl = minutes
 		}
 	}
+	retention := time.Duration(0)
+	if raw := strings.TrimSpace(os.Getenv("CANVAS_OSS_LOCAL_RETENTION_HOURS")); raw != "" {
+		if hours, err := time.ParseDuration(raw + "h"); err == nil && hours > 0 {
+			retention = hours
+		}
+	}
 	return Config{
-		Endpoint:   strings.TrimRight(strings.TrimSpace(os.Getenv("CANVAS_OSS_ENDPOINT")), "/"),
-		Bucket:     strings.TrimSpace(os.Getenv("CANVAS_OSS_BUCKET")),
-		AccessKey:  strings.TrimSpace(os.Getenv("CANVAS_OSS_ACCESS_KEY")),
-		SecretKey:  strings.TrimSpace(os.Getenv("CANVAS_OSS_SECRET_KEY")),
-		PathPrefix: prefix,
-		SignedTTL:  ttl,
+		Endpoint:       strings.TrimRight(strings.TrimSpace(os.Getenv("CANVAS_OSS_ENDPOINT")), "/"),
+		Bucket:         strings.TrimSpace(os.Getenv("CANVAS_OSS_BUCKET")),
+		AccessKey:      strings.TrimSpace(os.Getenv("CANVAS_OSS_ACCESS_KEY")),
+		SecretKey:      strings.TrimSpace(os.Getenv("CANVAS_OSS_SECRET_KEY")),
+		PathPrefix:     prefix,
+		SignedTTL:      ttl,
+		LocalRetention: retention,
 	}
 }
 
@@ -106,9 +116,14 @@ func (c Config) authorization(method, contentType, date, resource string) string
 }
 
 func (c Config) signedGetURL(key string) string {
+	return c.signedURL(http.MethodGet, key)
+}
+
+// signedURL 生成 OSS V1 签名地址（GET / HEAD 均可）。
+func (c Config) signedURL(method, key string) string {
 	expires := time.Now().Add(c.SignedTTL).Unix()
 	resource := "/" + c.Bucket + "/" + key
-	stringToSign := "GET\n\n\n" + fmt.Sprint(expires) + "\n" + resource
+	stringToSign := method + "\n\n\n" + fmt.Sprint(expires) + "\n" + resource
 	mac := hmac.New(sha1.New, []byte(c.SecretKey))
 	mac.Write([]byte(stringToSign))
 	signature := base64.StdEncoding.EncodeToString(mac.Sum(nil))
@@ -138,6 +153,9 @@ type Store struct {
 	queue    chan uploadTask
 	once     sync.Once
 	client   *http.Client
+
+	// restoreMu 串行化「回源下载」与「本地清理」，避免边下边删。
+	restoreMu sync.Mutex
 }
 
 type uploadTask struct {
@@ -175,6 +193,8 @@ func New(dataDir string) *Store {
 	}
 	if store.config.Configured() {
 		store.queue = make(chan uploadTask, 256)
+		// 本地副本清理：默认关闭（CANVAS_OSS_LOCAL_RETENTION_HOURS 未设置时为 0）。
+		store.StartLocalCopySweeper(store.config.LocalRetention, time.Hour)
 	}
 	storeByID[absolute] = store
 	return store
@@ -411,6 +431,210 @@ func (s *Store) persist(snapshot manifest) {
 	if err := os.Rename(name, s.path); err != nil {
 		logf("替换 OSS 索引失败: %v", err)
 	}
+}
+
+// localObjectKey 校验并归一化本地对象键（拒绝绝对路径与目录穿越）。
+func localObjectKey(objectKey string) (string, error) {
+	trimmed := strings.TrimSpace(objectKey)
+	native := filepath.FromSlash(trimmed)
+	clean := filepath.Clean(native)
+	if trimmed == "" || clean == "." || clean == ".." || !filepath.IsLocal(native) || !filepath.IsLocal(clean) {
+		return "", errors.New("local object key is invalid")
+	}
+	return clean, nil
+}
+
+// localKey 把 OSS 上的完整键还原为本地对象键（去掉 PathPrefix）。
+func (c Config) localKey(remoteKey string) string {
+	trimmed := strings.TrimLeft(strings.TrimSpace(remoteKey), "/")
+	if c.PathPrefix != "" {
+		prefix := c.PathPrefix + "/"
+		if !strings.HasPrefix(trimmed, prefix) {
+			return ""
+		}
+		trimmed = strings.TrimPrefix(trimmed, prefix)
+	}
+	clean, err := localObjectKey(trimmed)
+	if err != nil {
+		return ""
+	}
+	return clean
+}
+
+func (s *Store) localPath(objectKey string) string {
+	return filepath.Join(s.dataRoot, "resources", objectKey)
+}
+
+// LocalCopyExists 报告本地副本是否还在（用于回源判断）。
+func (s *Store) LocalCopyExists(objectKey string) bool {
+	if !s.Enabled() {
+		return false
+	}
+	clean, err := localObjectKey(objectKey)
+	if err != nil {
+		return false
+	}
+	info, statErr := os.Stat(s.localPath(clean))
+	return statErr == nil && !info.IsDir()
+}
+
+// Restore 在本地副本已被清理时，按对象键从 OSS 回源到标准本地路径并返回该路径。
+func (s *Store) Restore(objectKey string) (string, error) {
+	if !s.Enabled() {
+		return "", errors.New("object storage is not enabled")
+	}
+	clean, err := localObjectKey(objectKey)
+	if err != nil {
+		return "", err
+	}
+	if !s.Uploaded(clean) {
+		return "", fmt.Errorf("对象 %s 不在 OSS 索引中", clean)
+	}
+	target := s.localPath(clean)
+	s.restoreMu.Lock()
+	defer s.restoreMu.Unlock()
+	if info, statErr := os.Stat(target); statErr == nil && !info.IsDir() {
+		return target, nil
+	}
+	remoteKey := s.config.remoteKey(clean)
+	if err := s.downloadObject(remoteKey, target); err != nil {
+		return "", err
+	}
+	logf("已从 OSS 回源本地副本 %s", clean)
+	return target, nil
+}
+
+func (s *Store) downloadObject(remoteKey, target string) error {
+	response, err := s.client.Get(s.config.signedGetURL(remoteKey))
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 2048))
+		return fmt.Errorf("OSS 回源 %s 返回 %d: %s", remoteKey, response.StatusCode, strings.TrimSpace(string(body)))
+	}
+	directory := filepath.Dir(target)
+	if err := os.MkdirAll(directory, 0o750); err != nil {
+		return err
+	}
+	temporary, err := os.CreateTemp(directory, ".beeftv-restore-*")
+	if err != nil {
+		return err
+	}
+	name := temporary.Name()
+	defer os.Remove(name)
+	_ = temporary.Chmod(0o640)
+	written, err := io.Copy(temporary, response.Body)
+	if err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Sync(); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	if expected, ok := s.recordedSize(remoteKey); ok && expected > 0 && written != expected {
+		return fmt.Errorf("OSS 回源 %s 大小不符：%d != %d", remoteKey, written, expected)
+	}
+	return os.Rename(name, target)
+}
+
+func (s *Store) recordedSize(remoteKey string) (int64, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	record, ok := s.uploaded[remoteKey]
+	if !ok {
+		return 0, false
+	}
+	return record.Size, true
+}
+
+func (s *Store) headObject(remoteKey string) (bool, error) {
+	request, err := http.NewRequest(http.MethodHead, s.config.signedURL(http.MethodHead, remoteKey), nil)
+	if err != nil {
+		return false, err
+	}
+	response, err := s.client.Do(request)
+	if err != nil {
+		return false, err
+	}
+	defer response.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 1024))
+	if response.StatusCode == http.StatusNotFound {
+		return false, nil
+	}
+	if response.StatusCode >= 300 {
+		return false, fmt.Errorf("OSS HEAD %s 返回 %d", remoteKey, response.StatusCode)
+	}
+	return true, nil
+}
+
+// SweepLocalCopies 删除「已镜像到 OSS、本地副本超过保留期未更新」的本地文件。
+// 远端校验失败、网络异常、删除失败一律跳过——宁可留副本，也不影响读写。
+func (s *Store) SweepLocalCopies(retention time.Duration) (int, int64) {
+	if !s.Enabled() || retention <= 0 {
+		return 0, 0
+	}
+	s.loadOnce()
+	s.mu.Lock()
+	keys := make([]string, 0, len(s.uploaded))
+	for key := range s.uploaded {
+		keys = append(keys, key)
+	}
+	s.mu.Unlock()
+	removed := 0
+	freed := int64(0)
+	for _, remoteKey := range keys {
+		objectKey := s.config.localKey(remoteKey)
+		if objectKey == "" {
+			continue
+		}
+		target := s.localPath(objectKey)
+		info, err := os.Stat(target)
+		if err != nil || info.IsDir() {
+			continue
+		}
+		if time.Since(info.ModTime()) < retention {
+			continue
+		}
+		exists, err := s.headObject(remoteKey)
+		if err != nil || !exists {
+			continue
+		}
+		s.restoreMu.Lock()
+		removeErr := os.Remove(target)
+		s.restoreMu.Unlock()
+		if removeErr != nil {
+			continue
+		}
+		removed++
+		freed += info.Size()
+	}
+	return removed, freed
+}
+
+// StartLocalCopySweeper 后台定期清理本地副本；retention <= 0 时不启动（默认行为）。
+func (s *Store) StartLocalCopySweeper(retention, interval time.Duration) {
+	if !s.Enabled() || retention <= 0 {
+		return
+	}
+	if interval <= 0 {
+		interval = time.Hour
+	}
+	logf("本地副本清理已启用：保留 %s，每 %s 巡检一次", retention, interval)
+	go func() {
+		timer := time.NewTicker(interval)
+		defer timer.Stop()
+		for range timer.C {
+			if removed, freed := s.SweepLocalCopies(retention); removed > 0 {
+				logf("本地副本清理：删除 %d 个对象，释放 %d 字节", removed, freed)
+			}
+		}
+	}()
 }
 
 func logf(format string, args ...any) {
