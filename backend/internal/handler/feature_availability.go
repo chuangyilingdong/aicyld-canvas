@@ -17,7 +17,7 @@ func RegisterDesktopFeatureAvailabilityRoutes(r *gin.RouterGroup, svc *app.Servi
 			failService(c, err)
 			return
 		}
-		ok(c, gin.H{"features": setting})
+		ok(c, gin.H{"features": hostedFeatureOverrides(setting)})
 	})
 
 }

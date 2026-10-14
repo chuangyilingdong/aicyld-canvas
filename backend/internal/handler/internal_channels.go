@@ -1,0 +1,87 @@
+package handler
+
+import (
+	"crypto/subtle"
+	"errors"
+	"net/http"
+	"os"
+	"strings"
+
+	"infinite-canvas/backend/internal/app"
+	"infinite-canvas/backend/internal/platformchannels"
+
+	"github.com/gin-gonic/gin"
+)
+
+// 内部管理接口：供 admin.aicyld.com.cn 后台写画布模型渠道。
+//
+// 鉴权用共享密钥（AICYLD_CANVAS_INTERNAL_TOKEN），不依赖主站会话：
+// 后台服务端持有密钥，浏览器永远拿不到；未配置密钥时整组接口 503。
+const internalChannelTokenHeader = "X-Aicyld-Internal-Token"
+
+func internalChannelToken() string {
+	return strings.TrimSpace(os.Getenv("AICYLD_CANVAS_INTERNAL_TOKEN"))
+}
+
+func internalChannelAuth() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		want := internalChannelToken()
+		if want == "" {
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+				"code": http.StatusServiceUnavailable, "data": nil, "msg": "画布内部接口未启用",
+			})
+			return
+		}
+		got := strings.TrimSpace(c.GetHeader(internalChannelTokenHeader))
+		if got == "" {
+			got = strings.TrimSpace(strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer "))
+		}
+		if len(got) != len(want) || subtle.ConstantTimeCompare([]byte(got), []byte(want)) != 1 {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"code": http.StatusUnauthorized, "data": nil, "msg": "内部接口鉴权失败",
+			})
+			return
+		}
+		c.Next()
+	}
+}
+
+// RegisterInternalChannelRoutes 注册平台模型渠道的内部管理接口。
+func RegisterInternalChannelRoutes(r *gin.RouterGroup, svc *app.Service) {
+	group := r.Group("/internal", internalChannelAuth())
+
+	group.GET("/channels", func(c *gin.Context) {
+		store, err := platformchannels.New(svc.DataDir())
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		channels, err := store.List()
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"channels": platformchannels.Redact(channels)})
+	})
+
+	group.PUT("/channels", func(c *gin.Context) {
+		var payload struct {
+			Channels []platformchannels.Channel `json:"channels"`
+		}
+		if err := c.ShouldBindJSON(&payload); err != nil {
+			fail(c, http.StatusBadRequest, errors.New("平台渠道配置格式错误"))
+			return
+		}
+		store, err := platformchannels.New(svc.DataDir())
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		saved, err := store.Save(payload.Channels)
+		if err != nil {
+			fail(c, http.StatusBadRequest, err)
+			return
+		}
+		ok(c, gin.H{"channels": platformchannels.Redact(saved)})
+	})
+}

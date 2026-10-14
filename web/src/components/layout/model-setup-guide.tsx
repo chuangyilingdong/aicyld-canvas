@@ -15,10 +15,11 @@ export function ModelSetupGuide({ hidden = false }: { hidden?: boolean }) {
     const hydrated = useUserStore((state) => state.hydrated);
     const user = useUserStore((state) => state.user);
     const storageMode = useUserStore((state) => state.storageMode);
+    const customChannelsEnabled = useUserStore((state) => state.features.customChannelsEnabled);
     const localMode = isLocalWorkspaceMode() || storageMode === "local" || user?.username === "local";
     const models = useConfigStore((state) => state.config.models);
     // 灵动TV 本地工作区不显示阻塞式模型引导浮层；模型配置入口已经固定在侧边栏。
-    if (hidden || dismissed || !hydrated || !user || localMode || user.role === "admin" || (!registrationGuide && models.length > 0)) return null;
+    if (hidden || dismissed || !hydrated || !user || localMode || !customChannelsEnabled || user.role === "admin" || (!registrationGuide && models.length > 0)) return null;
 
     const close = () => {
         window.sessionStorage.removeItem("infinite-canvas:model-setup-guide");

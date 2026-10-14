@@ -66,8 +66,30 @@ export default function SettingsPage() {
         navigate(-1);
     };
 
+    // 托管部署（hb.aicyld.com.cn）：模型渠道由平台统一维护，画布内只读展示。
+    const hostedReadOnly = !customChannelsEnabled;
+
     const panes: Record<Exclude<ConfigSectionKey, "diagnostics">, ReactNode> = {
-        channels: (
+        channels: hostedReadOnly ? (
+            <SettingsPane>
+                <div className="settings-pane-header">
+                    <div className="min-w-0">
+                        <h2>模型配置</h2>
+                        <p>模型渠道由平台统一维护，画布内不再提供渠道、密钥与连接配置。下方为当前已接入的模型，如需调整请联系管理员。</p>
+                    </div>
+                </div>
+                <div className="settings-section">
+                    {effectiveConfig.channels.length ? effectiveConfig.channels.map((channel) => (
+                        <div className="settings-pane-header" key={channel.id}>
+                            <div className="min-w-0">
+                                <h3>{channel.name || channel.id}</h3>
+                                <p>{channel.models.length ? channel.models.join(" / ") : "未配置模型"}</p>
+                            </div>
+                        </div>
+                    )) : <p>当前没有可用模型，请联系管理员配置平台渠道。</p>}
+                </div>
+            </SettingsPane>
+        ) : (
             <SettingsPane>
                 <ChannelSettingsPane onOpenDiagnostics={() => selectSection("diagnostics")} />
                 <div className="settings-section model-default-section">
@@ -93,8 +115,8 @@ export default function SettingsPage() {
             <SettingsPane>
                 <div className="settings-pane-header">
                     <div className="min-w-0">
-                        <h2>模型选择</h2>
-                        <p>按领域选择默认模型；模型能力与请求协议在渠道“模型与能力”中配置。</p>
+                        <h2>{hostedReadOnly ? "可用模型" : "模型选择"}</h2>
+                        <p>{hostedReadOnly ? "模型由平台统一提供，选择结果已内置，无需手动配置。" : "按领域选择默认模型；模型能力与请求协议在渠道“模型与能力”中配置。"}</p>
                     </div>
                 </div>
                 <div className="settings-section">

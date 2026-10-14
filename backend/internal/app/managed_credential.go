@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"infinite-canvas/backend/internal/beefapi"
+	"infinite-canvas/backend/internal/platformchannels"
+	"infinite-canvas/backend/internal/workspace"
 )
 
 const managedBeefAPIRef = beefapi.CredentialRef
@@ -142,6 +144,10 @@ func (s *Service) ResolveCustomRelayAPIKey(targetURL, incoming string) (string, 
 }
 
 func (s *Service) resolveCustomRelayKey(targetURL, incoming string) (string, error) {
+	// 平台统一渠道：浏览器只持有占位密钥，真实凭证在服务端按来源替换。
+	if key, ok := s.resolvePlatformChannelKey(targetURL, incoming); ok {
+		return key, nil
+	}
 	// An unrelated custom channel must remain usable even if the managed
 	// connection is revoked. Resolve its secret only for the bound origin.
 	if s.beefAPI != nil && s.beefAPI.HasManagedCredential() && !sameCredentialOrigin(targetURL, s.beefAPI.Origin()) {
@@ -155,6 +161,23 @@ func (s *Service) resolveCustomRelayKey(targetURL, incoming string) (string, err
 		return incoming, nil
 	}
 	return apiKey, nil
+}
+
+// resolvePlatformChannelKey 只在本请求未携带真实密钥（空或占位符）时替换，
+// 用户自带密钥的自定义渠道不受影响。
+func (s *Service) resolvePlatformChannelKey(targetURL, incoming string) (string, bool) {
+	if s == nil {
+		return "", false
+	}
+	provided := strings.TrimSpace(incoming)
+	if provided != "" && provided != platformchannels.PlaceholderSecret && provided != workspace.RedactedSecret {
+		return "", false
+	}
+	store, err := platformchannels.New(s.dataDir)
+	if err != nil {
+		return "", false
+	}
+	return store.ResolveAPIKey(targetURL)
 }
 
 func sameCredentialOrigin(targetURL, baseURL string) bool {

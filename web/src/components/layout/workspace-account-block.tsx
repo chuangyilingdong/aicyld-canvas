@@ -19,6 +19,7 @@ const MAIN_SITE_LOGOUT_URL = "https://aicyld.com.cn/api/auth/logout";
 export function WorkspaceAccountBlock({ onNavigate }: { onNavigate: () => void }) {
     const user = useUserStore((state) => state.user);
     const [open, setOpen] = useState(false);
+    const customChannelsEnabled = useUserStore((state) => state.features.customChannelsEnabled);
     if (!user || isLocalWorkspaceMode()) return null;
 
     const name = user.displayName || user.username;
@@ -43,7 +44,7 @@ export function WorkspaceAccountBlock({ onNavigate }: { onNavigate: () => void }
                     role="menu"
                     className="absolute bottom-[calc(100%+6px)] left-0 z-50 w-full overflow-hidden rounded-xl border border-foreground/10 bg-[var(--surface,#fff)] shadow-lg backdrop-blur"
                 >
-                    <Link
+                    {customChannelsEnabled ? <Link
                         to="/settings"
                         role="menuitem"
                         className="flex items-center gap-2 px-3 py-2 text-[13px] text-foreground/80 transition-colors hover:bg-foreground/5"
@@ -51,7 +52,7 @@ export function WorkspaceAccountBlock({ onNavigate }: { onNavigate: () => void }
                     >
                         <Settings className="size-4" aria-hidden />
                         <span>设置</span>
-                    </Link>
+                    </Link> : null}
                     <a
                         href={MAIN_SITE_LOGOUT_URL}
                         role="menuitem"

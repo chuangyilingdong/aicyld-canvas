@@ -3,12 +3,15 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 
 	"infinite-canvas/backend/internal/app"
 	"infinite-canvas/backend/internal/beefapi"
+	"infinite-canvas/backend/internal/platformchannels"
 	"infinite-canvas/backend/internal/workspace"
 
 	"github.com/gin-gonic/gin"
@@ -92,7 +95,7 @@ func RegisterWorkspaceRoutes(r *gin.RouterGroup, svc *app.Service) {
 			"storageMode":   storageMode,
 			"logicalModels": logicalModels,
 			"runtimeLimits": limits,
-			"features":      features,
+			"features":      hostedFeatureOverrides(features),
 		})
 	})
 	r.GET("/workspace/model-config", func(c *gin.Context) {
@@ -107,7 +110,7 @@ func RegisterWorkspaceRoutes(r *gin.RouterGroup, svc *app.Service) {
 				failService(c, err)
 				return
 			}
-			ok(c, gin.H{"config": redactModelConfig(c, svc, effective.Config), "revision": effective.Revision, "health": health, "source": "builtin+local"})
+			ok(c, gin.H{"config": publicModelConfig(c, svc, effective.Config), "revision": effective.Revision, "health": health, "source": "builtin+local"})
 			return
 		}
 		body, err := providerConfig.ReadLocalModelConfig()
@@ -124,7 +127,7 @@ func RegisterWorkspaceRoutes(r *gin.RouterGroup, svc *app.Service) {
 			fail(c, http.StatusInternalServerError, errors.New("本地模型配置损坏"))
 			return
 		}
-		ok(c, gin.H{"config": redactModelConfig(c, svc, config)})
+		ok(c, gin.H{"config": publicModelConfig(c, svc, config)})
 	})
 	r.PUT("/workspace/model-config", func(c *gin.Context) {
 		if _, err := workspaceForLocalRequest(c, svc); err != nil {
@@ -148,6 +151,12 @@ func RegisterWorkspaceRoutes(r *gin.RouterGroup, svc *app.Service) {
 			fail(c, http.StatusBadRequest, errors.New("修改模型配置需要 expectedRevision"))
 			return
 		}
+		if err := requireModelConfigWrite(c); err != nil {
+			fail(c, http.StatusForbidden, err)
+			return
+		}
+		// 平台渠道由服务端统一注入，客户端回传的副本一律忽略。
+		envelope.Config = stripPlatformChannelConfig(envelope.Config)
 		envelope.Config = preserveManagedModelConfig(c, svc, envelope.Config)
 		providerConfig := requestProviderConfig(c, svc)
 		if versioned, supportsVersioning := providerConfig.(VersionedProviderConfig); supportsVersioning && envelope.ExpectedRevision != nil {
@@ -169,6 +178,53 @@ func RegisterWorkspaceRoutes(r *gin.RouterGroup, svc *app.Service) {
 		}
 		ok(c, gin.H{"saved": true})
 	})
+}
+
+// requireModelConfigWrite 锁定模型配置写入口：托管部署下只有白名单管理员可写，
+// 普通用户改由主站后台（/api/internal/channels）统一维护。
+func requireModelConfigWrite(c *gin.Context) error {
+	if !SSOConfigured() {
+		return nil
+	}
+	if value, exists := c.Get(workspaceAdminKey); exists {
+		if allowed, _ := value.(bool); allowed {
+			return nil
+		}
+	}
+	return errors.New("模型配置由平台统一维护，如需调整请联系管理员")
+}
+
+// publicModelConfig 在脱敏的基础上注入平台统一渠道：密钥不下发，
+// 浏览器只拿到指向上游的地址与占位密钥。
+func publicModelConfig(c *gin.Context, svc *app.Service, config map[string]any) map[string]any {
+	redacted := redactModelConfig(c, svc, config)
+	store, err := platformchannels.New(svc.DataDir())
+	if err != nil {
+		return redacted
+	}
+	channels, err := store.List()
+	if err != nil {
+		logPlatformChannelFailure(err)
+		return redacted
+	}
+	return platformchannels.Apply(redacted, channels)
+}
+
+// stripPlatformChannelConfig 移除客户端回传里的平台渠道副本。
+func stripPlatformChannelConfig(raw json.RawMessage) json.RawMessage {
+	var value map[string]any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return raw
+	}
+	encoded, err := json.Marshal(platformchannels.Strip(value))
+	if err != nil {
+		return raw
+	}
+	return encoded
+}
+
+func logPlatformChannelFailure(err error) {
+	fmt.Fprintf(os.Stderr, "[canvas] 读取平台渠道配置失败: %v\n", err)
 }
 
 func redactModelConfig(c *gin.Context, svc *app.Service, config map[string]any) map[string]any {
