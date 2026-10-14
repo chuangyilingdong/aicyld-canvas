@@ -388,21 +388,35 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                 <div className={expanded ? "min-w-0 flex-1" : "canvas-node-composer-model"}>
                     {availableModels.length ? (
                         <div className="flex min-w-0 flex-1 items-center gap-1">
-                            <div className="min-w-0 flex-1">
-                                <ModelPicker
-                                    className="!h-7 !w-full !min-w-0 !text-[var(--fs-tiny)] !font-normal [&_img]:!size-3 [&_.lucide]:!size-3"
-                                    fullWidth
-                                    config={config}
-                                    value={config.model}
-                                    onChange={(model) => onConfigChange(node.id, mode === "image" ? { model, ...defaultImageParamsForModel(config, model) } : { model })}
-                                    capability={mode}
-                                    hiddenModels={hiddenModels}
-                                    requirements={resolvedRequirements}
-                                    onMissingConfig={() => navigateToSettings({ section: "channels", continueCreation: true })}
-                                    variant="creation"
-                                    showConfiguredModelName
+                            {/* 音频节点的模型由「用途」决定（配音 / 音乐），不再让用户选模型。 */}
+                            {mode === "audio" ? null : (
+                                <div className="min-w-0 flex-1">
+                                    <ModelPicker
+                                        className="!h-7 !w-full !min-w-0 !text-[var(--fs-tiny)] !font-normal [&_img]:!size-3 [&_.lucide]:!size-3"
+                                        fullWidth
+                                        config={config}
+                                        value={config.model}
+                                        onChange={(model) => onConfigChange(node.id, mode === "image" ? { model, ...defaultImageParamsForModel(config, model) } : { model })}
+                                        capability={mode}
+                                        hiddenModels={hiddenModels}
+                                        requirements={resolvedRequirements}
+                                        onMissingConfig={() => navigateToSettings({ section: "channels", continueCreation: true })}
+                                        variant="creation"
+                                        showConfiguredModelName
+                                    />
+                                </div>
+                            )}
+                            {mode === "audio" ? (
+                                <Select
+                                    aria-label="音频用途"
+                                    size="small"
+                                    popupMatchSelectWidth={false}
+                                    className="canvas-node-composer-mode-select !h-7 shrink-0 [&_.ant-select-selector]:!h-7 [&_.ant-select-selection-item]:!text-[var(--fs-tiny)] [&_.ant-select-selection-item]:!leading-7"
+                                    value={node.metadata?.audioPurpose === "music" ? "music" : "voice"}
+                                    options={[{ value: "voice", label: "配音" }, { value: "music", label: "音乐" }]}
+                                    onChange={(value) => onConfigChange(node.id, { audioPurpose: value })}
                                 />
-                            </div>
+                            ) : null}
                             {mode === "video" ? (() => {
                                 // 与「配置节点」面板同一套可用性规则：按当前连接的参考素材判定模式是否可选。
                                 const modeInput = { textCount: 0, imageCount: requirements.input?.imageCount || 0, videoCount: requirements.input?.videoCount || 0, audioCount: requirements.input?.audioCount || 0, characterCount: 0 };

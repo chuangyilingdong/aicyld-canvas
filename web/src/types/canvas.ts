@@ -265,6 +265,8 @@ export type CanvasNodeMetadata = {
     generateAudio?: string;
     watermark?: string;
     audioVoice?: string;
+    /** 音频节点的用途：voice = 配音（TTS），music = 音乐 / BGM。决定用哪个平台内置模型。 */
+    audioPurpose?: string;
     audioFormat?: string;
     audioSampleRate?: string;
     audioSpeed?: string;

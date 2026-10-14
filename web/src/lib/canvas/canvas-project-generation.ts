@@ -15,7 +15,7 @@ import { imageMetadata } from "@/lib/canvas/canvas-generation-task-sync";
 import { ensureMediaNodeMinimumSize } from "@/lib/canvas/canvas-node-size";
 import { interruptFileUpload } from "@/lib/canvas/canvas-file-upload";
 import { isCanvasWorkflowProvider, resolveCanvasWorkflowProvider } from "@/lib/canvas/canvas-workflow";
-import { canvasFeatureModelForMode } from "@/lib/canvas/feature-models";
+import { canvasAudioPurposeModel, canvasFeatureModelForMode } from "@/lib/canvas/feature-models";
 import type { CanvasNodeGenerationMode } from "@/components/canvas/canvas-node-prompt-panel";
 import { CanvasNodeType, type CanvasAssistantSession, type CanvasConnection, type CanvasImageGenerationType, type CanvasNodeData, type CanvasNodeMetadata, type CanvasVideoEditOperation } from "@/types/canvas";
 import type { ReferenceImage } from "@/types/image";
@@ -483,7 +483,10 @@ export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | u
     const fallbackModel = mode === "image" ? defaultConfig.imageModel : mode === "video" ? defaultConfig.videoModel : mode === "audio" ? defaultConfig.audioModel : defaultConfig.textModel;
     const storedModel = resolveCanvasGenerationModel(config, node?.metadata?.model, mode);
     // 平台内置「功能 → 模型」只作为默认值：节点上显式选过的模型优先，没选就用平台绑定。
-    const platformModeModel = canvasFeatureModelForMode(mode);
+    // 音频节点再按「用途」细分：配音走 audio.tts，音乐走 audio.music。
+    const platformModeModel = mode === "audio"
+        ? canvasAudioPurposeModel(node?.metadata?.audioPurpose)
+        : canvasFeatureModelForMode(mode);
     const preferredModel = storedModel || platformModeModel || resolveCanvasGenerationModel(config, defaultModel, mode) || fallbackModel;
     // 先合并节点上的实时选择，再做兼容性匹配。否则路由只看到全局默认值，节点改过的时长、分辨率或布尔能力无法参与分流。
     const workflowParameters = node?.metadata?.workflowParameters || {};

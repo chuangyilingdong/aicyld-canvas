@@ -10,7 +10,9 @@ export type CanvasFeatureKey =
     | "video.t2v"
     | "video.i2v"
     | "video.multi"
-    | "audio.tts";
+    | "audio.tts"
+    | "audio.music"
+    | "audio.sfx";
 
 let featureModels: Record<string, string> = {};
 
@@ -72,6 +74,16 @@ export function functionOnlyModelValues(): string[] {
     return keys
         .map((key) => canvasFeatureModel(key))
         .filter((value): value is string => Boolean(value));
+}
+
+export type CanvasAudioPurpose = "voice" | "music";
+
+/** 音频节点按用途取平台内置模型：配音走 audio.tts，音乐走 audio.music。 */
+export function canvasAudioPurposeModel(purpose: string | undefined): string | undefined {
+    if (purpose === "music") {
+        return canvasFeatureModel("audio.music") || canvasFeatureModel("audio.tts");
+    }
+    return canvasFeatureModel("audio.tts") || canvasFeatureModel("audio.music");
 }
 
 /** 图改图专用：把模型替换成平台绑定的「图片编辑」模型。 */
