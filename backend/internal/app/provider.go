@@ -431,10 +431,13 @@ func (s *Service) resolveProviderConfig(config providerConfig) (providerConfig, 
 	}
 	config.Headers = headers
 	if s.IsLocalMode() && strings.TrimSpace(config.ChannelID) != "" {
-		// A stale hosted model selection must not reopen the system-channel
-		// catalog in a local workspace. Local users configure the provider
-		// endpoint directly; hosted channel IDs are intentionally unsupported.
-		return providerConfig{}, errors.New("本地工作区不支持系统渠道配置")
+		// 本地/桌面形态默认不开放系统渠道目录，避免陈旧的主站模型选择在本地工作区
+		// 重新打开系统渠道。但平台统一渠道会镜像成数据库里的系统渠道
+		// （见 app/platform_channel_sync.go），已登记的渠道必须放行；
+		// 未登记或已停用的渠道仍然拒绝。
+		if _, lookupErr := s.SystemChannel(strings.TrimSpace(config.ChannelID)); lookupErr != nil {
+			return providerConfig{}, errors.New("本地工作区不支持系统渠道配置")
+		}
 	}
 	if isRunningHubInterface(config.InterfaceType) && strings.TrimSpace(config.BaseURL) == "" {
 		config.BaseURL = "https://www.runninghub.cn"
