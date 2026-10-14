@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -145,6 +146,10 @@ func RegisterAgentOpsRoutes(r gin.IRouter, svc *app.Service, store *agentops.Sto
 		})
 		if execErr != nil {
 			opErr := agentops.AsError(execErr)
+			// 访问日志只有状态码，排障时必须能看到 op / reason / 参数规模。
+			// 只记长度，不记参数内容（画布文档含用户内容）。
+			log.Printf("[ops] %s 失败 user=%s code=%d reason=%s msg=%s params=%d bytes",
+				c.Param("op"), user.ID, agentops.HTTPStatus(opErr.Code), opErr.Reason, opErr.Message, len(req.Params))
 			c.JSON(agentops.HTTPStatus(opErr.Code), gin.H{
 				"code": agentops.HTTPStatus(opErr.Code), "reason": opErr.Reason, "msg": opErr.Message,
 				"details": opErr.Details,
