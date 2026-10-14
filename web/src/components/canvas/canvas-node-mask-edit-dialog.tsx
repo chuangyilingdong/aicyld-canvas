@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, ty
 import { Brush, Eraser, LoaderCircle, RotateCcw, WandSparkles, X } from "lucide-react";
 
 import { Tooltip } from "@/components/ui/base/tooltip";
-import type { AiConfig } from "@/stores/use-config-store";
+import { resolveImageEditModel } from "@/lib/canvas/feature-models";
+import { modelDisplayName, type AiConfig } from "@/stores/use-config-store";
 
 export type CanvasImageMaskEditPayload = {
     prompt: string;
@@ -86,7 +87,13 @@ export function CanvasImageMaskEditor({ imageDimensions, scale, config, onCancel
             <ToolButton title="擦除" active={mode === "erase"} onClick={() => setMode("erase")}><Eraser /></ToolButton>
             <input aria-label="笔刷大小" type="range" min={8} max={160} step={2} value={brushSize} onChange={(event) => setBrushSize(Number(event.target.value))} className="mx-2 w-24 accent-white" />
             <span className="w-11 text-center text-xs tabular-nums text-white/65">{brushSize}px</span><Divider />
-            <ToolButton title="重置蒙版" onClick={resetMask}><RotateCcw /></ToolButton>
+            <ToolButton title="重置蒙版" onClick={resetMask}><RotateCcw /></ToolButton><Divider />
+            {/* 局部重绘的模型由平台固定（图改图档），这里只展示、不提供选择。 */}
+            <Tooltip title="局部重绘的模型由平台固定，不需要也不允许更换">
+                <span aria-label="局部重绘模型（固定）" className="max-w-40 truncate rounded-lg border border-white/10 bg-white/[0.06] px-2 py-1 text-xs text-white/70">
+                    {modelDisplayName(config, resolveImageEditModel(config.model || config.imageModel)) || "平台图改图模型"}
+                </span>
+            </Tooltip>
         </div>
 
         <div data-canvas-no-zoom="true" className="absolute left-1/2 top-[calc(100%+14px)] flex w-[min(520px,90vw)] items-center gap-1.5 rounded-2xl border border-white/10 bg-[#242424]/96 p-1.5 text-white shadow-2xl backdrop-blur-xl" style={{ transform: screenTransform, transformOrigin: "center top" }}>

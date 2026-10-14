@@ -32,8 +32,10 @@ export function CanvasEmotionWorkspace({ node, viewport, containerRef, dragOffse
     // 不能直接用 node.metadata.content：它可能是本会话创建、刷新后即失效的 blob: URL。
     // 先按 storageKey 从资源/本地缓存取真实地址，取不到再退回 content（并过滤掉死链）。
     const [dataUrl, setDataUrl] = useState("");
+    const [imageResolved, setImageResolved] = useState(false);
     useEffect(() => {
         let cancelled = false;
+        setImageResolved(false);
         const fallback = typeof node.metadata?.content === "string" ? node.metadata.content : "";
         void resolveImageUrl(node.metadata?.storageKey, "", { cacheMiss: true })
             .catch(() => "")
@@ -41,6 +43,7 @@ export function CanvasEmotionWorkspace({ node, viewport, containerRef, dragOffse
                 if (cancelled) return;
                 const safeFallback = fallback.startsWith("blob:") ? "" : fallback;
                 setDataUrl(resolved || safeFallback);
+                setImageResolved(true);
             });
         return () => { cancelled = true; };
     }, [node.metadata?.storageKey, node.metadata?.content]);
@@ -55,6 +58,8 @@ export function CanvasEmotionWorkspace({ node, viewport, containerRef, dragOffse
     const portalTarget = containerRef.current;
 
     useEffect(() => {
+        // 原图还在异步解析时保持「识别中」，不要先把面板判死。
+        if (!imageResolved) return;
         const controller = new AbortController();
         setStatus("detecting");
         setError("");
@@ -84,7 +89,7 @@ export function CanvasEmotionWorkspace({ node, viewport, containerRef, dragOffse
                 setError(reason instanceof Error ? `${reason.message}，请手动框选` : "人脸识别失败，请手动框选");
             });
         return () => controller.abort();
-    }, [dataUrl]);
+    }, [dataUrl, imageResolved]);
 
     const selectFace = (face: CanvasFaceBox) => {
         const existing = characters.find((character) => sameFace(character.faceBox, face));
@@ -133,7 +138,7 @@ export function CanvasEmotionWorkspace({ node, viewport, containerRef, dragOffse
         }
     };
 
-    if (!portalTarget || !dataUrl) return null;
+    if (!portalTarget) return null;
     const activeCharacter = characters.find((character) => character.id === activeCharacterId);
     return createPortal(
         <>
