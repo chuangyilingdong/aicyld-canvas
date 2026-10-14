@@ -101,7 +101,7 @@ type Channel struct {
 }
 
 type document struct {
-	Version int       `json:"version"`
+	Version int `json:"version"`
 	// AssistantModel 是画布助手使用的平台模型（`channelId::model` 或裸模型名）；
 	// 留空表示按 DefaultAssistantModel 自动挑选。
 	AssistantModel string `json:"assistantModel,omitempty"`
@@ -423,6 +423,8 @@ var FeatureKeys = []string{
 	"video.i2v",    // 视频 · 图生视频 / 首尾帧
 	"video.multi",  // 视频 · 全能参考
 	"audio.tts",    // 音频 · 语音合成（配音）
+	"audio.music",  // 音频 · 音乐 / BGM（mureka / minimax 音乐档）
+	"audio.sfx",    // 音频 · 音效（Suno sounds）
 	"image.vision", // 图片理解（反推提示词等，留空表示跟随 text.chat）
 }
 
