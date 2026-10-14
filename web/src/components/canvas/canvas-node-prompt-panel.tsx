@@ -397,19 +397,36 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                                     showConfiguredModelName
                                 />
                             </div>
-                            {mode === "video" ? (
-                                <Select
-                                    aria-label="视频生成模式"
-                                    size="small"
-                                    popupMatchSelectWidth={false}
-                                    className="canvas-node-composer-mode-select !h-7 shrink-0 [&_.ant-select-selector]:!h-7 [&_.ant-select-selection-item]:!text-[var(--fs-tiny)] [&_.ant-select-selection-item]:!leading-7"
-                                    value={resolveVideoOperation({ textCount: 0, imageCount: requirements.input?.imageCount || 0, videoCount: requirements.input?.videoCount || 0, audioCount: requirements.input?.audioCount || 0, characterCount: 0 }, node.metadata?.videoEditOperation)}
-                                    options={canvasVideoModeOptions
-                                        .filter((option) => ((modelCapabilityConfigFor(config, config.model).video?.operations) || []).includes(option.value))
-                                        .map((option) => ({ ...option, disabled: false }))}
-                                    onChange={(value) => onConfigChange(node.id, { videoEditOperation: value as CanvasVideoEditOperation })}
-                                />
-                            ) : null}
+                            {mode === "video" ? (() => {
+                                // 与「配置节点」面板同一套可用性规则：按当前连接的参考素材判定模式是否可选。
+                                const modeInput = { textCount: 0, imageCount: requirements.input?.imageCount || 0, videoCount: requirements.input?.videoCount || 0, audioCount: requirements.input?.audioCount || 0, characterCount: 0 };
+                                const totalReferences = modeInput.imageCount + modeInput.characterCount + modeInput.videoCount + modeInput.audioCount;
+                                const declaredOperations = modelCapabilityConfigFor(config, config.model).video?.operations || [];
+                                return (
+                                    <Select
+                                        aria-label="视频生成模式"
+                                        size="small"
+                                        popupMatchSelectWidth={false}
+                                        className="canvas-node-composer-mode-select !h-7 shrink-0 [&_.ant-select-selector]:!h-7 [&_.ant-select-selection-item]:!text-[var(--fs-tiny)] [&_.ant-select-selection-item]:!leading-7"
+                                        value={resolveVideoOperation(modeInput, node.metadata?.videoEditOperation)}
+                                        options={canvasVideoModeOptions
+                                            .filter((option) => declaredOperations.includes(option.value))
+                                            .map((option) => ({
+                                                ...option,
+                                                disabled: option.value === "image_to_video"
+                                                    ? modeInput.imageCount + modeInput.characterCount < 1 || modeInput.imageCount + modeInput.characterCount > 2 || modeInput.videoCount > 0 || modeInput.audioCount > 0
+                                                    : ["inpaint", "extend"].includes(option.value)
+                                                      ? modeInput.videoCount < 1
+                                                      : option.value === "text_to_video"
+                                                        ? totalReferences > 0
+                                                        : option.value === "audio_to_video"
+                                                          ? modeInput.audioCount < 1 || modeInput.imageCount + modeInput.characterCount + modeInput.videoCount > 0
+                                                          : totalReferences < 1,
+                                            }))}
+                                        onChange={(value) => onConfigChange(node.id, { videoEditOperation: value as CanvasVideoEditOperation })}
+                                    />
+                                );
+                            })() : null}
                         </div>
                     ) : (
                         <button
