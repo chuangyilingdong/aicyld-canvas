@@ -583,6 +583,19 @@ export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | u
     };
 }
 
+/**
+ * 上游图改图模型对提示词有最小长度要求（Seedream V5：5~5000 字符），
+ * 短指令会被上游直接判 400。这里补一句中性的保真约束——不改变原意，
+ * 只把「其余保持不变」写清楚，让短指令也能正常出图。
+ */
+export function providerSafeImageEditPrompt(prompt: string, options?: { hasReference?: boolean; minChars?: number }) {
+    const trimmed = (prompt || "").trim();
+    if (!options?.hasReference || !trimmed) return prompt;
+    const minChars = options.minChars ?? 5;
+    if (trimmed.length >= minChars) return prompt;
+    return `${trimmed}。保持参考图的构图与其余内容不变`;
+}
+
 export function resolveCanvasGenerationModel(config: AiConfig, model: string | undefined, mode: CanvasNodeGenerationMode): string {
     if (!model) return "";
     const normalized = normalizeModelOptionValue(model, config.channels);

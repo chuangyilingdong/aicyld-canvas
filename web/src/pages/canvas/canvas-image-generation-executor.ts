@@ -5,7 +5,7 @@ import { canGenerateImageInPlace, findAvailableGenerationGroupPosition, imageGen
 import { cancelIncompleteImageBatch, retireImageBatchChildren } from "@/lib/canvas/canvas-image-batch-retry";
 import { buildImageGenerationNodeTitle } from "@/lib/canvas/canvas-generation-title";
 import { nodeSizeFromRatio } from "@/lib/canvas/canvas-node-size";
-import { canvasImageReferenceLimitError, buildImageGenerationMetadata, getGenerationCount, isGenerationCanceled, runCanvasGenerationTaskToConsumer } from "@/lib/canvas/canvas-project-generation";
+import { canvasImageReferenceLimitError, buildImageGenerationMetadata, getGenerationCount, isGenerationCanceled, providerSafeImageEditPrompt, runCanvasGenerationTaskToConsumer } from "@/lib/canvas/canvas-project-generation";
 import { imageGenerationReferenceConnections } from "@/lib/canvas/canvas-resource-references";
 import { canvasGenerationPromptMetadata } from "@/lib/canvas/canvas-generation-submission";
 import { isImageEditModel, withPlatformImageEditModel } from "@/lib/canvas/feature-models";
@@ -217,7 +217,8 @@ export async function executeImageGeneration({
                         ...(operationId ? { clientOperationId: operationId } : {}),
                         mode: "image",
                         resolveReferenceLinks,
-                        prompt: effectivePrompt,
+                        // 带参考图 = 图改图：上游要求提示词有最小长度，短指令补保真约束后再提交。
+                        prompt: providerSafeImageEditPrompt(effectivePrompt, { hasReference: referenceImages.length > 0 }),
                         config: { ...generationConfig, count: "1" },
                         referenceImages,
                         signal: controller.signal,

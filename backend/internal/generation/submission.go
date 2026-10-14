@@ -36,7 +36,10 @@ func SafeRouteRejection(err error) bool {
 	var upstream HTTPError
 	if errors.As(err, &upstream) {
 		switch upstream.StatusCode {
-		case http.StatusUnauthorized, http.StatusPaymentRequired, http.StatusForbidden, http.StatusNotFound, http.StatusTooManyRequests:
+		// 参数校验类 4xx 是上游明确拒绝（没有创建任务），重试安全，不能当成「提交结果未知」。
+		case http.StatusBadRequest, http.StatusUnauthorized, http.StatusPaymentRequired, http.StatusForbidden,
+			http.StatusNotFound, http.StatusMethodNotAllowed, http.StatusRequestEntityTooLarge,
+			http.StatusUnprocessableEntity, http.StatusTooManyRequests:
 			return true
 		}
 	}

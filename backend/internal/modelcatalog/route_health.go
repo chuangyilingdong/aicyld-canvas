@@ -77,7 +77,10 @@ func SafeRouteRejection(info FailureInfo) bool {
 		return true
 	}
 	switch info.StatusCode {
-	case 401, 402, 403, 404, 429:
+	// 这些状态码代表上游明确拒绝了这次请求（没有创建任务），重试是安全的；
+	// 400 尤其重要：Seedream 之类的参数校验失败会回 400，若归为「提交结果未知」，
+	// 用户会被告知「上游任务可能仍在执行，不要重试」，实际根本没有任务。
+	case 400, 401, 402, 403, 404, 405, 406, 413, 415, 422, 429:
 		return true
 	}
 	return false
