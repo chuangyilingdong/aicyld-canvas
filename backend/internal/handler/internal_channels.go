@@ -56,17 +56,19 @@ func RegisterInternalChannelRoutes(r *gin.RouterGroup, svc *app.Service) {
 			failService(c, err)
 			return
 		}
-		channels, err := store.List()
+		channels, assistantModel, err := store.Config()
 		if err != nil {
 			failService(c, err)
 			return
 		}
-		ok(c, gin.H{"channels": platformchannels.Redact(channels)})
+		ok(c, gin.H{"channels": platformchannels.Redact(channels), "assistantModel": assistantModel})
 	})
 
 	group.PUT("/channels", func(c *gin.Context) {
 		var payload struct {
 			Channels []platformchannels.Channel `json:"channels"`
+			// 指针类型：不传该字段表示保持原值，传空串表示清除（回退到默认助手模型）。
+			AssistantModel *string `json:"assistantModel"`
 		}
 		if err := c.ShouldBindJSON(&payload); err != nil {
 			fail(c, http.StatusBadRequest, errors.New("平台渠道配置格式错误"))
@@ -77,14 +79,19 @@ func RegisterInternalChannelRoutes(r *gin.RouterGroup, svc *app.Service) {
 			failService(c, err)
 			return
 		}
-		saved, err := store.Save(payload.Channels)
+		saved, err := store.SaveWithAssistantModel(payload.Channels, payload.AssistantModel)
 		if err != nil {
 			fail(c, http.StatusBadRequest, err)
 			return
 		}
 		// 同步镜像为系统渠道：服务端任务执行路径（SelectTaskModel）只认数据库系统渠道。
 		warnings := svc.SyncPlatformChannels(platformChannelSyncInputs(saved))
-		ok(c, gin.H{"channels": platformchannels.Redact(saved), "warnings": warnings})
+		assistantModel, err := store.AssistantModel()
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"channels": platformchannels.Redact(saved), "assistantModel": assistantModel, "warnings": warnings})
 	})
 }
 

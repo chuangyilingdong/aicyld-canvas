@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"infinite-canvas/backend/internal/agentops"
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/platform"
 	"infinite-canvas/backend/internal/workspace"
@@ -48,15 +49,54 @@ func hostedAdminList() map[string]struct{} {
 // WorkspaceUserResolver 把主站身份幂等映射为画布用户。
 type WorkspaceUserResolver func(identity SSOIdentity) (*model.User, error)
 
+// AssistantTurnOwnerResolver 按回合标识解析归属用户（内置助手宿主专用）。
+type AssistantTurnOwnerResolver func(turnID string) (string, bool)
+
+// assistantHostRequest 判定请求是否来自本机内置助手宿主（宿主凭据 + 仅本机来源）。
+func assistantHostRequest(r *http.Request, dataDir string) bool {
+	if r == nil {
+		return false
+	}
+	if !isLoopbackRequest(r) {
+		return false
+	}
+	return agentops.HostTokenMatches(dataDir, strings.TrimSpace(r.Header.Get(assistantHostTokenHeader)))
+}
+
+// assistantTurnIDFromRequest 取助手调用携带的回合标识：操作层放在请求头上，
+// 运行时路由（/assistant/runtime/turns/:turnId/...）把回合放在 URL 上。
+func assistantTurnIDFromRequest(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	if value := strings.TrimSpace(r.Header.Get(assistantTurnHeader)); value != "" {
+		return value
+	}
+	const marker = "/assistant/runtime/turns/"
+	path := r.URL.Path
+	index := strings.Index(path, marker)
+	if index < 0 {
+		return ""
+	}
+	rest := path[index+len(marker):]
+	if cut := strings.Index(rest, "/"); cut >= 0 {
+		rest = rest[:cut]
+	}
+	return strings.TrimSpace(rest)
+}
+
 // WorkspaceResolverMiddleware 按请求解析工作区归属。
 //
 //   - 未配置 AICYLD_SSO_SECRET：始终使用 fallback，保持上游「一个安装一个工作区」的行为。
 //   - 已配置：公开路径（健康检查、公开分享）放行到 fallback；
 //     其余请求必须携带有效主站会话，否则 401（前端据此跳转主站登录）。
+//   - 内置助手宿主（画布后端拉起的子进程）没有主站会话：它的工作区由后端自己签发的
+//     回合记录决定（turnId → 用户），只认本机来源 + 宿主凭据。没有回合的调用
+//     （能力发现）不设置工作区，继续走本机的回退身份。
 //
 // 解析结果写入 workspaceContextKey，后续 handler 通过 currentUser 读取，
 // 业务层所有表都按 user_id 过滤，因此天然按用户隔离。
-func WorkspaceResolverMiddleware(dataDir string, fallback workspace.Context, resolve WorkspaceUserResolver) gin.HandlerFunc {
+func WorkspaceResolverMiddleware(dataDir string, fallback workspace.Context, resolve WorkspaceUserResolver, turnOwner AssistantTurnOwnerResolver) gin.HandlerFunc {
 	cache := newWorkspaceResolverCache()
 	return func(c *gin.Context) {
 		if !SSOConfigured() {
@@ -66,6 +106,25 @@ func WorkspaceResolverMiddleware(dataDir string, fallback workspace.Context, res
 		}
 		if workspacePublicAPIPath(c.Request.URL.Path) {
 			c.Set(workspaceContextKey, fallback)
+			c.Next()
+			return
+		}
+		if assistantHostRequest(c.Request, dataDir) {
+			if turnOwner != nil {
+				if owner, ok := turnOwner(assistantTurnIDFromRequest(c.Request)); ok && strings.TrimSpace(owner) != "" {
+					scope := workspace.Context{ID: owner, DataDir: dataDir}
+					if err := scope.Validate(); err == nil {
+						c.Set(workspaceContextKey, scope)
+						c.Next()
+						return
+					}
+					c.Set(workspaceUnresolvedKey, "助手回合归属的工作区上下文不合法")
+					c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+						"code": http.StatusInternalServerError, "data": nil, "msg": "工作区上下文不合法",
+					})
+					return
+				}
+			}
 			c.Next()
 			return
 		}

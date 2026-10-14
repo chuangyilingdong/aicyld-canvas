@@ -61,6 +61,16 @@ func (s *Service) AssistantTurnScopeForHost(userID, turnID string) (AssistantTur
 	return s.assistantTurnsOrInit().ScopeForHost(userID, turnID)
 }
 
+// AssistantTurnOwnerForHost 按回合标识解析归属用户：内置助手宿主没有主站会话，
+// 身份解析与范围校验都以这条后端记录为唯一来源。
+func (s *Service) AssistantTurnOwnerForHost(turnID string) (string, bool) {
+	owner, ok, err := s.assistantTurnsOrInit().OwnerForHost(turnID)
+	if err != nil {
+		return "", false
+	}
+	return owner, ok
+}
+
 func (s *Service) FinalizeAssistantTurn(turnID string) error {
 	return s.assistantTurnsOrInit().Finalize(turnID)
 }

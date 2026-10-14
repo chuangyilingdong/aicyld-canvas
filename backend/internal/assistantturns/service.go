@@ -186,6 +186,31 @@ func (s *Service) Begin(userID, canvasID, turnID string, input Input) (int64, er
 // ScopeForHost returns the verified range for an open, non-undone round
 // owned by userID. ok is false when the round is missing, foreign, settled,
 // or already undone.
+// OwnerForHost 按 turnId 解析回合归属的工作区：内置助手宿主（画布后端拉起的
+// 子进程）没有主站会话，它的用户身份只能来自后端自己登记的回合记录，调用方无法自报。
+// 只接受仍在进行、未撤销的回合；其余情况返回 false。
+func (s *Service) OwnerForHost(turnID string) (string, bool, error) {
+	rec, err := s.load(nil, turnID)
+	if err != nil {
+		if isMissing(err) {
+			return "", false, nil
+		}
+		var turnErr *Error
+		if errors.As(err, &turnErr) && turnErr.Reason == ReasonNotFound {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	if rec.Undone || rec.effectiveState() != StateOpen {
+		return "", false, nil
+	}
+	owner := strings.TrimSpace(rec.UserID)
+	if owner == "" {
+		return "", false, nil
+	}
+	return owner, true, nil
+}
+
 func (s *Service) ScopeForHost(userID, turnID string) (Scope, bool, error) {
 	if strings.TrimSpace(userID) == "" {
 		return Scope{}, false, nil

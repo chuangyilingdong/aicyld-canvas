@@ -592,6 +592,50 @@ describe("画布文档提交日记", () => {
         expect(canvasDocumentBase("c1")?.snapshot.title).toBe("基线");
     });
 
+    // 手工救图 / 外部写入会把服务端 revision 推前：本机手里的基线从此永远过时，
+    // 之后每一次提交都被原子拒绝。能干净合并时必须自动重取基线并重试一次，
+    // 否则用户只能靠手动刷新页面恢复，画布内容再也存不上去。
+    test("409 自愈：服务端 revision 被推进后重取基线、合并并重试一次", async () => {
+        const dragged = node("n1", "拖过的节点", { position: { x: 120, y: 40 } });
+        const rescued = node("rescued", "手工救回的节点", { metadata: { taskId: "task-x", status: "success", content: "/api/resources/x/file" } });
+        await seedConfirmed(canvas("基线", 1, { nodes: [node("n1", "节点")] }));
+        // 别的写入者（手工救图 / 助手回合）把服务端推进到 revision 3，并补了本机没有的节点
+        server.revision = 3;
+        server.document = canvas("基线", 3, { nodes: [node("n1", "节点"), rescued] });
+        useCanvasStore.getState().updateProject("c1", { nodes: [dragged] as never });
+        server.failNext = { status: 409, reason: "stale_revision" };
+
+        await syncLocalCanvasProjectToBackend("c1");
+
+        // 拒绝那一次没有落地，重试用的是合并后的文档与服务端新基线
+        expect(server.commits).toHaveLength(1);
+        expect(server.commits[0]?.expectedRevision).toBe(3);
+        expect(server.commits[0]?.nodeIds).toEqual(["n1", "rescued"]);
+        expect(server.revision).toBe(4);
+        expect((server.document?.nodes as Array<{ id: string; title: string }>).map((item) => item.id)).toEqual(["n1", "rescued"]);
+        expect((server.document?.nodes as Array<{ id: string; title: string }>)[0]?.title).toBe("拖过的节点");
+        expect(hasUnconfirmedCanvasEdits("c1")).toBe(false);
+        expect((await loadCanvasOperationJournal("c1")).confirmedRevision).toBe(4);
+        // 编辑器必须立刻看到服务端新增的节点，否则它的自动保存会把旧图写回去
+        expect((useCanvasStore.getState().openProject("c1")?.nodes as Array<{ id: string }>).map((item) => item.id)).toEqual(["n1", "rescued"]);
+    });
+
+    test("409 自愈：同一节点双方都改过时不静默重试，仍保留本地草稿并暂停", async () => {
+        await seedConfirmed(canvas("基线", 1, { nodes: [node("n1", "节点")] }));
+        server.revision = 3;
+        server.document = canvas("基线", 3, { nodes: [node("n1", "服务端改过")] });
+        useCanvasStore.getState().updateProject("c1", { nodes: [node("n1", "本地改过")] as never });
+        server.failNext = { status: 409, reason: "stale_revision" };
+
+        await expect(syncLocalCanvasProjectToBackend("c1")).rejects.toThrow();
+
+        expect(server.commits).toHaveLength(0);
+        expect(server.revision).toBe(3);
+        expect((useCanvasStore.getState().openProject("c1")?.nodes as Array<{ title: string }>)[0]?.title).toBe("本地改过");
+        expect(hasUnconfirmedCanvasEdits("c1")).toBe(true);
+        expect(canvasDocumentBase("c1")?.snapshot.title).toBe("基线");
+    });
+
     test("用户作用域隔离：不会重放另一用户的 payload", async () => {
         await saveCanvasOperationJournal({
             userScope: "user-b",

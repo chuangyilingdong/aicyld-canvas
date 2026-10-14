@@ -108,7 +108,12 @@ func RegisterAgentUISessionRoutes(r gin.IRouter, svc *app.Service, ui *uiSession
 		devBootstrap := strings.TrimSpace(os.Getenv("BEEFTV_UI_BOOTSTRAP")) == "1"
 		// The UI bootstrap secret comes through the Wails binding, separately from entry credentials.
 		desktopShell := desktopTrust != nil && desktopTrust(c.Request)
-		if !ownerOK && !devBootstrap && !desktopShell {
+		// 托管部署（hb.aicyld.com.cn）：助手面板是画布 Web UI 的一部分，浏览器既没有 owner
+		// 凭据也没有桌面壳证明。这里信任「已通过主站单点登录 + 确实经本站反向代理」的会话
+		// ——与操作层的 canvas-web 身份同一判据；签发的凭据仍绑定该用户自己的工作区，
+		// 且上面的 isLoopbackRequest 已保证同源（跨站请求在 Origin 校验处就被拒）。
+		hostedWeb := hostedWebCaller(c)
+		if !ownerOK && !devBootstrap && !desktopShell && !hostedWeb {
 			fail(c, http.StatusForbidden, app.BadAuthRequest("签发内置 UI 会话需要 owner 凭据或显式本地引导"))
 			return
 		}
@@ -118,6 +123,6 @@ func RegisterAgentUISessionRoutes(r gin.IRouter, svc *app.Service, ui *uiSession
 			return
 		}
 		ok(c, gin.H{"token": session.Token, "expiresAt": session.ExpiresAt, "scope": "workspace:read-write",
-			"bootstrap": map[string]any{"ownerToken": ownerOK, "devBootstrap": devBootstrap, "desktopShell": desktopShell}})
+			"bootstrap": map[string]any{"ownerToken": ownerOK, "devBootstrap": devBootstrap, "desktopShell": desktopShell, "hostedWeb": hostedWeb}})
 	})
 }

@@ -5,7 +5,9 @@
 //   - 渠道定义只落盘在服务端数据目录（0600），API 永不返回明文密钥；
 //   - 下发给浏览器的渠道使用占位密钥（PlaceholderSecret），真正的密钥替换发生在
 //     服务端中转 /api/ai/custom（见 app.resolveCustomRelayKey）；
-//   - 管理端通过带共享密钥的 /api/internal/channels 读写。
+//   - 管理端通过带共享密钥的 /api/internal/channels 读写；
+//   - 同一份文件还存放「助手模型」：画布助手（灵动TV Agent）在服务端解析模型，
+//     后台在这里指定它用哪个平台模型。
 package platformchannels
 
 import (
@@ -30,6 +32,9 @@ const (
 	CredentialRef = "aicyld-platform"
 	// ChannelIDPrefix 平台渠道 ID 前缀，便于与用户自定义渠道区分。
 	ChannelIDPrefix = "aicyld-"
+	// DefaultAssistantModel 是没显式配置助手模型时的默认选择：
+	// 平台渠道里挂着的 DeepSeek V4.1 Flash（按模型名匹配，与渠道 ID 无关）。
+	DefaultAssistantModel = "deepseek/deepseek-v4.1-flash"
 
 	schemaVersion = 1
 )
@@ -96,8 +101,11 @@ type Channel struct {
 }
 
 type document struct {
-	Version  int       `json:"version"`
-	Channels []Channel `json:"channels"`
+	Version int       `json:"version"`
+	// AssistantModel 是画布助手使用的平台模型（`channelId::model` 或裸模型名）；
+	// 留空表示按 DefaultAssistantModel 自动挑选。
+	AssistantModel string    `json:"assistantModel,omitempty"`
+	Channels       []Channel `json:"channels"`
 }
 
 // Store 绑定一个画布数据目录；同一目录共享一把锁，避免读改写竞争。
@@ -394,43 +402,67 @@ func Defaults() []Channel {
 
 // List 读取平台渠道；文件不存在时返回预置模板（不落盘，便于观测）。
 func (s *Store) List() ([]Channel, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.loadLocked()
+	channels, _, err := s.Config()
+	return channels, err
 }
 
-func (s *Store) loadLocked() ([]Channel, error) {
-	body, err := os.ReadFile(s.path)
-	if errors.Is(err, os.ErrNotExist) {
-		return Defaults(), nil
-	}
+// AssistantModel 读取平台配置的助手模型；空表示按 DefaultAssistantModel 自动挑选。
+func (s *Store) AssistantModel() (string, error) {
+	_, assistantModel, err := s.Config()
+	return assistantModel, err
+}
+
+// Config 一次读出渠道定义与助手模型，避免管理端回显时分两次读同一份文件。
+func (s *Store) Config() ([]Channel, string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	decoded, err := s.loadDocumentLocked()
 	if err != nil {
-		return nil, fmt.Errorf("读取平台渠道配置失败: %w", err)
-	}
-	var decoded document
-	if err := json.Unmarshal(body, &decoded); err != nil {
-		return nil, fmt.Errorf("平台渠道配置损坏: %w", err)
+		return nil, "", err
 	}
 	channels := make([]Channel, 0, len(decoded.Channels))
 	for _, item := range decoded.Channels {
 		normalized, normalizeErr := normalize(item)
 		if normalizeErr != nil {
-			return nil, normalizeErr
+			return nil, "", normalizeErr
 		}
 		channels = append(channels, normalized)
 	}
-	return channels, nil
+	return channels, strings.TrimSpace(decoded.AssistantModel), nil
+}
+
+// loadDocumentLocked 读取整份文档；文件不存在时返回预置模板（不落盘，便于观测）。
+func (s *Store) loadDocumentLocked() (document, error) {
+	body, err := os.ReadFile(s.path)
+	if errors.Is(err, os.ErrNotExist) {
+		return document{Version: schemaVersion, Channels: Defaults()}, nil
+	}
+	if err != nil {
+		return document{}, fmt.Errorf("读取平台渠道配置失败: %w", err)
+	}
+	var decoded document
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		return document{}, fmt.Errorf("平台渠道配置损坏: %w", err)
+	}
+	return decoded, nil
 }
 
 // Save 整体替换平台渠道定义。密钥提交脱敏标记（MaskedSecret）表示沿用已保存的密钥，
 // 留空表示清除密钥（便于运维显式清空已泄露的凭证）。
 func (s *Store) Save(incoming []Channel) ([]Channel, error) {
+	return s.SaveWithAssistantModel(incoming, nil)
+}
+
+// SaveWithAssistantModel 整体替换渠道定义，并可同时更新助手模型。
+// assistantModel 为 nil 表示保持原值（兼容不带该字段的老管理端）。
+func (s *Store) SaveWithAssistantModel(incoming []Channel, assistantModel *string) ([]Channel, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	existing, err := s.loadLocked()
+	stored, err := s.loadDocumentLocked()
 	if err != nil {
 		return nil, err
 	}
+	existing := stored.Channels
 	previous := make(map[string]string, len(existing))
 	for _, item := range existing {
 		previous[item.ID] = item.APIKey
@@ -451,14 +483,18 @@ func (s *Store) Save(incoming []Channel) ([]Channel, error) {
 		}
 		next = append(next, normalized)
 	}
-	if err := s.writeLocked(next); err != nil {
+	assistant := strings.TrimSpace(stored.AssistantModel)
+	if assistantModel != nil {
+		assistant = strings.TrimSpace(*assistantModel)
+	}
+	if err := s.writeLocked(next, assistant); err != nil {
 		return nil, err
 	}
 	return next, nil
 }
 
-func (s *Store) writeLocked(channels []Channel) error {
-	body, err := json.MarshalIndent(document{Version: schemaVersion, Channels: channels}, "", "  ")
+func (s *Store) writeLocked(channels []Channel, assistantModel string) error {
+	body, err := json.MarshalIndent(document{Version: schemaVersion, AssistantModel: assistantModel, Channels: channels}, "", "  ")
 	if err != nil {
 		return fmt.Errorf("序列化平台渠道配置失败: %w", err)
 	}

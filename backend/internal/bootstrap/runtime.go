@@ -209,7 +209,7 @@ func Open(_ context.Context, raw Config) (result *Runtime, openErr error) {
 	// 未配置时中间件内部回退到 fallback，保持上游「一个安装一个工作区」的行为。
 	router.Use(canvasHandler.WorkspaceResolverMiddleware(cfg.DataDir, scope, func(identity canvasHandler.SSOIdentity) (*model.User, error) {
 		return svc.EnsureWorkspaceUser(identity.UserID, identity.Username, identity.DisplayName)
-	}))
+	}, svc.AssistantTurnOwnerForHost))
 	// 本机可信凭据在组合根生成：owner 凭据与宿主凭据只在本机数据目录，0600。
 	agentops.EnsureAgentCredentials(svc.DataDir())
 	assistantHost := assistantruntime.New(assistantruntime.OptionsFromService(svc))

@@ -523,7 +523,13 @@ async function commitLiveCanvasDocumentUnlocked(id: string, expected: CapturedUs
     await sendCanvasDocumentCommit(id, queued.inFlight.operationId, queued.inFlight.payload, expected);
 }
 
-async function sendCanvasDocumentCommit(id: string, operationId: string, payload: { canvasId: string; expectedRevision: number; document: CanvasProject }, expected: CapturedUserScope) {
+async function sendCanvasDocumentCommit(
+    id: string,
+    operationId: string,
+    payload: { canvasId: string; expectedRevision: number; document: CanvasProject },
+    expected: CapturedUserScope,
+    allowConflictRecovery = true,
+) {
     traceCanvasGraph("repository.submit", { document: payload.document, confirmed: canvasDocumentBase(id, expected.userScope)?.snapshot });
     const scope = expected.userScope;
     assertDispatchGuard(expected);
@@ -546,6 +552,9 @@ async function sendCanvasDocumentCommit(id: string, operationId: string, payload
     } catch (error) {
         rethrowIfAbandoned(error);
         if (isCanvasRevisionConflict(error)) {
+            // 409 只说明本机手里的基线 revision 过旧（别的写入者推进过服务端），
+            // 不代表内容冲突：能干净合并时重取基线并自动重试一次。
+            if (allowConflictRecovery && await recoverCanvasCommitAfterRevisionConflict(id, expected)) return;
             await updateCanvasOperationJournal(id, scope, (current) => {
                 if (!current.inFlight) return;
                 return { ...current, inFlight: null };
@@ -561,6 +570,73 @@ async function sendCanvasDocumentCommit(id: string, operationId: string, payload
         }
         throw error;
     }
+}
+
+/**
+ * 409 自愈：服务端原子拒绝本次提交，说明本机的基线 revision 已经过时。
+ *
+ * 手工救图、助手回合或外部客户端推进 revision 之后，浏览器手里那份基线永远过时，
+ * 之后每一次 canvas.document.commit 都会被拒、并暂停自动提交 —— 画布再也存不回
+ * 服务端，除非用户手动刷新页面重新取基线。
+ *
+ * 这里重取服务端文档，按「已确认基线 → 本机 live → 服务端最新」做同一套三路合并：
+ *   - 合并干净：把服务端文档采纳为新基线，用合并结果重试一次提交（新 operationId）；
+ *   - 出现真冲突（同一字段/节点两边都改过）：什么都不做，交回原有冲突流程
+ *     （保留本地草稿、暂停自动提交、顶栏提示用户选择）。
+ * 只重试一次；重试再被拒就按原有流程处理，不会无限重试。
+ */
+async function recoverCanvasCommitAfterRevisionConflict(id: string, expected: CapturedUserScope): Promise<boolean> {
+    const scope = expected.userScope;
+    if (canvasDeleting.has(saveKey(scope, id))) return false;
+    const journal = peekCanvasOperationJournal(id, scope);
+    const recorded = canvasDocumentBase(id, scope);
+    const base = journal?.confirmedSnapshot ?? recorded?.snapshot ?? null;
+    // 没有基线就不猜：宁可交给冲突流程，也不拿未知内容覆盖服务端。
+    if (!base) return false;
+    const live = openLocalCanvasProject(id);
+    if (!live) return false;
+    let remote: CanvasProject;
+    try {
+        remote = await readLocalCanvasProjectFromBackend(id, expected);
+    } catch (error) {
+        rethrowIfAbandoned(error);
+        return false;
+    }
+    if (!matchesDispatchGuard(expected) || canvasDeleting.has(saveKey(scope, id))) return false;
+    const remoteRevision = typeof remote.revision === "number" ? remote.revision : 0;
+    // 除非服务端 revision 确实比本机记录的基线更靠前，否则这次拒绝另有原因
+    // （例如服务端停在同一 revision 但内容已不同），不在这里猜。
+    const heldRevision = Math.max(journal?.confirmedRevision ?? 0, recorded?.revision ?? 0);
+    if (remoteRevision <= heldRevision) return false;
+    const settled = settleInFlightGenerationOverlay({ base, local: live, remote });
+    const rebased = rebaseCanvasDocumentThreeWay({ base, local: settled, remote });
+    if (rebased.conflict) return false;
+    try {
+        // 服务端文档是新的真相：先记成已确认基线，再把合并结果作为本地下一次提交。
+        const confirmed = await recordConfirmedCanvasCommit(remote, scope);
+        recordServerConfirmedCanvas(confirmed.confirmedSnapshot ?? remote, scope);
+    } catch (error) {
+        rethrowIfAbandoned(error);
+        return false;
+    }
+    if (!matchesDispatchGuard(expected) || canvasDeleting.has(saveKey(scope, id))) return false;
+    const expectedRevision = remoteRevision;
+    const merged: CanvasProject = { ...rebased.project, revision: expectedRevision };
+    // 编辑器必须先看到合并结果（含服务端新增的节点），否则它的自动保存会把
+    // 本地那份旧图写回去，等于把刚救回来的内容再删一次。
+    applyLiveCanvasProject(id, merged, false);
+    notifyCanvasRefresh(merged, live);
+    const operationId = newCanvasCommitOperationId();
+    await updateCanvasOperationJournal(id, scope, (current) => ({
+        ...current,
+        inFlight: {
+            operationId,
+            expectedRevision,
+            payload: { canvasId: id, expectedRevision, document: merged },
+        },
+    }));
+    await sendCanvasDocumentCommit(id, operationId, { canvasId: id, expectedRevision, document: merged }, expected, false);
+    return true;
 }
 
 function shouldKeepCanvasCommitIdentity(error: unknown) {

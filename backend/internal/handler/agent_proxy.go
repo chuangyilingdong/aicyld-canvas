@@ -11,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -80,7 +81,14 @@ func RegisterAgentProxyRoutes(r gin.IRouter, svc *app.Service, clients *agentops
 	}
 
 	// hostOpsURL 用请求自身的 Host 推导操作层基址：桌面形态监听随机端口，猜端口会指向别处。
-	hostOpsURL := func(c *gin.Context) string { return "http://" + c.Request.Host + "/api" }
+	// 托管部署（公网域名 + 80 端口 301 到 HTTPS）必须用 BEEFTV_OPS_BASE_URL 显式指向本机后端，
+	// 否则宿主对 80 端口的 POST 会被 301 改成 GET，助手写画布全部丢失。
+	hostOpsURL := func(c *gin.Context) string {
+		if explicit := strings.TrimSpace(os.Getenv("BEEFTV_OPS_BASE_URL")); explicit != "" {
+			return strings.TrimRight(explicit, "/")
+		}
+		return "http://" + c.Request.Host + "/api"
+	}
 	launchToken := func(c *gin.Context) string { return strings.TrimSpace(c.GetHeader(httptransport.LaunchTokenHeader)) }
 
 	unavailable := func(c *gin.Context, reason string) {
