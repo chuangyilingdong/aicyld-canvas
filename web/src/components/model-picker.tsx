@@ -156,49 +156,10 @@ export function ModelPicker({
         setActiveGroupKey(group.key);
         setPreviewedModel(groupCurrent?.models[0] || group.models[0]?.models[0] || "");
     };
-    const content = (
-        <div
-            ref={menuRef}
-            data-canvas-no-zoom
-            className={cn(
-                "canvas-model-picker-menu creation-model-picker-menu max-w-[calc(100vw-24px)]",
-                activeGroupKey === null ? "is-brand-list" : "is-model-list",
-            )}
-            style={
-                {
-                    background: theme.node.panel,
-                    color: theme.node.text,
-                    "--canvas-model-picker-trigger-width": triggerWidth ? String(triggerWidth) + "px" : undefined,
-                } as CSSProperties
-            }
-            role="listbox"
-            aria-label={placeholder}
-            onKeyDown={handleMenuKeyDown}
-            onMouseDown={(event) => event.stopPropagation()}
-            onPointerDown={(event) => event.stopPropagation()}
-        >
-            {optionGroups.length ? (
-                activeGroupKey === null ? (
-                    <div className="canvas-model-picker-brands" aria-label="选择模型品牌">
-                        {optionGroups.map((group) => {
-                            return <button key={group.key} type="button" className="canvas-model-picker-brand" aria-expanded={false} onClick={() => toggleGroup(group)}>
-                                <span className="canvas-model-picker-brand-copy"><strong>{group.label}</strong></span>
-                                <ChevronDown className="canvas-model-picker-brand-arrow" aria-hidden="true" />
-                            </button>;
-                        })}
-                    </div>
-                ) : <div className="canvas-model-picker-two-pane">
-                    <div className="canvas-model-picker-brand-rail" aria-label="模型品牌">
-                        {optionGroups.map((group) => {
-                            return <button key={group.key} type="button" className={cn("canvas-model-picker-brand", activeGroupKey === group.key && "is-active")} aria-expanded={activeGroupKey === group.key} onClick={() => toggleGroup(group)}>
-                                <span className="canvas-model-picker-brand-copy"><strong>{group.label}</strong></span>
-                                <ChevronDown className="canvas-model-picker-brand-arrow" aria-hidden="true" />
-                            </button>;
-                        })}
-                    </div>
-                    {optionGroups.filter((group) => group.key === activeGroupKey).map((group) => <section key={group.key} className="canvas-model-picker-group canvas-model-picker-model-pane min-w-0 overflow-hidden">
-                        <div className="canvas-model-picker-options grid min-w-0 gap-1">
-                            {group.models.map((modelGroup) => {
+    // 只有一个渠道（托管部署）时不显示品牌列表，直接平铺模型。
+    const renderModelOptions = (groupModels: (typeof optionGroups)[number]["models"]) => (
+                            <div className="canvas-model-picker-options grid min-w-0 gap-1">
+                            {groupModels.map((modelGroup) => {
                                 const selected = modelGroup.models.includes(current);
                                 const model = compatibleModelInGroup(config, modelGroup.models, selectionRequirements, selected ? current : undefined);
                                 const displayModel = model || (selected ? current : modelGroup.models[0]);
@@ -233,6 +194,54 @@ export function ModelPicker({
                                 );
                             })}
                         </div>
+    );
+
+    const content = (
+        <div
+            ref={menuRef}
+            data-canvas-no-zoom
+            className={cn(
+                "canvas-model-picker-menu creation-model-picker-menu max-w-[calc(100vw-24px)]",
+                activeGroupKey === null ? "is-brand-list" : "is-model-list",
+            )}
+            style={
+                {
+                    background: theme.node.panel,
+                    color: theme.node.text,
+                    "--canvas-model-picker-trigger-width": triggerWidth ? String(triggerWidth) + "px" : undefined,
+                } as CSSProperties
+            }
+            role="listbox"
+            aria-label={placeholder}
+            onKeyDown={handleMenuKeyDown}
+            onMouseDown={(event) => event.stopPropagation()}
+            onPointerDown={(event) => event.stopPropagation()}
+        >
+            {optionGroups.length ? (
+                optionGroups.length === 1 ? (
+                    <div className="canvas-model-picker-group canvas-model-picker-model-pane min-w-0 overflow-hidden">
+                        {renderModelOptions(optionGroups[0].models)}
+                    </div>
+                ) : activeGroupKey === null ? (
+                    <div className="canvas-model-picker-brands" aria-label="选择模型品牌">
+                        {optionGroups.map((group) => {
+                            return <button key={group.key} type="button" className="canvas-model-picker-brand" aria-expanded={false} onClick={() => toggleGroup(group)}>
+                                <span className="canvas-model-picker-brand-copy"><strong>{group.label}</strong></span>
+                                <ChevronDown className="canvas-model-picker-brand-arrow" aria-hidden="true" />
+                            </button>;
+                        })}
+                    </div>
+                ) : <div className="canvas-model-picker-two-pane">
+                    <div className="canvas-model-picker-brand-rail" aria-label="模型品牌">
+                        {optionGroups.map((group) => {
+                            return <button key={group.key} type="button" className={cn("canvas-model-picker-brand", activeGroupKey === group.key && "is-active")} aria-expanded={activeGroupKey === group.key} onClick={() => toggleGroup(group)}>
+                                <span className="canvas-model-picker-brand-copy"><strong>{group.label}</strong></span>
+                                <ChevronDown className="canvas-model-picker-brand-arrow" aria-hidden="true" />
+                            </button>;
+                        })}
+                    </div>
+                    {optionGroups.filter((group) => group.key === activeGroupKey).map((group) => <section key={group.key} className="canvas-model-picker-group canvas-model-picker-model-pane min-w-0 overflow-hidden">
+                        {renderModelOptions(group.models)}
                     </section>)}
                 </div>
             ) : (

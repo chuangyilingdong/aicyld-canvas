@@ -162,7 +162,6 @@ export function ImageSizePicker({ profile, size, quality, onChange }: { profile:
             <output aria-live="polite" className="image-size-output">
                 {size === "auto" ? "尺寸由模型决定" : active ? `${active.ratio} · ${active.width} × ${active.height} px` : size.replace("x", " × ")}
             </output>
-            {profile.size.parameter === "aspect_ratio" ? <p className="image-size-hint">尺寸为换算参考，实际像素由模型决定{!imageResolutionUsesQuality(profile) && visibleTiers.length <= 1 ? "；当前协议未配置独立分辨率" : ""}。</p> : null}
             {profile.size.allowCustom ? (
                 <details className="image-size-custom">
                     <summary>自定义比例或尺寸</summary>

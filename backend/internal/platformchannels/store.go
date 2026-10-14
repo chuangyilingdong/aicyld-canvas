@@ -264,10 +264,15 @@ const defaultImageCapabilityConfig = `{
         { "tier": "2k", "ratio": "16:9", "width": 2048, "height": 1152, "size": "2048x1152" },
         { "tier": "2k", "ratio": "9:16", "width": 1152, "height": 2048, "size": "1152x2048" },
         { "tier": "2k", "ratio": "4:3", "width": 2048, "height": 1536, "size": "2048x1536" },
-        { "tier": "2k", "ratio": "3:4", "width": 1536, "height": 2048, "size": "1536x2048" }
+        { "tier": "2k", "ratio": "3:4", "width": 1536, "height": 2048, "size": "1536x2048" },
+        { "tier": "4k", "ratio": "1:1", "width": 2880, "height": 2880, "size": "2880x2880" },
+        { "tier": "4k", "ratio": "16:9", "width": 3840, "height": 2160, "size": "3840x2160" },
+        { "tier": "4k", "ratio": "9:16", "width": 2160, "height": 3840, "size": "2160x3840" },
+        { "tier": "4k", "ratio": "4:3", "width": 3264, "height": 2448, "size": "3264x2448" },
+        { "tier": "4k", "ratio": "3:4", "width": 2448, "height": 3264, "size": "2448x3264" }
       ]
     },
-    "quality": { "supported": true, "values": ["1k", "2k"], "default": "1k" },
+    "quality": { "supported": true, "values": ["1k", "2k", "4k"], "default": "1k" },
     "transparentBackground": { "supported": false, "default": false },
     "responseFormat": { "supported": true },
     "outputFormat": { "supported": true },
