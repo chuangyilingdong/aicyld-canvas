@@ -86,60 +86,136 @@ func New(dataDir string) (*Store, error) {
 	return &Store{path: filepath.Join(absolute, FileName), mu: guard.(*sync.Mutex)}, nil
 }
 
-// seedanceCapabilityConfig 是预置渠道 Seedance 2.0 的能力配置。
-// 与前端 lib/model-capabilities.ts 的 seedance-2 + newapi 口径一致（含同步音频、
-// 多素材参考与官方参考素材限制），避免服务端 admission 判为「参数超出支持范围」。
-const seedanceCapabilityConfig = `{
-  "version": 1,
-  "video": {
-    "references": {
-      "promptMaxChars": 4000,
-      "minImages": 0,
-      "maxImages": 9,
-      "maxImageBytes": 31457280,
-      "maxVideos": 3,
-      "maxVideoBytes": 209715200,
-      "maxVideoDurationSeconds": 15,
-      "minVideoDurationSeconds": 2,
-      "maxVideoTotalDurationSeconds": 15,
-      "maxAudios": 3,
-      "maxAudioBytes": 15728640,
-      "maxAudioDurationSeconds": 15,
-      "minAudioDurationSeconds": 1.8,
-      "maxAudioTotalDurationSeconds": 15,
-      "minImageWidth": 300, "maxImageWidth": 6000,
-      "minImageHeight": 300, "maxImageHeight": 6000,
-      "minImageAspect": 0.4, "maxImageAspect": 2.5,
-      "minVideoWidth": 300, "maxVideoWidth": 6000,
-      "minVideoHeight": 300, "maxVideoHeight": 6000,
-      "minVideoAspect": 0.4, "maxVideoAspect": 2.5,
-      "minVideoPixels": 409600, "maxVideoPixels": 8295044
-    },
-    "duration": { "selection": "range", "min": 1, "max": 15, "step": 1, "default": 6 },
-    "ratios": ["adaptive", "16:9", "9:16", "1:1", "4:3", "3:4", "21:9"],
-    "defaultRatio": "16:9",
-    "resolutions": ["480p", "720p", "1080p"],
-    "defaultResolution": "720p",
-    "generateAudio": { "supported": true, "default": true },
-    "watermark": { "supported": false, "default": false },
-    "operations": ["text_to_video", "image_to_video", "reference_to_video"],
-    "defaultOperation": "text_to_video"
-  }
-}`
+// seedanceCapabilityConfigBody 生成 Seedance 视频模型的能力配置。
+// 上游 ZhenZhen AI 按「档位 + 模式」拆分 SKU（t2v / i2v / multi），因此每个模式
+// 单独一个画布模型，能力配置里的操作与参考素材限制也按模式区分。
+// 数值口径与前端 lib/model-capabilities.ts 的 seedance-2 + newapi 分支一致。
+// seedanceModeForModel 从上游 SKU 名推断生成模式：
+// t2v 文生视频 / i2v 图生视频 / multi、r2v 多素材参考 / 其余按全能处理。
+func seedanceModeForModel(model string) string {
+	name := strings.ToLower(strings.TrimSpace(model))
+	switch {
+	case strings.Contains(name, "-t2v"):
+		return "t2v"
+	case strings.Contains(name, "-i2v"):
+		return "i2v"
+	case strings.Contains(name, "-multi"), strings.Contains(name, "-r2v"):
+		return "multi"
+	default:
+		return "all"
+	}
+}
+
+func seedanceDisplayName(model, mode string) string {
+	name := strings.ToLower(strings.TrimSpace(model))
+	tier := "标准"
+	switch {
+	case strings.Contains(name, "global-fast"):
+		tier = "海外快速"
+	case strings.Contains(name, "global-mini"):
+		tier = "海外迷你"
+	case strings.Contains(name, "global-standard"):
+		tier = "海外标准"
+	case strings.Contains(name, "fast"):
+		tier = "快速"
+	case strings.Contains(name, "mini"):
+		tier = "迷你"
+	case strings.Contains(name, "2.5"):
+		tier = "2.5 标准"
+	}
+	label := map[string]string{"t2v": "文生视频", "i2v": "图生视频", "multi": "多素材参考", "all": "全能参考"}[mode]
+	return "Seedance " + label + "（" + tier + "）"
+}
+
+// VideoCapabilityConfigForModel 按上游 SKU 名生成视频能力配置。
+// 第二个返回值为 false 表示不是 Seedance 2 家族（调用方回落到通用视频默认值）。
+func VideoCapabilityConfigForModel(model string) (json.RawMessage, bool) {
+	name := strings.ToLower(strings.TrimSpace(model))
+	if !strings.Contains(name, "seedance-2") {
+		return nil, false
+	}
+	return seedanceCapabilityConfigBody(seedanceModeForModel(name)), true
+}
+
+func seedanceCapabilityConfigBody(mode string) []byte {
+	references := map[string]any{
+		"promptMaxChars": 4000, "minImages": 0, "maxImages": 0, "maxImageBytes": 31457280,
+		"maxVideos": 0, "maxVideoBytes": 0, "maxVideoDurationSeconds": 0,
+		"maxAudios": 0, "maxAudioBytes": 0, "maxAudioDurationSeconds": 0,
+	}
+	operations := []string{"text_to_video"}
+	defaultOperation := "text_to_video"
+	switch mode {
+	case "i2v":
+		references["minImages"] = 1
+		references["maxImages"] = 2
+		operations = []string{"image_to_video"}
+		defaultOperation = "image_to_video"
+	case "multi", "all":
+		references["maxImages"] = 9
+		references["maxVideos"] = 3
+		references["maxVideoBytes"] = 209715200
+		references["maxVideoDurationSeconds"] = 15
+		references["minVideoDurationSeconds"] = 2
+		references["maxVideoTotalDurationSeconds"] = 15
+		references["maxAudios"] = 3
+		references["maxAudioBytes"] = 15728640
+		references["maxAudioDurationSeconds"] = 15
+		references["minAudioDurationSeconds"] = 1.8
+		references["maxAudioTotalDurationSeconds"] = 15
+		references["minImageWidth"], references["maxImageWidth"] = 300, 6000
+		references["minImageHeight"], references["maxImageHeight"] = 300, 6000
+		references["minImageAspect"], references["maxImageAspect"] = 0.4, 2.5
+		references["minVideoWidth"], references["maxVideoWidth"] = 300, 6000
+		references["minVideoHeight"], references["maxVideoHeight"] = 300, 6000
+		references["minVideoAspect"], references["maxVideoAspect"] = 0.4, 2.5
+		references["minVideoPixels"], references["maxVideoPixels"] = 409600, 8295044
+		operations = []string{"image_to_video", "reference_to_video"}
+		defaultOperation = "reference_to_video"
+	}
+	if mode == "all" {
+		operations = []string{"text_to_video", "image_to_video", "reference_to_video"}
+		defaultOperation = "text_to_video"
+	}
+	config := map[string]any{
+		"version": 1,
+		"video": map[string]any{
+			"references":        references,
+			"duration":          map[string]any{"selection": "range", "min": 1, "max": 15, "step": 1, "default": 6},
+			"ratios":            []string{"adaptive", "16:9", "9:16", "1:1", "4:3", "3:4", "21:9"},
+			"defaultRatio":      "16:9",
+			"resolutions":       []string{"480p", "720p", "1080p"},
+			"defaultResolution": "720p",
+			"generateAudio":     map[string]any{"supported": true, "default": true},
+			"watermark":         map[string]any{"supported": false, "default": false},
+			"operations":        operations,
+			"defaultOperation":  defaultOperation,
+		},
+	}
+	body, err := json.Marshal(config)
+	if err != nil {
+		return nil
+	}
+	return body
+}
+
+func seedanceProfile(model string) ModelProfile {
+	return ModelProfile{
+		Model: model, DisplayName: seedanceDisplayName(model, seedanceModeForModel(model)),
+		Capability: "video", Protocol: "newapi", CapabilityConfig: seedanceCapabilityConfigBody(seedanceModeForModel(model)),
+	}
+}
 
 // Defaults 是首次部署预置的渠道模板（阶段 4）：上游 ZhenZhen AI，
-// OpenAI 兼容的异步视频任务接口，模型 Seedance 2.0。
+// OpenAI 兼容的异步视频任务接口（POST /v1/videos），模型为上游真实 SKU。
 func Defaults() []Channel {
 	return []Channel{{
-		ID:        ChannelIDPrefix + "seedance",
-		Name:      "灵动TV 视频",
-		BaseURL:   "https://api.seedance.nz",
-		APIFormat: "openai",
-		Models:    []string{"seedance-2.0"},
-		ModelProfiles: []ModelProfile{{
-			Model: "seedance-2.0", Capability: "video", Protocol: "newapi",
-			CapabilityConfig: json.RawMessage(seedanceCapabilityConfig),
-		}},
+		ID:               ChannelIDPrefix + "seedance",
+		Name:             "灵动TV 视频",
+		BaseURL:          "https://api.seedance.nz",
+		APIFormat:        "openai",
+		Models:           []string{"seedance-2.0-standard-t2v", "seedance-2.0-standard-i2v", "seedance-2.0-standard-multi"},
+		ModelProfiles:    []ModelProfile{seedanceProfile("seedance-2.0-standard-t2v"), seedanceProfile("seedance-2.0-standard-i2v"), seedanceProfile("seedance-2.0-standard-multi")},
 		ConcurrencyLimit: 3,
 		Enabled:          true,
 		SortOrder:        10,

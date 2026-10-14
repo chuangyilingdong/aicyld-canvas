@@ -8,6 +8,7 @@ import (
 
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/modelcatalog"
+	"infinite-canvas/backend/internal/platformchannels"
 )
 
 // 平台统一渠道（platformchannels 包）在浏览器侧走 /api/ai/custom 中转即可工作；
@@ -189,7 +190,15 @@ func platformModelCapabilityConfig(profile PlatformChannelModel, stored string) 
 	if !strings.EqualFold(strings.TrimSpace(profile.Capability), "video") {
 		return nil, fmt.Errorf("模型 %s 缺少能力配置（仅视频模型可缺省）", profile.Model)
 	}
+	// Seedance 2 家族按上游 SKU 名生成模式化能力配置（t2v / i2v / multi），
+	// 与前端对 newapi + seedance-2 的默认口径一致，后台新增模型时无需手填。
 	var config ModelCapabilityConfig
+	if body, ok := platformchannels.VideoCapabilityConfigForModel(profile.Model); ok {
+		if err := json.Unmarshal(body, &config); err != nil {
+			return nil, err
+		}
+		return &config, nil
+	}
 	if err := json.Unmarshal([]byte(defaultPlatformVideoCapabilityConfig), &config); err != nil {
 		return nil, err
 	}
