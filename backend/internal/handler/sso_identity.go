@@ -41,6 +41,7 @@ type SSOIdentity struct {
 	UserID      string `json:"uid"`
 	Username    string `json:"uname"`
 	DisplayName string `json:"name"`
+	Avatar      string `json:"avatar"`
 	ExpiresAt   int64  `json:"exp"`
 }
 
@@ -106,6 +107,7 @@ func verifySSOToken(token string, secret string) (*SSOIdentity, error) {
 	identity.UserID = strings.TrimSpace(identity.UserID)
 	identity.Username = strings.TrimSpace(identity.Username)
 	identity.DisplayName = strings.TrimSpace(identity.DisplayName)
+	identity.Avatar = strings.TrimSpace(identity.Avatar)
 	// 拒绝空身份；local 是上游内置的单机工作区账号，不能由外部令牌冒充。
 	if identity.UserID == "" || identity.UserID == localWorkspaceUsername {
 		return nil, ErrSSOInvalid

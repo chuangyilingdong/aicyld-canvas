@@ -31,7 +31,25 @@ func RegisterWorkspaceRoutes(r *gin.RouterGroup, svc *app.Service) {
 			failService(c, err)
 			return
 		}
-		publicUser := app.AuthUser{User: *user}
+		// 托管形态：用户名/昵称/头像以主站身份为准（画布工作区行本身不含这些资料）。
+		userPayload := gin.H{
+			"id": user.ID, "username": user.Username, "displayName": user.DisplayName,
+			"role": user.Role, "status": user.Status,
+			"createdAt": user.CreatedAt, "updatedAt": user.UpdatedAt,
+		}
+		if identity, ok := WorkspaceIdentity(c); ok {
+			if identity.Username != "" {
+				userPayload["username"] = identity.Username
+				userPayload["identityUsername"] = identity.Username
+			}
+			if identity.DisplayName != "" {
+				userPayload["displayName"] = identity.DisplayName
+			}
+			if identity.Avatar != "" {
+				userPayload["avatarUrl"] = identity.Avatar
+			}
+			userPayload["identityProvider"] = "aicyld"
+		}
 		// Desktop model configuration is persisted separately under the workspace
 		// data directory. The bootstrap contract contains no account metadata.
 		logicalModels := []app.PublicLogicalModel{}
@@ -70,7 +88,7 @@ func RegisterWorkspaceRoutes(r *gin.RouterGroup, svc *app.Service) {
 				"owner":   workspaceOwner,
 				"storage": "sqlite",
 			},
-			"user":          publicUser,
+			"user":          userPayload,
 			"storageMode":   storageMode,
 			"logicalModels": logicalModels,
 			"runtimeLimits": limits,

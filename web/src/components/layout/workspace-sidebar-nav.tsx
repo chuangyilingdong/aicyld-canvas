@@ -5,6 +5,7 @@ import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 
 import { BrandLogoFrame } from "@/components/brand/brand-logo";
 import { WorkspaceSidebarUpdate } from "@/components/layout/workspace-sidebar-update";
+import { WorkspaceAccountBlock } from "@/components/layout/workspace-account-block";
 import { WorkspaceSidebarSocialLinks } from "@/components/layout/workspace-sidebar-social-links";
 import { Kbd } from "@/components/ui/base/kbd";
 import { navigationTools, type NavigationToolSlug } from "@/constant/navigation-tools";
@@ -307,6 +308,9 @@ export function WorkspaceSidebarNav({ collapsed, onNavigate, onOpenSearch, onExp
                         ))}
                     </div>
                 ) : null}
+                <div className={cn("app-workspace-sidebar-account-row", collapsed && "is-collapsed")}>
+                    <WorkspaceAccountBlock onNavigate={onNavigate} />
+                </div>
                 <div className={cn("app-workspace-sidebar-contact-row", collapsed && "is-collapsed")}>
                     <WorkspaceSidebarSocialLinks />
                 </div>

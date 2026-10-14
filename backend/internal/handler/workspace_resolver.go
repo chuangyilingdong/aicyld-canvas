@@ -19,6 +19,19 @@ const workspaceUnresolvedKey = "canvas.workspace_error"
 // workspaceAdminKey 记录本次请求的主站身份是否为画布管理员。
 const workspaceAdminKey = "canvas.workspace_admin"
 
+// workspaceIdentityKey 保存本次请求的主站身份，供 bootstrap 输出用户名与头像。
+const workspaceIdentityKey = "canvas.workspace_identity"
+
+// WorkspaceIdentity 返回本次请求解析出的主站身份（本地/桌面形态下不存在）。
+func WorkspaceIdentity(c *gin.Context) (SSOIdentity, bool) {
+	value, exists := c.Get(workspaceIdentityKey)
+	if !exists {
+		return SSOIdentity{}, false
+	}
+	identity, ok := value.(SSOIdentity)
+	return identity, ok
+}
+
 // hostedAdminList 解析 AICYLD_CANVAS_ADMIN_IDS（主站用户 ID，逗号分隔）。
 func hostedAdminList() map[string]struct{} {
 	result := map[string]struct{}{}
@@ -88,6 +101,7 @@ func WorkspaceResolverMiddleware(dataDir string, fallback workspace.Context, res
 			})
 			return
 		}
+		c.Set(workspaceIdentityKey, *identity)
 		if _, isAdmin := hostedAdminList()[identity.UserID]; isAdmin {
 			c.Set(workspaceAdminKey, true)
 		}
