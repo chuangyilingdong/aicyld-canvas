@@ -156,6 +156,15 @@ async function persistCanvasNodeAsset(options: EnsureCanvasNodeAssetOptions): Pr
     const declaredCategory = options.category || declaredCanvasNodeAssetCategory(options.node);
     let created = false;
     if (!asset) {
+        // 节点上已经有素材 id（可能来自服务端/其它设备，本地素材库还没同步回来）：
+        // 这时**不要**另造一条本地素材——那会让画布带上一个服务端不认识的 id，
+        // 之后每次提交都会被画布媒体校验拒绝。沿用声明的 id，等素材同步回来自然匹配。
+        const declaredAssetId = String(options.node.metadata?.assetId || "").trim();
+        if (declaredAssetId) {
+            return { assetId: declaredAssetId, created: false, linkedToProject: false, confirmed: true };
+        }
+    }
+    if (!asset) {
         const input = canvasNodeToAsset(options.node, { canvasId: options.canvasId, source: options.source, taskId: options.taskId });
         if (!input) throw new Error("当前节点没有可保存的素材内容");
         const assetId = store.addAsset(options.category ? { ...input, category: options.category } : input);
@@ -172,7 +181,9 @@ async function persistCanvasNodeAsset(options: EnsureCanvasNodeAssetOptions): Pr
     if (!confirmed) {
         await flushAssetStorePersistence(expected);
         assertUserScope(expected);
-        return { assetId: asset.id, created, linkedToProject: false, confirmed: false };
+        // 未回写服务端的素材 id 不能写进画布文档（服务端校验会整份拒绝），
+        // 调用方拿到空 id 会保持节点原状，等下一条同步链路补齐。
+        return { assetId: "", created, linkedToProject: false, confirmed: false };
     }
     // Browser-local IndexedDB is the durable store, but a proxied Go canvas
     // repository still requires an owned Asset for resource: keys. Desktop and
