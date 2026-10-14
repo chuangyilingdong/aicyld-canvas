@@ -86,6 +86,47 @@ func New(dataDir string) (*Store, error) {
 	return &Store{path: filepath.Join(absolute, FileName), mu: guard.(*sync.Mutex)}, nil
 }
 
+// seedanceCapabilityConfig 是预置渠道 Seedance 2.0 的能力配置。
+// 与前端 lib/model-capabilities.ts 的 seedance-2 + newapi 口径一致（含同步音频、
+// 多素材参考与官方参考素材限制），避免服务端 admission 判为「参数超出支持范围」。
+const seedanceCapabilityConfig = `{
+  "version": 1,
+  "video": {
+    "references": {
+      "promptMaxChars": 4000,
+      "minImages": 0,
+      "maxImages": 9,
+      "maxImageBytes": 31457280,
+      "maxVideos": 3,
+      "maxVideoBytes": 209715200,
+      "maxVideoDurationSeconds": 15,
+      "minVideoDurationSeconds": 2,
+      "maxVideoTotalDurationSeconds": 15,
+      "maxAudios": 3,
+      "maxAudioBytes": 15728640,
+      "maxAudioDurationSeconds": 15,
+      "minAudioDurationSeconds": 1.8,
+      "maxAudioTotalDurationSeconds": 15,
+      "minImageWidth": 300, "maxImageWidth": 6000,
+      "minImageHeight": 300, "maxImageHeight": 6000,
+      "minImageAspect": 0.4, "maxImageAspect": 2.5,
+      "minVideoWidth": 300, "maxVideoWidth": 6000,
+      "minVideoHeight": 300, "maxVideoHeight": 6000,
+      "minVideoAspect": 0.4, "maxVideoAspect": 2.5,
+      "minVideoPixels": 409600, "maxVideoPixels": 8295044
+    },
+    "duration": { "selection": "range", "min": 1, "max": 15, "step": 1, "default": 6 },
+    "ratios": ["adaptive", "16:9", "9:16", "1:1", "4:3", "3:4", "21:9"],
+    "defaultRatio": "16:9",
+    "resolutions": ["480p", "720p", "1080p"],
+    "defaultResolution": "720p",
+    "generateAudio": { "supported": true, "default": true },
+    "watermark": { "supported": false, "default": false },
+    "operations": ["text_to_video", "image_to_video", "reference_to_video"],
+    "defaultOperation": "text_to_video"
+  }
+}`
+
 // Defaults 是首次部署预置的渠道模板（阶段 4）：上游 ZhenZhen AI，
 // OpenAI 兼容的异步视频任务接口，模型 Seedance 2.0。
 func Defaults() []Channel {
@@ -97,6 +138,7 @@ func Defaults() []Channel {
 		Models:    []string{"seedance-2.0"},
 		ModelProfiles: []ModelProfile{{
 			Model: "seedance-2.0", Capability: "video", Protocol: "newapi",
+			CapabilityConfig: json.RawMessage(seedanceCapabilityConfig),
 		}},
 		ConcurrencyLimit: 3,
 		Enabled:          true,
