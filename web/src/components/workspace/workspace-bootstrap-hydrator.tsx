@@ -7,6 +7,8 @@ import { appPathname } from "@/lib/app-routing";
 import { preloadWorkspaceRoute } from "@/lib/workspace-route-modules";
 import { applyUserSession, localWorkspaceConfig } from "@/lib/user-session";
 import { getWorkspaceBootstrap, type WorkspaceBootstrapPayload } from "@/services/api/workspace";
+import { isSignInRequiredError } from "@/services/api/request";
+import { isHostedBuild } from "@/services/workspace-mode";
 import { commitModelConfig, flushModelConfig, hydrateModelConfig } from "@/services/model-config-repository";
 import { normalizeConfigSnapshot, useConfigStore } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
@@ -85,7 +87,10 @@ export async function initializeWorkspaceState<T>({
     try {
         try {
             await applySession(await loadWorkspace());
-        } catch {
+        } catch (error) {
+            // 托管部署（hb.aicyld.com.cn）不能静默降级成"空白的本地工作区"：
+            // 会话失效交给 401 跳转处理，其它失败由外层显示错误态并允许重试。
+            if (isSignInRequiredError(error) || isHostedBuild()) throw error;
             // Keep the desktop usable while the embedded backend is still
             // starting. There is no remote/account fallback in a local build.
             await applySession(createLocalWorkspace());

@@ -48,6 +48,29 @@ export let apiBaseURL = import.meta.env.VITE_CANVAS_BACKEND_URL || "/api";
 // 没有超时会让启动水合一直停留在 loading，Playwright 和用户都看不到页面。
 export const apiClient = axios.create({ baseURL: apiBaseURL, withCredentials: true, timeout: 4_000 });
 
+/** 主站登录页地址；托管部署下会话失效时跳转过去，并带回跳地址。 */
+export function signInURL(): string {
+    const base = import.meta.env.VITE_AICYLD_LOGIN_URL || "https://aicyld.com.cn/login";
+    const current = typeof window === "undefined" ? "" : window.location.href;
+    return `${base}?redirect=${encodeURIComponent(current)}`;
+}
+
+/** 会话缺失或过期：需要到主站登录。 */
+export function isSignInRequiredError(error: unknown): boolean {
+    return error instanceof ApiError && error.status === 401;
+}
+
+// 会话失效时统一切到主站登录页，避免子域停留在半登录状态。
+apiClient.interceptors.response.use(
+    (response) => response,
+    (error) => {
+        if (axios.isAxiosError(error) && error.response?.status === 401 && typeof window !== "undefined") {
+            window.location.replace(signInURL());
+        }
+        return Promise.reject(error);
+    },
+);
+
 export function configureApiRuntime(baseURL: string, launchToken: string, uiBootstrapToken?: string) {
     apiBaseURL = baseURL;
     apiClient.defaults.baseURL = baseURL;

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 
 	"infinite-canvas/backend/internal/app"
 	"infinite-canvas/backend/internal/beefapi"
@@ -43,18 +44,32 @@ func RegisterWorkspaceRoutes(r *gin.RouterGroup, svc *app.Service) {
 			return
 		}
 		contract := LocalDesktopContract()
+		// 主站登录（SSO）启用时，这个部署是多用户托管形态：前端据此切到 hosted 存储路径，
+		// 项目/画布/素材以服务端为准，模型渠道使用后台配置的系统渠道。
+		profile := contract.Profile
+		storageMode := "local"
+		workspaceName := "本地工作区"
+		workspaceOwner := "local"
+		if SSOConfigured() {
+			profile = "hosted"
+			storageMode = "remote"
+			workspaceOwner = "account"
+			if name := strings.TrimSpace(user.DisplayName); name != "" {
+				workspaceName = name
+			}
+		}
 		ok(c, gin.H{
 			"contractVersion": contract.Version,
-			"profile":         contract.Profile,
+			"profile":         profile,
 			"capabilities":    contract.Capabilities,
 			"workspace": gin.H{
 				"id":      scope.ID,
-				"name":    "本地工作区",
-				"owner":   "local",
+				"name":    workspaceName,
+				"owner":   workspaceOwner,
 				"storage": "sqlite",
 			},
 			"user":          publicUser,
-			"storageMode":   "local",
+			"storageMode":   storageMode,
 			"logicalModels": logicalModels,
 			"runtimeLimits": limits,
 			"features":      features,

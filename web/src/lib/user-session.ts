@@ -4,6 +4,7 @@ import { scopedLocalStorage, setActiveUserScope } from "@/lib/user-scope";
 import { CANVAS_HISTORY_STORE_KEY, useCanvasHistoryStore } from "@/stores/canvas/use-canvas-history-store";
 import { CANVAS_STORE_KEY, flushCanvasStorePersistence, useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { captureUserScope } from "@/lib/user-scope-guard";
+import { setWorkspaceProfile } from "@/services/workspace-mode";
 import { ASSET_STORE_KEY, flushAssetStorePersistence, useAssetStore } from "@/stores/use-asset-store";
 import { preserveLegacyCacheOnlyAssetDrafts, usesWorkspaceAssetLibraryApi } from "@/services/workspace-asset-read";
 import { CONFIG_STORE_KEY, defaultConfig, isSystemProxyBaseUrl, normalizeConfigSnapshot, useConfigStore, type AiConfig } from "@/stores/use-config-store";
@@ -19,15 +20,18 @@ import { withGenerationConsumersPaused } from "@/services/generation-consumer-li
  * session: it only selects the persistence namespace and restores local stores.
  */
 export async function applyUserSession(payload: WorkspaceBootstrapPayload) {
+    // 服务端 bootstrap 的 profile 是权威：托管部署下切到 hosted 存储路径。
+    setWorkspaceProfile(payload.profile === "hosted" ? "hosted" : "local");
     // Drain old result writers before changing the persistence namespace or stores.
     return withGenerationConsumersPaused(() => hydrateLocalWorkspace(payload));
 }
 
 async function hydrateLocalWorkspace(payload: WorkspaceBootstrapPayload) {
+    const hosted = payload.profile === "hosted";
     useUserStore.getState().setHydrated(false);
     setWorkspaceCapabilitySnapshot({
         contractVersion: payload.contractVersion,
-        profile: "local",
+        profile: payload.profile,
         capabilities: payload.capabilities,
     });
 
@@ -46,7 +50,7 @@ async function hydrateLocalWorkspace(payload: WorkspaceBootstrapPayload) {
 
         usePluginStore.setState({ hydrated: false, runtimeStatuses: {}, pluginStates: {} });
         useUserStore.getState().setUser(payload.user);
-        useUserStore.getState().setStorageMode("local");
+        useUserStore.getState().setStorageMode(hosted ? "remote" : "local");
         useUserStore.getState().setRuntimeLimits(payload.runtimeLimits);
         useUserStore.getState().setFeatures({ ...defaultFeatureAvailability, ...payload.features });
 
@@ -59,9 +63,17 @@ async function hydrateLocalWorkspace(payload: WorkspaceBootstrapPayload) {
             useCreationPreferencesStore.persist.rehydrate(),
         ]);
 
-        useConfigStore.getState().replaceConfig(localWorkspaceConfig(useConfigStore.getState().config));
-        useCanvasStore.setState((state) => ({ projects: state.projects.map(normalizeLocalCanvasProject) }));
-        useAssetStore.setState((state) => ({ assets: state.assets.map(normalizeLocalAsset) }));
+        if (hosted) {
+            // 托管模式：项目/画布/素材以服务端为唯一数据源，浏览器缓存不参与合并；
+            // 模型渠道保留服务端下发（含后台配置的系统渠道），不做本地化过滤。
+            useCanvasStore.setState({ projects: [] });
+            useCanvasHistoryStore.setState({ deletedProjects: [] });
+            useAssetStore.setState({ assets: [] });
+        } else {
+            useConfigStore.getState().replaceConfig(localWorkspaceConfig(useConfigStore.getState().config));
+            useCanvasStore.setState((state) => ({ projects: state.projects.map(normalizeLocalCanvasProject) }));
+            useAssetStore.setState((state) => ({ assets: state.assets.map(normalizeLocalAsset) }));
+        }
 
         // Zustand keeps the previous in-memory value when a scoped snapshot is
         // absent, so every empty local namespace must be reset explicitly.
