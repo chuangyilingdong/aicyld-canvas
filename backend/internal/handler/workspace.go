@@ -24,7 +24,9 @@ func RegisterWorkspaceRoutes(r *gin.RouterGroup, svc *app.Service) {
 			fail(c, http.StatusInternalServerError, err)
 			return
 		}
-		user, err := svc.WorkspaceOwner(scope.ID)
+		// 走 currentUser 而非直接 WorkspaceOwner：托管部署下它负责把角色
+		// 收紧为普通用户（只有白名单主站用户是管理员）。
+		user, err := currentUser(c, svc)
 		if err != nil {
 			failService(c, err)
 			return

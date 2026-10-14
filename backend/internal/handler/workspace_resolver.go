@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -14,6 +15,21 @@ import (
 
 // workspaceUnresolvedKey 记录本次请求解析工作区失败的原因，便于日志与诊断。
 const workspaceUnresolvedKey = "canvas.workspace_error"
+
+// workspaceAdminKey 记录本次请求的主站身份是否为画布管理员。
+const workspaceAdminKey = "canvas.workspace_admin"
+
+// hostedAdminList 解析 AICYLD_CANVAS_ADMIN_IDS（主站用户 ID，逗号分隔）。
+func hostedAdminList() map[string]struct{} {
+	result := map[string]struct{}{}
+	for _, part := range strings.Split(os.Getenv("AICYLD_CANVAS_ADMIN_IDS"), ",") {
+		id := strings.TrimSpace(part)
+		if id != "" {
+			result[id] = struct{}{}
+		}
+	}
+	return result
+}
 
 // WorkspaceUserResolver 把主站身份幂等映射为画布用户。
 type WorkspaceUserResolver func(identity SSOIdentity) (*model.User, error)
@@ -71,6 +87,9 @@ func WorkspaceResolverMiddleware(dataDir string, fallback workspace.Context, res
 				"msg":  "工作区上下文不合法",
 			})
 			return
+		}
+		if _, isAdmin := hostedAdminList()[identity.UserID]; isAdmin {
+			c.Set(workspaceAdminKey, true)
 		}
 		c.Set(workspaceContextKey, scope)
 		c.Next()
