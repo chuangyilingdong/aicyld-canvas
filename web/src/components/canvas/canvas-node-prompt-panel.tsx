@@ -1,4 +1,25 @@
-import { Button, Image as AntImage, InputNumber, Modal, Popover } from "antd";
+import { Select, Button, Image as AntImage, InputNumber, Modal, Popover } from "antd";
+import { resolveVideoOperation } from "@/lib/model-selection";
+import {
+    defaultModelCapabilityConfig,
+    modelCapabilityConfigFor,
+    normalizeImageValue,
+    normalizeVideoValue,
+    workflowFieldChoiceValues,
+    workflowFieldCurrentValue,
+    workflowFieldKey,
+    workflowFieldNumberBounds,
+    workflowFieldRandomKey,
+    workflowFieldSubmissionValue,
+    workflowFieldValueError,
+    workflowImageCapabilityConfig,
+    workflowOutputSizeValue,
+    workflowParameterFields,
+    workflowVideoCapabilityConfig,
+    workflowVideoFieldsFromJson,
+    type WorkflowVideoFieldLike,
+} from "@/lib/model-capabilities";
+import { CanvasNodeType, type CanvasGenerationMode, type CanvasNodeData, type CanvasNodeMetadata, type CanvasVideoEditOperation, type CanvasWorkspaceMode } from "@/types/canvas";
 import { Tooltip } from "@/components/ui/base/tooltip";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { ArrowLeftRight, ArrowUp, AtSign, Boxes, Camera, ChevronDown, FileText, GripVertical, ImageIcon, ImagePlus, Link2, LoaderCircle, Maximize2, Music2, Pencil, SlidersHorizontal, UserRound, Video, WandSparkles, X } from "lucide-react";
@@ -24,7 +45,6 @@ import { CanvasVideoPromptTools } from "./canvas-video-prompt-tools";
 import { CanvasPresetPicker, type CanvasPromptPreset } from "./canvas-preset-picker";
 import { CanvasPortraitTexturePopover } from "./canvas-portrait-texture-popover";
 import { CanvasPromptOptimizerDrawer } from "./canvas-prompt-optimizer-drawer";
-import { CanvasNodeType, type CanvasGenerationMode, type CanvasNodeData, type CanvasNodeMetadata, type CanvasWorkspaceMode } from "@/types/canvas";
 import { autoMentionCanvasResourceReferences, canvasResourceMentionToken, normalizeCanvasNodeMentionTokens, type CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import { promptOptimizerPlugin, PROMPT_OPTIMIZER_PLUGIN_ID } from "@/lib/plugins/builtin/prompt-optimizer";
 import { createPluginHostContext } from "@/services/plugin-host";
@@ -53,6 +73,19 @@ type CanvasNodePromptPanelProps = {
 };
 
 type CanvasTheme = (typeof canvasThemes)[keyof typeof canvasThemes];
+
+const canvasVideoModeOptions: Array<{ label: string; value: CanvasVideoEditOperation }> = [
+    { label: "文生视频", value: "text_to_video" },
+    { label: "图生视频", value: "image_to_video" },
+    { label: "全模态参考", value: "reference_to_video" },
+    { label: "视频续写", value: "extend" },
+    { label: "局部修改", value: "inpaint" },
+    { label: "元素替换", value: "replace_element" },
+    { label: "运镜调整", value: "camera_motion" },
+    { label: "风格迁移", value: "style_transfer" },
+    { label: "音频生视频", value: "audio_to_video" },
+    { label: "版本对比", value: "compare_versions" },
+];
 
 const PROMPT_REFERENCE_SHELF_HEIGHT = 58;
 // Keep the compact editor readable at rest: three 20px lines plus 12px vertical padding.
@@ -349,18 +382,35 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
             <div className="canvas-node-composer-footer">
                 <div className={expanded ? "min-w-0 flex-1" : "canvas-node-composer-model"}>
                     {availableModels.length ? (
-                        <ModelPicker
-                            className="!h-7 !w-full !min-w-0 !text-[var(--fs-tiny)] !font-normal [&_img]:!size-3 [&_.lucide]:!size-3"
-                            fullWidth
-                            config={config}
-                            value={config.model}
-                            onChange={(model) => onConfigChange(node.id, mode === "image" ? { model, ...defaultImageParamsForModel(config, model) } : { model })}
-                            capability={mode}
-                            requirements={resolvedRequirements}
-                            onMissingConfig={() => navigateToSettings({ section: "channels", continueCreation: true })}
-                            variant="creation"
-                            showConfiguredModelName
-                        />
+                        <div className="flex min-w-0 flex-1 items-center gap-1">
+                            <div className="min-w-0 flex-1">
+                                <ModelPicker
+                                    className="!h-7 !w-full !min-w-0 !text-[var(--fs-tiny)] !font-normal [&_img]:!size-3 [&_.lucide]:!size-3"
+                                    fullWidth
+                                    config={config}
+                                    value={config.model}
+                                    onChange={(model) => onConfigChange(node.id, mode === "image" ? { model, ...defaultImageParamsForModel(config, model) } : { model })}
+                                    capability={mode}
+                                    requirements={resolvedRequirements}
+                                    onMissingConfig={() => navigateToSettings({ section: "channels", continueCreation: true })}
+                                    variant="creation"
+                                    showConfiguredModelName
+                                />
+                            </div>
+                            {mode === "video" ? (
+                                <Select
+                                    aria-label="视频生成模式"
+                                    size="small"
+                                    popupMatchSelectWidth={false}
+                                    className="canvas-node-composer-mode-select !h-7 shrink-0 [&_.ant-select-selector]:!h-7 [&_.ant-select-selection-item]:!text-[var(--fs-tiny)] [&_.ant-select-selection-item]:!leading-7"
+                                    value={resolveVideoOperation({ textCount: 0, imageCount: requirements.input?.imageCount || 0, videoCount: requirements.input?.videoCount || 0, audioCount: requirements.input?.audioCount || 0, characterCount: 0 }, node.metadata?.videoEditOperation)}
+                                    options={canvasVideoModeOptions
+                                        .filter((option) => ((modelCapabilityConfigFor(config, config.model).video?.operations) || []).includes(option.value))
+                                        .map((option) => ({ ...option, disabled: false }))}
+                                    onChange={(value) => onConfigChange(node.id, { videoEditOperation: value as CanvasVideoEditOperation })}
+                                />
+                            ) : null}
+                        </div>
                     ) : (
                         <button
                             type="button"
