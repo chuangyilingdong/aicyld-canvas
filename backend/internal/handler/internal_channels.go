@@ -61,7 +61,13 @@ func RegisterInternalChannelRoutes(r *gin.RouterGroup, svc *app.Service) {
 			failService(c, err)
 			return
 		}
-		ok(c, gin.H{"channels": platformchannels.Redact(channels), "assistantModel": assistantModel})
+		featureModels, err := store.FeatureModels()
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"channels": platformchannels.Redact(channels), "assistantModel": assistantModel,
+			"featureModels": featureModels, "featureKeys": platformchannels.FeatureKeys})
 	})
 
 	group.PUT("/channels", func(c *gin.Context) {
@@ -69,6 +75,8 @@ func RegisterInternalChannelRoutes(r *gin.RouterGroup, svc *app.Service) {
 			Channels []platformchannels.Channel `json:"channels"`
 			// 指针类型：不传该字段表示保持原值，传空串表示清除（回退到默认助手模型）。
 			AssistantModel *string `json:"assistantModel"`
+			// 「功能 → 模型」映射：同样不传表示保持原值，空串表示清除该功能的绑定。
+			FeatureModels map[string]string `json:"featureModels"`
 		}
 		if err := c.ShouldBindJSON(&payload); err != nil {
 			fail(c, http.StatusBadRequest, errors.New("平台渠道配置格式错误"))
@@ -79,7 +87,7 @@ func RegisterInternalChannelRoutes(r *gin.RouterGroup, svc *app.Service) {
 			failService(c, err)
 			return
 		}
-		saved, err := store.SaveWithAssistantModel(payload.Channels, payload.AssistantModel)
+		saved, err := store.SaveAll(payload.Channels, payload.AssistantModel, payload.FeatureModels)
 		if err != nil {
 			fail(c, http.StatusBadRequest, err)
 			return
@@ -91,7 +99,13 @@ func RegisterInternalChannelRoutes(r *gin.RouterGroup, svc *app.Service) {
 			failService(c, err)
 			return
 		}
-		ok(c, gin.H{"channels": platformchannels.Redact(saved), "assistantModel": assistantModel, "warnings": warnings})
+		featureModels, err := store.FeatureModels()
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"channels": platformchannels.Redact(saved), "assistantModel": assistantModel,
+			"featureModels": featureModels, "featureKeys": platformchannels.FeatureKeys, "warnings": warnings})
 	})
 }
 

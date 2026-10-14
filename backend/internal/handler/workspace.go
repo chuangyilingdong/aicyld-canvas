@@ -110,7 +110,10 @@ func RegisterWorkspaceRoutes(r *gin.RouterGroup, svc *app.Service) {
 				failService(c, err)
 				return
 			}
-			ok(c, gin.H{"config": publicModelConfig(c, svc, effective.Config), "revision": effective.Revision, "health": health, "source": "builtin+local"})
+			// 「功能 → 模型」映射随模型配置一起下发：画布各功能（图片编辑、视频各模式、
+			// 配音等）直接取用平台内置的模型，用户端不再自己挑模型。
+			ok(c, gin.H{"config": publicModelConfig(c, svc, effective.Config), "revision": effective.Revision,
+				"health": health, "source": "builtin+local", "featureModels": platformFeatureModels(svc)})
 			return
 		}
 		body, err := providerConfig.ReadLocalModelConfig()
@@ -192,6 +195,26 @@ func requireModelConfigWrite(c *gin.Context) error {
 		}
 	}
 	return errors.New("模型配置由平台统一维护，如需调整请联系管理员")
+}
+
+// platformFeatureModels 读出「功能 → 模型」映射供画布使用（读不到就返回空对象）。
+func platformFeatureModels(svc *app.Service) map[string]string {
+	if svc == nil {
+		return map[string]string{}
+	}
+	store, err := platformchannels.New(svc.DataDir())
+	if err != nil {
+		return map[string]string{}
+	}
+	features, err := store.FeatureModels()
+	if err != nil {
+		logPlatformChannelFailure(err)
+		return map[string]string{}
+	}
+	if features == nil {
+		return map[string]string{}
+	}
+	return features
 }
 
 // publicModelConfig 在脱敏的基础上注入平台统一渠道：密钥不下发，

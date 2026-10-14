@@ -104,8 +104,11 @@ type document struct {
 	Version int       `json:"version"`
 	// AssistantModel 是画布助手使用的平台模型（`channelId::model` 或裸模型名）；
 	// 留空表示按 DefaultAssistantModel 自动挑选。
-	AssistantModel string    `json:"assistantModel,omitempty"`
-	Channels       []Channel `json:"channels"`
+	AssistantModel string `json:"assistantModel,omitempty"`
+	// FeatureModels 是「画布功能 → 平台模型」的映射（功能键见 FeatureKeys）。
+	// 平台内置好这些模型后，画布各功能直接取用，用户不需要自己选模型。
+	FeatureModels map[string]string `json:"featureModels,omitempty"`
+	Channels      []Channel         `json:"channels"`
 }
 
 // Store 绑定一个画布数据目录；同一目录共享一把锁，避免读改写竞争。
@@ -410,6 +413,36 @@ func (s *Store) AssistantModel() (string, error) {
 	return assistantModel, err
 }
 
+// FeatureKeys 是「功能 → 模型」映射里允许的功能键（顺序即后台展示顺序）。
+// 键的生命周期由画布功能决定，后台只负责给每个功能挑一个平台模型。
+var FeatureKeys = []string{
+	"text.chat",    // 文本生成（含反推提示词，需要能读图的文本模型）
+	"image.t2i",    // 文生图
+	"image.edit",   // 图片编辑（图生图 / 表情调整 / 质感调整 / 多角度 / 打光）
+	"video.t2v",    // 视频 · 文生视频
+	"video.i2v",    // 视频 · 图生视频 / 首尾帧
+	"video.multi",  // 视频 · 全能参考
+	"audio.tts",    // 音频 · 语音合成（配音）
+	"image.vision", // 图片理解（反推提示词等，留空表示跟随 text.chat）
+}
+
+// FeatureModels 读取「功能 → 模型」映射（只返回已知功能键）。
+func (s *Store) FeatureModels() (map[string]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	decoded, err := s.loadDocumentLocked()
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[string]string, len(decoded.FeatureModels))
+	for _, key := range FeatureKeys {
+		if value := strings.TrimSpace(decoded.FeatureModels[key]); value != "" {
+			result[key] = value
+		}
+	}
+	return result, nil
+}
+
 // Config 一次读出渠道定义与助手模型，避免管理端回显时分两次读同一份文件。
 func (s *Store) Config() ([]Channel, string, error) {
 	s.mu.Lock()
@@ -454,6 +487,12 @@ func (s *Store) Save(incoming []Channel) ([]Channel, error) {
 // SaveWithAssistantModel 整体替换渠道定义，并可同时更新助手模型。
 // assistantModel 为 nil 表示保持原值（兼容不带该字段的老管理端）。
 func (s *Store) SaveWithAssistantModel(incoming []Channel, assistantModel *string) ([]Channel, error) {
+	return s.SaveAll(incoming, assistantModel, nil)
+}
+
+// SaveAll 同时更新渠道、助手模型与「功能 → 模型」映射。
+// featureModels 为 nil 表示保持原值；空串值表示清除该功能的绑定。
+func (s *Store) SaveAll(incoming []Channel, assistantModel *string, featureModels map[string]string) ([]Channel, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	stored, err := s.loadDocumentLocked()
@@ -485,14 +524,34 @@ func (s *Store) SaveWithAssistantModel(incoming []Channel, assistantModel *strin
 	if assistantModel != nil {
 		assistant = strings.TrimSpace(*assistantModel)
 	}
-	if err := s.writeLocked(next, assistant); err != nil {
+	features := stored.FeatureModels
+	if featureModels != nil {
+		if features == nil {
+			features = map[string]string{}
+		}
+		for _, key := range FeatureKeys {
+			value, present := featureModels[key]
+			if !present {
+				continue
+			}
+			if value = strings.TrimSpace(value); value == "" {
+				delete(features, key)
+				continue
+			}
+			features[key] = value
+		}
+		if len(features) == 0 {
+			features = nil
+		}
+	}
+	if err := s.writeLocked(next, assistant, features); err != nil {
 		return nil, err
 	}
 	return next, nil
 }
 
-func (s *Store) writeLocked(channels []Channel, assistantModel string) error {
-	body, err := json.MarshalIndent(document{Version: schemaVersion, AssistantModel: assistantModel, Channels: channels}, "", "  ")
+func (s *Store) writeLocked(channels []Channel, assistantModel string, featureModels map[string]string) error {
+	body, err := json.MarshalIndent(document{Version: schemaVersion, AssistantModel: assistantModel, FeatureModels: featureModels, Channels: channels}, "", "  ")
 	if err != nil {
 		return fmt.Errorf("序列化平台渠道配置失败: %w", err)
 	}
