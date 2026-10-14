@@ -28,8 +28,19 @@ describe("助手不可用原因映射成一句用户语加一个出路", () => {
 
     test("缺凭据指向去连接", () => {
         const notice = assistantStatusNotice("credential_missing");
-        expect(notice.text).toBe("BeefTV 还没连接好");
+        expect(notice.text).toBe("灵动TV 还没连接好");
         expect(notice.action).toBe("model-settings");
+    });
+
+    // 托管部署（hb.aicyld.com.cn）下模型渠道由平台统一维护，画布内没有可编辑的配置页：
+    // 这三类原因都不能再给按钮，否则点进去也改不了任何东西。
+    test("托管部署下不再给出改不了的入口", () => {
+        for (const reason of ["model_not_configured", "model_protocol_unsupported", "credential_missing"]) {
+            const notice = assistantStatusNotice(reason, { hosted: true });
+            expect(notice.action).toBeUndefined();
+            expect(notice.actionLabel).toBeUndefined();
+            expect(notice.text).toContain("由平台统一配置");
+        }
     });
 
     test("正在启动只报告进展，没有按钮，并要求更快复查", () => {
