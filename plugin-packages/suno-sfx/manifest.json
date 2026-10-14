@@ -1,0 +1,167 @@
+{
+  "apiVersion": "beeftv.plugin/v2",
+  "id": "suno-sfx",
+  "name": "Suno Sound Effects",
+  "version": "1.0.0",
+  "author": "BeefTV Contributors",
+  "description": "Suno 音效（Sound Effects）异步任务协议插件。",
+  "documentation": "# Suno Sound Effects\n\n该目录是 BeefTV 声明式协议插件源码，用于 Suno 音效接口（/v1/music/generations/sounds + /v1/music/tasks/{task_id}）。\n\n完整接口见 [docs/interface.md](docs/interface.md)。\n",
+  "permissions": [
+    "generation.run",
+    "media.read"
+  ],
+  "configuration": {
+    "fields": [
+      {
+        "name": "apiKey",
+        "type": "secret",
+        "label": "API Key",
+        "required": true
+      }
+    ]
+  },
+  "contributes": {
+    "providers": [
+      {
+        "id": "suno-sfx",
+        "label": "Suno Sound Effects",
+        "capabilities": [
+          "audio"
+        ],
+        "scopes": [
+          "admin.system-channel",
+          "user.custom-channel",
+          "canvas",
+          "creation",
+          "agent"
+        ],
+        "baseUrl": "https://api.seedance.nz",
+        "requiresPublicMediaUrls": false,
+        "auth": {
+          "type": "bearer",
+          "field": "apiKey"
+        },
+        "parameters": [
+          {
+            "name": "prompt",
+            "label": "描述",
+            "type": "string",
+            "required": true,
+            "mapTo": "prompt"
+          },
+          {
+            "name": "sound_length",
+            "label": "时长（秒）",
+            "type": "number",
+            "required": false,
+            "mapTo": "extra.audioSeconds"
+          }
+        ],
+        "create": {
+          "method": "POST",
+          "path": "/v1/music/generations/sounds",
+          "contentType": "application/json",
+          "body": {
+            "prompt": {
+              "$ref": "request.prompt"
+            },
+            "sound_length": {
+              "$omitEmpty": {
+                "$ref": "request.extra.audioSeconds"
+              }
+            }
+          }
+        },
+        "poll": {
+          "method": "GET",
+          "path": "/v1/music/tasks/{{taskId}}"
+        },
+        "response": {
+          "taskId": {
+            "$coalesce": [
+              {
+                "$ref": "response.data.0.task_id"
+              },
+              {
+                "$ref": "response.data.0.id"
+              },
+              {
+                "$ref": "response.data.task_id"
+              },
+              {
+                "$ref": "response.data.id"
+              },
+              {
+                "$ref": "response.task_id"
+              },
+              {
+                "$ref": "taskId"
+              }
+            ]
+          },
+          "status": {
+            "$coalesce": [
+              {
+                "$ref": "response.data.0.status"
+              },
+              {
+                "$ref": "response.data.status"
+              },
+              {
+                "$ref": "response.status"
+              },
+              "pending"
+            ]
+          },
+          "message": {
+            "$coalesce": [
+              {
+                "$ref": "response.data.fail_reason"
+              },
+              {
+                "$ref": "response.error.message"
+              },
+              {
+                "$ref": "response.message"
+              },
+              {
+                "$ref": "response.msg"
+              }
+            ]
+          },
+          "audios": {
+            "$coalesce": [
+              {
+                "$ref": "response.data.result.music.0.audio_url"
+              },
+              {
+                "$ref": "response.data.result.music.0.url"
+              },
+              {
+                "$ref": "response.data.result.music.0.audioUrl"
+              },
+              {
+                "$ref": "response.data.audio_url"
+              },
+              {
+                "$ref": "response.data.url"
+              }
+            ]
+          },
+          "errorPaths": [
+            "error.code",
+            "error.type",
+            "data.fail_reason"
+          ],
+          "messagePaths": [
+            "error.message",
+            "message",
+            "msg"
+          ],
+          "resultEphemeral": true,
+          "resultKind": "audio"
+        }
+      }
+    ]
+  }
+}
