@@ -602,7 +602,11 @@ export function defaultModelCapabilityConfig(protocol?: ModelProtocol, model = "
         video.operations.push("reference_to_video", "audio_to_video");
     }
     if (isSeedance2Family(protocol, model)) {
-        if (protocol === "newapi") video.generateAudio = { supported: true, default: true };
+        if (protocol === "newapi") {
+            video.generateAudio = { supported: true, default: true };
+            // 模式即模型：首尾帧 = 上游图生视频的首帧+尾帧档，全能参考 = 多模态参考档。
+            video.operations = Array.from(new Set([...video.operations, "first_last_frame", "reference_to_video"]));
+        }
         video.references = overlayOfficialSeedance2References(video.references, isSeedance25Model(model));
         if (protocol === "volcengine-ark-video" || protocol === "volcengine-ark-agent-plan-video") video.references.minAudioDurationSeconds = 2;
         video.operations = Array.from(new Set([...video.operations, "reference_to_video", ...(isSeedance25Model(model) ? ["audio_to_video" as const] : [])]));

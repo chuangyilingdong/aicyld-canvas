@@ -215,6 +215,8 @@ func DefaultModelCapabilityConfigForModel(protocol string, modelName string) *Mo
 			video.References.MinAudioDuration = 2
 		}
 		video.Operations = appendUniqueString(video.Operations, "reference_to_video")
+		// 首尾帧是画布上的独立生成模式（上游仍走图生视频档，1 张=首帧、2 张=首帧+尾帧）。
+		video.Operations = appendUniqueString(video.Operations, "first_last_frame")
 		if isSeedance25Model(modelName) {
 			video.Operations = appendUniqueString(video.Operations, "audio_to_video")
 			if video.Duration.Selection == "range" && video.Duration.Max < 30 {

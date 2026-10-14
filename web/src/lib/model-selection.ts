@@ -375,14 +375,18 @@ export function inferVideoOperation(input: ModelInputSummary) {
 
 export function resolveVideoOperation(input: ModelInputSummary, storedOperation?: string) {
     if (storedOperation === "reference_to_video" && input.imageCount + input.characterCount + input.videoCount + input.audioCount > 0) return storedOperation;
+    // 首尾帧是用户显式选的模式：只要有两张图就按首尾帧走（对应上游图生视频的首帧+尾帧），
+    // 不再被「图生视频」的素材推断覆盖。
+    if (storedOperation === "first_last_frame" && input.imageCount >= 2) return storedOperation;
     if (storedOperation === "extend" && input.videoCount > 0) return storedOperation;
-    if (storedOperation && !["text_to_video", "image_to_video", "audio_to_video", "extend", "reference_to_video"].includes(storedOperation)) return storedOperation;
+    if (storedOperation && !["text_to_video", "image_to_video", "first_last_frame", "audio_to_video", "extend", "reference_to_video"].includes(storedOperation)) return storedOperation;
     return inferVideoOperation(input);
 }
 
 function videoOperationLabel(operation: string) {
     if (operation === "text_to_video") return "文生视频";
     if (operation === "image_to_video") return "图生视频";
+    if (operation === "first_last_frame") return "首尾帧";
     if (operation === "audio_to_video") return "音频生视频";
     if (operation === "reference_to_video") return "全能参考";
     if (operation === "extend") return "视频续写";

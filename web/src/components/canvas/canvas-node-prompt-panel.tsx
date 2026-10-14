@@ -77,6 +77,7 @@ type CanvasTheme = (typeof canvasThemes)[keyof typeof canvasThemes];
 const canvasVideoModeOptions: Array<{ label: string; value: CanvasVideoEditOperation }> = [
     { label: "文生视频", value: "text_to_video" },
     { label: "图生视频", value: "image_to_video" },
+    { label: "首尾帧", value: "first_last_frame" },
     { label: "全能参考", value: "reference_to_video" },
     { label: "视频续写", value: "extend" },
     { label: "局部修改", value: "inpaint" },

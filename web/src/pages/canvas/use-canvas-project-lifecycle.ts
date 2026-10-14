@@ -314,7 +314,7 @@ export function useCanvasProjectLifecycle({
             // Task acknowledgements can already be present in the store before
             // this editor observes them. Equal local graphs still need a CAS save
             // when the backend has not confirmed that document yet.
-            if (localMode && hasUnconfirmedCanvasEdits(projectId)) scheduleLocalCanvasBackendSync(projectId);
+            if (hasUnconfirmedCanvasEdits(projectId)) scheduleLocalCanvasBackendSync(projectId);
             return;
         }
         traceCanvasGraph("editor.autosave", { observed: { id: projectId, ...observedContentRef.current }, render: { id: projectId, ...snapshot }, live: { id: projectId, nodes: nodesRef.current, connections: connectionsRef.current }, stored: useCanvasStore.getState().openProject(projectId) });
@@ -323,11 +323,13 @@ export function useCanvasProjectLifecycle({
         const stored = useCanvasStore.getState().projects.find((project) => project.id === projectId);
         // 远端结果投影到编辑器不是一次本地编辑，避免改写时间戳并触发反向保存。
         if (stored && Object.entries(patch).every(([key, value]) => JSON.stringify(stored[key as keyof CanvasProject]) === JSON.stringify(value))) {
-            if (localMode && hasUnconfirmedCanvasEdits(projectId)) scheduleLocalCanvasBackendSync(projectId);
+            if (hasUnconfirmedCanvasEdits(projectId)) scheduleLocalCanvasBackendSync(projectId);
             return;
         }
         updateProject(projectId, patch);
-        if (localMode) scheduleLocalCanvasBackendSync(projectId);
+        // 托管部署（画布 Web）同样要把画布文档提交到服务端：只落浏览器缓存的话，
+        // 新建但还没生成的节点刷新就没了（生成产物会被任务回写救回来，空节点不会）。
+        scheduleLocalCanvasBackendSync(projectId);
     }, [activeChatId, backgroundMode, canvasAppearance, chatSessions, connections, historyPausedRef, nodes, observedAtRender, projectId, projectLoaded, showImageInfo, updateProject]);
 
     useEffect(() => {
@@ -384,7 +386,7 @@ export function useCanvasProjectLifecycle({
             void (async () => {
                 await flushCanvasStorePersistence();
                 if (!userScopeMatches(owner)) return;
-                if (localMode) await syncLocalCanvasProjectToBackend(projectId, owner);
+                await syncLocalCanvasProjectToBackend(projectId, owner);
             })().catch((error) => {
                 if (isCanvasSubmitControlError(error)) return;
                 console.error("离开画布时保存失败", { projectId, reason, error });
@@ -462,7 +464,7 @@ export function useCanvasProjectLifecycle({
         }
         updateProject(projectId, { viewport: viewportRef.current });
         await flushCanvasStorePersistence();
-        if (localMode) await syncLocalCanvasProjectToBackend(projectId);
+        await syncLocalCanvasProjectToBackend(projectId);
     }, [activeChatId, backgroundMode, canvasAppearance, chatSessions, connectionsRef, localMode, nodesRef, projectId, projectLoaded, showImageInfo, updateProject, viewportRef]);
 
     const reloadLatestCanvasProject = useCallback(async () => {

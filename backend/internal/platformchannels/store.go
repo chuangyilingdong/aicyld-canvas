@@ -194,7 +194,7 @@ func seedanceCapabilityConfigBody(mode string) []byte {
 	case "i2v":
 		references["minImages"] = 1
 		references["maxImages"] = 2
-		operations = []string{"image_to_video"}
+		operations = []string{"image_to_video", "first_last_frame"}
 		defaultOperation = "image_to_video"
 	case "multi", "all":
 		references["maxImages"] = 9
@@ -215,11 +215,11 @@ func seedanceCapabilityConfigBody(mode string) []byte {
 		references["minVideoHeight"], references["maxVideoHeight"] = 300, 6000
 		references["minVideoAspect"], references["maxVideoAspect"] = 0.4, 2.5
 		references["minVideoPixels"], references["maxVideoPixels"] = 409600, 8295044
-		operations = []string{"image_to_video", "reference_to_video"}
+		operations = []string{"image_to_video", "first_last_frame", "reference_to_video"}
 		defaultOperation = "reference_to_video"
 	}
 	if mode == "all" {
-		operations = []string{"text_to_video", "image_to_video", "reference_to_video"}
+		operations = []string{"text_to_video", "image_to_video", "first_last_frame", "reference_to_video"}
 		defaultOperation = "text_to_video"
 	}
 	config := map[string]any{
@@ -338,20 +338,18 @@ func CapabilityConfigFor(capability, model string) (json.RawMessage, bool) {
 // seedanceFamilyProfile 生成「家族模型 + 模式变体」预置条目：
 // 画布上只出现一个模型（display 可自定义），生成模式（文生/图生/参考）由变体路由到上游 SKU。
 func seedanceFamilyProfile(family, display string) ModelProfile {
-	imageVariant := func(count, provider string) ModelVariant {
-		return ModelVariant{Selector: map[string]string{"operation": "image_to_video", "imageCount": count}, ProviderModelKey: provider}
-	}
 	return ModelProfile{
 		Model: family, DisplayName: display, Capability: "video", Protocol: "newapi",
 		ProviderModelKey: family + "-t2v",
 		CapabilityConfig: seedanceCapabilityConfigBody("all"),
+		// 变体按「用户选的生成模式」匹配（服务端不再按参考素材数量反推模式）：
+		// 图生视频（首帧）与首尾帧（首帧+尾帧）都落到上游 i2v 档，靠参考图数量区分；
+		// 全能参考无论几张参考图都落到多模态 multi 档。
 		Variants: []ModelVariant{
 			{Operation: "text_to_video", ProviderModelKey: family + "-t2v"},
-			imageVariant("1", family+"-i2v"),
-			imageVariant("2", family+"-i2v"),
-			// 全能参考（图片参考分支）
-			{Operation: "image_to_video", ProviderModelKey: family + "-multi"},
-			// 全能参考（带视频参考分支）
+			{Operation: "image_to_video", ProviderModelKey: family + "-i2v"},
+			{Operation: "first_last_frame", ProviderModelKey: family + "-i2v"},
+			{Operation: "reference_to_video", ProviderModelKey: family + "-multi"},
 			{Operation: "video_to_video", ProviderModelKey: family + "-multi"},
 		},
 	}

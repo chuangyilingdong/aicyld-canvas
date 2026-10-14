@@ -71,6 +71,7 @@ type WorkflowSelectOption = {
 const videoOperationOptions: Array<{ label: string; value: CanvasVideoEditOperation }> = [
     { label: "文生视频", value: "text_to_video" },
     { label: "图生视频", value: "image_to_video" },
+    { label: "首尾帧", value: "first_last_frame" },
     { label: "全能参考", value: "reference_to_video" },
     { label: "视频续写", value: "extend" },
     { label: "局部修改", value: "inpaint" },
@@ -290,7 +291,7 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, onConfigC
                             options={videoOperationOptions
                                 .filter(
                                     (option) =>
-                                        ["text_to_video", "image_to_video", "reference_to_video", "inpaint", "extend", "audio_to_video"].includes(option.value) && modelCapabilityConfigFor(config, config.model).video?.operations.includes(option.value),
+                                        ["text_to_video", "image_to_video", "first_last_frame", "reference_to_video", "inpaint", "extend", "audio_to_video"].includes(option.value) && modelCapabilityConfigFor(config, config.model).video?.operations.includes(option.value),
                                 )
                                 .map((option) => ({
                                     ...option,

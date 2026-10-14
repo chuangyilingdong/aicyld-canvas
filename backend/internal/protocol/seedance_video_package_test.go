@@ -121,6 +121,41 @@ func TestSeedanceVideoPackageSendsImagesPerUpstreamContract(t *testing.T) {
 		}
 	}
 
+	// 全能参考：只有 2 张图也必须走 metadata.content（上游 multi 档）。
+	// 这是「模式决定模型，而不是参考图数量」的关键路径——用户在画布上选全能参考 +
+	// 2 张参考图时，以前会因为图片少而被当成图生视频（首尾帧）发出去。
+	refTwo, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
+		Model: "seedance-2.0-standard-multi", Prompt: "两张参考图的全能参考", Duration: 5, Operation: "reference_to_video",
+		Images: []MediaReference{{DataURL: dataURL, Kind: "image"}, {DataURL: dataURL, Kind: "image"}},
+	}})
+	if err != nil {
+		t.Fatalf("BuildCreate(全能参考两图) 失败: %v", err)
+	}
+	refTwoBody := refTwo.Body.(map[string]any)
+	if _, exists := refTwoBody["images"]; exists {
+		t.Fatalf("全能参考不得发顶层 images: %#v", refTwoBody["images"])
+	}
+	refTwoContent, _ := refTwoBody["metadata"].(map[string]any)["content"].([]any)
+	if len(refTwoContent) != 2 {
+		t.Fatalf("全能参考 metadata.content = %#v", refTwoBody["metadata"])
+	}
+	refEntry, _ := refTwoContent[0].(map[string]any)
+	if refEntry["type"] != "image_url" || refEntry["role"] != "reference_image" {
+		t.Fatalf("全能参考首个 content 项 = %#v", refEntry)
+	}
+
+	// 首尾帧（用户显式选模式，2 张图）：仍走顶层 images，上游按首帧+尾帧读取
+	frames, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
+		Model: "seedance-2.0-standard-i2v", Prompt: "首尾帧过渡", Duration: 5, Operation: "first_last_frame",
+		Images: []MediaReference{{DataURL: dataURL, Kind: "image"}, {DataURL: dataURL, Kind: "image"}},
+	}})
+	if err != nil {
+		t.Fatalf("BuildCreate(首尾帧) 失败: %v", err)
+	}
+	if got := frames.Body.(map[string]any)["images"].([]any); len(got) != 2 {
+		t.Fatalf("首尾帧 images = %#v", got)
+	}
+
 	// 轮询与下载仍走 GET /v1/videos/{id}
 	poll, err := adapter.BuildPoll(context.Background(), PollContext{Model: "seedance-2.0-standard-i2v", TaskID: "task_1"})
 	if err != nil {

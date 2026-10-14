@@ -417,13 +417,15 @@ func skuSelectorForIntent(intent ModelRequestIntent) map[string]string {
 	}
 	switch normalizeCapability(intent.Capability) {
 	case "video":
-		// 变体按实际参考素材归类。供应商执行仍可使用 reference_to_video、extend
-		// 等细分操作；选择变体时视频参考优先归为视频生视频，其余图片参考无论数量
-		// 都归为图生视频。
-		if intent.Inputs["video"] > 0 {
-			selector["operation"] = "video_to_video"
-		} else if intent.Inputs["image"] > 0 {
-			selector["operation"] = "image_to_video"
+		// 变体按「用户选的生成模式」选（metadata.videoEditOperation 传进来的 intent.Operation）：
+		// 选了全能参考时，即使只挂 1~2 张图也必须走多模态参考档，不能因为图片少就退回图生视频。
+		// 只有调用方没声明模式时才按参考素材归类（视频优先，其余图片一律归图生视频）。
+		if strings.TrimSpace(selector["operation"]) == "" {
+			if intent.Inputs["video"] > 0 {
+				selector["operation"] = "video_to_video"
+			} else if intent.Inputs["image"] > 0 {
+				selector["operation"] = "image_to_video"
+			}
 		}
 		if count := intent.Inputs["image"]; count > 0 {
 			selector["imageCount"] = strconv.Itoa(count)
