@@ -34,6 +34,8 @@ export type LocalModelConfigPayload = {
 	revision: number;
 	health: "ready" | "default" | "migrated" | "recovered";
 	source: "builtin+local";
+	/** 平台内置「功能 → 模型」映射：功能键 → `channelId::model`（托管形态由平台下发）。 */
+	featureModels?: Record<string, string>;
 };
 
 export function saveLocalModelConfig(config: AiConfig, expectedRevision: number) {

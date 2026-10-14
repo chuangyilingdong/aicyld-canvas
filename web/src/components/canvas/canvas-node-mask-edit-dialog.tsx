@@ -1,12 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { Brush, Eraser, LoaderCircle, RotateCcw, Settings2, WandSparkles, X } from "lucide-react";
+import { Brush, Eraser, LoaderCircle, RotateCcw, WandSparkles, X } from "lucide-react";
 
-import { ImageSettingsPanel } from "@/components/image-settings-panel";
-import { ModelPicker } from "@/components/model-picker";
 import { Tooltip } from "@/components/ui/base/tooltip";
-import { canvasThemes } from "@/lib/canvas-theme";
-import { defaultImageParamsForModel } from "@/lib/model-selection";
-import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
 import type { AiConfig } from "@/stores/use-config-store";
 
 export type CanvasImageMaskEditPayload = {
@@ -34,20 +29,17 @@ export function CanvasImageMaskEditor({ imageDimensions, scale, config, onCancel
     const [brushSize, setBrushSize] = useState(defaultBrushSize);
     const [mode, setMode] = useState<DrawMode>("paint");
     const [error, setError] = useState("");
-    const [settingsOpen, setSettingsOpen] = useState(false);
-    const [generationConfig, setGenerationConfig] = useState<AiConfig>(() => config);
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const theme = canvasThemes[useActiveTheme()];
 
     useEffect(() => {
-        setPrompt(""); setBrushSize(defaultBrushSize); setMode("paint"); setError(""); setSettingsOpen(false);
+        setPrompt(""); setBrushSize(defaultBrushSize); setMode("paint"); setError("");
         clearCanvas(maskCanvasRef.current); clearCanvas(previewCanvasRef.current);
     }, [imageDimensions.height, imageDimensions.width]);
     useEffect(() => {
-        const keydown = (event: KeyboardEvent) => { if (event.key === "Escape") settingsOpen ? setSettingsOpen(false) : onCancel(); };
+        const keydown = (event: KeyboardEvent) => { if (event.key === "Escape") onCancel(); };
         window.addEventListener("keydown", keydown);
         return () => window.removeEventListener("keydown", keydown);
-    }, [onCancel, settingsOpen]);
+    }, [onCancel]);
 
     const draw = (event: ReactPointerEvent<HTMLCanvasElement>) => {
         const point = readCanvasPoint(event.currentTarget, event.clientX, event.clientY);
@@ -78,7 +70,7 @@ export function CanvasImageMaskEditor({ imageDimensions, scale, config, onCancel
         if (isSubmitting) return;
         setIsSubmitting(true);
         try {
-            await onConfirm({ prompt: nextPrompt, maskDataUrl: buildEditMask(canvas), generationConfig: { model: generationConfig.model, imageModel: generationConfig.imageModel, size: generationConfig.size, quality: generationConfig.quality, count: generationConfig.count, transparentBackground: generationConfig.transparentBackground } });
+            await onConfirm({ prompt: nextPrompt, maskDataUrl: buildEditMask(canvas) });
         } finally { setIsSubmitting(false); }
     };
     const inverseScale = 1 / Math.max(scale, 0.01);
@@ -101,13 +93,6 @@ export function CanvasImageMaskEditor({ imageDimensions, scale, config, onCancel
             <div className="relative min-w-0 flex-1">
                 <input aria-label="局部重绘要求" type="text" value={prompt} placeholder="描述选中区域需要如何修改…" onChange={(event) => { setPrompt(event.target.value); setError(""); }} onKeyDown={(event) => { event.stopPropagation(); if (event.key === "Enter") void submit(); }} className="block h-9 w-full rounded-xl border border-white/10 bg-white/[0.06] px-3 text-sm text-white outline-none placeholder:text-white/35 focus:border-white/25" />
                 {error ? <div className="absolute left-1 top-[calc(100%+8px)] whitespace-nowrap rounded-lg bg-[#242424]/96 px-2 py-1 text-xs font-medium text-red-400 shadow-lg">{error}</div> : null}
-            </div>
-            <div className="relative">
-                <button type="button" aria-label="局部重绘设置" title="局部重绘设置" onClick={() => setSettingsOpen((value) => !value)} className={`grid size-9 place-items-center rounded-xl transition ${settingsOpen ? "bg-white/16 text-white" : "text-white/72 hover:bg-white/10 hover:text-white"}`}><Settings2 className="size-4" /></button>
-                {settingsOpen ? <div className="absolute bottom-11 right-0 w-80 space-y-3 rounded-2xl border border-white/10 bg-[#242424] p-3 text-white shadow-2xl" onPointerDown={(event) => event.stopPropagation()}>
-                    <ModelPicker config={generationConfig} value={generationConfig.imageModel || generationConfig.model} capability="image" fullWidth onChange={(model) => setGenerationConfig((current) => ({ ...current, model, imageModel: model, ...defaultImageParamsForModel(current, model) }))} />
-                    <ImageSettingsPanel config={generationConfig} showTitle={false} showCount={false} className="space-y-3" theme={theme} onConfigChange={(key, value) => setGenerationConfig((current) => ({ ...current, [key]: value }))} />
-                </div> : null}
             </div>
             <button type="button" aria-label={isSubmitting ? "正在修改" : "AI 修改"} title={isSubmitting ? "正在修改" : "AI 修改"} disabled={isSubmitting} onClick={() => void submit()} className="grid size-9 place-items-center rounded-xl bg-white text-neutral-900 transition hover:bg-white/90 disabled:cursor-wait disabled:opacity-60">{isSubmitting ? <LoaderCircle className="size-4 animate-spin text-neutral-900" /> : <WandSparkles className="size-4 text-neutral-900" />}</button>
         </div>

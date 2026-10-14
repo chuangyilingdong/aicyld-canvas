@@ -32,6 +32,8 @@ import {
 } from "@/lib/canvas/canvas-project-generation";
 import { fitNodeSize, VIDEO_NODE_MAX_SIZE } from "@/lib/canvas/canvas-node-size";
 import { compositeEmotionImage, emotionGenerationSizeForProfile, emotionProviderMask, normalizeEmotionPromptForProvider, resolveEmotionEditPlan } from "@/lib/canvas/canvas-emotion";
+import { canvasInpaintRegionFromMask, compositeInpaintImage, drawInpaintSourceCrop, inpaintEditPrompt } from "@/lib/canvas/canvas-inpaint";
+import { isImageEditModel, resolveImageEditModel } from "@/lib/canvas/feature-models";
 import { DEFAULT_PORTRAIT_TEXTURE_SETTINGS } from "@/lib/canvas/canvas-portrait-texture";
 import { IMAGE_PROMPT_REVERSE } from "@/lib/prompts";
 import { createPortraitTextureNode } from "@/lib/canvas/canvas-image-source";
@@ -71,6 +73,15 @@ import {
     runOwnedDepthCapture,
 } from "@/lib/plugins/builtin/editor/local-executor-session";
 import { assertUserScope, captureUserScope, type CapturedUserScope } from "@/lib/user-scope-guard";
+
+/**
+ * 平台内置「功能 → 模型」：图片编辑类功能（图生图 / 表情 / 质感 / 角度 / 打光 / 局部重绘）
+ * 直接用平台绑定的图改图模型，用户端不再选模型。
+ */
+function withFeatureImageEditModel(config: AiConfig): AiConfig {
+    const model = resolveImageEditModel(config.model);
+    return { ...config, model, imageModel: model };
+}
 
 function normalizeMaskEditQuality(quality: string | undefined, size: string | undefined) {
     const value = String(quality || "").trim().toLowerCase();
@@ -978,18 +989,32 @@ export function useCanvasMediaTools({
     const maskEditImageNode = useCallback(async (node: CanvasNodeData, payload: CanvasImageMaskEditPayload) => {
         if (!node.metadata?.content) return;
         const baseGenerationConfig = buildGenerationConfig(effectiveConfig, node, "image");
-        const selectedModel = payload.generationConfig?.model || payload.generationConfig?.imageModel || baseGenerationConfig.model;
+        const requestedModel = payload.generationConfig?.model || payload.generationConfig?.imageModel || baseGenerationConfig.model;
+        // 平台内置「功能 → 模型」：图片编辑类功能直接用平台绑定的图改图模型，用户端不再选模型。
+        const selectedModel = resolveImageEditModel(requestedModel);
         const modelDefaults = defaultImageParamsForModel(baseGenerationConfig, selectedModel);
         const selectedImageProfile = modelCapabilityConfigFor(baseGenerationConfig, selectedModel).image;
-        if (!selectedImageProfile?.references.maskSupported) {
-            message.error("当前图片模型不支持局部重绘蒙版，请选择支持蒙版编辑的模型");
-            return;
+        const interfaceType = resolveModelRequestConfig(baseGenerationConfig, selectedModel).interfaceType;
+        // 上游图片接口没有可用的蒙版参数（能力配置 maskSupported=false），此时退化成
+        // 「区域裁切 + 提示词 + 本地羽化融合」的无蒙版重绘：模型只负责重绘区域，
+        // 最终结果始终以源图为底，仅在涂抹区域内混合生成像素（做法与表情调整一致）。
+        const providerMaskSupported = Boolean(selectedImageProfile?.references?.maskSupported);
+        if (!providerMaskSupported) {
+            const referenceLimit = selectedImageProfile?.references?.maxImages ?? 0;
+            if (interfaceType !== "openai-image" && !(isImageEditModel(selectedModel) && referenceLimit >= 1)) {
+                message.error("局部重绘需要图改图（i2i）模型：请把图片模型换成「Seedream 5 Flash · 图改图」等支持图改图的档位");
+                return;
+            }
+            if (!selectedImageProfile) {
+                message.error("当前图片模型缺少能力配置，无法进行局部重绘");
+                return;
+            }
         }
         const generationConfig = {
             ...baseGenerationConfig,
             ...payload.generationConfig,
             model: selectedModel,
-            imageModel: payload.generationConfig?.imageModel || payload.generationConfig?.model || effectiveConfig.imageModel,
+            imageModel: selectedModel,
             quality: normalizeMaskEditQuality(payload.generationConfig?.quality || node.metadata?.quality || baseGenerationConfig.quality || modelDefaults.quality, payload.generationConfig?.size || node.metadata?.size || baseGenerationConfig.size || modelDefaults.size),
             count: String(payload.generationConfig?.count || 1),
             // 原图像素尺寸不是模型的输出尺寸合同；非高级设置时使用模型默认尺寸，避免把节点尺寸误发给上游。
@@ -1000,14 +1025,33 @@ export function useCanvasMediaTools({
             return;
         }
         const userPrompt = payload.prompt.trim();
-        const prompt = `只修改蒙版透明区域，其他区域保持不变。${userPrompt}`;
         const source = nodeReferenceImage(node);
         if (!source) return;
+        const sourceDataUrl = await resolveImageUrl(node.metadata.storageKey, node.metadata.content, { cacheMiss: true });
+        const inpaintRegion = providerMaskSupported ? null : await canvasInpaintRegionFromMask(payload.maskDataUrl, node.width, node.height);
+        if (!providerMaskSupported && !inpaintRegion) {
+            message.error("请先在图片上涂抹需要重绘的区域，再描述要修改的内容");
+            return;
+        }
+        const inpaintCroppedReference = inpaintRegion ? await drawInpaintSourceCrop(sourceDataUrl, inpaintRegion) : null;
+        const prompt = inpaintRegion
+            ? inpaintEditPrompt(userPrompt, (selectedImageProfile?.references?.maxImages ?? 0) >= 2)
+            : `只修改蒙版透明区域，其他区域保持不变。${userPrompt}`;
+        if (inpaintRegion && selectedImageProfile) {
+            // 无蒙版重绘按「待修改区域」的比例出图，再把结果羽化融合回原图。
+            generationConfig.size = emotionGenerationSizeForProfile(selectedImageProfile, inpaintRegion);
+            generationConfig.transparentBackground = "false";
+        }
         const styleExecution = resolveImageEditStyle(node, prompt, generationConfig);
         if (!styleExecution) return;
         const { prompt: effectivePrompt, metadata: styleMetadata } = styleExecution;
         const requestedCount = Math.max(1, Number(generationConfig.count) || 1);
-        const generationMetadata = buildImageGenerationMetadata("edit", generationConfig, requestedCount, [source]);
+        const referenceImages = inpaintCroppedReference && (selectedImageProfile?.references?.maxImages ?? 0) >= 2
+            ? [{ id: `${node.id}-inpaint-region`, name: "inpaint-region.png", type: "image/png", dataUrl: inpaintCroppedReference }, source]
+            : inpaintCroppedReference
+                ? [{ id: `${node.id}-inpaint-region`, name: "inpaint-region.png", type: "image/png", dataUrl: inpaintCroppedReference }]
+                : [source];
+        const generationMetadata = buildImageGenerationMetadata("edit", generationConfig, requestedCount, referenceImages);
         setMaskEditNodeId(null);
         const rootId = nanoid();
         const childIds = requestedCount > 1 ? Array.from({ length: requestedCount }, () => nanoid()) : [];
@@ -1068,15 +1112,16 @@ export function useCanvasMediaTools({
                         mode: "image",
                         prompt: effectivePrompt,
                         config: { ...generationConfig, count: "1" },
-                        referenceImages: [source],
-                        mask: { id: `${node.id}-mask`, name: "mask.png", type: "image/png", dataUrl: payload.maskDataUrl },
+                        referenceImages,
+                        mask: providerMaskSupported ? { id: `${node.id}-mask`, name: "mask.png", type: "image/png", dataUrl: payload.maskDataUrl } : undefined,
                         signal: controller.signal,
-                        metadata: { sourceNodeId: node.id, edit: "mask", ...styleMetadata },
+                        metadata: { sourceNodeId: node.id, edit: "mask", inpaintMode: inpaintRegion ? "local-composite" : "provider-mask", ...styleMetadata },
                         onTaskCreated: (task) => bindGenerationTask(targetId, task),
                     });
                     const image = result.images?.find((item) => item?.dataUrl);
                     if (!image?.dataUrl) throw new Error("后端任务没有返回图片");
-                    const uploaded = await uploadImage(image.dataUrl);
+                    const outputDataUrl = inpaintRegion ? await compositeInpaintImage(sourceDataUrl, image.dataUrl, payload.maskDataUrl) : image.dataUrl;
+                    const uploaded = await uploadImage(outputDataUrl);
                     const size = fitNodeSize(uploaded.width, uploaded.height, node.width, node.height);
                     const currentNode = nodesRef.current.find((item) => item.id === targetId);
                     if (!currentNode) throw new Error("局部编辑节点已被删除");
@@ -1154,7 +1199,7 @@ export function useCanvasMediaTools({
 
     const generateAngleNode = useCallback(async (node: CanvasNodeData, params: CanvasImageAngleParams) => {
         if (!node.metadata?.content) return;
-        const generationConfig = { ...buildGenerationConfig(effectiveConfig, node, "image"), count: "1" };
+        const generationConfig = withFeatureImageEditModel({ ...buildGenerationConfig(effectiveConfig, node, "image"), count: "1" });
         if (!isAiConfigReady(generationConfig, generationConfig.model)) {
             navigateToSettings({ continueCreation: true });
             return;
@@ -1199,7 +1244,7 @@ export function useCanvasMediaTools({
 
     const generateLightingNode = useCallback((node: CanvasNodeData, options: CanvasImageLightingOptions, prompt: string) => {
         if (!node.metadata?.content) return;
-        const generationConfig = { ...buildGenerationConfig(effectiveConfig, node, "image"), count: "1" };
+        const generationConfig = withFeatureImageEditModel({ ...buildGenerationConfig(effectiveConfig, node, "image"), count: "1" });
         const childId = nanoid();
         const imageSpec = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
         const title = buildLightingLabel(options);
@@ -1230,7 +1275,7 @@ export function useCanvasMediaTools({
     const generateEmotionNode = useCallback(async (node: CanvasNodeData, payload: CanvasImageEmotionPayload) => {
         if (!node.metadata?.content) return false;
         const baseConfig = buildGenerationConfig(effectiveConfig, node, "image");
-        const generationConfig = { ...baseConfig, count: "1", size: baseConfig.size, quality: !baseConfig.quality || baseConfig.quality === "auto" ? "high" : baseConfig.quality };
+        const generationConfig = withFeatureImageEditModel({ ...baseConfig, count: "1", size: baseConfig.size, quality: !baseConfig.quality || baseConfig.quality === "auto" ? "high" : baseConfig.quality });
         if (!isAiConfigReady(generationConfig, generationConfig.model)) { navigateToSettings({ continueCreation: true }); return false; }
         const imageProfile = modelCapabilityConfigFor(generationConfig, generationConfig.model).image;
         const interfaceType = resolveModelRequestConfig(generationConfig, generationConfig.model).interfaceType;

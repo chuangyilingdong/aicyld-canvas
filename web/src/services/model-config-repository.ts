@@ -1,5 +1,6 @@
 import { getLocalModelConfig, saveLocalModelConfig, type LocalModelConfigPayload } from "@/services/api/workspace";
 import type { AiConfig } from "@/stores/use-config-store";
+import { setCanvasFeatureModels } from "@/lib/canvas/feature-models";
 
 export type ModelConfigPersistenceState = {
     status: "idle" | "hydrating" | "saving" | "saved" | "error";
@@ -34,6 +35,8 @@ export function createModelConfigRepository(dependencies: ModelConfigRepositoryD
         publish({ status: "hydrating", error: "" });
         try {
             const result = await dependencies.read();
+            // 平台内置「功能 → 模型」映射随模型配置一起下发，画布功能据此取模型。
+            setCanvasFeatureModels(result.featureModels);
             state = { status: "idle", revision: result.revision, dirty: Boolean(latestConfig), error: "" };
             return result;
         } catch (error) {
