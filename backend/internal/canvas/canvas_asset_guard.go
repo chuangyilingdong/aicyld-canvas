@@ -2,6 +2,7 @@ package canvas
 
 import (
 	"encoding/json"
+	"log"
 
 	"infinite-canvas/backend/internal/asset"
 	"infinite-canvas/backend/internal/assets"
@@ -33,6 +34,7 @@ func (s *Service) validateCanvasMediaAssetsWithCandidates(userID string, raw jso
 	resourceIDSet := make(map[string]struct{}, len(references))
 	for _, reference := range references {
 		if reference.AssetID == "" {
+			logCanvasAssetMismatch("引用缺少 assetId", reference, len(references))
 			return kernel.BadAuthRequest("画布媒体尚未进入素材库，请等待同步完成后重试")
 		}
 		assetIDSet[reference.AssetID] = struct{}{}
@@ -70,13 +72,22 @@ func (s *Service) validateCanvasMediaAssetsWithCandidates(userID string, raw jso
 		}
 		resourceIDs, assetExists := assetResources[reference.AssetID]
 		if !assetExists {
+			logCanvasAssetMismatch("素材不存在或不属于该用户", reference, len(references))
 			return kernel.BadAuthRequest("画布媒体尚未进入素材库，请等待同步完成后重试")
 		}
 		if _, matches := resourceIDs[reference.ResourceID]; !matches {
+			logCanvasAssetMismatch("素材未引用该资源", reference, len(references))
 			return kernel.BadAuthRequest("画布媒体与素材库记录不一致，请重新同步")
 		}
 	}
 	return nil
+}
+
+// logCanvasAssetMismatch 记录画布媒体校验失败的具体节点，方便定位是哪个节点没同步。
+// 只记 ID，不记用户内容。
+func logCanvasAssetMismatch(reason string, reference MediaAssetReference, total int) {
+	log.Printf("[canvas-asset] %s node=%q assetId=%q resourceId=%q 引用数=%d",
+		reason, reference.NodeID, reference.AssetID, reference.ResourceID, total)
 }
 
 // validateAssetCanvasReferences prevents an Asset update from changing the

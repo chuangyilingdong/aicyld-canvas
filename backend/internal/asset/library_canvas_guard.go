@@ -12,11 +12,14 @@ import (
 type CanvasMediaReference struct {
 	AssetID    string
 	ResourceID string
+	// NodeID 仅用于诊断日志：画布媒体校验失败时要知道是哪个节点。
+	NodeID string
 }
 
 func CanvasMediaReferences(raw json.RawMessage) ([]CanvasMediaReference, error) {
 	var payload struct {
 		Nodes []struct {
+			ID       string `json:"id"`
 			Type     string `json:"type"`
 			Metadata struct {
 				AssetID    string `json:"assetId"`
@@ -50,7 +53,7 @@ func CanvasMediaReferences(raw json.RawMessage) ([]CanvasMediaReference, error) 
 			continue
 		}
 		references = append(references, CanvasMediaReference{
-			AssetID: strings.TrimSpace(node.Metadata.AssetID), ResourceID: resourceID,
+			AssetID: strings.TrimSpace(node.Metadata.AssetID), ResourceID: resourceID, NodeID: node.ID,
 		})
 	}
 	for _, clip := range payload.Timeline.Clips {
