@@ -216,7 +216,7 @@ const defaultImageCapabilityConfig = `{
       "parameter": "size",
       "values": ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"],
       "default": "1:1",
-      "allowCustom": true
+      "allowCustom": false
     },
     "quality": { "supported": false, "values": [], "default": "auto" },
     "transparentBackground": { "supported": false, "default": false },
