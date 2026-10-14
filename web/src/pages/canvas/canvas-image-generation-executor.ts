@@ -8,7 +8,7 @@ import { nodeSizeFromRatio } from "@/lib/canvas/canvas-node-size";
 import { canvasImageReferenceLimitError, buildImageGenerationMetadata, getGenerationCount, isGenerationCanceled, runCanvasGenerationTaskToConsumer } from "@/lib/canvas/canvas-project-generation";
 import { imageGenerationReferenceConnections } from "@/lib/canvas/canvas-resource-references";
 import { canvasGenerationPromptMetadata } from "@/lib/canvas/canvas-generation-submission";
-import { withPlatformFeatureModel } from "@/lib/canvas/feature-models";
+import { isImageEditModel, withPlatformImageEditModel } from "@/lib/canvas/feature-models";
 import { mediaResultMetadata } from "@/lib/canvas/canvas-node-semantics";
 import { CONTENT_MODERATION_ERROR_CODE, type GenerationFailureMetadata } from "@/lib/generation-error";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
@@ -58,10 +58,10 @@ export async function executeImageGeneration({
         showError("生成结果已保留，请点击「继续取回」");
         return;
     }
-    // 平台内置「功能 → 模型」：带参考图（图生图 / 图编辑）时用 image.edit 绑定的图改图模型，
-    // 纯文生图用 image.t2i。用户端不再选模型。
-    if (generationContext.referenceImages.length > 0) {
-        generationConfig = withPlatformFeatureModel(generationConfig, "image");
+    // 带参考图（图生图 / 图编辑）时，若当前模型本身不是图改图档，则升级到平台绑定的
+    // 「图片编辑」模型；用户显式选过的图改图模型保持不动。
+    if (generationContext.referenceImages.length > 0 && !isImageEditModel(generationConfig.model)) {
+        generationConfig = withPlatformImageEditModel(generationConfig);
     }
     const expectedScope = captureUserScope();
     const isCurrent = () => userScopeMatches(expectedScope) && !controller.signal.aborted;

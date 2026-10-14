@@ -5,7 +5,7 @@ import { Bubble, Sender, type BubbleItemType } from "@ant-design/x";
 import { ArrowUp, Check, ChevronDown, FileText, Image as ImageIcon, LoaderCircle, Music2, Sparkles, UserRound, Video, X } from "lucide-react";
 
 import { ModelPicker } from "@/components/model-picker";
-import { canvasFeatureModel, hasPlatformFeatureModels } from "@/lib/canvas/feature-models";
+import { canvasFeatureModel } from "@/lib/canvas/feature-models";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import type { PromptOptimizationMode, PromptOptimizationResult, PromptOptimizerProvider } from "@/lib/plugins/plugin-types";
 import type { AiConfig } from "@/stores/use-config-store";
@@ -711,7 +711,7 @@ export function CanvasPromptOptimizerDrawer({ open, children, prompt, generation
                                 </Dropdown>
                             </div>
                             <div className="flex min-w-0 items-center gap-2">
-                                {hasPlatformFeatureModels() ? null : <ModelPicker
+                                <ModelPicker
                                     config={config}
                                     value={activeOptimizerModel}
                                     onChange={setActiveOptimizerModel}
@@ -721,7 +721,7 @@ export function CanvasPromptOptimizerDrawer({ open, children, prompt, generation
                                     variant="creation"
                                     className="canvas-prompt-optimizer-model-picker"
                                     popoverClassName="canvas-prompt-optimizer-model-popover"
-                                />}
+                                />
                                 <button
                                     type="button"
                                     className="canvas-prompt-optimizer-send"

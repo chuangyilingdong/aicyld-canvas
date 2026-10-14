@@ -63,6 +63,34 @@ export function withPlatformFeatureModel<T extends { model?: string }, K extends
     return { ...config, model, [modeModelField[mode]]: model } as T;
 }
 
+/** 图改图专用：把模型替换成平台绑定的「图片编辑」模型。 */
+export function withPlatformImageEditModel<T extends { model?: string }>(config: T): T {
+    const model = canvasFeatureModel("image.edit");
+    if (!model) return config;
+    return { ...config, model, imageModel: model } as T;
+}
+
+/**
+ * 把平台内置模型写进「默认模型」字段（托管形态启动时调用一次）。
+ * 这样新建节点默认就用平台模型，用户仍可在节点上改。
+ */
+export function applyPlatformFeatureModels<
+    T extends { textModel?: string; imageModel?: string; videoModel?: string; audioModel?: string },
+>(config: T): T {
+    const text = canvasFeatureModel("text.chat");
+    const image = canvasFeatureModel("image.t2i");
+    const video = canvasFeatureModelForMode("video");
+    const audio = canvasFeatureModel("audio.tts");
+    if (!text && !image && !video && !audio) return config;
+    return {
+        ...config,
+        textModel: text || config.textModel,
+        imageModel: image || config.imageModel,
+        videoModel: video || config.videoModel,
+        audioModel: audio || config.audioModel,
+    } as T;
+}
+
 /** 该模型是否本身就具备图改图（i2i）能力。 */
 export function isImageEditModel(model: string | undefined) {
     return /(^|[^a-z])(i2i|edit|inpaint)([^a-z]|$)/.test(String(model || "").split("::").pop()?.toLowerCase() || "");

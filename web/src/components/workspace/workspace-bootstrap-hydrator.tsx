@@ -10,6 +10,7 @@ import { getWorkspaceBootstrap, type WorkspaceBootstrapPayload } from "@/service
 import { isSignInRequiredError } from "@/services/api/request";
 import { isHostedBuild, isLocalWorkspaceMode } from "@/services/workspace-mode";
 import { commitModelConfig, flushModelConfig, hydrateModelConfig } from "@/services/model-config-repository";
+import { applyPlatformFeatureModels } from "@/lib/canvas/feature-models";
 import { normalizeConfigSnapshot, useConfigStore } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
 
@@ -113,7 +114,10 @@ async function hydrateLocalModelConfig() {
     const result = await hydrateModelConfig();
     const normalized = normalizeConfigSnapshot({ config: result.config }).config;
     // 托管形态：服务端下发的渠道（含平台统一渠道）必须原样保留，不做本地化过滤。
-    const normalizedConfig = isLocalWorkspaceMode() ? localWorkspaceConfig(normalized) : normalized;
+    // 托管形态：平台内置「功能 → 模型」作为各模式的默认模型（用户仍可在节点上改）。
+    const normalizedConfig = isLocalWorkspaceMode()
+        ? localWorkspaceConfig(normalized)
+        : applyPlatformFeatureModels(normalized);
     useConfigStore.getState().replaceConfig(normalizedConfig);
     if (isLocalWorkspaceMode() && shouldPersistHydratedModelConfig(result.health)) await commitModelConfig(normalizedConfig);
 }
