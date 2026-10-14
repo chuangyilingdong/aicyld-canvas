@@ -49,6 +49,7 @@ func RegisterWorkspaceRoutes(r *gin.RouterGroup, bootstrap workspaceBootstrap) {
 			failService(c, err)
 			return
 		}
+		// 托管形态：用户名/昵称/头像以主站身份为准（画布工作区行本身不含这些资料）。
 		userPayload := gin.H{
 			"id": user.ID, "username": user.Username, "displayName": user.DisplayName,
 			"role": user.Role, "status": user.Status,
