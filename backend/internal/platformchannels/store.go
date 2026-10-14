@@ -29,7 +29,7 @@ const (
 	// CredentialRef 标记「密钥由平台托管」的渠道。
 	CredentialRef = "aicyld-platform"
 	// ChannelIDPrefix 平台渠道 ID 前缀，便于与用户自定义渠道区分。
-	ChannelIDPrefix = "aicyld:"
+	ChannelIDPrefix = "aicyld-"
 
 	schemaVersion = 1
 )
@@ -90,11 +90,11 @@ func New(dataDir string) (*Store, error) {
 // OpenAI 兼容的异步视频任务接口，模型 Seedance 2.0。
 func Defaults() []Channel {
 	return []Channel{{
-		ID:      ChannelIDPrefix + "seedance",
-		Name:    "灵动TV 视频",
-		BaseURL: "https://api.seedance.nz",
+		ID:        ChannelIDPrefix + "seedance",
+		Name:      "灵动TV 视频",
+		BaseURL:   "https://api.seedance.nz",
 		APIFormat: "openai",
-		Models:  []string{"seedance-2.0"},
+		Models:    []string{"seedance-2.0"},
 		ModelProfiles: []ModelProfile{{
 			Model: "seedance-2.0", Capability: "video", Protocol: "newapi",
 		}},

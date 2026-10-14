@@ -82,6 +82,28 @@ func RegisterInternalChannelRoutes(r *gin.RouterGroup, svc *app.Service) {
 			fail(c, http.StatusBadRequest, err)
 			return
 		}
-		ok(c, gin.H{"channels": platformchannels.Redact(saved)})
+		// 同步镜像为系统渠道：服务端任务执行路径（SelectTaskModel）只认数据库系统渠道。
+		warnings := svc.SyncPlatformChannels(platformChannelSyncInputs(saved))
+		ok(c, gin.H{"channels": platformchannels.Redact(saved), "warnings": warnings})
 	})
+}
+
+// platformChannelSyncInputs 把落盘的平台渠道转换成系统渠道镜像输入。
+func platformChannelSyncInputs(channels []platformchannels.Channel) []app.PlatformChannelInput {
+	inputs := make([]app.PlatformChannelInput, 0, len(channels))
+	for _, channel := range channels {
+		profiles := make([]app.PlatformChannelModel, 0, len(channel.ModelProfiles))
+		for _, profile := range channel.ModelProfiles {
+			profiles = append(profiles, app.PlatformChannelModel{
+				Model: profile.Model, DisplayName: profile.DisplayName, Capability: profile.Capability,
+				Protocol: profile.Protocol, CapabilityConfig: profile.CapabilityConfig,
+			})
+		}
+		inputs = append(inputs, app.PlatformChannelInput{
+			ID: channel.ID, Name: channel.Name, BaseURL: channel.BaseURL, APIKey: channel.APIKey,
+			ConcurrencyLimit: channel.ConcurrencyLimit, Enabled: channel.Enabled, SortOrder: channel.SortOrder,
+			Models: profiles,
+		})
+	}
+	return inputs
 }
