@@ -1018,6 +1018,18 @@ func (r *Repository) AssetsForUserIDs(userID string, ids []string) ([]model.Asse
 	return assets, err
 }
 
+// AssetsReferencingResource 找出该用户名下引用了指定资源的素材。
+// 用于修正画布里过期的 assetId：客户端可能带了一个本地生成、没回写服务端的 id，
+// 但媒体本身确实挂在本人某条素材上。
+func (r *Repository) AssetsReferencingResource(userID string, resourceID string) ([]model.Asset, error) {
+	if strings.TrimSpace(resourceID) == "" {
+		return nil, nil
+	}
+	var assets []model.Asset
+	err := r.db.Where("user_id = ? AND payload_json LIKE ?", userID, "%"+resourceID+"%").Limit(5).Find(&assets).Error
+	return assets, err
+}
+
 func (r *Repository) UpsertAsset(asset *model.Asset) error {
 	result := r.db.Model(&model.Asset{}).
 		Where("id = ? AND user_id = ?", asset.ID, asset.UserID).

@@ -63,6 +63,17 @@ export function withPlatformFeatureModel<T extends { model?: string }, K extends
     return { ...config, model, [modeModelField[mode]]: model } as T;
 }
 
+/**
+ * 功能专用模型：这些模型只服务于某个平台功能（图改图、图片理解），
+ * 由功能内部直接取用，不应该出现在用户的模型选择器里。
+ */
+export function functionOnlyModelValues(): string[] {
+    const keys: CanvasFeatureKey[] = ["image.edit", "image.vision"];
+    return keys
+        .map((key) => canvasFeatureModel(key))
+        .filter((value): value is string => Boolean(value));
+}
+
 /** 图改图专用：把模型替换成平台绑定的「图片编辑」模型。 */
 export function withPlatformImageEditModel<T extends { model?: string }>(config: T): T {
     const model = canvasFeatureModel("image.edit");

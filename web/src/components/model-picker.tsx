@@ -23,6 +23,8 @@ type ModelPickerProps = {
     variant?: "default" | "creation";
     requirements?: ModelRequirements;
     showConfiguredModelName?: boolean;
+    /** 平台按功能固定的模型（图改图等）不进选择器。 */
+    hiddenModels?: string[];
 };
 
 export function ModelPicker({
@@ -38,6 +40,7 @@ export function ModelPicker({
     variant = "creation",
     requirements,
     showConfiguredModelName = false,
+    hiddenModels,
 }: ModelPickerProps) {
     const pickerId = useId();
     // 双保险：即使 store merge 写出非法 theme，这里也兜底到 dark，避免 "reading 'node'" 崩溃
@@ -49,7 +52,10 @@ export function ModelPicker({
     const [triggerWidth, setTriggerWidth] = useState<number | null>(null);
     const menuRef = useRef<HTMLDivElement>(null);
     const triggerRef = useRef<HTMLButtonElement>(null);
-    const options = useMemo(() => Array.from(new Set(selectableModelsByCapability(config, capability).filter(Boolean))), [capability, config]);
+    const options = useMemo(() => {
+        const hidden = new Set((hiddenModels || []).filter(Boolean));
+        return Array.from(new Set(selectableModelsByCapability(config, capability).filter(Boolean))).filter((model) => !hidden.has(model));
+    }, [capability, config, hiddenModels]);
     const optionGroups = useMemo(() => {
         const channelGroups = config.channels
             .map((channel) => ({

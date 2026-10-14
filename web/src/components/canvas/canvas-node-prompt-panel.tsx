@@ -28,7 +28,7 @@ import { ModelPicker } from "@/components/model-picker";
 import { defaultConfig, modelOptionName, resolveModelChannel, selectableModelsByCapability, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { resolveAudioSpeechSettings } from "@/lib/audio-generation";
 import { resolveCanvasGenerationModel } from "@/lib/canvas/canvas-project-generation";
-import { canvasFeatureModelForMode } from "@/lib/canvas/feature-models";
+import { canvasFeatureModelForMode, functionOnlyModelValues } from "@/lib/canvas/feature-models";
 import { clampPromptEditorModalSize, PROMPT_EDITOR_VIEWPORT_MARGIN } from "@/lib/canvas/canvas-prompt-editor-size";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { normalizeVideoDuration, normalizeVideoResolution } from "@/lib/video-generation-options";
@@ -161,6 +161,8 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
     };
     const config = buildNodeConfig(globalConfig, node, mode, requirements);
     const availableModels = selectableModelsByCapability(config, mode);
+    // 平台按功能固定的模型（图改图等）不出现在选择器里，由功能内部直接取用。
+    const hiddenModels = functionOnlyModelValues();
     const resolvedRequirements: ModelRequirements = {
         ...requirements,
         options: modelRequestOptions(config, mode),
@@ -394,6 +396,7 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                                     value={config.model}
                                     onChange={(model) => onConfigChange(node.id, mode === "image" ? { model, ...defaultImageParamsForModel(config, model) } : { model })}
                                     capability={mode}
+                                    hiddenModels={hiddenModels}
                                     requirements={resolvedRequirements}
                                     onMissingConfig={() => navigateToSettings({ section: "channels", continueCreation: true })}
                                     variant="creation"
