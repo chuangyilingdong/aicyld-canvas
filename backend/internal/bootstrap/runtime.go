@@ -23,6 +23,7 @@ import (
 	"infinite-canvas/backend/internal/eagle"
 	canvasHandler "infinite-canvas/backend/internal/handler"
 	"infinite-canvas/backend/internal/localapp"
+	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/repository"
 	"infinite-canvas/backend/internal/runtimeinfo"
 	httptransport "infinite-canvas/backend/internal/transport/http"
@@ -204,7 +205,11 @@ func Open(_ context.Context, raw Config) (result *Runtime, openErr error) {
 	if cfg.Profile == ProfileDesktop {
 		router.Use(desktopCORSMiddleware())
 	}
-	router.Use(canvasHandler.WorkspaceMiddleware(scope))
+	// 主站登录集成：配置 AICYLD_SSO_SECRET 时按请求解析主站身份并映射到独立工作区；
+	// 未配置时中间件内部回退到 fallback，保持上游「一个安装一个工作区」的行为。
+	router.Use(canvasHandler.WorkspaceResolverMiddleware(cfg.DataDir, scope, func(identity canvasHandler.SSOIdentity) (*model.User, error) {
+		return svc.EnsureWorkspaceUser(identity.UserID, identity.Username, identity.DisplayName)
+	}))
 	// 本机可信凭据在组合根生成：owner 凭据与宿主凭据只在本机数据目录，0600。
 	agentops.EnsureAgentCredentials(svc.DataDir())
 	assistantHost := assistantruntime.New(assistantruntime.OptionsFromService(svc))
