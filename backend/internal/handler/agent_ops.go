@@ -179,7 +179,29 @@ func resolveCaller(c *gin.Context, svc *app.Service, clients *agentops.ClientReg
 	if trustedDesktopUI(c) {
 		return agentops.Caller{Kind: agentops.CallerManual}, "desktop-ui", nil
 	}
+	// 托管部署（浏览器界面）没有桌面壳的启动令牌，但它是画布 Web UI 的合法调用方
+	// ——例如「继续取回」要把已生成的成片绑回画布节点。这里只信任
+	// 「已通过主站单点登录 + 确实经本站反向代理」的请求，作用域仍由下方
+	// assistantScopeForRequest 收窄到该用户自己的工作区。
+	if hostedWebCaller(c) {
+		return agentops.Caller{Kind: agentops.CallerManual}, "canvas-web", nil
+	}
 	return agentops.Caller{}, "", errUnidentified
+}
+
+// hostedWebCaller 判定是否为托管部署下经本站前门访问的浏览器会话。
+func hostedWebCaller(c *gin.Context) bool {
+	if c == nil || c.Request == nil {
+		return false
+	}
+	if !SSOConfigured() {
+		return false
+	}
+	if !isLoopbackRequest(c.Request) || !isTrustedProxyRequest(c.Request) {
+		return false
+	}
+	_, ok := WorkspaceIdentity(c)
+	return ok
 }
 
 func trustedDesktopUI(c *gin.Context) bool {
@@ -258,16 +280,51 @@ func isLoopbackHost(host string) bool {
 
 // isLoopbackRequest 精确校验来源：Host、Origin 与 RemoteAddr 都必须是本机。
 // 不用子串匹配，避免 localhost.attacker.example 或任意 loopback 端口被误当成同源。
-func isLoopbackRequest(r *http.Request) bool {
-	if !isLoopbackHost(r.Host) {
+// trustedProxySourceHeader 由本站 nginx 反向代理用 proxy_set_header 覆盖写入
+// （客户端自带的同名头会被覆盖，因此外部无法伪造）。
+const trustedProxySourceHeader = "X-Canvas-Proxy-Source"
+
+const trustedProxySourceValue = "aicyld-nginx"
+
+// isTrustedProxyRequest 判定请求是否由本站反向代理转发而来。
+func isTrustedProxyRequest(r *http.Request) bool {
+	return strings.TrimSpace(r.Header.Get(trustedProxySourceHeader)) == trustedProxySourceValue
+}
+
+// hostMatchesAllowedOrigins 判定 Host 是否属于 BEEFTV_ALLOWED_ORIGINS 配置的来源。
+func hostMatchesAllowedOrigins(host string) bool {
+	host = strings.TrimSpace(host)
+	if host == "" {
 		return false
 	}
+	for _, allowed := range allowedOrigins() {
+		parsed, err := url.Parse(strings.TrimRight(allowed, "/"))
+		if err != nil {
+			continue
+		}
+		if parsed.Host != "" && strings.EqualFold(parsed.Host, host) {
+			return true
+		}
+	}
+	return false
+}
+
+func isLoopbackRequest(r *http.Request) bool {
 	remoteHost, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		remoteHost = r.RemoteAddr
 	}
 	if !isLoopbackHost(remoteHost) {
 		return false
+	}
+	if !isLoopbackHost(r.Host) {
+		// 托管部署（浏览器访问 hb.aicyld.com.cn）：后端只监听 127.0.0.1，
+		// Host 是公网域名而不是 loopback。仅当请求确实经由本站反向代理
+		// （标记头不可伪造）且 Host 属于已配置来源时才继续；下面的 Origin
+		// 校验仍然要求同源，跨站请求依旧被拒。
+		if !isTrustedProxyRequest(r) || !hostMatchesAllowedOrigins(r.Host) {
+			return false
+		}
 	}
 	origin := strings.TrimSpace(r.Header.Get("Origin"))
 	if httptransport.DesktopAuthenticated(r) && (origin == "wails://wails" || origin == "http://wails.localhost" || origin == "https://wails.localhost") {
