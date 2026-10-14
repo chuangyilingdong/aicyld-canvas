@@ -552,7 +552,7 @@ export function defaultModelCapabilityConfig(protocol?: ModelProtocol, model = "
     }
     if (protocol === "newapi-channel-2") {
         // APIMart 的 Seedance 2.0 Video Generations 协议支持参考视频/音频，
-        // 但不是火山方舟 Agent Plan，因此单独声明全模态参考能力。
+        // 但不是火山方舟 Agent Plan，因此单独声明全能参考能力。
         video.operations.push("reference_to_video");
     }
     if (protocol === "novita-video") {

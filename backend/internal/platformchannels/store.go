@@ -302,7 +302,7 @@ const defaultVideoCapabilityConfig = `{
     "defaultResolution": "720p",
     "generateAudio": { "supported": false, "default": false },
     "watermark": { "supported": false, "default": false },
-    "operations": ["text_to_video", "image_to_video"],
+    "operations": ["text_to_video", "image_to_video", "reference_to_video"],
     "defaultOperation": "text_to_video"
   }
 }`
