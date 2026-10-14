@@ -76,14 +76,33 @@ export function functionOnlyModelValues(): string[] {
         .filter((value): value is string => Boolean(value));
 }
 
-export type CanvasAudioPurpose = "voice" | "music";
+export type CanvasAudioPurpose = "voice" | "music" | "sfx";
+
+/**
+ * 按模型名判断它属于哪种音频用途：配音（TTS）/ 音乐（BGM）/ 音效。
+ * 用途决定音频框体里可选哪些模型，以及没选时用哪个默认档。
+ */
+export function classifyAudioModelPurpose(model: string | undefined): CanvasAudioPurpose {
+    const name = String(model || "").toLowerCase();
+    if (/sound|sfx|foley/.test(name)) return "sfx";
+    if (/mureka|music|bgm|song/.test(name)) return "music";
+    return "voice";
+}
+
+/** 该用途当前是否有可用模型（决定「用途」下拉里显不显示这一项）。 */
+export function hasAudioPurposeModel(purpose: CanvasAudioPurpose): boolean {
+    return Boolean(canvasAudioPurposeModel(purpose));
+}
 
 /** 音频节点按用途取平台内置模型：配音走 audio.tts，音乐走 audio.music。 */
 export function canvasAudioPurposeModel(purpose: string | undefined): string | undefined {
     if (purpose === "music") {
         return canvasFeatureModel("audio.music") || canvasFeatureModel("audio.tts");
     }
-    return canvasFeatureModel("audio.tts") || canvasFeatureModel("audio.music");
+    if (purpose === "sfx") {
+        return canvasFeatureModel("audio.sfx") || canvasFeatureModel("audio.tts");
+    }
+    return canvasFeatureModel("audio.tts") || canvasFeatureModel("audio.music") || canvasFeatureModel("audio.sfx");
 }
 
 /** 图改图专用：把模型替换成平台绑定的「图片编辑」模型。 */

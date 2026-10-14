@@ -28,7 +28,7 @@ import { ModelPicker } from "@/components/model-picker";
 import { defaultConfig, modelOptionName, resolveModelChannel, selectableModelsByCapability, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { resolveAudioSpeechSettings } from "@/lib/audio-generation";
 import { resolveCanvasGenerationModel } from "@/lib/canvas/canvas-project-generation";
-import { canvasFeatureModelForMode, functionOnlyModelValues } from "@/lib/canvas/feature-models";
+import { canvasAudioPurposeModel, canvasFeatureModelForMode, classifyAudioModelPurpose, functionOnlyModelValues, hasAudioPurposeModel } from "@/lib/canvas/feature-models";
 import { clampPromptEditorModalSize, PROMPT_EDITOR_VIEWPORT_MARGIN } from "@/lib/canvas/canvas-prompt-editor-size";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { normalizeVideoDuration, normalizeVideoResolution } from "@/lib/video-generation-options";
@@ -161,8 +161,17 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
     };
     const config = buildNodeConfig(globalConfig, node, mode, requirements);
     const availableModels = selectableModelsByCapability(config, mode);
+    // 音频节点：模型按「用途」分组，只列当前用途可用的那几档（配音 / 音乐 / 音效）。
+    const audioPurpose = node.metadata?.audioPurpose === "music" ? "music" : node.metadata?.audioPurpose === "sfx" ? "sfx" : "voice";
     // 平台按功能固定的模型（图改图等）不出现在选择器里，由功能内部直接取用。
-    const hiddenModels = functionOnlyModelValues();
+    const hiddenModels = mode === "audio"
+        ? [...functionOnlyModelValues(), ...selectableModelsByCapability(config, "audio").filter((model) => classifyAudioModelPurpose(model) !== audioPurpose)]
+        : functionOnlyModelValues();
+    const audioPurposeOptions = [
+        { value: "voice", label: "配音" },
+        { value: "music", label: "音乐" },
+        ...(hasAudioPurposeModel("sfx") ? [{ value: "sfx", label: "音效" }] : []),
+    ];
     const resolvedRequirements: ModelRequirements = {
         ...requirements,
         options: modelRequestOptions(config, mode),
@@ -388,33 +397,30 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                 <div className={expanded ? "min-w-0 flex-1" : "canvas-node-composer-model"}>
                     {availableModels.length ? (
                         <div className="flex min-w-0 flex-1 items-center gap-1">
-                            {/* 音频节点的模型由「用途」决定（配音 / 音乐），不再让用户选模型。 */}
-                            {mode === "audio" ? null : (
-                                <div className="min-w-0 flex-1">
-                                    <ModelPicker
-                                        className="!h-7 !w-full !min-w-0 !text-[var(--fs-tiny)] !font-normal [&_img]:!size-3 [&_.lucide]:!size-3"
-                                        fullWidth
-                                        config={config}
-                                        value={config.model}
-                                        onChange={(model) => onConfigChange(node.id, mode === "image" ? { model, ...defaultImageParamsForModel(config, model) } : { model })}
-                                        capability={mode}
-                                        hiddenModels={hiddenModels}
-                                        requirements={resolvedRequirements}
-                                        onMissingConfig={() => navigateToSettings({ section: "channels", continueCreation: true })}
-                                        variant="creation"
-                                        showConfiguredModelName
-                                    />
-                                </div>
-                            )}
+                            <div className="min-w-0 flex-1">
+                                <ModelPicker
+                                    className="!h-7 !w-full !min-w-0 !text-[var(--fs-tiny)] !font-normal [&_img]:!size-3 [&_.lucide]:!size-3"
+                                    fullWidth
+                                    config={config}
+                                    value={config.model}
+                                    onChange={(model) => onConfigChange(node.id, mode === "image" ? { model, ...defaultImageParamsForModel(config, model) } : { model })}
+                                    capability={mode}
+                                    hiddenModels={hiddenModels}
+                                    requirements={resolvedRequirements}
+                                    onMissingConfig={() => navigateToSettings({ section: "channels", continueCreation: true })}
+                                    variant="creation"
+                                    showConfiguredModelName
+                                />
+                            </div>
                             {mode === "audio" ? (
                                 <Select
                                     aria-label="音频用途"
                                     size="small"
                                     popupMatchSelectWidth={false}
                                     className="canvas-node-composer-mode-select !h-7 shrink-0 [&_.ant-select-selector]:!h-7 [&_.ant-select-selection-item]:!text-[var(--fs-tiny)] [&_.ant-select-selection-item]:!leading-7"
-                                    value={node.metadata?.audioPurpose === "music" ? "music" : "voice"}
-                                    options={[{ value: "voice", label: "配音" }, { value: "music", label: "音乐" }]}
-                                    onChange={(value) => onConfigChange(node.id, { audioPurpose: value })}
+                                    value={audioPurpose}
+                                    options={audioPurposeOptions}
+                                    onChange={(value) => onConfigChange(node.id, { audioPurpose: value, model: canvasAudioPurposeModel(value) })}
                                 />
                             ) : null}
                             {mode === "video" ? (() => {
