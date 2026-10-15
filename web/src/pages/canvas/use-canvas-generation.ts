@@ -13,9 +13,23 @@ import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { isLocalWorkspaceMode } from "@/services/workspace-mode";
 import { isDepthCaptureResultNode } from "@/lib/canvas/canvas-depth-capture";
 import { generationFailureMetadata } from "@/lib/generation-error";
+import { createCanvasNode } from "@/lib/canvas/canvas-project-domain";
 import { canvasGenerationTaskNodes, canvasTaskFailureMetadata } from "./canvas-generation-failure";
 import { runGenerationConsumer } from "@/services/generation-consumer-lifecycle";
 import { consumeCanvasGenerationContinuation } from "./use-canvas-operation-history";
+
+/**
+ * 服务端在「节点已绑定其它任务」时返回 409 / reason=node_task_mismatch；
+ * 包装成 CanvasGenerationDurableAckError 后需要顺着 cause 找。
+ */
+function isCanvasNodeTaskMismatchError(error: unknown, depth = 0): boolean {
+    if (!error || depth > 3) return false;
+    const reason = (error as { reason?: unknown }).reason;
+    if (typeof reason === "string" && reason === "node_task_mismatch") return true;
+    const text = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+    if (text.includes("node_task_mismatch") || text.includes("已绑定到其他任务")) return true;
+    return isCanvasNodeTaskMismatchError((error as { cause?: unknown }).cause, depth + 1);
+}
 
 type CanvasGenerationRequest = {
     targetNodeId: string;
@@ -245,6 +259,7 @@ export function useCanvasGeneration({ projectId, domainProjectId, projectLoaded,
 
     const applyGenerationTaskResult = useCallback(
         async (nodeId: string, task: GenerationTask) => {
+            // 见下方 catch：节点已绑别的任务时改绑到新节点。
             const capturedScope = captureUserScope();
             const capturedCanvasId = projectId;
             const controller = consumerControllerRef.current;
@@ -271,6 +286,43 @@ export function useCanvasGeneration({ projectId, domainProjectId, projectLoaded,
             } catch (error) {
                 if (error instanceof Error && error.name === "AbortError") throw error;
                 if (isUserScopeAbandonedError(error)) throw error;
+                // 目标节点已经绑在别的任务上：服务端刻意不覆盖。为这次已交付的结果另建一个节点接收，
+                // 否则用户已经付费、上游也交付了的结果只能重新生成。
+                if (isCanvasNodeTaskMismatchError(error)) {
+                    const source = nodesRef.current.find((item) => item.id === nodeId);
+                    if (source) {
+                        const clone = createCanvasNode(source.type, { x: source.position.x + source.width + 96, y: source.position.y }, {
+                            ...source.metadata,
+                            taskId: task.id,
+                            status: "loading",
+                            assetId: undefined,
+                            storageKey: undefined,
+                            content: undefined,
+                            resourceReloadAvailable: undefined,
+                            errorDetails: undefined,
+                            generationErrorCode: undefined,
+                            generationEffectKeys: undefined,
+                        });
+                        clone.title = `${source.title || "生成结果"} · 取回`;
+                        clone.width = source.width;
+                        clone.height = source.height;
+                        const nextNodes = [...nodesRef.current, clone];
+                        nodesRef.current = nextNodes;
+                        setNodes(nextNodes);
+                        await bindBackendCanvasGenerationResult({
+                            canvasId: capturedCanvasId,
+                            nodeId: clone.id,
+                            task,
+                            outputIndex: 0,
+                            signal: controller.signal,
+                            isCurrent: isCurrentCanvas,
+                            nodesRef,
+                            setNodes,
+                        });
+                        if (isCurrentCanvas()) message.info("原节点已绑定其他任务，结果已放到新节点");
+                        return;
+                    }
+                }
                 throw error instanceof CanvasGenerationDurableAckError || error instanceof CanvasGenerationMaterializationError ? error : new CanvasGenerationDurableAckError(error);
             }
         },
