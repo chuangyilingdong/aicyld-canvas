@@ -138,7 +138,16 @@ export function CanvasFolderCard({ project, projectName, folders = [], onMoveToF
                             { key: "rename", label: "重命名", onClick: () => startEditing(project.id, project.title) },
                             { key: "cover", label: "修改封面", onClick: () => coverInputRef.current?.click() },
                             { key: "duplicate", label: "创建副本", onClick: () => void onDuplicate?.() },
-                            { key: "move", label: "移动至文件夹", children: [{ key: "root", label: "移出文件夹", onClick: () => onMoveToFolder?.(undefined) }, ...folders.map((folder) => ({ key: folder.id, label: folder.name, onClick: () => onMoveToFolder?.(folder.id) }))] },
+                            // 直接列出文件夹（antd 子菜单点父项不会触发任何逻辑，用户会以为「点了没反应」）。
+                            {
+                                type: "group",
+                                label: "移动到文件夹",
+                                children: [
+                                    ...folders.map((folder) => ({ key: `move:${folder.id}`, label: folder.name, onClick: () => onMoveToFolder?.(folder.id) })),
+                                    ...(folders.length ? [] : [{ key: "move:none", label: "还没有文件夹", disabled: true }]),
+                                    ...(project.folderId ? [{ key: "move:root", label: "移出文件夹", onClick: () => onMoveToFolder?.(undefined) }] : []),
+                                ],
+                            },
                             { type: "divider" },
                             { key: "delete", danger: true, label: "删除项目", onClick: () => onDelete?.() },
                         ],
