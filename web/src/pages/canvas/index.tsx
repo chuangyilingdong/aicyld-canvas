@@ -25,6 +25,7 @@ import { isLocalWorkspaceMode } from "@/services/workspace-mode";
 import { usesBrowserLocalResourceStore } from "@/services/workspace-resource-storage";
 import { beginLocalCanvasProject, deleteLocalCanvasProjects, hydrateLocalCanvasProjectsFromBackend, syncLocalCanvasProjectToBackend } from "@/services/local-workspace-repository";
 import { createWorkspaceCanvasProject } from "@/services/workspace-project-repository";
+import { invalidateCanvasLibraryQueries } from "@/services/canvas-library-cache";
 import { listWorkspaceCanvasProjectsPage, type CanvasLibrarySummary } from "@/services/api/workspace-data";
 import { useUserStore } from "@/stores/use-user-store";
 import { listProjects } from "@/services/api/projects";
@@ -216,6 +217,7 @@ export default function CanvasPage() {
             for (const id of selectedIds) await loadCanvasProjectForEditing(id);
             selectedIds.forEach((id) => updateProject(id, { projectId }));
             if (remoteMode) await saveRemoteUserDataNow();
+            invalidateCanvasLibraryQueries();
             message.success(projectId ? "已加入项目" : "已移出项目，画布仍保留");
             setAssociationOpen(false);
         } catch (error) {
@@ -381,6 +383,7 @@ export default function CanvasPage() {
                                         if (!usesBrowserLocalResourceStore()) {
                                             await Promise.all(projectCanvasIds.map((id) => syncLocalCanvasProjectToBackend(id)));
                                         }
+                                        invalidateCanvasLibraryQueries();
                                         message.success(folderId ? "已移动到文件夹" : "已移出文件夹");
                                     } catch (error) {
                                         message.error(error instanceof Error ? error.message : "移动项目失败");
