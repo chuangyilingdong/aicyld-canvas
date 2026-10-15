@@ -375,7 +375,7 @@ func Defaults() []Channel {
 		seedanceFamilyProfile("seedance-2.0-standard", "Seedance 2.0 标准"),
 		seedanceFamilyProfile("seedance-2.0-fast", "Seedance 2.0 快速"),
 		seedanceFamilyProfile("seedance-2.5-standard", "Seedance 2.5 标准"),
-		platformProfile("MiniMax-H3", "MiniMax H3", "video", "newapi"),
+		platformProfile("MiniMax-H3", "MiniMax H3", "video", "minimax-h3-v2"),
 		platformProfile("zhenzhen-image-nb-2.1-lowprice", "zhenzhen nb 2.1（特价）", "image", "newapi-image"),
 		platformProfile("zhenzhen-image-nb-pro-lowprice", "zhenzhen nb pro（特价）", "image", "newapi-image"),
 		platformProfile("zhenzhen-image-g-v2.5-lowprice", "zhenzhen g v2.5（特价）", "image", "newapi-image"),
