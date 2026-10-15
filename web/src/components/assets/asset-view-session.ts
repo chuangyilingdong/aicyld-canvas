@@ -87,7 +87,15 @@ export function mergeHistoryLibraryAssets<T extends { id: string; status?: strin
 }
 
 export function shouldSuppressAssetViewError(error: unknown, expected: CapturedUserScope) {
-    return isUserScopeAbandonedError(error) || !userScopeMatches(expected);
+    // 只有「账号切换导致本次操作自我中止」才允许静默——此时视图已过期，弹错会误导用户。
+    if (isUserScopeAbandonedError(error)) return true;
+    // 真实接口错误一律透出。以前这里还带一个「作用域不匹配就静默」的条件，
+    // 结果一旦身份时钟被无关地推进，像「已存在同名素材分类」这种真实错误也会被吞掉，
+    // 用户看到的就是「点了保存什么反应都没有」。过期视图上仍然留一条控制台痕迹便于排查。
+    if (!userScopeMatches(expected)) {
+        console.warn("[assets] 过期视图上的操作失败，仍透出真实错误", error);
+    }
+    return false;
 }
 
 export async function runAssetViewAction<T>(

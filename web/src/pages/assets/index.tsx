@@ -444,7 +444,12 @@ function AssetsPageSession() {
                 await invalidateAssetLibrary(scope);
                 return creating ? "created" : "renamed";
             });
-            if (!saved) return;
+            if (!saved) {
+                // 只有被判定为「账号已切换」才会走到这里。以前这里是静默 return，
+                // 一旦判定出错，用户看到的就是「点了保存没反应」；现在至少给出反馈。
+                if (userScopeMatches(entryScope)) message.error("素材分类保存失败，请重试");
+                return;
+            }
             setFolderEditor(null);
             setFolderName("");
             // 分类列表住在左侧「筛选」面板里，而该面板默认是收起的——新建完不打开面板，
