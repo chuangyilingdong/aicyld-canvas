@@ -156,7 +156,7 @@ export function findCanvasNodeAsset(assets: Asset[], node: CanvasNodeData, canva
         if (explicit && sameAssetResource(explicit, node)) return explicit;
     }
     const generationTaskId = taskId || node.metadata?.taskId;
-    return assets.find((asset) => {
+    const matched = assets.find((asset) => {
         if (generationTaskId && asset.metadata?.taskId === generationTaskId && asset.metadata?.nodeId === node.id) return true;
         if (asset.metadata?.nodeId !== node.id) return false;
         const sourceCanvasId = asset.metadata?.canvasId;
@@ -165,6 +165,13 @@ export function findCanvasNodeAsset(assets: Asset[], node: CanvasNodeData, canva
         const assetResourceKey = typeof asset.metadata?.resourceKey === "string" ? asset.metadata.resourceKey : assetStorageKey(asset);
         return !nodeResourceKey || !assetResourceKey || nodeResourceKey === assetResourceKey;
     });
+    if (matched) return matched;
+    // 兜底：节点上可能带着「别的会话/设备写入、服务端并不存在」的 assetId。
+    // 只要素材库里有一条素材指向**完全同一份媒体**（storageKey 精确相等、kind 相同），
+    // 就认它——这样节点会被改回真正的素材 id，服务端也不必每次提交都兜底修正。
+    const nodeResourceKey = String(node.metadata?.storageKey || "").trim();
+    if (!nodeResourceKey) return undefined;
+    return assets.find((asset) => asset.kind === node.type && assetStorageKey(asset) === nodeResourceKey);
 }
 
 function sameAssetResource(asset: Asset, node: CanvasNodeData) {
