@@ -5,7 +5,7 @@ import { audioPitchLabel, audioSampleRateLabel, audioSpeedLabel, audioSpeechProf
 import { type CanvasTheme } from "@/lib/canvas-theme";
 import type { AiConfig } from "@/stores/use-config-store";
 
-type AudioSettingKey = "audioVoice" | "audioFormat" | "audioSpeed" | "audioPitch" | "audioVolume" | "audioInstructions" | "audioSampleRate";
+type AudioSettingKey = "audioVoice" | "audioFormat" | "audioSpeed" | "audioPitch" | "audioVolume" | "audioInstructions" | "audioSampleRate" | "audioLyrics";
 
 type AudioSettingsPanelProps = {
     config: AiConfig;
@@ -25,7 +25,7 @@ export function AudioSettingsPanel({ config, onConfigChange, theme, showTitle = 
     const pitch = normalizeAudioPitchValue(config.audioPitch);
     const volume = normalizeAudioVolumeValue(config.audioVolume);
     // 音乐 / 音效档只吃提示词，没有任何可调参数；此时面板只给一句说明，不展示语音参数。
-    const configurable = profile.showVoice || profile.formats.length > 0 || profile.showSampleRate || profile.showSpeed || profile.showPitch || profile.showVolume || profile.showInstructions;
+    const configurable = profile.showVoice || profile.formats.length > 0 || profile.showSampleRate || profile.showSpeed || profile.showPitch || profile.showVolume || profile.showInstructions || profile.showLyrics;
 
     return (
         <ImageSettingsTheme theme={theme}>
@@ -107,6 +107,21 @@ export function AudioSettingsPanel({ config, onConfigChange, theme, showTitle = 
                     <div className="rounded-xl border px-3 py-2 text-xs leading-5" style={{ borderColor: theme.node.stroke, color: theme.node.muted }}>
                         当前模型没有可调参数：音乐 / 音效只要提示词（描述你想要的风格或声音）。
                     </div>
+                ) : null}
+                {profile.showLyrics ? (
+                    <SettingGroup title="歌词" color={theme.node.muted}>
+                        <textarea
+                            value={config.audioLyrics || ""}
+                            placeholder={"带人声的音乐需要填歌词，例如：\n[verse]\n第一句…\n[chorus]\n副歌…"}
+                            className="thin-scrollbar h-28 w-full resize-none rounded-xl border bg-transparent px-3 py-2 text-sm leading-5 outline-none"
+                            style={{ borderColor: theme.node.stroke, color: theme.node.text }}
+                            onChange={(event) => onConfigChange("audioLyrics", event.target.value)}
+                            onMouseDown={(event) => event.stopPropagation()}
+                        />
+                        <div className="text-xs leading-5" style={{ color: theme.node.muted }}>
+                            当前模型要出人声就必须给歌词；留空时上行缺少 lyrics，上游会拒绝这条请求。
+                        </div>
+                    </SettingGroup>
                 ) : null}
                 {profile.showInstructions ? (
                     <SettingGroup title="声音指令" color={theme.node.muted}>

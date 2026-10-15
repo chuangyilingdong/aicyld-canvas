@@ -20,6 +20,7 @@ export type CanvasGenerationRequestFingerprintInput = {
     };
     operation?: string;
     audioInstructions?: string;
+    audioLyrics?: string;
     promptTemplateOperation?: string;
     promptTemplateVariables?: Record<string, string>;
     context: Pick<NodeGenerationContext, "referenceImages" | "referenceVideos" | "referenceAudios" | "characterReferences" | "resolvedCharacterVersions" | "resolvedCharacterVoices">;
@@ -45,6 +46,7 @@ export function canvasGenerationRequestFingerprint(input: CanvasGenerationReques
         workflow: input.workflow,
         operation: input.operation,
         audioInstructions: input.audioInstructions,
+        audioLyrics: input.audioLyrics,
         promptTemplateOperation: input.promptTemplateOperation,
         promptTemplateVariables: input.promptTemplateVariables,
         references: {

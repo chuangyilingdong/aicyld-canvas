@@ -102,6 +102,7 @@ function normalizeWorkflowFieldSourceName(value: unknown, capability?: RunningHu
         audiosamplerate: "audioSampleRate",
         audiospeed: "audioSpeed",
         audioinstructions: "audioInstructions",
+        audiulyrics: "audioLyrics",
     };
     if (normalized === "resolution") return capability === "video" ? "vquality" : "size";
     // 工作流的 quality 可能是连续数值（例如 0.1-3），不能按视频分辨率处理。
@@ -139,6 +140,7 @@ function inferWorkflowFieldSource(fieldName: string, fieldType: string, capabili
     if ((key === "pitch" && normalizedFieldType === "audio") || key === "audiopitch") return "audioPitch";
     if ((key === "volume" && normalizedFieldType === "audio") || key === "audiovolume") return "audioVolume";
     if ((key === "instructions" && normalizedFieldType === "audio") || key === "audioinstructions") return "audioInstructions";
+    if ((key === "lyrics" && normalizedFieldType === "audio") || key === "audiulyrics") return "audioLyrics";
     if (["transparentbackground", "transparent"].includes(key)) return "transparentBackground";
     if (normalizedFieldType === "image") return "referenceImage";
     if (normalizedFieldType === "video") return "referenceVideo";
@@ -410,6 +412,7 @@ export type AiConfig = {
     audioPitch: string;
     audioVolume: string;
     audioInstructions: string;
+    audioLyrics: string;
     videoSeconds: string;
     vquality: string;
     videoGenerateAudio: string;
@@ -457,6 +460,7 @@ export const defaultConfig: AiConfig = {
     audioPitch: "0",
     audioVolume: "1",
     audioInstructions: "",
+    audioLyrics: "",
     videoSeconds: "6",
     vquality: "720",
     videoGenerateAudio: "true",
@@ -786,6 +790,7 @@ export function normalizeConfigSnapshot(snapshot: ConfigStoreSnapshot | undefine
             audioPitch: config.audioPitch || defaultConfig.audioPitch,
             audioVolume: config.audioVolume || defaultConfig.audioVolume,
             audioInstructions: config.audioInstructions || "",
+            audioLyrics: config.audioLyrics || "",
             // 旧版全局 systemPrompt 会跨任务污染请求；提示词定制现已按 operation 由服务端编译。
             systemPrompt: "",
             videoSeconds: normalizeVideoDuration(config.videoSeconds),

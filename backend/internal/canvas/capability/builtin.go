@@ -121,11 +121,11 @@ func generatedDraftFields(kind string) map[string]PatchField {
 	case "video":
 		names = append(names, "size", "seconds", "vquality", "generateAudio", "watermark")
 	case "audio":
-		names = append(names, "audioVoice", "audioFormat", "audioSampleRate", "audioSpeed", "audioPitch", "audioVolume", "audioInstructions")
+		names = append(names, "audioVoice", "audioFormat", "audioSampleRate", "audioSpeed", "audioPitch", "audioVolume", "audioInstructions", "audioLyrics")
 	}
 	for index, name := range names {
 		max := 256
-		if name == "audioInstructions" {
+		if name == "audioInstructions" || name == "audioLyrics" {
 			max = 4096
 		}
 		fields[name] = PatchField{Path: "metadata." + name, Kind: patchKindString, Label: name, Order: 40 + index,

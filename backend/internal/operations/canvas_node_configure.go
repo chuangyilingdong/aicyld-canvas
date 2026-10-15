@@ -143,6 +143,11 @@ func validateDraftValue(name, value string) error {
 		if !strings.Contains("|mp3|wav|pcm|flac|aac|opus|ogg|m4a|", "|"+value+"|") {
 			return invalid()
 		}
+	case "audioLyrics":
+		// 歌词：允许留空（纯器乐），但不接受控制字符。
+		if strings.ContainsAny(value, "\x00\x01\x02\x03\x04\x05\x06\x07\x08") {
+			return invalid()
+		}
 	case "size", "quality", "vquality", "audioVoice":
 		if strings.TrimSpace(value) == "" {
 			return invalid()

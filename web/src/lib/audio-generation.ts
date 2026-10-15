@@ -95,6 +95,8 @@ export type AudioSpeechProfile = {
     showPitch: boolean;
     showVolume: boolean;
     showInstructions: boolean;
+    /** 唱歌类音乐模型（如 MiniMax Music 2.6）必须提供歌词才能出人声。 */
+    showLyrics?: boolean;
     showSampleRate: boolean;
 };
 
@@ -144,6 +146,7 @@ export function audioSpeechProfile(model = ""): AudioSpeechProfile {
     }
     if (kind === "minimax-music") {
         return {
+            showLyrics: true,
             kind,
             voices: [],
             formats: minimaxAudioFormatOptions,
@@ -316,6 +319,7 @@ export function resolveAudioSpeechSettings(
         audioVolume?: string;
         audioInstructions?: string;
         audioSampleRate?: string;
+        audioLyrics?: string;
     },
 ) {
     const profile = audioSpeechProfile(model);
@@ -327,6 +331,7 @@ export function resolveAudioSpeechSettings(
         audioPitch: profile.showPitch ? normalizeAudioPitchValue(values.audioPitch || "") : "0",
         audioVolume: profile.showVolume ? normalizeAudioVolumeValue(values.audioVolume || "") : "1",
         audioInstructions: profile.showInstructions ? String(values.audioInstructions || "") : "",
+        audioLyrics: profile.showLyrics ? String(values.audioLyrics || "").trim() : "",
     };
 }
 

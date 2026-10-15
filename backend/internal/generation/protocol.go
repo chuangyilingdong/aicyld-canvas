@@ -308,6 +308,7 @@ func ProtocolRequestFromInput(input Input) protocol.GenerationRequest {
 			"audioVoice":      ResolvedAudioSpeechVoice(input.Config.Model, input.Config.AudioVoice),
 			"audioFormat":     defaultString(input.Config.AudioFormat, "mp3"),
 			"audioSampleRate": defaultString(input.Config.AudioSampleRate, "24000"),
+			"audioLyrics":     input.Config.AudioLyrics,
 			"audioSpeed":      defaultString(input.Config.AudioSpeed, "1"),
 			"count":           input.Config.Count,
 		},
