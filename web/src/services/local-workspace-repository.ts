@@ -8,6 +8,7 @@ import { notifyCanvasRefresh } from "@/services/local-workspace-sync";
 import { canvasBackendSubmitPaused, CanvasBackendSubmitPausedError, CanvasStaleScopeError, handleRejectedCanvasBackendSave, isCanvasRevisionConflict, isCanvasSubmitControlError, pauseCanvasBackendSubmit, resumeCanvasBackendSubmit } from "@/services/canvas-revision-conflict";
 import { CanvasJournalError, clearCanvasOperationJournal, clearCanvasPendingProjection, loadCanvasOperationJournal, newCanvasCommitOperationId, peekCanvasOperationJournal, recordConfirmedCanvasCommit, updateCanvasOperationJournal } from "@/services/canvas-operation-journal";
 import { isLocalWorkspaceMode } from "@/services/workspace-mode";
+import { usesBrowserLocalResourceStore } from "@/services/workspace-resource-storage";
 import { getActiveUserScope } from "@/lib/user-scope";
 import { captureUserScope, isUserScopeAbandonedError, userScopeMatches, type CapturedUserScope } from "@/lib/user-scope-guard";
 import { sameCanvasDocument } from "@/lib/canvas/canvas-content";
@@ -906,12 +907,33 @@ export async function readLocalCanvasProjectFromBackend(id: string, expectedScop
  */
 async function hydrateRestoredCanvasNodes(project: CanvasProject) {
     const nodes = project.nodes || [];
-    if (!nodes.some((node) => node.metadata?.storageKey && (node.metadata?.content || "").startsWith("blob:"))) return project;
+    let next = nodes;
+    if (nodes.some((node) => node.metadata?.storageKey && (node.metadata?.content || "").startsWith("blob:"))) {
+        try {
+            const { hydrateCanvasImages } = await import("@/lib/canvas/canvas-project-generation");
+            next = await hydrateCanvasImages(nodes);
+        } catch {
+            next = nodes;
+        }
+    }
+    return withBrowserLocalMediaMigration(project, next);
+}
+
+/**
+ * 托管站升级：把只存在浏览器 IndexedDB 的节点媒体补传成服务端资源，并改写节点。
+ * 本地/桌面形态下 IndexedDB 就是持久库，迁移模块内部会自己跳过；这里只负责接进打开流程。
+ */
+async function withBrowserLocalMediaMigration(project: CanvasProject, nodes: CanvasProject["nodes"]): Promise<{ project: CanvasProject; migratedMedia: number }> {
+    if (usesBrowserLocalResourceStore()) return { project, migratedMedia: 0 };
     try {
-        const { hydrateCanvasImages } = await import("@/lib/canvas/canvas-project-generation");
-        return { ...project, nodes: await hydrateCanvasImages(nodes) };
-    } catch {
-        return project;
+        const { migrateBrowserLocalCanvasMedia } = await import("@/lib/canvas/canvas-local-media-migration");
+        const result = await migrateBrowserLocalCanvasMedia(nodes, { canvasId: project.id });
+        if (!result.migrated) return { project, migratedMedia: 0 };
+        console.info("[canvas-media-migrate] 已把本地媒体补传到服务端", { canvasId: project.id, migrated: result.migrated, failures: result.failures });
+        return { project: { ...project, nodes: result.nodes }, migratedMedia: result.migrated };
+    } catch (error) {
+        console.warn("[canvas-media-migrate] 本地媒体补传失败，画布照常打开", error);
+        return { project, migratedMedia: 0 };
     }
 }
 
@@ -932,7 +954,8 @@ export async function openLocalCanvasProjectFromBackend(id: string, expectedScop
         // 载入时把节点媒体地址水合一遍：历史上可能把会话级 blob: 地址写进了文档，
         // 刷新后就成死链（裁切 / 标注 / 图生图 / 调色等直接读 metadata.content 的地方会报 Failed to fetch）。
         // 这里按 storageKey 重新解析一次，内容消费者拿到的始终是当前会话可用的地址。
-        const project = await hydrateRestoredCanvasNodes(read);
+        const hydrated = await hydrateRestoredCanvasNodes(read);
+        const project = hydrated.project;
         if (!matchesDispatchGuard(expected)) return openLocalCanvasProject(id);
         if (existed && !openLocalCanvasProject(id)) return openLocalCanvasProject(id);
         useCanvasStore.setState((state) => ({
@@ -941,6 +964,13 @@ export async function openLocalCanvasProjectFromBackend(id: string, expectedScop
                 : [...state.projects, project],
         }));
         await flushCanvasStorePersistence();
+        if (hydrated.migratedMedia > 0 && matchesDispatchGuard(expected)) {
+            // 媒体已经进了服务端资源库，但节点改写还要落进服务端文档：走编辑器同一条落盘链路
+            // （revision CAS + 500ms 去抖提交），失败也不影响这次打开，下次打开会按幂等键重试。
+            void persistCanvasDocument(id, { nodes: project.nodes }, expected).catch((error) => {
+                console.error("[canvas-media-migrate] 迁移后的画布提交失败（媒体已上传，改写会在下次打开/保存时重试）", error);
+            });
+        }
         return project;
     } catch (error) {
         if (isUserScopeAbandonedError(error) || error instanceof CanvasStaleScopeError) return openLocalCanvasProject(id);
