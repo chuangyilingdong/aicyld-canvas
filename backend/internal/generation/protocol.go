@@ -304,12 +304,12 @@ func ProtocolRequestFromInput(input Input) protocol.GenerationRequest {
 		Watermark:     ParseBool(input.Config.VideoWatermark, false),
 		Operation:     firstNonEmpty(metadataString(input.Metadata, "videoEditOperation"), metadataString(input.Metadata, "videoOperation")),
 		Extra: map[string]any{
-			"videoSeconds": input.Config.VideoSeconds,
-			"audioVoice":   ResolvedAudioSpeechVoice(input.Config.Model, input.Config.AudioVoice),
+			"videoSeconds":    input.Config.VideoSeconds,
+			"audioVoice":      ResolvedAudioSpeechVoice(input.Config.Model, input.Config.AudioVoice),
 			"audioFormat":     defaultString(input.Config.AudioFormat, "mp3"),
 			"audioSampleRate": defaultString(input.Config.AudioSampleRate, "24000"),
-			"audioSpeed":   defaultString(input.Config.AudioSpeed, "1"),
-			"count":        input.Config.Count,
+			"audioSpeed":      defaultString(input.Config.AudioSpeed, "1"),
+			"count":           input.Config.Count,
 		},
 	}
 	for _, message := range input.TextHistory {
