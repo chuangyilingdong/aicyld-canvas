@@ -4,7 +4,7 @@ import { useState, useSyncExternalStore } from "react";
 import { exportCanvasProjects } from "@/lib/canvas/canvas-export";
 import { readAllCanvasSyncDrafts, readCanvasSyncDrafts, type CanvasSyncDraft } from "@/services/canvas-sync-drafts";
 import { getActiveUserScope } from "@/lib/user-scope";
-import { acceptExternalCanvasRevision, pendingExternalCanvasRevision, syncLocalCanvasProjectToBackend } from "@/services/local-workspace-repository";
+import { acceptExternalCanvasRevision, hasUnconfirmedCanvasEdits, pendingExternalCanvasRevision, syncLocalCanvasProjectToBackend } from "@/services/local-workspace-repository";
 import { canvasExternalRevisionVersion, subscribeCanvasExternalRevision, useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { canvasSyncProgressKey, useSyncProgressStore } from "@/stores/use-sync-progress-store";
 import { workspaceCapabilities } from "@/services/workspace-mode";
@@ -22,11 +22,14 @@ export function CanvasSyncStatus({ projectId, onOpenVersions }: { projectId: str
     const [adopting, setAdopting] = useState(false);
     const phase = progress?.phase;
     const conflict = phase === "conflict";
-    const failed = phase === "error" || conflict || !phase;
+    // 注意：phase 在「还没发生过保存动作」时就是 undefined，那不是失败。
+    // 之前把 !phase 也算进 failed，导致新画布一打开就显示「保存失败」，而且怎么点重试都不变。
+    const failed = phase === "error" || conflict;
     const saving = phase === "pending" || phase === "saving" || phase === "uploading";
+    const unconfirmed = !localOnly && hasUnconfirmedCanvasEdits(projectId);
     // 这是托管网站：文档只有一份（服务端），不存在「本地 vs 云端」两套。这里只表达
     // 「保存中 / 已保存 / 没保存上（可重试）」，不再引入云端/冲突这些桌面端概念。
-    const label = localOnly ? "已保存在本机" : saving ? "正在保存" : failed ? "保存失败" : phase === "done" ? "已保存" : "未保存";
+    const label = localOnly ? "已保存在本机" : saving ? "正在保存" : failed ? "保存失败" : unconfirmed ? "未保存" : "已保存";
     const run = async (operation: () => Promise<unknown>) => {
         setBusy(true);
         try {
@@ -73,14 +76,24 @@ export function CanvasSyncStatus({ projectId, onOpenVersions }: { projectId: str
                                   ? progress?.message || "正在保存…"
                                   : failed
                                     ? `没能保存${progress?.message ? `：${progress.message}` : ""}。点「重新保存」重试。`
-                                    : phase === "done"
-                                      ? "改动已保存。"
-                                      : "有改动还没保存，点「重新保存」即可。"}
+                                    : unconfirmed
+                                      ? "有改动还没保存，点「重新保存」即可。"
+                                      : "改动已保存。"}
                         </p>
                         {!localOnly && conflict ? <p className="text-xs text-muted-foreground">自动保存暂停过，点「重新保存」重试；想保留当前内容可先「下载画布素材」。</p> : null}
                         <div className="flex flex-wrap gap-2">
                             {!localOnly ? (
-                                <Button size="small" type="primary" loading={busy} onClick={() => void run(() => syncLocalCanvasProjectToBackend(projectId))}>
+                                <Button
+                                    size="small"
+                                    type="primary"
+                                    loading={busy}
+                                    onClick={() =>
+                                        void run(async () => {
+                                            await syncLocalCanvasProjectToBackend(projectId);
+                                            message.success("已保存");
+                                        })
+                                    }
+                                >
                                     重新保存
                                 </Button>
                             ) : null}
