@@ -21453,3 +21453,25 @@ html:not(.dark) .ant-select-item-option-disabled,
 html:not(.dark) .ant-dropdown-menu-item-disabled {
     color: rgba(17, 17, 17, .32) !important;
 }
+
+
+/* 画布里还有一条同权重的规则会在后面盖回来：
+   .canvas-control-select.ant-select .ant-select-content{box-shadow:none!important;border-color:#78716c52!important}
+   （暖灰 32% 描边，就是「右边多了一圈边」的来源）。
+   这里把类名写两遍提高特异性，保证模式下拉始终和模型选择器一致。 */
+.dark .canvas-node-composer-mode-select.canvas-node-composer-mode-select :is(.ant-select-content, .ant-select-selector) {
+    background: #262930a3 !important;
+    border: 1px solid #ffffff13 !important;
+    border-color: #ffffff13 !important;
+    border-radius: 8px !important;
+    box-shadow: inset 0 1px #ffffff09 !important;
+    color: var(--cn-text) !important;
+}
+
+.dark .canvas-node-composer-mode-select.canvas-node-composer-mode-select:hover :is(.ant-select-content, .ant-select-selector),
+.dark .canvas-node-composer-mode-select.canvas-node-composer-mode-select.ant-select-open :is(.ant-select-content, .ant-select-selector),
+.dark .canvas-node-composer-mode-select.canvas-node-composer-mode-select.ant-select-focused :is(.ant-select-content, .ant-select-selector) {
+    background: #30343dd1 !important;
+    border-color: #ffffff21 !important;
+    box-shadow: inset 0 1px #ffffff09 !important;
+}
