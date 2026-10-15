@@ -8,6 +8,7 @@ import { flushCanvasStorePersistence, useCanvasStore } from "@/stores/canvas/use
 import type { CanvasLibrarySummary } from "@/services/api/workspace-data";
 import { hasRemoteUserDataSyncSession, loadCanvasProjectForEditing, saveRemoteUserDataNow } from "@/services/local-workspace-sync";
 import { invalidateCanvasLibraryQueries } from "@/services/canvas-library-cache";
+import { beginCanvasLibraryDrag } from "@/lib/canvas/canvas-library-drag";
 import { useCanvasUiStore } from "@/stores/canvas/use-canvas-ui-store";
 import { cn } from "@/lib/utils";
 
@@ -92,6 +93,8 @@ export function CanvasFolderCard({ project, projectName, folders = [], onMoveToF
             onPointerEnter={onPrefetch}
             onPointerDown={onPrefetch}
             onFocusCapture={onPrefetch}
+            draggable
+            onDragStart={(event) => beginCanvasLibraryDrag(event, project.id)}
             cover={
                 <div className="canvas-collection-preview-content">
                     <ProjectPreview project={{ id: project.id, nodes: project.previewNodes }} emptyVariant="libtv" />
@@ -135,7 +138,7 @@ export function CanvasFolderCard({ project, projectName, folders = [], onMoveToF
                             { key: "rename", label: "重命名", onClick: () => startEditing(project.id, project.title) },
                             { key: "cover", label: "修改封面", onClick: () => coverInputRef.current?.click() },
                             { key: "duplicate", label: "创建副本", onClick: () => void onDuplicate?.() },
-                            { key: "move", label: "移动至文件夹", children: [{ key: "root", label: "未分类", onClick: () => onMoveToFolder?.(undefined) }, ...folders.map((folder) => ({ key: folder.id, label: folder.name, onClick: () => onMoveToFolder?.(folder.id) }))] },
+                            { key: "move", label: "移动至文件夹", children: [{ key: "root", label: "移出文件夹", onClick: () => onMoveToFolder?.(undefined) }, ...folders.map((folder) => ({ key: folder.id, label: folder.name, onClick: () => onMoveToFolder?.(folder.id) }))] },
                             { type: "divider" },
                             { key: "delete", danger: true, label: "删除项目", onClick: () => onDelete?.() },
                         ],

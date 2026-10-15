@@ -25,6 +25,7 @@ import { isLocalWorkspaceMode } from "@/services/workspace-mode";
 import { beginLocalCanvasProject, deleteLocalCanvasProjects, hydrateLocalCanvasProjectsFromBackend, syncCanvasLibraryFolderPlacement } from "@/services/local-workspace-repository";
 import { createWorkspaceCanvasProject } from "@/services/workspace-project-repository";
 import { invalidateCanvasLibraryQueries } from "@/services/canvas-library-cache";
+import { isCanvasLibraryDrag, readCanvasLibraryDrag } from "@/lib/canvas/canvas-library-drag";
 import { listWorkspaceCanvasProjectsPage, type CanvasLibrarySummary } from "@/services/api/workspace-data";
 import { useUserStore } from "@/stores/use-user-store";
 import { listProjects } from "@/services/api/projects";
@@ -190,6 +191,30 @@ export default function CanvasPage() {
     const visibleFolders = folderFilter === "all" ? folders : [];
     const activeFolder = folderFilter === "all" ? undefined : folders.find((folder) => folder.id === folderFilter);
     const projectFilterItems = useMemo(() => [{ key: "all", label: "全部画布" }, { key: "independent", label: "自由画布" }, ...(projectQuery.data?.projects || []).map(({ project }) => ({ key: project.id, label: project.name }))], [projectQuery.data]);
+    const moveCanvasProjectToFolder = async (projectId: string, folderId?: string) => {
+        try {
+            // Keep the menu action transactional: validate the folder, update the local store,
+            // then verify the in-memory relation before reporting success.
+            if (folderId && !folders.some((folder) => folder.id === folderId)) {
+                throw new Error("目标文件夹不存在");
+            }
+            const projectCanvasIds = canvasIdsForWorkspaceProjects(localProjects, [projectId]);
+            moveProjectsToFolder(projectCanvasIds, folderId);
+            await flushCanvasStorePersistence();
+            const movedProject = useCanvasStore.getState().projects.find((item) => item.id === projectId);
+            if (!movedProject || (movedProject.folderId || undefined) !== (folderId || undefined)) {
+                throw new Error("项目移动未完成，请重试");
+            }
+            // 文件夹归属只有全量 PUT 会落库（canvas.document.commit 只覆盖文档字段），
+            // 必须显式推一次，否则服务端 folderId 永远为空、刷新后画布回到根目录。
+            await Promise.all(projectCanvasIds.map((id) => syncCanvasLibraryFolderPlacement(id)));
+            invalidateCanvasLibraryQueries();
+            const folderName = folderId ? folders.find((folder) => folder.id === folderId)?.name : "";
+            message.success(folderId ? `已移动到「${folderName || "文件夹"}」` : "已移出文件夹");
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "移动项目失败");
+        }
+    };
     const saveFolderRename = () => {
         const nextName = folderName.trim() || "未命名文件夹";
         const id = editingFolderId;
@@ -359,7 +384,7 @@ export default function CanvasPage() {
                             </article>
                             <p className="libtv-create-project-subtitle">创建新的视频项目</p>
                         </div>
-                        {visibleFolders.map((folder) => <CanvasLibraryFolderTile key={folder.id} folder={folder} onOpen={() => setFolderFilter(folder.id)} onRename={() => { setFolderName(folder.name); setEditingFolderId(folder.id); setFolderDialogOpen(true); }} onDelete={() => setDeletingFolder({ id: folder.id, name: folder.name, scope: captureUserScope() })} onCoverChange={(dataUrl) => {
+                        {visibleFolders.map((folder) => <CanvasLibraryFolderTile key={folder.id} folder={folder} onDropCanvas={(projectId) => void moveCanvasProjectToFolder(projectId, folder.id)} onOpen={() => setFolderFilter(folder.id)} onRename={() => { setFolderName(folder.name); setEditingFolderId(folder.id); setFolderDialogOpen(true); }} onDelete={() => setDeletingFolder({ id: folder.id, name: folder.name, scope: captureUserScope() })} onCoverChange={(dataUrl) => {
                             void persistCanvasFolderCover(folder.id, dataUrl).then(() => {
                                 message.success("文件夹封面已更新");
                             }).catch((error) => {
@@ -372,31 +397,7 @@ export default function CanvasPage() {
                                 project={project}
                                 projectName={project.projectId ? projectNames.get(project.projectId) || "未同步项目" : undefined}
                                 folders={folders}
-                                onMoveToFolder={async (folderId) => {
-                                    try {
-                                        // Keep the menu action transactional: validate the selected
-                                        // folder, update the local store, then verify the in-memory
-                                        // relation before reporting success. This prevents a stale
-                                        // menu/list state from making a failed move look successful.
-                                        if (folderId && !folders.some((folder) => folder.id === folderId)) {
-                                            throw new Error("目标文件夹不存在");
-                                        }
-                                        const projectCanvasIds = canvasIdsForWorkspaceProjects(localProjects, [project.id]);
-                                        moveProjectsToFolder(projectCanvasIds, folderId);
-                                        await flushCanvasStorePersistence();
-                                        const movedProject = useCanvasStore.getState().projects.find((item) => item.id === project.id);
-                                        if (!movedProject || (movedProject.folderId || undefined) !== (folderId || undefined)) {
-                                            throw new Error("项目移动未完成，请重试");
-                                        }
-                                        // 文件夹归属只有全量 PUT 会落库（canvas.document.commit 只覆盖文档字段），
-                                        // 必须显式推一次，否则服务端 folderId 永远为空、刷新后画布回到根目录。
-                                        await Promise.all(projectCanvasIds.map((id) => syncCanvasLibraryFolderPlacement(id)));
-                                        invalidateCanvasLibraryQueries();
-                                        message.success(folderId ? "已移动到文件夹" : "已移出文件夹");
-                                    } catch (error) {
-                                        message.error(error instanceof Error ? error.message : "移动项目失败");
-                                    }
-                                }}
+                                onMoveToFolder={(folderId) => void moveCanvasProjectToFolder(project.id, folderId)}
                                 onDuplicate={() => duplicateCanvasProject(project)}
                                 onDelete={() => {
                                     setDeleteIds([project.id]);
@@ -465,9 +466,10 @@ export default function CanvasPage() {
     );
 }
 
-function CanvasLibraryFolderTile({ folder, onOpen, onRename, onDelete, onCoverChange }: { folder: { id: string; name: string; updatedAt: string; coverDataUrl?: string; unsaved?: boolean; saveError?: string }; onOpen: () => void; onRename: () => void; onDelete: () => void; onCoverChange: (dataUrl: string) => void }) {
+function CanvasLibraryFolderTile({ folder, onOpen, onRename, onDelete, onCoverChange, onDropCanvas }: { folder: { id: string; name: string; updatedAt: string; coverDataUrl?: string; unsaved?: boolean; saveError?: string }; onOpen: () => void; onRename: () => void; onDelete: () => void; onCoverChange: (dataUrl: string) => void; onDropCanvas?: (projectId: string) => void }) {
     const { message } = App.useApp();
     const coverInputRef = useRef<HTMLInputElement>(null);
+    const [dropActive, setDropActive] = useState(false);
     const chooseCover = (event: ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
         if (!file) return;
@@ -494,9 +496,25 @@ function CanvasLibraryFolderTile({ folder, onOpen, onRename, onDelete, onCoverCh
     return (
         <LibraryCardShell
             ariaLabel={`打开文件夹 ${folder.name}`}
-            className="libtv-folder-card"
+            className={cn("libtv-folder-card", dropActive && "is-drop-target")}
             updatedAt={folder.updatedAt}
             onOpen={onOpen}
+            onDragOver={(event) => {
+                // 只接受「画布卡片」的拖拽：拖文件/拖文本不该被这里吞掉。
+                if (!onDropCanvas || !isCanvasLibraryDrag(event)) return;
+                event.preventDefault();
+                event.dataTransfer.dropEffect = "move";
+                if (!dropActive) setDropActive(true);
+            }}
+            onDragLeave={() => setDropActive(false)}
+            onDrop={(event) => {
+                if (!onDropCanvas) return;
+                const projectId = readCanvasLibraryDrag(event);
+                setDropActive(false);
+                if (!projectId) return;
+                event.preventDefault();
+                onDropCanvas(projectId);
+            }}
             title={folder.saveError ? `${folder.name} · 保存失败` : folder.unsaved ? `${folder.name} · 未保存` : folder.name}
             cover={<div className={cn("libtv-folder-cover-art", folder.coverDataUrl && "has-custom-cover")} style={folder.coverDataUrl ? { backgroundImage: `url(${folder.coverDataUrl})`, backgroundSize: "cover", backgroundPosition: "center" } : undefined} />}
             actions={<>

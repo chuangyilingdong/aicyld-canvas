@@ -94,6 +94,8 @@
 .libtv-folder-card { position: relative; display: flex; min-width: 0; aspect-ratio: 16 / 10; flex-direction: column; justify-content: space-between; overflow: hidden; border: 1px solid color-mix(in srgb, var(--user-ink) 10%, transparent); border-radius: 14px; background: var(--user-surface-muted); color: var(--user-ink); cursor: pointer; transition: border-color var(--user-motion), transform var(--user-motion); }
 .libtv-folder-card:hover { border-color: color-mix(in srgb, var(--user-accent) 65%, transparent); transform: translateY(-1px); }
 .libtv-folder-card:focus-visible { outline: 2px solid var(--user-accent); outline-offset: 3px; }
+/* 拖拽画布卡片悬停在文件夹上时的落点提示。 */
+.libtv-folder-card.is-drop-target { border-color: var(--user-accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--user-accent) 55%, transparent); background: color-mix(in srgb, var(--user-accent) 10%, var(--user-surface-muted)); }
 .libtv-folder-card-cover { position: relative; display: grid; flex: 1; place-items: center; overflow: hidden; color: var(--user-accent); background: linear-gradient(180deg, #414141 0%, #252525 48%, #151515 100%); }
 .libtv-folder-card-cover::before { position: absolute; inset: 0; content: ""; background: linear-gradient(180deg, rgba(255,255,255,.1), rgba(255,255,255,0) 42%); clip-path: polygon(0 0, 26% 0, 32% 13%, 100% 13%, 100% 100%, 0 100%); pointer-events: none; }
 .libtv-folder-card-cover.has-custom-cover::before { display: none; }
