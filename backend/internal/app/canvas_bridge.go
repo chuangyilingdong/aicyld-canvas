@@ -586,6 +586,10 @@ func (s *operationSession) BindExistingCanvasNode(userID string, patch canvas.Ta
 	if err != nil {
 		return canvas.TaskOutputBindResult{}, err
 	}
+	if task != nil && task.UserID == userID && strings.TrimSpace(patch.Prompt) == "" {
+		// 节点被删除后按产物重建时会用到；正常绑定路径不读这个字段。
+		patch.Prompt = strings.TrimSpace(task.Prompt)
+	}
 	if task != nil && task.UserID == userID && task.ProjectID == patch.CanvasID && task.Type == model.TaskTypeTimelineRender && task.Provider == "local" && task.Model == "ffmpeg" && task.Status == model.TaskStatusSucceeded {
 		patch.AllowEmptyVideo = true
 	}

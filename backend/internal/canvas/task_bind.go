@@ -27,16 +27,19 @@ type TaskOutputBind struct {
 	OutputIndex int
 	EffectKey   string
 	MediaType   string
-	AssetID     string
-	ResourceID  string
-	StorageKey  string
-	Content     string
-	MimeType    string
-	Bytes       int64
-	Width       int
-	Height      int
-	DurationMs  int64
-	Storyboard  map[string]any
+	// Prompt 由调用方从任务记录补上：节点被删除后按产物重建时，
+	// 只有任务身份是拿不到提示词的，用户就再也看不到当时写的是什么。
+	Prompt     string
+	AssetID    string
+	ResourceID string
+	StorageKey string
+	Content    string
+	MimeType   string
+	Bytes      int64
+	Width      int
+	Height     int
+	DurationMs int64
+	Storyboard map[string]any
 }
 
 // TaskOutputBindResult is the canvas write outcome after a generation bind.
@@ -225,15 +228,26 @@ func ensureBindableNode(doc map[string]any, patch TaskOutputBind) (map[string]an
 		"position": map[string]any{"x": nextCanvasNodeX(doc), "y": 120},
 		"width":    width,
 		"height":   height,
-		"metadata": map[string]any{
-			"taskId":           strings.TrimSpace(patch.TaskID),
-			"status":           "loading",
-			"restoredFromTask": true,
-		},
+		"metadata": restoredNodeMetadata(patch),
 	}
 	nodes, _ := doc["nodes"].([]any)
 	doc["nodes"] = append(nodes, node)
 	return node, true
+}
+
+// restoredNodeMetadata 给重建节点带上任务身份，并尽量还原提示词，
+// 否则用户只看到一张图，不知道当时让它做什么。
+func restoredNodeMetadata(patch TaskOutputBind) map[string]any {
+	metadata := map[string]any{
+		"taskId":           strings.TrimSpace(patch.TaskID),
+		"status":           "loading",
+		"restoredFromTask": true,
+	}
+	if prompt := strings.TrimSpace(patch.Prompt); prompt != "" {
+		metadata["composerContent"] = prompt
+		metadata["prompt"] = prompt
+	}
+	return metadata
 }
 
 // nextCanvasNodeX 把重建的节点放到现有内容右侧的空位，不去猜原来的位置。
