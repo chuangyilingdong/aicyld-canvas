@@ -98,6 +98,10 @@ type Service struct {
 	// 「目标已不存在」这类永久失败只在第一次提示，避免每 5 秒刷同一条日志。
 	bindSkipMu     sync.Mutex
 	bindSkipLogged map[string]struct{}
+	// 本进程内已完成投递（成功或永久跳过）的任务标记：recovery 每 5 秒重扫全部 succeeded 任务，
+	// 没有它就会把所有任务重放一遍（实测每轮 280 次 agent_op_records UNIQUE 冲突日志）。
+	bindSettledMu sync.Mutex
+	bindSettled   map[string]struct{}
 }
 
 const taskWorkerConcurrency = 3

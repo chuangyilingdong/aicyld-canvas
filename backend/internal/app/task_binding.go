@@ -108,11 +108,46 @@ func (s *Service) recoverPendingCanvasBindings(limit int) error {
 	s.bindCursorMu.Unlock()
 	var last error
 	for _, task := range tasks {
-		if err := s.recoverCanvasTaskBindings(task); err != nil {
-			last = err
+		if s.canvasBindSettled(task.ID) {
+			continue
 		}
+		err := s.recoverCanvasTaskBindings(task)
+		if err == nil {
+			// 成功、或全部绑定都因永久原因被跳过：本进程内不必再看它一眼。
+			s.markCanvasBindSettled(task.ID)
+			continue
+		}
+		last = err
 	}
 	return last
+}
+
+// canvasBindSettled / markCanvasBindSettled 是 recovery 的进程内「已处理」标记。
+// 没有它时 SucceededTasksForDelivery 每 5 秒会把所有 succeeded 任务重放一遍：实测每轮 14 个
+// canvas.task.bind 全部重放，产生 280 次 agent_op_records UNIQUE 冲突 + 260 次画布查询日志
+// （其中一半还是已删画布）。重启后重放一轮是有意保留的自愈行为。
+func (s *Service) canvasBindSettled(taskID string) bool {
+	key := strings.TrimSpace(taskID)
+	if s == nil || key == "" {
+		return false
+	}
+	s.bindSettledMu.Lock()
+	defer s.bindSettledMu.Unlock()
+	_, ok := s.bindSettled[key]
+	return ok
+}
+
+func (s *Service) markCanvasBindSettled(taskID string) {
+	key := strings.TrimSpace(taskID)
+	if s == nil || key == "" {
+		return
+	}
+	s.bindSettledMu.Lock()
+	if s.bindSettled == nil {
+		s.bindSettled = make(map[string]struct{})
+	}
+	s.bindSettled[key] = struct{}{}
+	s.bindSettledMu.Unlock()
 }
 
 func (s *Service) executeMessageTaskAttach(registry *operations.Registry, task model.Task, conversationID, messageID string, outputIndex int) error {
