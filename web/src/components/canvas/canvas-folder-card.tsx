@@ -138,9 +138,10 @@ export function CanvasFolderCard({ project, projectName, folders = [], onMoveToF
                             { key: "rename", label: "重命名", onClick: () => startEditing(project.id, project.title) },
                             { key: "cover", label: "修改封面", onClick: () => coverInputRef.current?.click() },
                             { key: "duplicate", label: "创建副本", onClick: () => void onDuplicate?.() },
-                            // 直接列出文件夹（antd 子菜单点父项不会触发任何逻辑，用户会以为「点了没反应」）。
+                            // 保持「移动到文件夹 → 再选文件夹」两级结构（用户要求保留这一步）；
+                            // 子菜单里：没有文件夹时给明确提示，已在文件夹里时多一项「移出文件夹」。
                             {
-                                type: "group",
+                                key: "move",
                                 label: "移动到文件夹",
                                 children: [
                                     ...folders.map((folder) => ({ key: `move:${folder.id}`, label: folder.name, onClick: () => onMoveToFolder?.(folder.id) })),
