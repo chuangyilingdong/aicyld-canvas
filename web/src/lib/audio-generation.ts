@@ -76,7 +76,7 @@ export const minimaxSpeechVoiceOptions = [
     { value: "audiobook_female_2", label: "女有声书 2" },
 ];
 
-export type AudioSpeechKind = "openai" | "minimax-speech" | "minimax-music" | "doubao-seed-audio";
+export type AudioSpeechKind = "openai" | "minimax-speech" | "minimax-music" | "doubao-seed-audio" | "mureka-music" | "suno-sfx";
 
 export type AudioSpeechProfile = {
     kind: AudioSpeechKind;
@@ -113,6 +113,10 @@ export function audioSpeechKind(model: string): AudioSpeechKind {
     // 豆包 Seed Audio（上游 doubao-seed-audio-1.0）：音色是豆包音色 ID，
     // 输出格式与采样率的可选值都和 OpenAI 档不同。
     if (id.includes("doubao-seed-audio") || id.includes("seed-audio")) return "doubao-seed-audio";
+    // 音乐 / BGM 档（mureka-*-bgm、mureka-*-song）：只有提示词，没有音色/采样率等语音参数。
+    if (id.includes("mureka") || id.includes("-bgm") || id.includes("music")) return "mureka-music";
+    // 音效档（suno-sounds）：同样只吃提示词。
+    if (id.includes("suno") || id.includes("sound") || id.includes("sfx")) return "suno-sfx";
     return "openai";
 }
 
@@ -150,6 +154,27 @@ export function audioSpeechProfile(model = ""): AudioSpeechProfile {
             speedMin: 1,
             speedMax: 1,
             speedOptions: ["1"],
+            showVoice: false,
+            showSpeed: false,
+            showPitch: false,
+            showVolume: false,
+            showInstructions: false,
+            showSampleRate: false,
+        };
+    }
+    // 音乐 / BGM / 音效：模型只吃提示词，界面上不该出现音色、格式、采样率这些语音参数。
+    if (kind === "mureka-music" || kind === "suno-sfx") {
+        return {
+            kind,
+            voices: [],
+            formats: [],
+            sampleRates: [],
+            defaultVoice: "",
+            defaultFormat: "",
+            defaultSampleRate: "",
+            speedMin: 1,
+            speedMax: 1,
+            speedOptions: [],
             showVoice: false,
             showSpeed: false,
             showPitch: false,
@@ -310,7 +335,7 @@ export function audioSettingsSummary(config: { model?: string; audioVoice?: stri
     const profile = audioSpeechProfile(model);
     const parts: string[] = [];
     if (profile.showVoice) parts.push(audioVoiceLabel(config.audioVoice || "", model));
-    parts.push(audioFormatLabel(config.audioFormat || "", model));
+    if (profile.formats.length) parts.push(audioFormatLabel(config.audioFormat || "", model));
     if (profile.showSampleRate) parts.push(audioSampleRateLabel(config.audioSampleRate || "", model));
     if (profile.showSpeed) parts.push(audioSpeedLabel(config.audioSpeed || "", model));
     if (profile.showPitch) parts.push(`音调${audioPitchLabel(config.audioPitch || "")}`);

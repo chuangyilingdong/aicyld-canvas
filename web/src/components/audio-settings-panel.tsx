@@ -24,6 +24,8 @@ export function AudioSettingsPanel({ config, onConfigChange, theme, showTitle = 
     const speed = normalizeAudioSpeedValue(config.audioSpeed, model);
     const pitch = normalizeAudioPitchValue(config.audioPitch);
     const volume = normalizeAudioVolumeValue(config.audioVolume);
+    // 音乐 / 音效档只吃提示词，没有任何可调参数；此时面板只给一句说明，不展示语音参数。
+    const configurable = profile.showVoice || profile.formats.length > 0 || profile.showSampleRate || profile.showSpeed || profile.showPitch || profile.showVolume || profile.showInstructions;
 
     return (
         <ImageSettingsTheme theme={theme}>
@@ -40,15 +42,17 @@ export function AudioSettingsPanel({ config, onConfigChange, theme, showTitle = 
                         </div>
                     </SettingGroup>
                 ) : null}
-                <SettingGroup title="格式" color={theme.node.muted}>
-                    <div className="grid grid-cols-3 gap-2.5">
-                        {profile.formats.map((item) => (
-                            <OptionPill key={item.value} selected={format === item.value} theme={theme} onClick={() => onConfigChange("audioFormat", item.value)}>
-                                {item.label}
-                            </OptionPill>
-                        ))}
-                    </div>
-                </SettingGroup>
+                {profile.formats.length ? (
+                    <SettingGroup title="格式" color={theme.node.muted}>
+                        <div className="grid grid-cols-3 gap-2.5">
+                            {profile.formats.map((item) => (
+                                <OptionPill key={item.value} selected={format === item.value} theme={theme} onClick={() => onConfigChange("audioFormat", item.value)}>
+                                    {item.label}
+                                </OptionPill>
+                            ))}
+                        </div>
+                    </SettingGroup>
+                ) : null}
                 {profile.showSampleRate ? (
                     <SettingGroup title="采样率" color={theme.node.muted}>
                         <div className="grid grid-cols-3 gap-2.5">
@@ -98,6 +102,11 @@ export function AudioSettingsPanel({ config, onConfigChange, theme, showTitle = 
                             <span className="w-12 text-right text-xs tabular-nums">{audioVolumeLabel(volume)}</span>
                         </div>
                     </SettingGroup>
+                ) : null}
+                {!configurable ? (
+                    <div className="rounded-xl border px-3 py-2 text-xs leading-5" style={{ borderColor: theme.node.stroke, color: theme.node.muted }}>
+                        当前模型没有可调参数：音乐 / 音效只要提示词（描述你想要的风格或声音）。
+                    </div>
                 ) : null}
                 {profile.showInstructions ? (
                     <SettingGroup title="声音指令" color={theme.node.muted}>
