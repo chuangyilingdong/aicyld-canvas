@@ -899,6 +899,22 @@ export async function readLocalCanvasProjectFromBackend(id: string, expectedScop
     return response.project;
 }
 
+/**
+ * 画布载入时的媒体地址水合：按 storageKey 重新解析 image/video/audio 节点的 content，
+ * 优先换成服务端资源地址，退回本地缓存的新 objectURL，避免历史 blob: 死链。
+ * 失败一律原样返回，绝不影响画布打开。
+ */
+async function hydrateRestoredCanvasNodes(project: CanvasProject) {
+    const nodes = project.nodes || [];
+    if (!nodes.some((node) => node.metadata?.storageKey && (node.metadata?.content || "").startsWith("blob:"))) return project;
+    try {
+        const { hydrateCanvasImages } = await import("@/lib/canvas/canvas-project-generation");
+        return { ...project, nodes: await hydrateCanvasImages(nodes) };
+    } catch {
+        return project;
+    }
+}
+
 export async function openLocalCanvasProjectFromBackend(id: string, expectedScope?: CapturedUserScope) {
     const expected = expectedScope ?? captureUserScope();
     const scope = expected.userScope;
@@ -912,7 +928,11 @@ export async function openLocalCanvasProjectFromBackend(id: string, expectedScop
         }
         const backendProject = await readLocalCanvasProjectFromBackend(id, expected);
         if (!backendProject) return openLocalCanvasProject(id);
-        const project = await applyBackendCanvasRead(openLocalCanvasProject(id), backendProject, expected, existed);
+        const read = await applyBackendCanvasRead(openLocalCanvasProject(id), backendProject, expected, existed);
+        // 载入时把节点媒体地址水合一遍：历史上可能把会话级 blob: 地址写进了文档，
+        // 刷新后就成死链（裁切 / 标注 / 图生图 / 调色等直接读 metadata.content 的地方会报 Failed to fetch）。
+        // 这里按 storageKey 重新解析一次，内容消费者拿到的始终是当前会话可用的地址。
+        const project = await hydrateRestoredCanvasNodes(read);
         if (!matchesDispatchGuard(expected)) return openLocalCanvasProject(id);
         if (existed && !openLocalCanvasProject(id)) return openLocalCanvasProject(id);
         useCanvasStore.setState((state) => ({
