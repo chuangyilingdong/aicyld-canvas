@@ -287,7 +287,7 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, onConfigC
                     {workflowProvider === "model" && isSeedance25Model(modelOptionName(config.model)) ? (
                         <Select
                             aria-label="视频生成模式"
-                            className="w-full"
+                            className="w-full [&_.ant-select-selector]:!bg-[#202329] [&_.ant-select-selector]:!border [&_.ant-select-selector]:!border-white/[0.12] [&_.ant-select-selector]:!rounded-[14px] [&_.ant-select-selector]:!shadow-[inset_0_1px_0_rgba(255,255,255,0.055)] [&:hover_.ant-select-selector]:!bg-[#292d34] [&.ant-select-open_.ant-select-selector]:!bg-[#292d34] [&.ant-select-focused_.ant-select-selector]:!bg-[#292d34] [&_.ant-select-arrow]:!text-white/55"
                             value={resolveVideoOperation(inputSummary, node.metadata?.videoEditOperation)}
                             options={videoOperationOptions
                                 .filter(
@@ -484,7 +484,7 @@ export function WorkflowParameterControls({
                               <Select
                                   status={valueError ? "error" : undefined}
                                   size="small"
-                                  className="w-full"
+                                  className="w-full [&_.ant-select-selector]:!bg-[#202329] [&_.ant-select-selector]:!border [&_.ant-select-selector]:!border-white/[0.12] [&_.ant-select-selector]:!rounded-[14px] [&_.ant-select-selector]:!shadow-[inset_0_1px_0_rgba(255,255,255,0.055)] [&:hover_.ant-select-selector]:!bg-[#292d34] [&.ant-select-open_.ant-select-selector]:!bg-[#292d34] [&.ant-select-focused_.ant-select-selector]:!bg-[#292d34] [&_.ant-select-arrow]:!text-white/55"
                                   value={value === "" ? undefined : (value as string | number)}
                                   options={selectOptions.map((option) => ({ label: workflowParameterOptionLabel(option), value: workflowParameterOptionValue(option) }))}
                                   onChange={(next) => update(field, next)}
@@ -498,7 +498,7 @@ export function WorkflowParameterControls({
                                       disabled={randomEnabled}
                                       status={valueError ? "error" : undefined}
                                       size="small"
-                                      className="w-full"
+                                      className="w-full [&_.ant-select-selector]:!bg-[#202329] [&_.ant-select-selector]:!border [&_.ant-select-selector]:!border-white/[0.12] [&_.ant-select-selector]:!rounded-[14px] [&_.ant-select-selector]:!shadow-[inset_0_1px_0_rgba(255,255,255,0.055)] [&:hover_.ant-select-selector]:!bg-[#292d34] [&.ant-select-open_.ant-select-selector]:!bg-[#292d34] [&.ant-select-focused_.ant-select-selector]:!bg-[#292d34] [&_.ant-select-arrow]:!text-white/55"
                                       value={numericValue}
                                       min={bounds.min}
                                       max={bounds.max}
@@ -511,7 +511,7 @@ export function WorkflowParameterControls({
                                   disabled={randomEnabled}
                                   status={valueError ? "error" : undefined}
                                   size="small"
-                                  className="w-full"
+                                  className="w-full [&_.ant-select-selector]:!bg-[#202329] [&_.ant-select-selector]:!border [&_.ant-select-selector]:!border-white/[0.12] [&_.ant-select-selector]:!rounded-[14px] [&_.ant-select-selector]:!shadow-[inset_0_1px_0_rgba(255,255,255,0.055)] [&:hover_.ant-select-selector]:!bg-[#292d34] [&.ant-select-open_.ant-select-selector]:!bg-[#292d34] [&.ant-select-focused_.ant-select-selector]:!bg-[#292d34] [&_.ant-select-arrow]:!text-white/55"
                                   value={numericValue}
                                   min={bounds.min}
                                   max={bounds.max}
