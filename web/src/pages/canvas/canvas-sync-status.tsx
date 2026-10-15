@@ -1,15 +1,15 @@
 import { App, Button, Dropdown, Popover } from "antd";
-import { CheckCircle2, CloudCheck, CloudOff, LoaderCircle, RefreshCw } from "lucide-react";
+import { CheckCircle2, LoaderCircle, RefreshCw } from "lucide-react";
 import { useState, useSyncExternalStore } from "react";
 import { exportCanvasProjects } from "@/lib/canvas/canvas-export";
 import { readAllCanvasSyncDrafts, readCanvasSyncDrafts, type CanvasSyncDraft } from "@/services/canvas-sync-drafts";
 import { getActiveUserScope } from "@/lib/user-scope";
-import { acceptExternalCanvasRevision, pendingExternalCanvasRevision } from "@/services/local-workspace-repository";
+import { acceptExternalCanvasRevision, pendingExternalCanvasRevision, syncLocalCanvasProjectToBackend } from "@/services/local-workspace-repository";
 import { canvasExternalRevisionVersion, subscribeCanvasExternalRevision, useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { canvasSyncProgressKey, useSyncProgressStore } from "@/stores/use-sync-progress-store";
 import { workspaceCapabilities } from "@/services/workspace-mode";
 
-export function CanvasSyncStatus({ projectId, onLoadLatest, onOpenVersions }: { projectId: string; onLoadLatest: () => Promise<void>; onOpenVersions?: () => void }) {
+export function CanvasSyncStatus({ projectId, onOpenVersions }: { projectId: string; onLoadLatest?: () => Promise<void>; onOpenVersions?: () => void }) {
     const { message } = App.useApp();
     const progress = useSyncProgressStore((state) => state.syncingProjects[canvasSyncProgressKey(projectId)]);
     const localOnly = workspaceCapabilities().local;
@@ -24,7 +24,9 @@ export function CanvasSyncStatus({ projectId, onLoadLatest, onOpenVersions }: { 
     const conflict = phase === "conflict";
     const failed = phase === "error" || conflict || !phase;
     const saving = phase === "pending" || phase === "saving" || phase === "uploading";
-    const label = localOnly ? "已保存在本地" : conflict ? "版本冲突 · 未同步" : !phase ? "尚未同步" : failed ? "云端未保存" : saving ? "正在保存" : "已保存";
+    // 这是托管网站：文档只有一份（服务端），不存在「本地 vs 云端」两套。这里只表达
+    // 「保存中 / 已保存 / 没保存上（可重试）」，不再引入云端/冲突这些桌面端概念。
+    const label = localOnly ? "已保存在本机" : saving ? "正在保存" : failed ? "保存失败" : phase === "done" ? "已保存" : "未保存";
     const run = async (operation: () => Promise<unknown>) => {
         setBusy(true);
         try {
@@ -65,11 +67,23 @@ export function CanvasSyncStatus({ projectId, onLoadLatest, onOpenVersions }: { 
                 content={
                     <div className="max-w-80 space-y-3" data-canvas-no-zoom>
                         <p role="status" className="text-sm">
-                            {localOnly ? "画布已保存在本机。" : progress?.message || (phase === "done" ? "画布已同步到云端" : "尚未确认云端保存，请保留本地内容")}
+                            {localOnly
+                                ? "画布已保存在本机。"
+                                : saving
+                                  ? progress?.message || "正在保存…"
+                                  : failed
+                                    ? `没能保存${progress?.message ? `：${progress.message}` : ""}。点「重新保存」重试。`
+                                    : phase === "done"
+                                      ? "改动已保存。"
+                                      : "有改动还没保存，点「重新保存」即可。"}
                         </p>
-                        {!localOnly && conflict ? <p className="text-xs text-muted-foreground">此画布的自动提交已暂停。加载最新版前会保留本地草稿，可下载后从画布列表导入为副本。</p> : null}
+                        {!localOnly && conflict ? <p className="text-xs text-muted-foreground">自动保存暂停过，点「重新保存」重试；想保留当前内容可先「下载画布素材」。</p> : null}
                         <div className="flex flex-wrap gap-2">
-                            {!localOnly ? <Button size="small" loading={busy} onClick={() => void run(onLoadLatest)}>加载云端最新版本</Button> : null}
+                            {!localOnly ? (
+                                <Button size="small" type="primary" loading={busy} onClick={() => void run(() => syncLocalCanvasProjectToBackend(projectId))}>
+                                    重新保存
+                                </Button>
+                            ) : null}
                             <Button
                                 size="small"
                                 disabled={busy}
@@ -83,7 +97,7 @@ export function CanvasSyncStatus({ projectId, onLoadLatest, onOpenVersions }: { 
                                     })
                                 }
                             >
-                                下载当前内容
+                                下载画布素材
                             </Button>
                             {onOpenVersions ? (
                                 <Button
@@ -105,7 +119,7 @@ export function CanvasSyncStatus({ projectId, onLoadLatest, onOpenVersions }: { 
                     size="small"
                     danger={!localOnly && failed}
                     aria-label={`画布保存状态：${label}`}
-                    icon={localOnly ? <CheckCircle2 className="size-3.5 text-emerald-500" /> : saving ? <LoaderCircle className="size-3.5 animate-spin motion-reduce:animate-none" /> : failed ? <CloudOff className="size-3.5" /> : <CloudCheck className="size-3.5" />}
+                    icon={saving ? <LoaderCircle className="size-3.5 animate-spin motion-reduce:animate-none" /> : failed ? <RefreshCw className="size-3.5" /> : <CheckCircle2 className="size-3.5 text-emerald-500" />}
                 >
                     <span className="canvas-sync-status-label text-xs">{label}</span>
                 </Button>
