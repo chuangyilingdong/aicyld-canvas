@@ -447,6 +447,9 @@ function AssetsPageSession() {
             if (!saved) return;
             setFolderEditor(null);
             setFolderName("");
+            // 分类列表住在左侧「筛选」面板里，而该面板默认是收起的——新建完不打开面板，
+            // 用户屏幕上只会闪一下 toast，看起来就是「点了新建文件夹没反应」。
+            if (saved === "created") setFiltersOpen(true);
             message.success(saved === "created" ? "素材分类已创建" : "素材分类已重命名");
         } catch (error) {
             if (shouldSuppressAssetViewError(error, entryScope)) return;
