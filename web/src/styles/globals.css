@@ -21391,3 +21391,52 @@ main[data-libtv-readonly-dense="true"] .canvas-floating-dock {
 .canvas-model-picker-description {
     display: none !important;
 }
+
+
+/* ============================================================
+   画布输入区：模型选择器与「生成模式 / 用途」下拉必须同一套质感
+   —— 后者原来只有 Tailwind 类，走 antd 默认皮肤，背景/描边与左侧模型框不一致。
+   ============================================================ */
+.canvas-node-composer-mode-select .ant-select-selector {
+    border: 1px solid rgba(255, 255, 255, .12) !important;
+    border-radius: 14px !important;
+    background: #202329 !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .055) !important;
+}
+
+.canvas-node-composer-mode-select:hover .ant-select-selector,
+.canvas-node-composer-mode-select.ant-select-open .ant-select-selector,
+.canvas-node-composer-mode-select.ant-select-focused .ant-select-selector {
+    border-color: rgba(255, 255, 255, .25) !important;
+    background: #292d34 !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .055) !important;
+}
+
+.canvas-node-composer-mode-select .ant-select-arrow { color: rgba(255, 255, 255, .55); }
+
+html:not(.dark) .canvas-node-composer-mode-select .ant-select-selector {
+    border-color: rgba(32, 37, 45, .12) !important;
+    background: #f0f2f5 !important;
+    color: #20242a;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .85) !important;
+}
+
+html:not(.dark) .canvas-node-composer-mode-select:hover .ant-select-selector,
+html:not(.dark) .canvas-node-composer-mode-select.ant-select-open .ant-select-selector {
+    border-color: rgba(32, 37, 45, .22) !important;
+    background: #e7eaee !important;
+}
+
+/* 不可选的项必须明显变灰：之前只是点不动，文字仍是白的，看不出「不可选」。 */
+body.app-spatial-overlays .ant-select-item-option-disabled,
+body.app-spatial-overlays .ant-dropdown-menu-item-disabled,
+body.app-spatial-overlays .ant-cascader-menu-item-disabled {
+    color: rgba(255, 255, 255, .32) !important;
+    opacity: 1;
+    cursor: not-allowed;
+}
+
+html:not(.dark) body.app-spatial-overlays .ant-select-item-option-disabled,
+html:not(.dark) body.app-spatial-overlays .ant-dropdown-menu-item-disabled {
+    color: rgba(17, 17, 17, .32) !important;
+}
