@@ -40,7 +40,7 @@ Provider ID：`newapi-image`，能力：`image`，鉴权：`bearer`。
           "creation"
         ],
         "baseUrl": "https://api.example.com",
-        "requiresPublicMediaUrls": false,
+        "requiresPublicMediaUrls": true,
         "auth": {
           "type": "bearer",
           "field": "apiKey"

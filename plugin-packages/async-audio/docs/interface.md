@@ -146,6 +146,13 @@
             "required": false,
             "mapping": "provider-specific fields",
             "description": "插件命名空间内的厂商扩展字段。"
+          },
+          {
+            "name": "lyrics",
+            "type": "string",
+            "required": false,
+            "mapping": "provider-specific fields",
+            "description": "歌词。唱歌/音乐模型需要人声时必须提供（例如 MiniMax Music 2.6）；配音与音效模型忽略该字段。"
           }
         ],
         "create": {
@@ -342,6 +349,18 @@
               "pitch_rate": {
                 "$omitEmpty": {
                   "$ref": "request.extra.audioPitchRate"
+                }
+              },
+              "lyrics": {
+                "$omitEmpty": {
+                  "$trim": {
+                    "$coalesce": [
+                      {
+                        "$ref": "request.extra.audioLyrics"
+                      },
+                      ""
+                    ]
+                  }
                 }
               }
             }

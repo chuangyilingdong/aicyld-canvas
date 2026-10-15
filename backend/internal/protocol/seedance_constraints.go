@@ -14,11 +14,13 @@ func NormalizeSeedanceTaskOptions(r GenerationRequest) GenerationRequest {
 		locked = locked || media.Role == "first_frame" || media.Role == "last_frame"
 	}
 	if len(r.Videos) > 0 {
-		switch r.Operation {
-		case "extend":
-			locked = true
-		case "inpaint", "replace_element", "style_transfer":
-			locked = true
+		// 上游把「带参考视频」的 2.5 请求一律按视频编辑处理：ratio 必须是 adaptive、
+		// duration 必须是 -1（时长由原视频决定），否则回 400 invalid_video_edit_parameters
+		// （"Seedance 2.5 video editing requires ratio=adaptive and duration=-1"）。
+		// 真钱实测：图+视频+音频的全能参考若沿用用户选的 16:9 / 5 秒即被上游拒绝。
+		locked = true
+		// extend 例外：那里的 duration 表达「延长多少秒」，由上游语义决定，保留用户选择。
+		if r.Operation != "extend" {
 			r.Duration = -1
 		}
 	}

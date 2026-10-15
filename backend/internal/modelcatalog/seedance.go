@@ -14,8 +14,22 @@ import (
 
 var opaqueVideoAssetPattern = regexp.MustCompile(`^asset://[A-Za-z0-9_-]+$`)
 
+// hostManagedReference 报告这段参考媒体由宿主按资源记录解析（resource: 键）。
+// 收单阶段这些字段（时长、宽高）可能还没水合——生成出来的视频/音频结果入库时并不总是
+// 带 duration_ms / width / height，而收单早于执行期的 HydrateVideoReferenceMetadata。
+// 执行期会按资源记录或媒体探测补出真实值并再次校验，所以收单不能因为读不到就拒绝。
+func hostManagedReference(media MediaRef) bool {
+	return strings.HasPrefix(strings.TrimSpace(media.StorageKey), "resource:")
+}
+
 func referenceDurationIsOpaqueAsset(media MediaRef) bool {
-	return media.DurationMs == 0 && !strings.HasPrefix(media.StorageKey, "resource:") && opaqueVideoAssetPattern.MatchString(strings.TrimSpace(media.URL))
+	if media.DurationMs != 0 {
+		return false
+	}
+	if hostManagedReference(media) {
+		return true
+	}
+	return opaqueVideoAssetPattern.MatchString(strings.TrimSpace(media.URL))
 }
 
 const (
@@ -183,7 +197,7 @@ func validateVideoReferenceVideo(refs VideoReferenceConfig, index int, media Med
 	if err := validateReferenceFileBytes("视频", index, media.Bytes, refs.MaxVideoBytes); err != nil {
 		return err
 	}
-	if refs.MinVideoPixels > 0 && (media.Width <= 0 || media.Height <= 0) && !opaqueVideoAssetPattern.MatchString(strings.TrimSpace(media.URL)) {
+	if refs.MinVideoPixels > 0 && (media.Width <= 0 || media.Height <= 0) && !opaqueVideoAssetPattern.MatchString(strings.TrimSpace(media.URL)) && !hostManagedReference(media) {
 		return kernel.BadAuthRequest(fmt.Sprintf("第 %d 个参考视频尺寸无法读取，请重新导入素材后再提交", index+1))
 	}
 	return validateReferenceGeometry("视频", index, media.Width, media.Height, refs.MinVideoWidth, refs.MaxVideoWidth, refs.MinVideoHeight, refs.MaxVideoHeight, refs.MinVideoAspect, refs.MaxVideoAspect, refs.MinVideoPixels, refs.MaxVideoPixels)

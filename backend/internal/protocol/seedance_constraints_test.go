@@ -30,7 +30,9 @@ func TestSeedanceTaskConstraints(t *testing.T) {
 		{"official first frame", "seedance-2.5-official", "first_frame", "", "adaptive", 0, 6},
 		{"native last frame", "doubao-seedance-2-5-260628", "last_frame", "", "adaptive", 0, 6},
 		{"reference image", "seedance-2.5", "reference_image", "reference_to_video", "9:16", 0, 6},
-		{"reference video", "seedance-2.5", "", "reference_to_video", "9:16", 1, 6},
+		// 上游实测：带参考视频的 2.5 请求一律按视频编辑处理，必须 adaptive + duration=-1
+		// （400 invalid_video_edit_parameters: "requires ratio=adaptive and duration=-1"）。
+		{"reference video", "seedance-2.5", "", "reference_to_video", "adaptive", 1, -1},
 		{"edit", "seedance-2.5", "", "inpaint", "adaptive", 1, -1},
 		{"extend", "seedance-2.5", "", "extend", "adaptive", 1, 6},
 		{"no video edit", "seedance-2.5", "", "inpaint", "9:16", 0, 6},
