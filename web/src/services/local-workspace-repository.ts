@@ -15,6 +15,7 @@ import { sameCanvasDocument } from "@/lib/canvas/canvas-content";
 import { canvasUnconfirmedReason, canvasUnconfirmedDiagnostic, type CanvasUnconfirmedState } from "@/lib/canvas/canvas-unconfirmed-edits";
 import { rebaseCanvasDocumentThreeWay, settleInFlightGenerationOverlay } from "@/lib/canvas/canvas-document-rebase";
 import { traceCanvasGraph } from "@/lib/canvas/canvas-graph-trace";
+import { useSyncProgressStore } from "@/stores/use-sync-progress-store";
 
 export type { CapturedUserScope } from "@/lib/user-scope-guard";
 
@@ -347,12 +348,39 @@ async function applyBackendCanvasRead(
             return aligned ?? openLocalCanvasProject(backend.id) ?? currentLocal ?? backend;
         }
         const recorded = canvasDocumentBase(currentLocal.id, scope);
-        const serverMoved = !recorded
-            || (backend.revision ?? 0) !== recorded.revision
-            || !sameCanvasDocument(backend, recorded.snapshot);
-        if (serverMoved) pauseForExternalCandidate(currentLocal.id, backend, scope);
+        // 本地有未确认编辑、服务端也前进过（双方都动过）时，先去走同一套
+        // 「已确认基线 → 本地 live → 服务端」三路合并：合并干净就采纳合并结果、
+        // 清掉冲突标记并继续自动保存；只有同一字段真被两边都改过（rebased.conflict）
+        // 才把服务端留作候选并暂停自动提交。
+        //
+        // 这里过去是无条件 pauseForExternalCandidate()，于是「生成结果正常回写 +
+        // 用户正在编辑」这种日常组合也会把画布停成「再也存不回服务端」，
+        // 顶栏还显示已保存，直到用户手动刷新（2026-10-15 20:08–20:33 丢节点的病根，见计划 §54）。
+        const journal = peekCanvasOperationJournal(currentLocal.id, scope);
+        const base = journal?.pendingProjection?.base
+            ?? journal?.confirmedSnapshot
+            ?? recorded?.snapshot
+            ?? null;
+        let confirmed;
+        try {
+            confirmed = await confirmRemoteDocument(backend, scope);
+        } catch (error) {
+            rethrowIfAbandoned(error);
+            return openLocalCanvasProject(backend.id) ?? currentLocal ?? backend;
+        }
+        if ((backend.revision ?? 0) < confirmed.confirmedRevision) return openLocalCanvasProject(backend.id) ?? currentLocal ?? backend;
+        const aligned = alignLiveAfterConfirmedRemote({
+            id: backend.id,
+            scope,
+            remote: backend,
+            base,
+            hadLive,
+            expected,
+        });
+        if (aligned) return aligned;
+        traceCanvasGraph("repository.read.fallback", { local: currentLocal, backend, base });
         const settled = settleInFlightGenerationOverlay({
-            base: recorded?.snapshot ?? backend,
+            base: base ?? backend,
             local: currentLocal,
             remote: backend,
         });
@@ -508,7 +536,14 @@ async function commitLiveCanvasDocumentUnlocked(id: string, expected: CapturedUs
         throw new CanvasBackendSubmitPausedError(canvasDeleting.has(saveKey(scope, id)) ? "画布正在删除，未提交" : "画布有未处理的外部改动，本次未提交");
     }
     const project = openLocalCanvasProject(id);
-    if (!project) return;
+    if (!project) {
+        // 本地工作区里没有这份画布：过去这里静默 return，于是画布文档从此不再提交，
+        // 顶栏还显示「已保存」，刷新后本地那份编辑全丢（2026-10-15 丢节点的病根之一，见计划 §54）。
+        traceCanvasGraph("repository.commit.noLiveProject", {});
+        console.error("[canvas-sync] 画布不在本地工作区里，本次提交被跳过", { id });
+        useSyncProgressStore.getState().setProjectProgress(id, { phase: "error", message: "本地没有这份画布，改动没能提交；请刷新页面后重试" }, scope);
+        return;
+    }
     const confirmed = journal.confirmedSnapshot;
     const settled = confirmed
         ? settleInFlightGenerationOverlay({ base: confirmed, local: project, remote: confirmed })
@@ -606,6 +641,32 @@ async function sendCanvasDocumentCommit(
  * 只重试一次；重试再被拒就按原有流程处理，不会无限重试。
  */
 async function recoverCanvasCommitAfterRevisionConflict(id: string, expected: CapturedUserScope): Promise<boolean> {
+    return mergeRemoteIntoLiveCanvas(id, expected, { allowSameRevision: false });
+}
+
+/**
+ * 冲突暂停期间的自愈入口。
+ *
+ * 服务端只是多了新内容（任务回写、助手回合、其它入口改了画布）而本地也有未确认编辑时，
+ * 过去只能等用户点顶栏「使用最新版本」或刷新页面；在那之前画布再也不提交，
+ * 用户却还在同一份画布上继续编辑，刷新即丢（2026-10-15 20:08–20:33 丢节点的病根，见计划 §54）。
+ *
+ * 这里主动重取服务端文档做同一套三路合并：合并干净就把服务端记为基线、清掉冲突标记、
+ * 恢复自动提交并补一次提交；真冲突则维持暂停，交回顶栏流程由用户决定。
+ */
+export async function reconcilePausedCanvasSubmit(id: string, expectedScope?: CapturedUserScope): Promise<boolean> {
+    const expected = expectedScope ?? captureUserScope();
+    const scope = expected.userScope;
+    if (canvasDeleting.has(saveKey(scope, id))) return false;
+    if (!canvasBackendSubmitPaused(id, scope) && !canvasExternalRevisionConflict(scope, id)) return false;
+    const recovered = await mergeRemoteIntoLiveCanvas(id, expected, { allowSameRevision: true });
+    if (!recovered) return false;
+    clearCanvasExternalRevisionConflict(scope, id);
+    resumeCanvasBackendSubmit(id, scope);
+    return true;
+}
+
+async function mergeRemoteIntoLiveCanvas(id: string, expected: CapturedUserScope, options: { allowSameRevision: boolean }): Promise<boolean> {
     const scope = expected.userScope;
     if (canvasDeleting.has(saveKey(scope, id))) return false;
     const journal = peekCanvasOperationJournal(id, scope);
@@ -627,7 +688,7 @@ async function recoverCanvasCommitAfterRevisionConflict(id: string, expected: Ca
     // 除非服务端 revision 确实比本机记录的基线更靠前，否则这次拒绝另有原因
     // （例如服务端停在同一 revision 但内容已不同），不在这里猜。
     const heldRevision = Math.max(journal?.confirmedRevision ?? 0, recorded?.revision ?? 0);
-    if (remoteRevision <= heldRevision) return false;
+    if (options.allowSameRevision ? remoteRevision < heldRevision : remoteRevision <= heldRevision) return false;
     const settled = settleInFlightGenerationOverlay({ base, local: live, remote });
     const rebased = rebaseCanvasDocumentThreeWay({ base, local: settled, remote });
     if (rebased.conflict) return false;

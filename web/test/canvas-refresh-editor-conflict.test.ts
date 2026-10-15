@@ -68,13 +68,14 @@ mock.module("@/services/api/resources", () => ({
 const {
     acceptExternalCanvasRevision,
     holdExternalCanvasRevisionForEditor,
+    reconcilePausedCanvasSubmit,
     refreshLocalCanvasProjectIfChanged,
     resetLocalCanvasBackendSaveState,
     syncLocalCanvasProjectToBackend,
 } = await import("@/services/local-workspace-repository");
 const { mergeCanvasRefreshPatch } = await import("@/lib/canvas/canvas-patch-merge");
 const { canvasExternalRevisionConflict, clearCanvasExternalRevisionConflict, useCanvasStore } = await import("@/stores/canvas/use-canvas-store");
-const { canvasBackendSubmitPaused } = await import("@/services/canvas-revision-conflict");
+const { canvasBackendSubmitPaused, pauseCanvasBackendSubmit } = await import("@/services/canvas-revision-conflict");
 const { getActiveUserScope } = await import("@/lib/user-scope");
 const { useSyncProgressStore } = await import("@/stores/use-sync-progress-store");
 const { resetCanvasOperationJournalMemory } = await import("@/services/canvas-operation-journal");
@@ -183,5 +184,44 @@ describe("外部撤销到达编辑器", () => {
         expect(useCanvasStore.getState().projects[0].nodes).toEqual([]);
         expect(canvasExternalRevisionConflict(scope, "c1")).toBeUndefined();
         expect(canvasBackendSubmitPaused("c1", scope)).toBe(false);
+    });
+});
+
+describe("冲突暂停自愈（画布不再静默地只在本地累积）", () => {
+    test("服务端新增节点、本地另有编辑：三路合并自愈，恢复自动提交并补一次提交", async () => {
+        await confirmedAssistantCanvas();
+        // 本地未确认编辑：用户自己加了一个节点。
+        useCanvasStore.getState().updateProject("c1", { nodes: [...assistantNodes, textNode("local1", "本地新节点")] });
+        // 同时服务端也前进了一个 revision（生成结果/别的入口加的节点）。
+        server.revision = 2;
+        server.document = canvas(2, [...assistantNodes, textNode("remote1", "服务端新节点")]) as never;
+        // 等价于顶栏「画布已在别处更新」的暂停态：本地内容还在，但自动提交已经停了。
+        pauseCanvasBackendSubmit("c1", scope);
+        expect(canvasBackendSubmitPaused("c1", scope)).toBe(true);
+
+        const recovered = await reconcilePausedCanvasSubmit("c1");
+
+        expect(recovered).toBe(true);
+        expect(canvasBackendSubmitPaused("c1", scope)).toBe(false);
+        expect(canvasExternalRevisionConflict(scope, "c1")).toBeUndefined();
+        // 两边的内容都要在：本地的节点保留，服务端新增的节点也采纳。
+        expect(useCanvasStore.getState().projects[0].nodes.map((node) => node.id).sort()).toEqual(["a1", "a2", "local1", "remote1"]);
+        // 自愈不是"只恢复标记"：合并结果必须真的补交到服务端，且用服务端当前 revision 作为基线。
+        expect(server.posts).toEqual([{ expectedRevision: 2 }]);
+        expect((server.document?.nodes as CanvasNodeData[] | undefined)?.map((node) => node.id).sort()).toEqual(["a1", "a2", "local1", "remote1"]);
+    });
+
+    test("同一节点两边都改过：不猜胜者，保持暂停交回用户选择", async () => {
+        await confirmedAssistantCanvas();
+        useCanvasStore.getState().updateProject("c1", { nodes: [{ ...assistantNodes[0], title: "用户刚改的标题" }, assistantNodes[1]] });
+        server.revision = 2;
+        server.document = canvas(2, [textNode("a1", "服务端也改了"), assistantNodes[1]]) as never;
+        pauseCanvasBackendSubmit("c1", scope);
+
+        const recovered = await reconcilePausedCanvasSubmit("c1");
+
+        expect(recovered).toBe(false);
+        expect(server.posts).toEqual([]);
+        expect(useCanvasStore.getState().projects[0].nodes[0].title).toBe("用户刚改的标题");
     });
 });

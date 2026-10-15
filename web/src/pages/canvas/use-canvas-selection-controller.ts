@@ -386,6 +386,16 @@ export function useCanvasSelectionController({
         window.addEventListener("pointerup", handlePointerUp);
         window.addEventListener("pointercancel", cancel);
         window.addEventListener("blur", cancel);
+        // 拖拽途中切走标签页/系统弹窗会吞掉 pointerup：手势停在「拖拽中」，
+        // historyPausedRef 一直为 true，自动保存整体静默停摆（计划 §54 的候选病根之一）。
+        // 回到前台时若仍标记在拖拽，就按松手收尾。
+        const handleVisibilityResume = () => {
+            if (document.visibilityState !== "visible") return;
+            if (!dragRef.current.isDraggingNode) return;
+            console.warn("[canvas-sync] 拖拽在页面切走时丢了松手事件，这里按松手收尾，避免自动保存停摆");
+            gestureHandlersRef.current.finishNodeDrag();
+        };
+        document.addEventListener("visibilitychange", handleVisibilityResume);
         return () => {
             if (dragFrameRef.current) cancelAnimationFrame(dragFrameRef.current);
             if (selectionFrameRef.current) cancelAnimationFrame(selectionFrameRef.current);
@@ -397,6 +407,7 @@ export function useCanvasSelectionController({
             window.removeEventListener("pointerup", handlePointerUp);
             window.removeEventListener("pointercancel", cancel);
             window.removeEventListener("blur", cancel);
+            document.removeEventListener("visibilitychange", handleVisibilityResume);
         };
     }, [containerRef]);
 

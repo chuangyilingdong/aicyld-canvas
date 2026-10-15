@@ -4,7 +4,7 @@ import { useState, useSyncExternalStore } from "react";
 import { exportCanvasProjects } from "@/lib/canvas/canvas-export";
 import { readAllCanvasSyncDrafts, readCanvasSyncDrafts, type CanvasSyncDraft } from "@/services/canvas-sync-drafts";
 import { getActiveUserScope } from "@/lib/user-scope";
-import { acceptExternalCanvasRevision, hasUnconfirmedCanvasEdits, pendingExternalCanvasRevision, syncLocalCanvasProjectToBackend } from "@/services/local-workspace-repository";
+import { acceptExternalCanvasRevision, hasUnconfirmedCanvasEdits, pendingExternalCanvasRevision, reconcilePausedCanvasSubmit, syncLocalCanvasProjectToBackend } from "@/services/local-workspace-repository";
 import { canvasExternalRevisionVersion, subscribeCanvasExternalRevision, useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { canvasSyncProgressKey, useSyncProgressStore } from "@/stores/use-sync-progress-store";
 import { workspaceCapabilities } from "@/services/workspace-mode";
@@ -89,6 +89,9 @@ export function CanvasSyncStatus({ projectId, onOpenVersions }: { projectId: str
                                     loading={busy}
                                     onClick={() =>
                                         void run(async () => {
+                                            // 冲突暂停时直接重发只会被控制流拒绝：先做一次三路合并自愈，
+                                            // 再按正常路径提交（否则这个按钮在暂停期间永远点不动，计划 §54）。
+                                            await reconcilePausedCanvasSubmit(projectId);
                                             await syncLocalCanvasProjectToBackend(projectId);
                                             message.success("已保存");
                                         })

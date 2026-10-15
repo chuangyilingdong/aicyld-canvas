@@ -86,9 +86,11 @@ export class CanvasBackendSubmitPausedError extends Error { constructor(message 
 export class CanvasStaleScopeError extends Error { constructor(message = "") { super(message); this.name = "CanvasStaleScopeError"; } }
 export const isCanvasRevisionConflict = () => false;
 export const isCanvasSubmitControlError = (error) => error instanceof CanvasBackendSubmitPausedError || error instanceof CanvasStaleScopeError;
-export const canvasBackendSubmitPaused = () => false;
-export const pauseCanvasBackendSubmit = () => {};
-export const resumeCanvasBackendSubmit = () => {};
+export let pausedCalls = 0;
+export const canvasBackendSubmitPaused = () => pausedCalls > 0;
+export const pauseCanvasBackendSubmit = () => { pausedCalls += 1; };
+export const resumeCanvasBackendSubmit = () => { pausedCalls = 0; };
+export const resetCanvasSubmitPauseCalls = () => { pausedCalls = 0; };
 export const handleRejectedCanvasBackendSave = async () => false;
 `);
 writeFileSync(assetStubPath, "export const useAssetStore = { getState: () => ({ assets: [] }) };\n");
@@ -189,6 +191,8 @@ writeFileSync(join(dir, "repository.ts"), repositorySource
 const repository: typeof import("../src/services/local-workspace-repository") = await import(join(dir, "repository.ts"));
 const store = await import(storePath);
 const request = await import(requestPath);
+const conflict = await import(conflictStubPath);
+const journalModule = await import(journalPath);
 
 const project = (overrides: Partial<Project> = {}): Project => ({
     id: "canvas-a",
@@ -210,6 +214,8 @@ const project = (overrides: Partial<Project> = {}): Project => ({
 beforeEach(() => {
     store.resetProjects([]);
     request.setRemoteProject(undefined);
+    conflict.resetCanvasSubmitPauseCalls();
+    journalModule.resetCanvasOperationJournalMemory();
 });
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
@@ -235,8 +241,13 @@ describe("local workspace stale backend protection", () => {
         store.recordCanvasDocumentBase(project({ nodes: [] }));
         request.setRemoteProject(remote);
 
-        expect(await repository.openLocalCanvasProjectFromBackend(local.id)).toEqual(local);
+        const opened = await repository.openLocalCanvasProjectFromBackend(local.id);
+        // 本地那份未确认草稿必须原样留着；服务端的 revision 作为新的已确认基线被采纳
+        // （三路合并，而不是把画布停成"再也存不回"——2026-10-15 丢节点的病根，计划 §54）。
+        expect(opened?.nodes).toEqual([{ id: "kept-node" }]);
         expect(store.projects[0].nodes).toEqual([{ id: "kept-node" }]);
+        expect(store.projects[0].revision).toBe(2);
+        expect(conflict.canvasBackendSubmitPaused()).toBe(false);
     });
 
     it("keeps dirty local drafts during backend hydration", async () => {
@@ -248,6 +259,23 @@ describe("local workspace stale backend protection", () => {
 
         await repository.hydrateLocalCanvasProjectsFromBackend();
         expect(store.projects[0].nodes).toEqual([{ id: "kept-node" }]);
+    });
+
+    it("both sides moved: merges the newer backend revision without pausing autosave", async () => {
+        const local = project({ updatedAt: "2026-09-22T08:00:00.000Z", nodes: [{ id: "kept-node" }] });
+        const remote = project({ updatedAt: "2026-09-22T09:00:00.000Z", revision: 3, nodes: [] });
+        store.resetProjects([local]);
+        store.recordCanvasDocumentBase(project({ nodes: [] }));
+        request.setRemoteProject(remote);
+
+        await repository.hydrateLocalCanvasProjectsFromBackend();
+
+        // 过去这条路会 pauseForExternalCandidate()：本地编辑还在，但自动提交永久停摆，
+        // 顶栏还显示「已保存」，刷新即丢。现在必须合并而不是暂停。
+        expect(conflict.canvasBackendSubmitPaused()).toBe(false);
+        expect(store.projects[0].nodes).toEqual([{ id: "kept-node" }]);
+        expect(store.projects[0].revision).toBe(3);
+        expect(await repository.openLocalCanvasProjectFromBackend(local.id).then((opened) => opened?.nodes)).toEqual([{ id: "kept-node" }]);
     });
 
     it("clean caches adopt the backend document", async () => {

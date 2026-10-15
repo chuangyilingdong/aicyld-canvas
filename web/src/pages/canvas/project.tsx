@@ -337,6 +337,7 @@ function InfiniteCanvasPage() {
     const [workspaceView, setWorkspaceView] = useState<"workflow" | "storyboard">("workflow");
 
     const { tasks: activeTasks } = useCanvasActiveTasks(projectId, projectLoaded);
+
     const { focusMode, enterFocusMode, exitFocusMode, toggleFocusMode } = useFocusMode();
     const [focusDockRevealed, setFocusDockRevealed] = useState(false);
 
@@ -969,6 +970,38 @@ function InfiniteCanvasPage() {
         setGenerationHistoryOpen,
         getCanvasCenter,
     });
+
+    // 任务跑到终态就自动把结果认领回节点：以前只有"刷新页面"或手动点「继续取回」才会绑定，
+    // 用户会看着节点一直转圈（这就是"点了生成拿不到结果"的那种体验）。
+    // 任务离开「活动任务」列表 = 它到终态了；此时按 taskId 找到节点，把结果绑回去。
+    // 客户端缺席/绑定失败时服务端自己也会绑，这一步是幂等重放，会把服务端文档一并投影回本地。
+    const seenActiveTaskIdsRef = useRef<Set<string>>(new Set());
+    useEffect(() => {
+        const current = new Set(activeTasks.map((task) => task.id));
+        const finished = [...seenActiveTaskIdsRef.current].filter((id) => !current.has(id));
+        seenActiveTaskIdsRef.current = current;
+        if (!projectLoaded || finished.length === 0) return;
+        for (const taskId of finished) {
+            const node = nodesRef.current.find((item) => item.metadata?.taskId === taskId);
+            if (!node) continue;
+            if (node.metadata?.status === "success" && (node.metadata?.content || node.metadata?.storageKey)) continue;
+            void queryGenerationTask(taskId)
+                .then(async (task) => {
+                    const live = nodesRef.current.find((item) => item.id === node.id);
+                    if (!live) return;
+                    if (task.status === "succeeded") {
+                        await applyGenerationTaskResult(node.id, task);
+                        return;
+                    }
+                    if (task.status !== "failed" && task.status !== "cancelled") return;
+                    // 生成失败也要让用户看见原因，而不是让节点永远转圈。
+                    setNodes((currentNodes) => currentNodes.map((item) => item.id === node.id
+                        ? { ...item, metadata: { ...item.metadata, status: "error" as const, taskStatus: task.status, errorDetails: task.error || (task.status === "cancelled" ? "任务已取消" : "生成失败") } }
+                        : item));
+                })
+                .catch(() => undefined);
+        }
+    }, [activeTasks, applyGenerationTaskResult, nodesRef, projectLoaded, setNodes]);
 
     const { runAssistantProposal, assistantProposalFeedback, runningProposalIds } = useCanvasAssistantProposal({
         projectId,

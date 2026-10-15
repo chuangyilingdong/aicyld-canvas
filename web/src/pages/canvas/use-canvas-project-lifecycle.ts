@@ -16,7 +16,7 @@ import { listAddedSkills, type Skill } from "@/services/api/skills";
 import { forceOverwriteRemoteCanvasSync, hasRemoteUserDataSyncSession, loadCanvasProjectForEditing, saveRemoteUserDataNow, subscribeCanvasRefresh } from "@/services/local-workspace-sync";
 import { createWorkspaceCanvasProject, deleteWorkspaceCanvasProjects } from "@/services/workspace-project-repository";
 import { flushCanvasStorePersistence, useCanvasStore, type CanvasProject } from "@/stores/canvas/use-canvas-store";
-import { hasUnconfirmedCanvasEdits, holdExternalCanvasRevisionForEditor, scheduleLocalCanvasBackendSync, syncLocalCanvasProjectToBackend } from "@/services/local-workspace-repository";
+import { hasUnconfirmedCanvasEdits, holdExternalCanvasRevisionForEditor, reconcilePausedCanvasSubmit, scheduleLocalCanvasBackendSync, syncLocalCanvasProjectToBackend } from "@/services/local-workspace-repository";
 import { isCanvasSubmitControlError } from "@/services/canvas-revision-conflict";
 import { assertUserScope, captureUserScope, userScopeMatches } from "@/lib/user-scope-guard";
 import { useCanvasHistoryStore } from "@/stores/canvas/use-canvas-history-store";
@@ -304,7 +304,13 @@ export function useCanvasProjectLifecycle({
     }), [adoptExternalSnapshot, projectId, projectLoaded, nodesRef, connectionsRef, setNodes, setConnections]);
 
     useEffect(() => {
-        if (!projectLoaded || editorProjectIdRef.current !== projectId || historyPausedRef.current) return;
+        if (!projectLoaded || editorProjectIdRef.current !== projectId) return;
+        if (historyPausedRef.current) {
+            // 手势理应很快结束；它要是挂着，整个自动保存会静默停摆（计划 §54 的候选病根之一）。
+            // 这里留下痕迹，好让下一次线上复现时能直接看出是哪条路。
+            traceCanvasGraph("editor.autosave.gesturePaused", { render: { id: projectId, nodes, connections } });
+            return;
+        }
         // An earlier load/refresh effect can advance the baseline and enqueue new React state
         // in this same effect batch. This render still owns the old graph, not a user deletion.
         if (observedContentRef.current !== observedAtRender) return;
@@ -331,6 +337,39 @@ export function useCanvasProjectLifecycle({
         // 新建但还没生成的节点刷新就没了（生成产物会被任务回写救回来，空节点不会）。
         scheduleLocalCanvasBackendSync(projectId);
     }, [activeChatId, backgroundMode, canvasAppearance, chatSessions, connections, historyPausedRef, nodes, observedAtRender, projectId, projectLoaded, showImageInfo, updateProject]);
+
+    // 自动保存看门狗：只要画布还有「服务端未确认」的改动，最迟 8 秒必须再推一次。
+    // 过去一旦提交被暂停（冲突 / 外部改动 / 手势挂住 / 本地工作区缺少这份画布），
+    // 画布会静默地只在本地累积、顶栏还显示「已保存」，刷新即丢
+    // （2026-10-15 20:08–20:33 新建节点从没提交过，就是这条链，见计划 §54）。
+    useEffect(() => {
+        if (!projectLoaded || localMode) return;
+        let cancelled = false;
+        let lastAttemptAt = 0;
+        const tick = async () => {
+            if (cancelled || editorProjectIdRef.current !== projectId) return;
+            if (!hasUnconfirmedCanvasEdits(projectId)) return;
+            if (Date.now() - lastAttemptAt < 8000) return;
+            lastAttemptAt = Date.now();
+            try {
+                await syncLocalCanvasProjectToBackend(projectId);
+            } catch (error) {
+                if (!isCanvasSubmitControlError(error)) {
+                    console.warn("[canvas-sync] 自动补存失败，等下一轮重试", { projectId, error });
+                    return;
+                }
+                // 冲突暂停：先尝试三路合并自愈（服务端有新内容 + 本地也有编辑时
+                // 过去只能等用户点顶栏或刷新），合不干净就维持暂停，但要说清楚。
+                const recovered = await reconcilePausedCanvasSubmit(projectId).catch(() => false);
+                if (!recovered) console.warn("[canvas-sync] 画布仍有未保存改动，自动提交处于暂停：点顶栏「使用最新版本」或「重新保存」", { projectId });
+            }
+        };
+        const timer = window.setInterval(() => { void tick(); }, 4000);
+        return () => {
+            cancelled = true;
+            window.clearInterval(timer);
+        };
+    }, [localMode, projectId, projectLoaded]);
 
     useEffect(() => {
         if (!projectLoaded || editorProjectIdRef.current !== projectId) return;
