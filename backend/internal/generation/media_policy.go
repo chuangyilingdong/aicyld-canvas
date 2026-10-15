@@ -30,6 +30,11 @@ func MediaHydrationPolicyFor(ctx context.Context, input Input) MediaHydrationPol
 	case string(model.ChannelInterfaceNewAPIVideo), string(model.ChannelInterfaceNewAPIChannel1), string(model.ChannelInterfaceNewAPIChannel2), string(model.ChannelInterfaceVolcengineArkVideo), string(model.ChannelInterfaceVolcengineArkAgentPlanVideo), string(model.ChannelInterfaceMiniMaxVideo):
 		policy.RequireURL = true
 		policy.PreferURL = true
+	case string(model.ChannelInterfaceNewAPIImage):
+		// 图片编辑要把参考图以公开 HTTP(S) 地址交给上游（ZhenZhen：images must contain public HTTP(S) URLs）；
+		// 以前没列入这里 → 参考图以 data URL 发出 → 上游 400。
+		policy.RequireURL = true
+		policy.PreferURL = true
 	}
 	if adapter, ok := ProtocolAdapterForContext(ctx, input.Config.InterfaceType); ok {
 		policy.RequireURL = adapter.Metadata().RequiresPublicMediaURLs
@@ -52,6 +57,7 @@ func PrefersMediaURLs(interfaceType string, input Input) bool {
 	case string(model.ChannelInterfaceChatCompletion), string(model.ChannelInterfaceOpenAIResponse), string(model.ChannelInterfaceClaudeAPI),
 		string(model.ChannelInterfaceGrokImage), string(model.ChannelInterfaceVolcengineArkImage), string(model.ChannelInterfaceVolcengineArkAgentPlanImage),
 		string(model.ChannelInterfaceXAIVideo), string(model.ChannelInterfaceNovitaVideo),
+		string(model.ChannelInterfaceNewAPIImage),
 		string(model.ChannelInterfaceMiniMaxVideo), string(model.ChannelInterfaceNewAPIVideo),
 		string(model.ChannelInterfaceNewAPIChannel1), string(model.ChannelInterfaceNewAPIChannel2),
 		string(model.ChannelInterfaceVolcengineArkVideo), string(model.ChannelInterfaceVolcengineArkAgentPlanVideo):
