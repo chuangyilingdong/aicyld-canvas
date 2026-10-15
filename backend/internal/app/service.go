@@ -95,6 +95,9 @@ type Service struct {
 	workspaceOpsMu           sync.Mutex
 	bindAfterID              string
 	bindCursorMu             sync.Mutex
+	// 「目标已不存在」这类永久失败只在第一次提示，避免每 5 秒刷同一条日志。
+	bindSkipMu     sync.Mutex
+	bindSkipLogged map[string]struct{}
 }
 
 const taskWorkerConcurrency = 3

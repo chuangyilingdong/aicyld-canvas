@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"strconv"
 	"strings"
 
@@ -129,14 +130,16 @@ func (s *Service) executeMessageTaskAttach(registry *operations.Registry, task m
 	if err != nil {
 		return err
 	}
+	bindOpID := localtask.AttachMessageEffectKey(task.ID, messageID, outputIndex)
 	_, err = registry.Execute(operations.Request{
 		Op:     "conversation.message.attach",
-		OpID:   localtask.AttachMessageEffectKey(task.ID, messageID, outputIndex),
+		OpID:   bindOpID,
 		UserID: task.UserID,
 		Caller: operations.ManualCaller(false),
 		Params: params,
 	})
 	if skippableCanvasBindError(err) {
+		s.noteSkippedCanvasBind(bindOpID, err)
 		return nil
 	}
 	return err
@@ -157,14 +160,16 @@ func (s *Service) executeCanvasTaskBind(registry *operations.Registry, task mode
 	if err != nil {
 		return err
 	}
+	bindOpID := localtask.AttachNodeEffectKey(task.ID, nodeID, outputIndex)
 	_, err = registry.Execute(operations.Request{
 		Op:     "canvas.task.bind",
-		OpID:   localtask.AttachNodeEffectKey(task.ID, nodeID, outputIndex),
+		OpID:   bindOpID,
 		UserID: task.UserID,
 		Caller: operations.ManualCaller(false),
 		Params: params,
 	})
 	if skippableCanvasBindError(err) {
+		s.noteSkippedCanvasBind(bindOpID, err)
 		return nil
 	}
 	return err
@@ -236,6 +241,30 @@ func messageBindTargets(task model.Task, intents []localtask.CanvasBindingIntent
 	return targets
 }
 
+// noteSkippedCanvasBind 记录「因为目标已不存在而跳过」的绑定：recovery 每 5 秒会重走一遍，
+// 所以只在第一次遇到时打一条日志，之后静默跳过，既止血又不丢信号。
+func (s *Service) noteSkippedCanvasBind(opID string, err error) {
+	if s == nil || strings.TrimSpace(opID) == "" {
+		return
+	}
+	var opErr *operations.Error
+	if !errors.As(err, &opErr) || opErr.Reason != "not_found" {
+		return
+	}
+	s.bindSkipMu.Lock()
+	if s.bindSkipLogged == nil {
+		s.bindSkipLogged = map[string]struct{}{}
+	}
+	_, seen := s.bindSkipLogged[opID]
+	if !seen {
+		s.bindSkipLogged[opID] = struct{}{}
+	}
+	s.bindSkipMu.Unlock()
+	if !seen {
+		log.Printf("generation canvas bind skipped：目标已不存在，不再重试 op=%s error=%v", opID, err)
+	}
+}
+
 func skippableCanvasBindError(err error) bool {
 	if err == nil {
 		return true
@@ -248,6 +277,11 @@ func skippableCanvasBindError(err error) bool {
 		return false
 	}
 	switch opErr.Reason {
+	// 目标实体（画布/节点/资源/素材）已经不存在：这是永久状态，重试永远不会成功。
+	// 典型来源是「画布被删了，但它的历史任务还在被 recovery 扫描」——不该让整轮 recovery
+	// 报错，更不该每 5 秒刷一条日志（2026-10-15 那 5 个已删测试画布就是这么刷出来的）。
+	case "not_found":
+		return true
 	case "node_deleted", "node_task_mismatch", "node_mismatch", "canvas_mismatch",
 		"conversation_deleted", "message_deleted", "message_mismatch", "conversation_mismatch",
 		"message_task_mismatch",
