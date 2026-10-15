@@ -21453,3 +21453,57 @@ html:not(.dark) .ant-select-item-option-disabled,
 html:not(.dark) .ant-dropdown-menu-item-disabled {
     color: rgba(17, 17, 17, .32) !important;
 }
+
+
+/* ============================================================
+   画布控件统一外观（试点）：和模型选择器 .creation-model-picker.canvas-composer-model-picker 逐条对齐
+   —— 圆角 8px / 半透明填充底 #262930a3 / 极淡描边 #ffffff13 / 内高光；hover·聚焦 #30343dd1 + #ffffff21。
+   本次只应用在「紧凑控件」（配置节点的尺寸、时长、分辨率等 canvas-compact-control）。
+   确认后把其余框体（生成来源、上传按钮、提示词外框…）一并挂到这套值上。
+   ============================================================ */
+.canvas-compact-control.canvas-control-select.ant-select .ant-select-selector,
+.canvas-compact-control.ant-input-number,
+.canvas-compact-control.ant-select .ant-select-selector {
+    border: 1px solid var(--creation-border) !important;
+    border-radius: 8px !important;
+    background: var(--creation-surface-muted) !important;
+    color: var(--cn-text) !important;
+}
+
+.canvas-compact-control.canvas-control-select.ant-select .ant-select-selection-item,
+.canvas-compact-control.ant-select .ant-select-selection-item,
+.canvas-compact-control.ant-input-number input {
+    color: var(--cn-text) !important;
+}
+
+.canvas-compact-control.canvas-control-select.ant-select .ant-select-arrow,
+.canvas-compact-control.ant-select .ant-select-arrow {
+    color: color-mix(in srgb, var(--cn-text) 55%, transparent);
+}
+
+.canvas-compact-control.ant-select:hover .ant-select-selector,
+.canvas-compact-control.ant-select.ant-select-open .ant-select-selector,
+.canvas-compact-control.ant-select.ant-select-focused .ant-select-selector,
+.canvas-compact-control.ant-input-number:hover,
+.canvas-compact-control.ant-input-number-focused {
+    border-color: var(--creation-border-strong) !important;
+    background: var(--creation-surface-hover) !important;
+}
+
+.dark .canvas-compact-control.canvas-control-select.ant-select .ant-select-selector,
+.dark .canvas-compact-control.ant-select .ant-select-selector,
+.dark .canvas-compact-control.ant-input-number {
+    background: #262930a3 !important;
+    border: 1px solid #ffffff13 !important;
+    box-shadow: inset 0 1px #ffffff09 !important;
+}
+
+.dark .canvas-compact-control.ant-select:hover .ant-select-selector,
+.dark .canvas-compact-control.ant-select.ant-select-open .ant-select-selector,
+.dark .canvas-compact-control.ant-select.ant-select-focused .ant-select-selector,
+.dark .canvas-compact-control.ant-input-number:hover,
+.dark .canvas-compact-control.ant-input-number-focused {
+    background: #30343dd1 !important;
+    border-color: #ffffff21 !important;
+    box-shadow: inset 0 1px #ffffff09 !important;
+}
