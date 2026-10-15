@@ -98,7 +98,7 @@
   "apiVersion": "beeftv.plugin/v2",
   "id": "openai-videos",
   "name": "OpenAI Videos / Sora",
-  "version": "2.0.0",
+  "version": "2.0.2",
   "author": "灵动TV Contributors",
   "description": "OpenAI Videos / Sora 独立请求协议插件。",
   "documentation": "<当前插件的完整 documentation，由 README.md 与 docs/interface.md 拼接而成；为避免 JSON 递归，此处不重复展开正文。>",
@@ -219,61 +219,286 @@
         "create": {
           "method": "POST",
           "path": "/v1/videos",
-          "contentType": "multipart/form-data",
+          "contentType": "application/json",
           "body": {
             "model": {
               "$ref": "request.model"
             },
             "prompt": {
-              "$ref": "request.prompt"
+              "$omitEmpty": {
+                "$ref": "request.prompt"
+              }
             },
             "seconds": {
               "$toString": {
                 "$ref": "request.duration"
               }
             },
-            "size": {
+            "images": {
               "$omitEmpty": {
-                "$ref": "request.aspectRatio"
-              }
-            },
-            "resolution_name": {
-              "$omitEmpty": {
-                "$ref": "request.resolution"
-              }
-            },
-            "variants": {
-              "$omitEmpty": {
-                "$ref": "request.providerOptions.newapi.variants"
-              }
-            }
-          },
-          "files": [
-            {
-              "name": "input_reference",
-              "source": {
-                "$first": {
-                  "$filter": {
-                    "from": {
-                      "$sortByOrder": {
-                        "$ref": "request.images"
-                      }
-                    },
-                    "as": "media",
-                    "where": {
-                      "$ne": [
+                "$if": {
+                  "condition": {
+                    "$not": {
+                      "$or": [
                         {
-                          "$ref": "media.role"
+                          "$in": [
+                            {
+                              "$lower": {
+                                "$trim": {
+                                  "$coalesce": [
+                                    {
+                                      "$ref": "request.operation"
+                                    },
+                                    ""
+                                  ]
+                                }
+                              }
+                            },
+                            [
+                              "reference_to_video",
+                              "video_to_video"
+                            ]
+                          ]
                         },
-                        "mask"
+                        {
+                          "$gt": [
+                            {
+                              "$len": {
+                                "$coalesce": [
+                                  {
+                                    "$ref": "request.images"
+                                  },
+                                  []
+                                ]
+                              }
+                            },
+                            2
+                          ]
+                        },
+                        {
+                          "$gt": [
+                            {
+                              "$len": {
+                                "$coalesce": [
+                                  {
+                                    "$ref": "request.videos"
+                                  },
+                                  []
+                                ]
+                              }
+                            },
+                            0
+                          ]
+                        },
+                        {
+                          "$gt": [
+                            {
+                              "$len": {
+                                "$coalesce": [
+                                  {
+                                    "$ref": "request.audios"
+                                  },
+                                  []
+                                ]
+                              }
+                            },
+                            0
+                          ]
+                        }
                       ]
                     }
-                  }
+                  },
+                  "then": {
+                    "$map": {
+                      "from": {
+                        "$sortByOrder": {
+                          "$ref": "request.images"
+                        }
+                      },
+                      "as": "media",
+                      "in": {
+                        "$ref": "media.value"
+                      }
+                    }
+                  },
+                  "else": null
+                }
+              }
+            },
+            "metadata": {
+              "resolution": {
+                "$omitEmpty": {
+                  "$ref": "request.resolution"
                 }
               },
-              "filename": "input-reference.png"
+              "ratio": {
+                "$omitEmpty": {
+                  "$ref": "request.aspectRatio"
+                }
+              },
+              "generate_audio": {
+                "$ref": "request.generateAudio"
+              },
+              "content": {
+                "$omitEmpty": {
+                  "$if": {
+                    "condition": {
+                      "$or": [
+                        {
+                          "$in": [
+                            {
+                              "$lower": {
+                                "$trim": {
+                                  "$coalesce": [
+                                    {
+                                      "$ref": "request.operation"
+                                    },
+                                    ""
+                                  ]
+                                }
+                              }
+                            },
+                            [
+                              "reference_to_video",
+                              "video_to_video"
+                            ]
+                          ]
+                        },
+                        {
+                          "$gt": [
+                            {
+                              "$len": {
+                                "$coalesce": [
+                                  {
+                                    "$ref": "request.images"
+                                  },
+                                  []
+                                ]
+                              }
+                            },
+                            2
+                          ]
+                        },
+                        {
+                          "$gt": [
+                            {
+                              "$len": {
+                                "$coalesce": [
+                                  {
+                                    "$ref": "request.videos"
+                                  },
+                                  []
+                                ]
+                              }
+                            },
+                            0
+                          ]
+                        },
+                        {
+                          "$gt": [
+                            {
+                              "$len": {
+                                "$coalesce": [
+                                  {
+                                    "$ref": "request.audios"
+                                  },
+                                  []
+                                ]
+                              }
+                            },
+                            0
+                          ]
+                        }
+                      ]
+                    },
+                    "then": {
+                      "$concatArrays": [
+                        {
+                          "$map": {
+                            "from": {
+                              "$sortByOrder": {
+                                "$ref": "request.images"
+                              }
+                            },
+                            "as": "media",
+                            "in": {
+                              "type": "image_url",
+                              "image_url": {
+                                "url": {
+                                  "$ref": "media.value"
+                                }
+                              },
+                              "role": {
+                                "$coalesce": [
+                                  {
+                                    "$ref": "media.role"
+                                  },
+                                  "reference_image"
+                                ]
+                              }
+                            }
+                          }
+                        },
+                        {
+                          "$map": {
+                            "from": {
+                              "$sortByOrder": {
+                                "$ref": "request.videos"
+                              }
+                            },
+                            "as": "media",
+                            "in": {
+                              "type": "video_url",
+                              "video_url": {
+                                "url": {
+                                  "$ref": "media.value"
+                                }
+                              },
+                              "role": {
+                                "$coalesce": [
+                                  {
+                                    "$ref": "media.role"
+                                  },
+                                  "reference_video"
+                                ]
+                              }
+                            }
+                          }
+                        },
+                        {
+                          "$map": {
+                            "from": {
+                              "$sortByOrder": {
+                                "$ref": "request.audios"
+                              }
+                            },
+                            "as": "media",
+                            "in": {
+                              "type": "audio_url",
+                              "audio_url": {
+                                "url": {
+                                  "$ref": "media.value"
+                                }
+                              },
+                              "role": {
+                                "$coalesce": [
+                                  {
+                                    "$ref": "media.role"
+                                  },
+                                  "reference_audio"
+                                ]
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "else": []
+                  }
+                }
+              }
             }
-          ]
+          }
         },
         "poll": {
           "method": "GET",

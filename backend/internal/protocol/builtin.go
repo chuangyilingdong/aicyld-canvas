@@ -240,14 +240,25 @@ func newAPIVideosAdapter() Adapter {
 // newAPIImageAdapter 用于「图片生成挂在上游异步任务接口」的中转站
 // （例如 ZhenZhen AI：POST /v1/video/generations 提交、轮询取回图片 URL）。
 func newAPIImageAdapter() Adapter {
-	info := metadata("newapi-image", "NewAPI 图片任务（异步）", "OpenAI compatible", CapabilityImage, "POST /v1/video/generations", "GET /v1/video/generations/{task_id}", "application/json")
+	// 图片走文档端点 /v1/image/generations（旧 /v1/video/generations 仅为兼容保留）。
+	info := metadata("newapi-image", "NewAPI 图片任务（异步）", "OpenAI compatible", CapabilityImage, "POST /v1/image/generations", "GET /v1/image/generations/{task_id}", "application/json")
 	info.Parameters = mediaParams()
+	// 编辑模式要求把参考图以公开 HTTP(S) 地址传给上游（文档：images 最多 15–16 张）。
+	info.RequiresPublicMediaURLs = true
 	return asyncMediaAdapter(info, CapabilityImage, func(r GenerationRequest) (RequestSpec, error) {
 		body := map[string]any{"model": r.Model, "prompt": r.Prompt}
 		if strings.TrimSpace(r.AspectRatio) != "" {
 			body["size"] = r.AspectRatio
 		}
-		return jsonSpec(http.MethodPost, "/v1/video/generations", body), nil
+		// 带参考图即进入编辑模式（上游语义）：model + prompt + images。
+		if len(r.Images) > 0 {
+			images := make([]string, 0, len(r.Images))
+			for _, image := range r.Images {
+				images = append(images, mediaValue(image))
+			}
+			body["images"] = images
+		}
+		return jsonSpec(http.MethodPost, "/v1/image/generations", body), nil
 	})
 }
 func newAPIChannel1Adapter() Adapter {

@@ -16,6 +16,17 @@ export type CanvasFeatureKey =
 
 let featureModels: Record<string, string> = {};
 
+/**
+ * 平台能力里声明了「参考图编辑」的图片模型（由 applyPlatformFeatureModels 从渠道
+ * capabilityConfig.image.operations 收集）。名字约定只是兜底，权威判定看能力声明——
+ * 例如 zhenzhen-image-g-v2.5-lowprice 名字里没有 i2i/edit，但它上游是支持参考图编辑的。
+ */
+let capabilityImageEditModels = new Set<string>();
+
+export function setCapabilityImageEditModels(models: Iterable<string>) {
+    capabilityImageEditModels = new Set(Array.from(models).map((value) => String(value || "").trim()).filter(Boolean));
+}
+
 export function setCanvasFeatureModels(next: unknown) {
     featureModels = sanitizeFeatureModels(next);
 }
@@ -119,6 +130,8 @@ export function withPlatformImageEditModel<T extends { model?: string }>(config:
 export function applyPlatformFeatureModels<
     T extends { textModel?: string; imageModel?: string; videoModel?: string; audioModel?: string },
 >(config: T): T {
+    // 每次下发渠道能力时刷新「可编辑图片模型」名单，供 resolveImageEditModel 判定。
+    collectCapabilityImageEditModels(config as unknown as ChannelCapabilityLike);
     const text = canvasFeatureModel("text.chat");
     const image = canvasFeatureModel("image.t2i");
     const video = canvasFeatureModelForMode("video");
@@ -133,9 +146,45 @@ export function applyPlatformFeatureModels<
     } as T;
 }
 
-/** 该模型是否本身就具备图改图（i2i）能力。 */
+/** 该模型是否本身就具备图改图（参考图编辑）能力：先看平台能力声明，再退回名字约定。 */
 export function isImageEditModel(model: string | undefined) {
-    return /(^|[^a-z])(i2i|edit|inpaint)([^a-z]|$)/.test(String(model || "").split("::").pop()?.toLowerCase() || "");
+    const value = String(model || "").trim();
+    if (!value) return false;
+    if (capabilityImageEditModels.has(value)) return true;
+    const name = (value.includes("::") ? value.split("::").pop() || "" : value).toLowerCase();
+    if (capabilityImageEditModels.has(name)) return true;
+    if (/(^|[^a-z])(i2i|edit|inpaint)([^a-z]|$)/.test(name)) return true;
+    // 厂商文档明确「支持文生图和参考图编辑」的一族（Image G v2.5 低价扩展版）；
+    // 能力声明是权威，这条只是配置没带 operations 时的兜底。
+    return /(^|[^a-z])g-v2\.5-lowprice$/.test(name);
+}
+
+type ChannelCapabilityLike = {
+    channels?: Array<{
+        id?: string;
+        modelProfiles?: Array<{
+            model?: string;
+            capability?: string;
+            capabilityConfig?: { image?: { operations?: unknown } };
+        }>;
+    }>;
+};
+
+/** 把渠道能力里声明 image_to_image 的图片模型登记进来（含 channel::model 写法）。 */
+export function collectCapabilityImageEditModels(config: ChannelCapabilityLike | undefined) {
+    const models: string[] = [];
+    for (const channel of config?.channels || []) {
+        for (const profile of channel?.modelProfiles || []) {
+            if (profile?.capability !== "image") continue;
+            const operations = profile?.capabilityConfig?.image?.operations;
+            if (!Array.isArray(operations) || !operations.includes("image_to_image")) continue;
+            const name = String(profile.model || "").trim();
+            if (!name) continue;
+            models.push(name);
+            if (channel.id) models.push(`${channel.id}::${name}`);
+        }
+    }
+    setCapabilityImageEditModels(models);
 }
 
 /**

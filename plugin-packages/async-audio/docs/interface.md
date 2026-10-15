@@ -86,7 +86,7 @@
   "apiVersion": "beeftv.plugin/v2",
   "id": "async-audio",
   "name": "Async Audio Tasks",
-  "version": "2.0.0",
+  "version": "2.0.2",
   "author": "灵动TV Contributors",
   "description": "Async Audio Tasks 独立请求协议插件。",
   "documentation": "<当前插件的完整 documentation，由 README.md 与 docs/interface.md 拼接而成；为避免 JSON 递归，此处不重复展开正文。>",
@@ -150,82 +150,206 @@
         ],
         "create": {
           "method": "POST",
-          "path": "/v1/audio/tasks",
+          "path": "/v1/audio/generations",
           "contentType": "application/json",
           "body": {
             "model": {
               "$ref": "request.model"
             },
-            "input": {
+            "prompt": {
               "$ref": "request.prompt"
             },
-            "voice": {
-              "$coalesce": [
-                {
-                  "$ref": "request.extra.audioVoice"
-                },
-                {
-                  "$ref": "request.providerOptions.async-audio.voice"
-                },
-                "alloy"
-              ]
-            },
-            "response_format": {
-              "$coalesce": [
-                {
-                  "$ref": "request.extra.audioFormat"
-                },
-                {
-                  "$ref": "request.providerOptions.async-audio.response_format"
-                },
-                "mp3"
-              ]
-            },
-            "speed": {
-              "$coalesce": [
-                {
+            "metadata": {
+              "speaker": {
+                "$omitEmpty": {
                   "$if": {
                     "condition": {
-                      "$ne": [
+                      "$in": [
                         {
-                          "$toFloat": {
-                            "$ref": "request.extra.audioSpeed"
+                          "$lower": {
+                            "$trim": {
+                              "$coalesce": [
+                                {
+                                  "$ref": "request.extra.audioVoice"
+                                },
+                                ""
+                              ]
+                            }
                           }
                         },
-                        0
+                        [
+                          "alloy",
+                          "ash",
+                          "ballad",
+                          "coral",
+                          "echo",
+                          "fable",
+                          "nova",
+                          "onyx",
+                          "sage",
+                          "shimmer",
+                          "verse",
+                          "marin",
+                          "cedar",
+                          ""
+                        ]
                       ]
                     },
-                    "then": {
-                      "$toFloat": {
-                        "$ref": "request.extra.audioSpeed"
+                    "then": null,
+                    "else": {
+                      "$trim": {
+                        "$coalesce": [
+                          {
+                            "$ref": "request.extra.audioVoice"
+                          },
+                          ""
+                        ]
                       }
-                    },
-                    "else": null
+                    }
                   }
-                },
-                {
-                  "$ref": "request.providerOptions.async-audio.speed"
-                },
-                1
-              ]
-            },
-            "instructions": {
-              "$omitEmpty": {
+                }
+              },
+              "format": {
                 "$coalesce": [
                   {
-                    "$ref": "request.extra.audioInstructions"
+                    "$if": {
+                      "condition": {
+                        "$in": [
+                          {
+                            "$lower": {
+                              "$trim": {
+                                "$coalesce": [
+                                  {
+                                    "$ref": "request.extra.audioFormat"
+                                  },
+                                  ""
+                                ]
+                              }
+                            }
+                          },
+                          [
+                            "wav",
+                            "mp3",
+                            "pcm",
+                            "ogg_opus"
+                          ]
+                        ]
+                      },
+                      "then": {
+                        "$lower": {
+                          "$trim": {
+                            "$coalesce": [
+                              {
+                                "$ref": "request.extra.audioFormat"
+                              },
+                              ""
+                            ]
+                          }
+                        }
+                      },
+                      "else": {
+                        "$if": {
+                          "condition": {
+                            "$eq": [
+                              {
+                                "$lower": {
+                                  "$trim": {
+                                    "$coalesce": [
+                                      {
+                                        "$ref": "request.extra.audioFormat"
+                                      },
+                                      ""
+                                    ]
+                                  }
+                                }
+                              },
+                              "opus"
+                            ]
+                          },
+                          "then": "ogg_opus",
+                          "else": "mp3"
+                        }
+                      }
+                    }
                   },
-                  {
-                    "$ref": "request.providerOptions.async-audio.instructions"
-                  }
+                  "mp3"
                 ]
+              },
+              "sample_rate": {
+                "$coalesce": [
+                  {
+                    "$omitEmpty": {
+                      "$ref": "request.extra.audioSampleRate"
+                    }
+                  },
+                  "24000"
+                ]
+              },
+              "speech_rate": {
+                "$omitEmpty": {
+                  "$if": {
+                    "condition": {
+                      "$eq": [
+                        {
+                          "$toFloat": {
+                            "$coalesce": [
+                              {
+                                "$ref": "request.extra.audioSpeed"
+                              },
+                              1
+                            ]
+                          }
+                        },
+                        1
+                      ]
+                    },
+                    "then": null,
+                    "else": {
+                      "$toInt": {
+                        "$min": [
+                          100,
+                          {
+                            "$max": [
+                              -50,
+                              {
+                                "$add": [
+                                  {
+                                    "$multiply": [
+                                      {
+                                        "$toFloat": {
+                                          "$coalesce": [
+                                            {
+                                              "$ref": "request.extra.audioSpeed"
+                                            },
+                                            1
+                                          ]
+                                        }
+                                      },
+                                      100
+                                    ]
+                                  },
+                                  -100
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              "pitch_rate": {
+                "$omitEmpty": {
+                  "$ref": "request.extra.audioPitchRate"
+                }
               }
             }
           }
         },
         "poll": {
           "method": "GET",
-          "path": "/v1/audio/tasks/{{taskId}}"
+          "path": "/v1/audio/generations/{{taskId}}"
         },
         "result": {
           "method": "GET",
@@ -238,10 +362,13 @@
           "taskId": {
             "$coalesce": [
               {
+                "$ref": "response.task_id"
+              },
+              {
                 "$ref": "response.id"
               },
               {
-                "$ref": "response.task_id"
+                "$ref": "response.data.task_id"
               },
               {
                 "$ref": "response.data.id"
@@ -254,10 +381,13 @@
           "status": {
             "$coalesce": [
               {
+                "$ref": "response.data.status"
+              },
+              {
                 "$ref": "response.status"
               },
               {
-                "$ref": "response.data.status"
+                "$ref": "response.data.data.status"
               },
               "pending"
             ]
@@ -265,23 +395,32 @@
           "message": {
             "$coalesce": [
               {
+                "$ref": "response.data.fail_reason"
+              },
+              {
+                "$ref": "response.fail_reason"
+              },
+              {
                 "$ref": "response.error.message"
               },
               {
                 "$ref": "response.message"
-              },
-              {
-                "$ref": "response.fail_reason"
               }
             ]
           },
           "audios": {
             "$coalesce": [
               {
-                "$ref": "response.audio_url"
+                "$ref": "response.data.result_url"
               },
               {
-                "$ref": "response.audioUrl"
+                "$ref": "response.data.data.content.audio_url"
+              },
+              {
+                "$ref": "response.data.audio_url"
+              },
+              {
+                "$ref": "response.audio_url"
               },
               {
                 "$ref": "response.result_url"
@@ -290,20 +429,21 @@
                 "$ref": "response.url"
               },
               {
-                "$ref": "response.data.audio_url"
-              },
-              {
-                "$ref": "response.output.url"
+                "$ref": "response.data.url"
               }
             ]
           },
           "errorPaths": [
-            "error.code"
+            "error.code",
+            "data.fail_reason"
           ],
           "resultEphemeral": true,
           "messagePaths": [
-            "error.message"
-          ]
+            "error.message",
+            "data.fail_reason",
+            "message"
+          ],
+          "resultKind": "audio"
         }
       }
     ]
