@@ -64,11 +64,20 @@ async function hydrateLocalWorkspace(payload: WorkspaceBootstrapPayload) {
         ]);
 
         if (hosted) {
-            // 托管模式：项目/画布/素材以服务端为唯一数据源，浏览器缓存不参与合并；
-            // 模型渠道保留服务端下发（含后台配置的系统渠道），不做本地化过滤。
+            // 托管模式：项目/画布/素材以服务端为唯一数据源，浏览器缓存不做「合并」——
+            // 先清掉可能过期的本地快照（避免已删除的画布从缓存里复活），
+            // 再立刻从服务端回灌一份，让本地缓存成为服务端的忠实副本。
+            // 只清空不回灌会踩坑：画布的移动/重命名这类操作需要本地已有这份文档，
+            // 缓存为空时 canvasIdsForWorkspaceProjects() 解析为空 → 操作静默失败
+            // （2026-10-15「移到文件夹拖和点都没反应」就是这么来的）。
             useCanvasStore.setState({ projects: [] });
             useCanvasHistoryStore.setState({ deletedProjects: [] });
             useAssetStore.setState({ assets: [] });
+            void import("@/services/local-workspace-repository")
+                .then(({ hydrateLocalCanvasProjectsFromBackend }) => hydrateLocalCanvasProjectsFromBackend())
+                .catch((error) => {
+                    console.warn("[canvas-hydrate] 托管模式下回灌画布缓存失败，界面仍以服务端列表为准", error);
+                });
         } else {
             useConfigStore.getState().replaceConfig(localWorkspaceConfig(useConfigStore.getState().config));
             useCanvasStore.setState((state) => ({ projects: state.projects.map(normalizeLocalCanvasProject) }));

@@ -142,7 +142,7 @@ export function CanvasFolderCard({ project, projectName, folders = [], onMoveToF
                             // 子菜单里：没有文件夹时给明确提示，已在文件夹里时多一项「移出文件夹」。
                             {
                                 key: "move",
-                                label: "移动到文件夹",
+                                label: "移动至文件夹",
                                 children: [
                                     ...folders.map((folder) => ({ key: `move:${folder.id}`, label: folder.name, onClick: () => onMoveToFolder?.(folder.id) })),
                                     ...(folders.length ? [] : [{ key: "move:none", label: "还没有文件夹", disabled: true }]),
