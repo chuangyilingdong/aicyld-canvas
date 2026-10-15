@@ -458,6 +458,23 @@ async function putCanvasProjectToBackend(id: string, project: CanvasProject, end
     }
 }
 
+/**
+ * 托管模式：把画布↔文件夹归属写进服务端（canvas_projects.library_folder_id）。
+ * 服务端只有全量 PUT 落库会写这个字段（canvas.document.commit 只覆盖文档字段），所以移动文件夹
+ * 之后要单独推一次；否则服务端列表里 folderId 永远是空，刷新后画布又回到根目录、文件夹看着是空的。
+ * 本地形态下 IndexedDB 就是权威库，直接跳过。
+ */
+export async function syncCanvasLibraryFolderPlacement(id: string, expectedScope?: CapturedUserScope): Promise<void> {
+    const expected = expectedScope ?? captureUserScope();
+    if (isLocalWorkspaceMode() || usesBrowserLocalResourceStore()) return;
+    assertDispatchGuard(expected, "账号已切换，未保存文件夹归属");
+    const project = openLocalCanvasProject(id);
+    if (!project) return;
+    const saved = await putCanvasProjectToBackend(id, project, `/canvas-projects/${encodeURIComponent(id)}`, project, expected);
+    if (!saved) return;
+    await applyAcceptedCanvasSave(id, project, saved, expected);
+}
+
 function isInitialCanvasCreate(project: CanvasProject, scope: string) {
     const journal = peekCanvasOperationJournal(project.id, scope);
     if (journal?.confirmedSnapshot || journal?.inFlight) return false;

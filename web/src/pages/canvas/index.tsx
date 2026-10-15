@@ -22,8 +22,7 @@ import { createCanvasLibraryFolder, deleteCanvasLibraryFolder, hydrateCanvasLibr
 import { reportOwnedMediaSave } from "@/services/desktop-media-save";
 import { loadCanvasProjectForEditing, saveRemoteUserDataNow } from "@/services/local-workspace-sync";
 import { isLocalWorkspaceMode } from "@/services/workspace-mode";
-import { usesBrowserLocalResourceStore } from "@/services/workspace-resource-storage";
-import { beginLocalCanvasProject, deleteLocalCanvasProjects, hydrateLocalCanvasProjectsFromBackend, syncLocalCanvasProjectToBackend } from "@/services/local-workspace-repository";
+import { beginLocalCanvasProject, deleteLocalCanvasProjects, hydrateLocalCanvasProjectsFromBackend, syncCanvasLibraryFolderPlacement } from "@/services/local-workspace-repository";
 import { createWorkspaceCanvasProject } from "@/services/workspace-project-repository";
 import { invalidateCanvasLibraryQueries } from "@/services/canvas-library-cache";
 import { listWorkspaceCanvasProjectsPage, type CanvasLibrarySummary } from "@/services/api/workspace-data";
@@ -71,8 +70,10 @@ export default function CanvasPage() {
     // the explicit hosted build flag, never inferred from login state.
     const remoteMode = import.meta.env.VITE_CANVAS_LOCAL_MODE === "false" && Boolean(userId) && !isLocalWorkspaceMode();
     useEffect(() => {
-        if (!hydrated || !isLocalWorkspaceMode()) return;
-        void hydrateLocalCanvasProjectsFromBackend();
+        if (!hydrated) return;
+        // 画布全量水合只在本地形态需要；文件夹列表两种形态都要（它内部会按运行形态自行跳过），
+        // 否则托管模式下文件夹只存在于本机浏览器，换设备/清缓存就看不到服务端已有的文件夹。
+        if (isLocalWorkspaceMode()) void hydrateLocalCanvasProjectsFromBackend();
         void hydrateCanvasLibraryFolders().catch((error) => {
             message.error(error instanceof Error ? error.message : "文件夹列表读取失败");
         });
@@ -161,7 +162,14 @@ export default function CanvasPage() {
         enterProject(copy.id);
     }, [enterProject, localProjects, message, remoteMode]);
     const filteredProjects = useMemo(() => {
-        if (remoteMode) return projects;
+        if (remoteMode) {
+            // 服务端列表已经做完关键词与项目维度过滤（走 query 参数），这里只补文件夹维度：
+            // 根目录只放未归档的画布，点进文件夹只显示该文件夹里的画布。
+            // 曾经直接 return projects，导致「点进文件夹里出现很多项目，但根本没移进去」。
+            return folderFilter === "all"
+                ? projects.filter((project) => !project.folderId)
+                : projects.filter((project) => project.folderId === folderFilter);
+        }
         const query = keyword.trim().toLowerCase();
         // The root library represents uncategorized work alongside folder tiles.
         // Categorized projects must disappear from the root after being moved and
@@ -380,9 +388,9 @@ export default function CanvasPage() {
                                         if (!movedProject || (movedProject.folderId || undefined) !== (folderId || undefined)) {
                                             throw new Error("项目移动未完成，请重试");
                                         }
-                                        if (!usesBrowserLocalResourceStore()) {
-                                            await Promise.all(projectCanvasIds.map((id) => syncLocalCanvasProjectToBackend(id)));
-                                        }
+                                        // 文件夹归属只有全量 PUT 会落库（canvas.document.commit 只覆盖文档字段），
+                                        // 必须显式推一次，否则服务端 folderId 永远为空、刷新后画布回到根目录。
+                                        await Promise.all(projectCanvasIds.map((id) => syncCanvasLibraryFolderPlacement(id)));
                                         invalidateCanvasLibraryQueries();
                                         message.success(folderId ? "已移动到文件夹" : "已移出文件夹");
                                     } catch (error) {
