@@ -21428,15 +21428,15 @@ html:not(.dark) .canvas-node-composer-mode-select.ant-select-open .ant-select-se
 }
 
 /* 不可选的项必须明显变灰：之前只是点不动，文字仍是白的，看不出「不可选」。 */
-body.app-spatial-overlays .ant-select-item-option-disabled,
-body.app-spatial-overlays .ant-dropdown-menu-item-disabled,
-body.app-spatial-overlays .ant-cascader-menu-item-disabled {
+.ant-select-item-option-disabled,
+.ant-dropdown-menu-item-disabled,
+.ant-cascader-menu-item-disabled {
     color: rgba(255, 255, 255, .32) !important;
     opacity: 1;
     cursor: not-allowed;
 }
 
-html:not(.dark) body.app-spatial-overlays .ant-select-item-option-disabled,
-html:not(.dark) body.app-spatial-overlays .ant-dropdown-menu-item-disabled {
+html:not(.dark) .ant-select-item-option-disabled,
+html:not(.dark) .ant-dropdown-menu-item-disabled {
     color: rgba(17, 17, 17, .32) !important;
 }

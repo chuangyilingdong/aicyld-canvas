@@ -417,7 +417,7 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                                     aria-label="音频用途"
                                     size="small"
                                     popupMatchSelectWidth={false}
-                                    className="canvas-node-composer-mode-select !h-7 shrink-0 [&_.ant-select-selector]:!h-7 [&_.ant-select-selection-item]:!text-[var(--fs-tiny)] [&_.ant-select-selection-item]:!leading-7"
+                                    className="canvas-node-composer-mode-select !h-7 shrink-0 [&_.ant-select-selector]:!h-7 [&_.ant-select-selection-item]:!text-[var(--fs-tiny)] [&_.ant-select-selection-item]:!leading-7 [&_.ant-select-selector]:!bg-[#202329] [&_.ant-select-selector]:!border [&_.ant-select-selector]:!border-white/[0.12] [&_.ant-select-selector]:!rounded-[14px] [&_.ant-select-selector]:!shadow-[inset_0_1px_0_rgba(255,255,255,0.055)] [&:hover_.ant-select-selector]:!bg-[#292d34] [&.ant-select-open_.ant-select-selector]:!bg-[#292d34] [&.ant-select-focused_.ant-select-selector]:!bg-[#292d34] [&_.ant-select-arrow]:!text-white/55"
                                     value={audioPurpose}
                                     options={audioPurposeOptions}
                                     onChange={(value) => onConfigChange(node.id, { audioPurpose: value, model: canvasAudioPurposeModel(value) })}
@@ -433,7 +433,7 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                                         aria-label="视频生成模式"
                                         size="small"
                                         popupMatchSelectWidth={false}
-                                        className="canvas-node-composer-mode-select !h-7 shrink-0 [&_.ant-select-selector]:!h-7 [&_.ant-select-selection-item]:!text-[var(--fs-tiny)] [&_.ant-select-selection-item]:!leading-7"
+                                        className="canvas-node-composer-mode-select !h-7 shrink-0 [&_.ant-select-selector]:!h-7 [&_.ant-select-selection-item]:!text-[var(--fs-tiny)] [&_.ant-select-selection-item]:!leading-7 [&_.ant-select-selector]:!bg-[#202329] [&_.ant-select-selector]:!border [&_.ant-select-selector]:!border-white/[0.12] [&_.ant-select-selector]:!rounded-[14px] [&_.ant-select-selector]:!shadow-[inset_0_1px_0_rgba(255,255,255,0.055)] [&:hover_.ant-select-selector]:!bg-[#292d34] [&.ant-select-open_.ant-select-selector]:!bg-[#292d34] [&.ant-select-focused_.ant-select-selector]:!bg-[#292d34] [&_.ant-select-arrow]:!text-white/55"
                                         value={resolveVideoOperation(modeInput, node.metadata?.videoEditOperation)}
                                         options={canvasVideoModeOptions
                                             .filter((option) => declaredOperations.includes(option.value))
