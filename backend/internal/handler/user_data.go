@@ -290,6 +290,49 @@ func registerUserDataRoutes(r *gin.RouterGroup, svc *app.Service) {
 		}
 		c.DataFromReader(stream.StatusCode, stream.ContentLength, resource.MimeType, stream.Body, nil)
 	})
+	// 上游模型服务商没有主站会话，只能凭签名取参考素材：生成域会把 resource: 素材换成这里的
+	// 签名地址（/api/public/resources/<id>/file/<name>?expires=&signature=）。
+	// 路径前缀 /api/public/ 已在 WorkspaceResolverMiddleware 的公开白名单里，因此无需会话；
+	// 鉴权完全由 signPublicResource 的 HMAC 签名与 expires 承担。
+	r.GET("/public/resources/:id/file/:filename", func(c *gin.Context) {
+		if strings.TrimSpace(c.Query("signature")) == "" || strings.TrimSpace(c.Query("expires")) == "" {
+			fail(c, http.StatusForbidden, app.Forbidden("匿名下载链接无效"))
+			return
+		}
+		stream, err := svc.OpenPublicResourceRange(c.Param("id"), c.Query("expires"), c.Query("signature"), c.GetHeader("Range"))
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		defer stream.Body.Close()
+		resource := stream.Resource
+		mimeType := strings.TrimSpace(resource.MimeType)
+		if mimeType == "" {
+			mimeType = "application/octet-stream"
+		}
+		// 签名地址是给第三方服务商短期取图的，不做长期缓存。
+		c.Header("Cache-Control", "private, max-age=300")
+		c.Header("Referrer-Policy", "no-referrer")
+		c.Header("X-Content-Type-Options", "nosniff")
+		if resource.Kind == "file" {
+			c.Header("Content-Disposition", "attachment")
+			c.Header("Content-Security-Policy", "sandbox")
+		}
+		if resource.Provider == "local" {
+			if seeker, ok := stream.Body.(io.ReadSeeker); ok {
+				c.Header("Content-Type", mimeType)
+				http.ServeContent(c.Writer, c.Request, resource.ID, resource.UpdatedAt, seeker)
+				return
+			}
+		}
+		if stream.ContentRange != "" {
+			c.Header("Content-Range", stream.ContentRange)
+		}
+		if stream.AcceptRanges != "" {
+			c.Header("Accept-Ranges", stream.AcceptRanges)
+		}
+		c.DataFromReader(stream.StatusCode, stream.ContentLength, mimeType, stream.Body, nil)
+	})
 	r.GET("/assets", func(c *gin.Context) {
 		user, err := currentUser(c, svc)
 		if err != nil {

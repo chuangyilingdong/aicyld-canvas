@@ -24,7 +24,7 @@
           "creation"
         ],
         "baseUrl": "https://api.example.com",
-        "requiresPublicMediaUrls": false,
+        "requiresPublicMediaUrls": true,
         "auth": {
           "type": "bearer",
           "field": "apiKey"

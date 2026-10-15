@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/url"
 	"strings"
+	"time"
 
 	"infinite-canvas/backend/internal/kernel"
 )
@@ -44,10 +45,10 @@ func ValidateMediaTransport(ctx context.Context, input Input) error {
 			label := fmt.Sprintf("%s %d", group.label, i+1)
 			shape := ""
 			if strings.HasPrefix(media.StorageKey, "resource:") {
-				if runtime.Resources != nil && !runtime.Resources.LocalMode() {
-					continue // Hosted resources are resolved by the owned resource port.
+				if resourceTransportable(runtime, media) {
+					continue // 资源端口能签出上游可取的公网地址。
 				}
-				shape = "托管资源键但资源端口不可用"
+				shape = "托管资源键但签不出公网地址"
 			} else if address, err := url.Parse(strings.TrimSpace(media.URL)); err == nil && address.Scheme == "https" && address.Hostname() != "" && address.User == nil {
 				continue
 			} else {
@@ -93,4 +94,27 @@ func urlShape(raw string) string {
 		return address.Scheme + ":无主机"
 	}
 	return address.Scheme + "://" + address.Host
+}
+
+// resourceTransportable 判断宿主能否把这个资源换成上游可以直接取的公网地址。
+// 过去只看「本地模式」，于是托管部署（跑的是本地模式但配了对象存储与公开基址）
+// 会把所有 resource: 参考素材一律拦下——这正是「填写参考素材链接」弹窗的来源。
+// 现在改为真的去签一次地址：签得出 https 就放行，签不出才拒绝。
+func resourceTransportable(runtime Runtime, media Media) bool {
+	if runtime.Resources == nil {
+		return false
+	}
+	if !runtime.Resources.LocalMode() {
+		return true
+	}
+	resourceID := strings.TrimPrefix(strings.TrimSpace(media.StorageKey), "resource:")
+	if resourceID == "" {
+		return false
+	}
+	info, err := runtime.Resources.Lookup(runtime.Call.UserID, resourceID)
+	if err != nil {
+		return false
+	}
+	address, err := runtime.Resources.HTTPSPublicURL(info, time.Now().Add(ResourceURLTTL))
+	return err == nil && strings.HasPrefix(address, "https://")
 }

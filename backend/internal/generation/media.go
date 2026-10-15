@@ -70,11 +70,18 @@ func HydrateOne(ctx context.Context, userID string, media *Media, policy MediaHy
 	}
 	useObjectURL := policy.RequireURL || (policy.PreferURL && resource.UsesObjectStorage())
 	if useObjectURL {
-		if runtime.Resources.LocalMode() && policy.RequireURL {
-			return errors.New("当前模型协议要求公网素材地址，本地工作区请改用支持内嵌素材的模型")
+		// 要求上游自己来取图的协议必须给 https 公开地址（/api/public/resources/... 会 307 到对象存储）。
+		// 这里不再按「本地模式」一刀切：托管部署即使跑在本地模式，只要配了 CANVAS_PUBLIC_BASE_URL
+		// 就能签出公网地址；签不出才报可读错误，而不是让上游拿到 data URL 后 400。
+		mintURL := runtime.Resources.PublicURL
+		if policy.RequireURL {
+			mintURL = runtime.Resources.HTTPSPublicURL
 		}
-		signedURL, err := runtime.Resources.PublicURL(resource, time.Now().Add(ResourceURLTTL))
+		signedURL, err := mintURL(resource, time.Now().Add(ResourceURLTTL))
 		if err != nil {
+			if policy.RequireURL {
+				return errors.New("当前模型协议要求公网素材地址，但本机没有配置上游可访问的公开地址（CANVAS_PUBLIC_BASE_URL）；请改用支持内嵌素材的模型")
+			}
 			return fmt.Errorf("生成参考素材地址失败：%w", err)
 		}
 		media.URL = signedURL

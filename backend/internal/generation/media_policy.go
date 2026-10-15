@@ -37,7 +37,12 @@ func MediaHydrationPolicyFor(ctx context.Context, input Input) MediaHydrationPol
 		policy.PreferURL = true
 	}
 	if adapter, ok := ProtocolAdapterForContext(ctx, input.Config.InterfaceType); ok {
-		policy.RequireURL = adapter.Metadata().RequiresPublicMediaURLs
+		// 适配器/插件只能提高要求，不能把协议层已确定的「必须公网地址」降级：
+		// newapi-image 这类上游明确要求 images 是公开 HTTP(S) 地址，一旦被插件声明成
+		// false，参考图就会以 data URL 直接发出并被上游 400（images must contain public HTTP(S) URLs）。
+		if adapter.Metadata().RequiresPublicMediaURLs {
+			policy.RequireURL = true
+		}
 		policy.PreferURL = policy.PreferURL || policy.RequireURL
 	}
 	if input.Mode == "image" && input.Mask != nil {
