@@ -183,6 +183,8 @@ export function audioSpeechProfile(model = ""): AudioSpeechProfile {
             showPitch: false,
             showVolume: false,
             showInstructions: false,
+            // 带唱的音乐模型（mureka-v9-song 这类）上游同样要求歌词；纯 BGM 与音效不需要。
+            showLyrics: kind === "mureka-music" && model.toLowerCase().includes("song"),
             showSampleRate: false,
         };
     }
