@@ -3,6 +3,7 @@ package canvas
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 
@@ -45,7 +46,8 @@ type TaskOutputBindResult struct {
 }
 
 // BindTaskOutputToExistingNode writes generation result fields onto the original
-// node whose metadata.taskId still matches the task. A deleted node is not recreated.
+// node whose metadata.taskId still matches the task. 如果原节点已被删除，则按任务产物
+// **重建**该节点（同一个 nodeId），避免用户已经付费的结果因为节点被删而永远取不回来。
 func (s *Service) BindTaskOutputToExistingNode(userID string, patch TaskOutputBind) (TaskOutputBindResult, error) {
 	var last error
 	for attempt := 0; attempt < bindRevisionAttempts; attempt++ {
@@ -72,12 +74,9 @@ func (s *Service) bindTaskOutputOnce(userID string, patch TaskOutputBind) (TaskO
 	if err != nil {
 		return TaskOutputBindResult{}, err
 	}
-	node := findCanvasNode(doc, patch.NodeID)
-	if node == nil {
-		return TaskOutputBindResult{}, &kernel.AppError{
-			Status: http.StatusNotFound, Reason: kernel.ErrorReason("node_deleted"),
-			Message: "原任务节点已删除，未重新创建节点",
-		}
+	node, recreated := ensureBindableNode(doc, patch)
+	if recreated {
+		log.Printf("[canvas-bind] 原节点已删除，按任务产物重建节点 task=%s node=%s", patch.TaskID, patch.NodeID)
 	}
 	if got := nodeString(nodeMetadata(node), "taskId"); got != strings.TrimSpace(patch.TaskID) && !canBindEmptyRenderNode(node, patch) && !canBindPendingDepthNode(node, patch) {
 		return TaskOutputBindResult{}, &kernel.AppError{
@@ -200,6 +199,63 @@ func applyGenerationBindMetadata(metadata map[string]any, patch TaskOutputBind) 
 	if strings.TrimSpace(patch.EffectKey) != "" {
 		metadata["generationEffectKeys"] = appendEffectKey(metadata["generationEffectKeys"], patch.EffectKey)
 	}
+}
+
+// ensureBindableNode 找到目标节点；已被删除时按产物类型重建一个同 id 的节点。
+// 重建节点只带任务身份与占位尺寸，真实的媒体字段由随后的 bind 覆盖。
+func ensureBindableNode(doc map[string]any, patch TaskOutputBind) (map[string]any, bool) {
+	if node := findCanvasNode(doc, patch.NodeID); node != nil {
+		return node, false
+	}
+	kind := strings.TrimSpace(patch.MediaType)
+	if kind != "video" && kind != "audio" {
+		kind = "image"
+	}
+	width, height := patch.Width, patch.Height
+	if width <= 0 || width > 2048 {
+		width = 320
+	}
+	if height <= 0 || height > 2048 {
+		height = 320
+	}
+	node := map[string]any{
+		"id":       strings.TrimSpace(patch.NodeID),
+		"type":     kind,
+		"title":    "恢复的生成结果",
+		"position": map[string]any{"x": nextCanvasNodeX(doc), "y": 120},
+		"width":    width,
+		"height":   height,
+		"metadata": map[string]any{
+			"taskId":           strings.TrimSpace(patch.TaskID),
+			"status":           "loading",
+			"restoredFromTask": true,
+		},
+	}
+	nodes, _ := doc["nodes"].([]any)
+	doc["nodes"] = append(nodes, node)
+	return node, true
+}
+
+// nextCanvasNodeX 把重建的节点放到现有内容右侧的空位，不去猜原来的位置。
+func nextCanvasNodeX(doc map[string]any) float64 {
+	nodes, _ := doc["nodes"].([]any)
+	right := 120.0
+	for _, raw := range nodes {
+		node, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		position, ok := node["position"].(map[string]any)
+		if !ok {
+			continue
+		}
+		x, _ := position["x"].(float64)
+		width, _ := node["width"].(float64)
+		if x+width > right {
+			right = x + width
+		}
+	}
+	return right + 96
 }
 
 func nodeMetadata(node map[string]any) map[string]any {
