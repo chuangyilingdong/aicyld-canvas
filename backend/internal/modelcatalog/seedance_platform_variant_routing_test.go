@@ -15,8 +15,8 @@ func TestLivePlatformVariantRouting(t *testing.T) {
 	}
 	var doc struct {
 		Channels []struct {
-			ID      string `json:"id"`
-			Models  []struct {
+			ID     string `json:"id"`
+			Models []struct {
 				Model    string `json:"model"`
 				Capab    string `json:"capability"`
 				Variants []struct {

@@ -54,6 +54,10 @@ func (s *Service) PublicSystemChannels() ([]PublicModelChannel, error) {
 }
 
 func (s *Service) SystemChannel(id string) (*model.ModelChannel, error) {
+	// 存储未接入时给可读错误而不是空指针崩溃（桌面/测试里可能出现裸 Service）。
+	if s == nil || s.repo == nil {
+		return nil, errors.New("系统渠道存储未初始化")
+	}
 	channel, err := s.repo.SystemChannel(id)
 	if err != nil {
 		return nil, err
