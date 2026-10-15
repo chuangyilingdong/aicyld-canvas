@@ -468,7 +468,9 @@ export async function syncCanvasLibraryFolderPlacement(id: string, expectedScope
     const expected = expectedScope ?? captureUserScope();
     if (isLocalWorkspaceMode() || usesBrowserLocalResourceStore()) return;
     assertDispatchGuard(expected, "账号已切换，未保存文件夹归属");
-    const project = openLocalCanvasProject(id);
+    // 本地缓存可能还没有这份画布（托管模式下水合可能没覆盖到它）——那就从服务端读回来再写，
+    // 否则这里会静默 return，用户移动文件夹时看不到任何结果。
+    const project = openLocalCanvasProject(id) ?? await readLocalCanvasProjectFromBackend(id, expected).catch(() => null);
     if (!project) return;
     const saved = await putCanvasProjectToBackend(id, project, `/canvas-projects/${encodeURIComponent(id)}`, project, expected);
     if (!saved) return;

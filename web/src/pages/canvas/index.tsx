@@ -198,7 +198,12 @@ export default function CanvasPage() {
             if (folderId && !folders.some((folder) => folder.id === folderId)) {
                 throw new Error("目标文件夹不存在");
             }
-            const projectCanvasIds = canvasIdsForWorkspaceProjects(localProjects, [projectId]);
+            // 先把这份画布读进本地 store。托管模式下本地缓存可能还没水合到它，缺了这一步
+            // canvasIdsForWorkspaceProjects() 会返回空数组 → 移动静默失败（用户看到的就是
+            // 「拖和点都没反应」）。重命名/创建副本/关联项目都是同样的前置动作。
+            await loadCanvasProjectForEditing(projectId);
+            const resolvedCanvasIds = canvasIdsForWorkspaceProjects(localProjects, [projectId]);
+            const projectCanvasIds = resolvedCanvasIds.length ? resolvedCanvasIds : [projectId];
             moveProjectsToFolder(projectCanvasIds, folderId);
             await flushCanvasStorePersistence();
             const movedProject = useCanvasStore.getState().projects.find((item) => item.id === projectId);

@@ -38,6 +38,8 @@ export default defineConfig({
         __APP_VERSION__: JSON.stringify(appVersion),
         __BEEFTV_HEAVY_MEDIA_ENABLED__: JSON.stringify(heavyMediaEnabled),
         "import.meta.env.VITE_APP_VERSION": JSON.stringify(appVersion),
+        // 构建戳：打进产物，前端会在画布列表请求里带上它（排障时能一眼看出「用户跑的是哪个构建」）。
+        "import.meta.env.VITE_CANVAS_BUILD_STAMP": JSON.stringify(process.env.CANVAS_BUILD_STAMP?.trim() || new Date().toISOString()),
     },
     server: {
         proxy: {

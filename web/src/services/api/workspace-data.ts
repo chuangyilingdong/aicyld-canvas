@@ -1,5 +1,5 @@
 import type { Asset } from "@/stores/use-asset-store";
-import type { CanvasProject } from "@/stores/canvas/use-canvas-store";
+import { useCanvasStore, type CanvasProject } from "@/stores/canvas/use-canvas-store";
 import { http, compactApiParams, type HttpRequestConfig } from "@/services/api/request";
 
 export type AssetFolder = {
@@ -18,8 +18,19 @@ export type CanvasLibrarySummary = Pick<CanvasProject, "id" | "workspaceProjectI
 export function listWorkspaceCanvasProjectsPage(options: { page: number; pageSize: number; projectId?: string; query?: string; sort?: string; signal?: AbortSignal }) {
     return http.get<{ projects: CanvasLibrarySummary[]; page: number; pageSize: number; total: number; hasMore: boolean }>("/canvas-projects", {
         signal: options.signal,
-        params: compactApiParams({ page: options.page, pageSize: options.pageSize, projectId: options.projectId, q: options.query, sort: options.sort }),
+        // ui/lp/fd 是排障用的：服务端忽略它们，但 nginx 日志能看出「用户跑的是哪个构建、
+        // 本地缓存里有多少画布/文件夹」——排查「改了没生效 / 界面与服务端不一致」时省一轮往返。
+        params: compactApiParams({ page: options.page, pageSize: options.pageSize, projectId: options.projectId, q: options.query, sort: options.sort, ...canvasLibraryDiagnostics() }),
     });
+}
+
+function canvasLibraryDiagnostics() {
+    try {
+        const state = useCanvasStore.getState();
+        return { ui: import.meta.env.VITE_CANVAS_BUILD_STAMP || "dev", lp: state.projects.length, fd: state.folders.length };
+    } catch {
+        return {};
+    }
 }
 
 export function listAssetFolders(config?: HttpRequestConfig) {
