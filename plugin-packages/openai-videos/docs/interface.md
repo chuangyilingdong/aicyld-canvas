@@ -230,8 +230,23 @@
               }
             },
             "seconds": {
-              "$toString": {
-                "$ref": "request.duration"
+              "$omitEmpty": {
+                "$if": {
+                  "condition": {
+                    "$eq": [
+                      {
+                        "$ref": "request.duration"
+                      },
+                      -1
+                    ]
+                  },
+                  "then": null,
+                  "else": {
+                    "$toString": {
+                      "$ref": "request.duration"
+                    }
+                  }
+                }
               }
             },
             "images": {
@@ -494,6 +509,22 @@
                       ]
                     },
                     "else": []
+                  }
+                }
+              },
+              "duration": {
+                "$omitEmpty": {
+                  "$if": {
+                    "condition": {
+                      "$eq": [
+                        {
+                          "$ref": "request.duration"
+                        },
+                        -1
+                      ]
+                    },
+                    "then": -1,
+                    "else": null
                   }
                 }
               }
