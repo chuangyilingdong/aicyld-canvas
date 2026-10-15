@@ -108,6 +108,9 @@ func Open(_ context.Context, raw Config) (result *Runtime, openErr error) {
 
 	repo := repository.New(db)
 	svc := app.NewLocal(repo, cfg.DataDir)
+	// 服务端 profile 仍是本地存储形态，但不应套用桌面应用的假设（助手模型目录、
+	// 方舟可信素材同步、RunningHub 本地工作区等）。
+	svc.MarkHostedDeployment(cfg.Profile == ProfileServer)
 	cleanupService := func() {
 		_ = svc.Close()
 		cleanupDB()

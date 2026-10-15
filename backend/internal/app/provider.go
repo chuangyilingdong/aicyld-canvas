@@ -430,7 +430,8 @@ func (s *Service) resolveProviderConfig(config providerConfig) (providerConfig, 
 		return providerConfig{}, err
 	}
 	config.Headers = headers
-	if s.IsLocalMode() && strings.TrimSpace(config.ChannelID) != "" {
+	// 这条守卫是桌面专属：托管部署的系统渠道目录就是数据库渠道本身。
+	if s.IsLocalMode() && !s.HostedDeployment() && strings.TrimSpace(config.ChannelID) != "" {
 		// 本地/桌面形态默认不开放系统渠道目录，避免陈旧的主站模型选择在本地工作区
 		// 重新打开系统渠道。但平台统一渠道会镜像成数据库里的系统渠道
 		// （见 app/platform_channel_sync.go），已登记的渠道必须放行；

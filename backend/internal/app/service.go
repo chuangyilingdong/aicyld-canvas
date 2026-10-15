@@ -51,50 +51,54 @@ type Service struct {
 	taskLifecycleCoordinator *taskLifecycleCoordinator
 	runtimeErr               error
 	localResourceStorage     bool
-	pluginRuntime            *pluginRuntime
-	pluginRuntimeErr         error
-	workerID                 string
-	routerMu                 sync.Mutex
-	router                   *modelcatalog.Router
-	routeCatalogTTL          time.Duration
-	routeCatalogMaxStale     time.Duration
-	workers                  *platform.Worker
-	readCachesOnce           sync.Once
-	concurrencyReadCache     *platform.BoundedReadCache[string, platform.RuntimeTaskPolicy]
-	textReplay               *textreplay.Service
-	textReplayOnce           sync.Once
-	routeVersionReadCache    *platform.BoundedReadCache[string, int64]
-	skills                   *skills.Service
-	prompts                  *prompts.Service
-	projects                 *localproject.Service
-	canvas                   *canvas.Service
-	assistantTurns           *assistantturns.Service
-	assets                   *localasset.Service
-	assetsOnce               sync.Once
-	appearance               *appearance.Service
-	appearanceOnce           sync.Once
-	diagnostics              *diagnostics.Service
-	diagnosticsOnce          sync.Once
-	playback                 *playback.Service
-	playbackOnce             sync.Once
-	depthCapture             *depthcapture.Service
-	depthCaptureOnce         sync.Once
-	beefAPI                  *beefapi.Service
-	generationDeliveryMedia  taskdelivery.Media
-	generationDelivery       *taskdelivery.Deliverer
-	deliveryMu               sync.Mutex
-	deliveryProgress         *deliveryProgressRegistry
-	deliveryProgressOnce     sync.Once
-	deliveryControlMu        sync.Mutex
-	deliveryCancels          map[string]context.CancelFunc
-	deliveryDeadlines        map[string]time.Time
-	deliveryClosed           bool
-	tasks                    *localtask.Service
-	tasksOnce                sync.Once
-	workspaceOps             *operations.Registry
-	workspaceOpsMu           sync.Mutex
-	bindAfterID              string
-	bindCursorMu             sync.Mutex
+	// hostedDeployment 表示这是一个托管部署（服务器 profile），而不是桌面应用。
+	// 它只用于修正那些「按桌面假设写死」的行为；存储语义仍由 mode/localResourceStorage 决定，
+	// 两者不能合并——本部署正是「托管部署 + 本地盘存储 + OSS 镜像」。
+	hostedDeployment        bool
+	pluginRuntime           *pluginRuntime
+	pluginRuntimeErr        error
+	workerID                string
+	routerMu                sync.Mutex
+	router                  *modelcatalog.Router
+	routeCatalogTTL         time.Duration
+	routeCatalogMaxStale    time.Duration
+	workers                 *platform.Worker
+	readCachesOnce          sync.Once
+	concurrencyReadCache    *platform.BoundedReadCache[string, platform.RuntimeTaskPolicy]
+	textReplay              *textreplay.Service
+	textReplayOnce          sync.Once
+	routeVersionReadCache   *platform.BoundedReadCache[string, int64]
+	skills                  *skills.Service
+	prompts                 *prompts.Service
+	projects                *localproject.Service
+	canvas                  *canvas.Service
+	assistantTurns          *assistantturns.Service
+	assets                  *localasset.Service
+	assetsOnce              sync.Once
+	appearance              *appearance.Service
+	appearanceOnce          sync.Once
+	diagnostics             *diagnostics.Service
+	diagnosticsOnce         sync.Once
+	playback                *playback.Service
+	playbackOnce            sync.Once
+	depthCapture            *depthcapture.Service
+	depthCaptureOnce        sync.Once
+	beefAPI                 *beefapi.Service
+	generationDeliveryMedia taskdelivery.Media
+	generationDelivery      *taskdelivery.Deliverer
+	deliveryMu              sync.Mutex
+	deliveryProgress        *deliveryProgressRegistry
+	deliveryProgressOnce    sync.Once
+	deliveryControlMu       sync.Mutex
+	deliveryCancels         map[string]context.CancelFunc
+	deliveryDeadlines       map[string]time.Time
+	deliveryClosed          bool
+	tasks                   *localtask.Service
+	tasksOnce               sync.Once
+	workspaceOps            *operations.Registry
+	workspaceOpsMu          sync.Mutex
+	bindAfterID             string
+	bindCursorMu            sync.Mutex
 	// 「目标已不存在」这类永久失败只在第一次提示，避免每 5 秒刷同一条日志。
 	bindSkipMu     sync.Mutex
 	bindSkipLogged map[string]struct{}
@@ -137,6 +141,21 @@ func NewLocal(repo *repository.Repository, dataDir string) *Service {
 // method instead of inferring the runtime mode from a storage detail.
 func (s *Service) IsLocalMode() bool {
 	return s != nil && s.mode == serviceModeLocal
+}
+
+// MarkHostedDeployment 由组合根按 bootstrap profile 打标，把「托管部署」与
+// 「本地盘存储」解耦：服务端 profile 跑的是本地存储（+ OSS 镜像），
+// 但若干按桌面假设实现的分支不能照搬到托管部署上。
+func (s *Service) MarkHostedDeployment(hosted bool) {
+	if s == nil {
+		return
+	}
+	s.hostedDeployment = hosted
+}
+
+// HostedDeployment 报告当前进程是否为托管（服务器）部署。
+func (s *Service) HostedDeployment() bool {
+	return s != nil && s.hostedDeployment
 }
 
 // serviceOptions makes the runtime profile explicit at the construction

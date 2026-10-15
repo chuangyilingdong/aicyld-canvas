@@ -61,7 +61,7 @@ func (s *Service) workflowInputFromCanvas(ctx context.Context, input canvasGener
 		ReferenceVideos:  workflowMediaList(input.ReferenceVideos),
 		ReferenceAudios:  workflowMediaList(input.ReferenceAudios),
 		ResumedRequestID: resumedProviderRequestID(ctx),
-		LocalWorkspace:   s.IsLocalMode(),
+		LocalWorkspace:   s.IsLocalMode() && !s.HostedDeployment(),
 	}
 	if input.Mask != nil {
 		media := workflowMedia(*input.Mask)

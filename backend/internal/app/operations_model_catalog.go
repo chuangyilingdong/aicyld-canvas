@@ -11,7 +11,9 @@ import (
 // Desktop execution uses its provider snapshot, not hosted database channels.
 // The public sanitizer excludes execution addresses, headers and credentials.
 func (s *operationSession) AgentModelCatalog() (*modelcatalog.CatalogResponse, error) {
-	if !s.service.IsLocalMode() {
+	// 桌面应用读本地供应商快照；托管部署必须读数据库渠道，否则内置助手看到的
+	// 是一份和后台「画布模型」不一致的清单。
+	if !s.service.IsLocalMode() || s.service.HostedDeployment() {
 		return s.service.ModelCatalog(nil)
 	}
 	body, err := s.service.ReadLocalModelConfig()

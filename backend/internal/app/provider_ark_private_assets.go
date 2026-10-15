@@ -30,7 +30,9 @@ func (s *Service) prepareArkPrivateAssetReferences(ctx context.Context, userID s
 	// The desktop profile owns the source media locally. Never copy a local
 	// resource into Ark's hosted trusted-asset service as a side effect of
 	// generation; the normal provider path will handle compatible inline media.
-	if s.IsLocalMode() {
+	// 托管部署（如本生产环境）不是桌面形态：参考素材本来就以公网地址交付，
+	// 可信素材该同步就要同步，否则 asset:// 引用永远不生效。
+	if s.IsLocalMode() && !s.HostedDeployment() {
 		return nil
 	}
 	hasOwnedReference := false
@@ -97,7 +99,7 @@ func (s *Service) prepareArkPrivateAssetReferences(ctx context.Context, userID s
 // SyncResourceToArkPrivateAsset 是用户显式触发的参考图预同步入口。
 // 它与任务 worker 共用团队资源归属、就绪状态和审核规则，客户端不能借此向方舟提交任意 URL。
 func (s *Service) SyncResourceToArkPrivateAsset(ctx context.Context, actor *model.User, resourceID string) (*ArkPrivateAssetSyncResult, error) {
-	if s.IsLocalMode() {
+	if s.IsLocalMode() && !s.HostedDeployment() {
 		return nil, BadAuthRequest("本地工作区不支持将素材同步到云端可信素材库")
 	}
 	resourceID = strings.TrimSpace(resourceID)
