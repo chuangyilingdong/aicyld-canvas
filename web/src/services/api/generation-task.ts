@@ -1,7 +1,7 @@
 import { getMediaBlob } from "@/services/file-storage";
 import { resolveReferenceMediaDuration } from "@/lib/reference-media-metadata";
 import { getImageBlob } from "@/services/image-storage";
-import { resourceIdFromStorageKey, resourceStorageKey, uploadResourceFile } from "@/services/api/resources";
+import { isResourceUrl, resourceIdFromStorageKey, resourceStorageKey, uploadResourceFile } from "@/services/api/resources";
 import { createGenerationTask, waitForGenerationTask, type GenerationTask, type CreateTaskInput } from "@/services/api/task-center";
 import { modelCapabilityConfigFor } from "@/lib/model-capabilities";
 import { grokImagePromptLimitError } from "@/lib/grok-image-prompt-limit";
@@ -262,7 +262,86 @@ async function prepareGenerationReferences({
     const preparedVideos = await Promise.all(referenceVideos.map(prepareBackendMediaReference));
     const preparedAudios = await Promise.all(referenceAudios.map(prepareBackendMediaReference));
     const preparedMask = mask ? await prepareBackendImageReference(mask, false) : undefined;
-    return { referenceImages: preparedImages, referenceVideos: preparedVideos, referenceAudios: preparedAudios, mask: preparedMask };
+    return ensureTransportableReferences({ referenceImages: preparedImages, referenceVideos: preparedVideos, referenceAudios: preparedAudios, mask: preparedMask });
+}
+
+// 服务端只放行两种参考素材形态：托管资源键（resource:<id>，且资源端口可用）或可公开读取的
+// HTTPS 地址；其余形态（浏览器本地键、blob:/data: 地址、http:// 地址、上游素材引用）都会在
+// 预检里被拒绝。预检拒绝以前既不写任务也不写日志，线上只能靠猜是哪张素材。
+// 这里在提交前统一兜底：能取到字节的先上传成托管资源，取不到的才留给手动入口。
+async function ensureTransportableReferences(prepared: PreparedGenerationReferences): Promise<PreparedGenerationReferences> {
+    const [referenceImages, referenceVideos, referenceAudios] = await Promise.all([
+        Promise.all(prepared.referenceImages.map(reuploadUntransportableImageReference)),
+        Promise.all(prepared.referenceVideos.map((media) => reuploadUntransportableMediaReference(media))),
+        Promise.all(prepared.referenceAudios.map((media) => reuploadUntransportableMediaReference(media))),
+    ]);
+    const mask = prepared.mask ? await reuploadUntransportableImageReference(prepared.mask) : undefined;
+    return { referenceImages, referenceVideos, referenceAudios, mask };
+}
+
+// 判据与后端 ValidateMediaTransport 一致：resource: 键，或 https 且带主机名、无账号信息的地址。
+function needsTransportRepair(media: { storageKey?: string; url?: string }) {
+    if (resourceIdFromStorageKey(media.storageKey)) return false;
+    const url = (media.url || "").trim();
+    if (!url) return true;
+    try {
+        const address = new URL(url);
+        return address.protocol !== "https:" || !address.hostname || Boolean(address.username);
+    } catch {
+        return true;
+    }
+}
+
+async function reuploadUntransportableImageReference(image: Awaited<ReturnType<typeof prepareBackendImageReference>>) {
+    if (!needsTransportRepair(image)) return image;
+    const blob = await readTransportRepairBlob(image.storageKey, image.url || image.dataUrl, getImageBlob);
+    if (!blob) return image;
+    try {
+        const resource = await uploadResourceFile(blob, "image", {
+            fileName: image.name,
+            width: "width" in image ? image.width : undefined,
+            height: "height" in image ? image.height : undefined,
+        });
+        return backendImageReference(image, { storageKey: resourceStorageKey(resource.id), type: resource.mimeType || image.type || blob.type });
+    } catch {
+        // 补传失败不能吞掉原始素材：保持原样交给服务端预检与手动入口处理。
+        return image;
+    }
+}
+
+async function reuploadUntransportableMediaReference(media: ReferenceVideo | ReferenceAudio): Promise<ReferenceVideo | ReferenceAudio> {
+    if (!needsTransportRepair(media)) return media;
+    const blob = await readTransportRepairBlob(media.storageKey, media.url, getMediaBlob);
+    if (!blob) return media;
+    try {
+        const kind: "video" | "audio" | "file" = blob.type.startsWith("video/") ? "video" : blob.type.startsWith("audio/") ? "audio" : "file";
+        const resource = await uploadResourceFile(blob, kind, {
+            fileName: media.name,
+            width: "width" in media ? media.width : undefined,
+            height: "height" in media ? media.height : undefined,
+            durationMs: media.durationMs,
+        });
+        return backendMediaReference(media, { storageKey: resourceStorageKey(resource.id), type: resource.mimeType || media.type || blob.type });
+    } catch {
+        return media;
+    }
+}
+
+async function readTransportRepairBlob(storageKey: string | undefined, sourceUrl: string | undefined, loadLocal: (key: string) => Promise<Blob | null | undefined>) {
+    try {
+        const key = (storageKey || "").trim();
+        if (key) {
+            const local = await loadLocal(key);
+            if (local) return local;
+        }
+        const url = (sourceUrl || "").trim();
+        if (!url) return null;
+        const response = await fetch(url, { credentials: isResourceUrl(url) ? "include" : "same-origin" });
+        if (!response.ok) return null;
+        return await response.blob();
+    } catch {
+        return null;
+    }
 }
 
 // 与后端 isArkPrivateAssetVideoConfig 对齐：方舟视频渠道允许参考图直接 asset:// 引用，

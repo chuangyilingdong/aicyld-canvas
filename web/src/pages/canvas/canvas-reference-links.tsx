@@ -10,7 +10,7 @@ export function ReferenceLinkFields({ references, onChange }: { references: Refe
     const [links, setLinks] = useState<Record<string, string>>({});
     return (
         <div data-canvas-no-zoom data-canvas-wheel-scroll>
-            <p>当前渠道只能读取在线素材。请填写对应素材的 HTTPS 链接，用于本次生成。</p>
+            <p>这条素材没能自动转成在线地址（本地副本可能已丢失）。推荐先把它重新拖入画布；也可以直接填写一个可公开读取的 HTTPS 链接。</p>
             <div style={{ maxHeight: "45vh", overflowY: "auto", display: "grid", gap: 12 }}>
                 {references.map((reference) => (
                     <label key={reference.key} style={{ display: "grid", gap: 4 }}>
