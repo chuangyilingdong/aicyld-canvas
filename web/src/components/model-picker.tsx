@@ -52,10 +52,12 @@ export function ModelPicker({
     const [triggerWidth, setTriggerWidth] = useState<number | null>(null);
     const menuRef = useRef<HTMLDivElement>(null);
     const triggerRef = useRef<HTMLButtonElement>(null);
+    // 功能专用模型（如 image.edit 的图改图档）由平台内部直接取用，故意不出现在选择器里。
+    // 单独提出来是为了让下面的 trigger 文案能识别出「当前生效的其实是这类模型」。
+    const hiddenModelSet = useMemo(() => new Set((hiddenModels || []).filter(Boolean)), [hiddenModels]);
     const options = useMemo(() => {
-        const hidden = new Set((hiddenModels || []).filter(Boolean));
-        return Array.from(new Set(selectableModelsByCapability(config, capability).filter(Boolean))).filter((model) => !hidden.has(model));
-    }, [capability, config, hiddenModels]);
+        return Array.from(new Set(selectableModelsByCapability(config, capability).filter(Boolean))).filter((model) => !hiddenModelSet.has(model));
+    }, [capability, config, hiddenModelSet]);
     const optionGroups = useMemo(() => {
         const channelGroups = config.channels
             .map((channel) => ({
@@ -81,9 +83,15 @@ export function ModelPicker({
     const portraitQuote = current ? resolveModelChannel(config, current).modelProfiles?.find((item) => item.model === modelOptionName(current))?.videoPricing : undefined;
     const priceLines = portraitPriceLines(portraitQuote);
     const creationVariant = variant === "creation";
+    const modelLabel = (model: string) => creationVariant ? pickerModelDisplayName(config, model, showConfiguredModelName) : pickerModelOptionLabel(config, model, showConfiguredModelName);
+    // 当前生效的是「功能专用模型」时（例如图生图会自动用图改图档），它不在可选项里，
+    // 但绝不能显示成「选择模型」——那会让用户以为自己的选择丢了。显示模型名 +（自动）。
+    const functionOnlyCurrent = !current && resolvedCurrent && hiddenModelSet.has(resolvedCurrent) ? resolvedCurrent : "";
     const triggerLabel = current
-        ? (creationVariant ? pickerModelDisplayName(config, current, showConfiguredModelName) : pickerModelOptionLabel(config, current, showConfiguredModelName))
-        : portrait ? `${seedancePortraitLabel(storedCurrent)}（不可用）` : placeholder;
+        ? modelLabel(current)
+        : functionOnlyCurrent
+            ? `${modelLabel(functionOnlyCurrent)}（自动）`
+            : portrait ? `${seedancePortraitLabel(storedCurrent)}（不可用）` : placeholder;
 
     useLayoutEffect(() => {
         const trigger = triggerRef.current;
