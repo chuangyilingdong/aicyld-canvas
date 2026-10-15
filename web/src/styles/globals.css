@@ -21400,29 +21400,29 @@ main[data-libtv-readonly-dense="true"] .canvas-floating-dock {
 /* 和左边的模型选择器（.creation-model-picker.canvas-composer-model-picker）逐条对齐：
    半径 8px、半透明填充底、极淡描边 + 内高光；hover / 展开态用同一个变量。
    之前写成 14px 圆角 + 10% 描边 + 不透明底，看起来就是「另一种框」。 */
-.canvas-node-composer-mode-select .ant-select-selector {
+.canvas-node-composer-mode-select :is(.ant-select-content, .ant-select-selector) {
     border: 1px solid var(--creation-border) !important;
     border-radius: 8px !important;
     background: var(--creation-surface-muted) !important;
     color: var(--cn-text) !important;
 }
 
-.canvas-node-composer-mode-select:hover .ant-select-selector,
-.canvas-node-composer-mode-select.ant-select-open .ant-select-selector,
-.canvas-node-composer-mode-select.ant-select-focused .ant-select-selector {
+.canvas-node-composer-mode-select:hover :is(.ant-select-content, .ant-select-selector),
+.canvas-node-composer-mode-select.ant-select-open :is(.ant-select-content, .ant-select-selector),
+.canvas-node-composer-mode-select.ant-select-focused :is(.ant-select-content, .ant-select-selector) {
     border-color: var(--creation-border-strong) !important;
     background: var(--creation-surface-hover) !important;
 }
 
-.dark .canvas-node-composer-mode-select .ant-select-selector {
+.dark .canvas-node-composer-mode-select :is(.ant-select-content, .ant-select-selector) {
     background: #262930a3 !important;
     border: 1px solid #ffffff13 !important;
     box-shadow: inset 0 1px #ffffff09 !important;
 }
 
-.dark .canvas-node-composer-mode-select:hover .ant-select-selector,
-.dark .canvas-node-composer-mode-select.ant-select-open .ant-select-selector,
-.dark .canvas-node-composer-mode-select.ant-select-focused .ant-select-selector {
+.dark .canvas-node-composer-mode-select:hover :is(.ant-select-content, .ant-select-selector),
+.dark .canvas-node-composer-mode-select.ant-select-open :is(.ant-select-content, .ant-select-selector),
+.dark .canvas-node-composer-mode-select.ant-select-focused :is(.ant-select-content, .ant-select-selector) {
     background: #30343dd1 !important;
     border-color: #ffffff21 !important;
     box-shadow: inset 0 1px #ffffff09 !important;
