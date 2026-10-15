@@ -17,7 +17,7 @@
   "id": "full-video",
   "name": "全参视频",
   "version": "1.0.0",
-  "author": "BeefTV Contributors",
+  "author": "灵动TV Contributors",
   "description": "全参 2.0 / 2.5 的 JSON 请求、素材上传和原片下载。",
   "permissions": [
     "generation.run",

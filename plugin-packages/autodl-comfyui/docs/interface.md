@@ -69,7 +69,7 @@
   "id": "autodl-comfyui",
   "name": "AutoDL ComfyUI 视频与音频",
   "version": "2.1.0",
-  "author": "BeefTV Contributors",
+  "author": "灵动TV Contributors",
   "description": "通过 AutoDL.Art ComfyUI 工作流 API 接入异步视频与音频生成，新增 ZM U24/U08 多图参考视频工作流。",
   "documentation": "<当前插件的完整 documentation，由 README.md 与 docs/interface.md 拼接而成；为避免 JSON 递归，此处不重复展开正文。>",
   "permissions": [

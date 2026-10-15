@@ -3,9 +3,9 @@
   "id": "suno-sfx",
   "name": "Suno Sound Effects",
   "version": "1.0.0",
-  "author": "BeefTV Contributors",
+  "author": "灵动TV Contributors",
   "description": "Suno 音效（Sound Effects）异步任务协议插件。",
-  "documentation": "# Suno Sound Effects\n\n该目录是 BeefTV 声明式协议插件源码，用于 Suno 音效接口（/v1/music/generations/sounds + /v1/music/tasks/{task_id}）。\n\n完整接口见 [docs/interface.md](docs/interface.md)。\n",
+  "documentation": "# Suno Sound Effects\n\n该目录是 灵动TV 声明式协议插件源码，用于 Suno 音效接口（/v1/music/generations/sounds + /v1/music/tasks/{task_id}）。\n\n完整接口见 [docs/interface.md](docs/interface.md)。\n",
   "permissions": [
     "generation.run",
     "media.read"
