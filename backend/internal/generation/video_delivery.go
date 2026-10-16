@@ -72,7 +72,12 @@ func videoResultDownloader(config Config, rawURL, taskID string) func(context.Co
 			var httpErr HTTPError
 			// An external media URL may expire while the gateway credential is
 			// valid. Authentication rejection at the gateway must still stop.
-			expired := !SameProviderOrigin(config.BaseURL, ProviderDownloadURL(config.BaseURL, rawURL)) && errors.As(err, &httpErr) && (httpErr.StatusCode == http.StatusUnauthorized || httpErr.StatusCode == http.StatusForbidden)
+			// 401/403：签名失效或被拒；404/410：原文件已不在（链接过期）。
+			// 两种都说明"这笔结果还在"，只是这条地址不能用了 —— 要改走同一任务的
+			// 备用地址，而不是把已生成的结果报成失败（判据参照上游 v1.7.22）。
+			expired := !SameProviderOrigin(config.BaseURL, ProviderDownloadURL(config.BaseURL, rawURL)) && errors.As(err, &httpErr) &&
+				(httpErr.StatusCode == http.StatusUnauthorized || httpErr.StatusCode == http.StatusForbidden ||
+					httpErr.StatusCode == http.StatusNotFound || httpErr.StatusCode == http.StatusGone)
 			if !retry && !expired {
 				return nil, "", err
 			}

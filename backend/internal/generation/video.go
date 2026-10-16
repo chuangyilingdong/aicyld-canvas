@@ -37,6 +37,7 @@ func RunVideoTask(ctx context.Context, input Input) (map[string]interface{}, err
 
 func RunVideoTaskWithPolicy(ctx context.Context, input Input, pollPolicy VideoPollPolicy) (map[string]interface{}, error) {
 	pollPolicy = videoPollPolicyForConfig(ctx, input.Config, pollPolicy)
+	logVideoRequestPlan(ctx, input)
 	// BeefAPI exposes its flat /v1/videos contract. Route it before
 	// protocol adapters so stale persisted channel metadata cannot select an
 	// incompatible legacy multipart or flat request shape.
@@ -127,11 +128,13 @@ func RunVideoTaskWithPolicy(ctx context.Context, input Input, pollPolicy VideoPo
 		if err := GetJSON(ctx, input.Config, "/videos/"+id, &state); err != nil {
 			return VideoPollOutcome{}, err
 		}
-		if data, ok := state["data"].(map[string]interface{}); ok {
-			state = data
+		var stateErr error
+		state, stateErr = ValidateVideoTaskState(id, state)
+		if stateErr != nil {
+			return VideoPollOutcome{}, stateErr
 		}
 		status := strings.ToLower(stringField(state, "status"))
-		if status == "completed" || status == "succeeded" || status == "success" || status == "done" {
+		if VideoTaskSucceeded(status) {
 			if videoURL := NewAPIVideoResultURL(state); videoURL != "" {
 				data, mimeType, err := RunVideoDownload(ctx, id, pollPolicy, videoResultDownloader(input.Config, videoURL, id))
 				if err != nil {
@@ -259,11 +262,13 @@ func RunSeedanceVideosTask(ctx context.Context, input Input, pollPolicy VideoPol
 		if err := GetJSON(ctx, input.Config, "/videos/"+id, &state); err != nil {
 			return VideoPollOutcome{}, err
 		}
-		if data, ok := state["data"].(map[string]interface{}); ok {
-			state = data
+		var stateErr error
+		state, stateErr = ValidateVideoTaskState(id, state)
+		if stateErr != nil {
+			return VideoPollOutcome{}, stateErr
 		}
 		status, videoURL := SeedancePollStatusAndURL(state)
-		if status == "completed" || status == "succeeded" {
+		if VideoTaskSucceeded(status) {
 			if videoURL != "" {
 				data, mimeType, err := RunVideoDownload(ctx, id, pollPolicy, videoResultDownloader(input.Config, videoURL, id))
 				if err != nil {
@@ -524,8 +529,10 @@ func RunSeedanceAgentPlanVideoTask(ctx context.Context, input Input, pollPolicy 
 		if err := GetJSON(ctx, input.Config, "/contents/generations/tasks/"+id, &state); err != nil {
 			return VideoPollOutcome{}, err
 		}
-		if data, ok := state["data"].(map[string]interface{}); ok {
-			state = data
+		var stateErr error
+		state, stateErr = ValidateVideoTaskState(id, state)
+		if stateErr != nil {
+			return VideoPollOutcome{}, stateErr
 		}
 		status := strings.ToLower(strings.TrimSpace(stringField(state, "status")))
 		if status == "succeeded" {
