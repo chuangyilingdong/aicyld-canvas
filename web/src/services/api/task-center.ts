@@ -91,6 +91,8 @@ export type ProviderTaskQueryResult = {
     task: GenerationTask;
     providerStatus: string;
     recovered: boolean;
+    // 上游已明确给出结论（例如版权审核未通过）时的可读原因。
+    message?: string;
 };
 
 export type TaskTextDelta = {

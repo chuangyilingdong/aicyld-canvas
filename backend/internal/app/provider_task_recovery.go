@@ -19,6 +19,25 @@ type ProviderTaskQueryResult struct {
 	Task           *model.Task `json:"task"`
 	ProviderStatus string      `json:"providerStatus"`
 	Recovered      bool        `json:"recovered"`
+	// Message 是上游给出的可读结论（例如"生成视频未通过上游版权审核"）。
+	// 上游明确答复"失败/被拒"时带它返回，调用方据此提示用户，
+	// 而不是让用户对着"系统处理失败，请稍后重试"反复重试一个已被拒的任务。
+	Message string `json:"message,omitempty"`
+}
+
+// providerPayloadVerdict 判断错误是否代表"上游已经给出结论"（它答复了，只是结果是失败）。
+// 我们的归类器把上游正文归类成可读文案后装在 generation.PayloadError 里；
+// 传输/网络类错误不会走到这里，因此可以安全地把结论当成成功响应的一部分返回。
+func providerPayloadVerdict(err error) (string, bool) {
+	var payload generation.PayloadError
+	if !errors.As(err, &payload) {
+		return "", false
+	}
+	message := strings.TrimSpace(payload.Message())
+	if message == "" {
+		return "", false
+	}
+	return message, true
 }
 
 func (s *Service) QueryFailedVideoTask(ctx context.Context, userID string, taskID string) (*ProviderTaskQueryResult, error) {
@@ -132,6 +151,18 @@ func (s *Service) queryFailedVideoTask(ctx context.Context, task *model.Task, cl
 		result, providerStatus, err = queryProtocolAdapterVideoTask(queryCtx, input, adapter, providerRequestID)
 	}
 	if err != nil {
+		// 上游明确判定失败（例如版权审核未通过）：这是结论，不是系统故障。
+		// 仍然返回 200 + providerStatus + 可读原因，让前端把原因写在节点上；
+		// 以前这里返回 500「系统处理失败，请稍后重试」，用户会反复重试一个已被拒的任务。
+		if verdict, ok := providerPayloadVerdict(err); ok {
+			_ = s.log(task.UserID, task.ID, "info", "人工查询确认上游已判定失败", verdict)
+			return &ProviderTaskQueryResult{
+				Task:           taskForOutput(*task),
+				ProviderStatus: defaultString(providerStatus, "failed"),
+				Recovered:      false,
+				Message:        verdict,
+			}, nil
+		}
 		_ = s.log(task.UserID, task.ID, "error", "人工查询上游视频任务失败", err.Error())
 		return nil, err
 	}

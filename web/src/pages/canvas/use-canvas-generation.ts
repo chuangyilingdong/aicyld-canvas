@@ -347,6 +347,16 @@ export function useCanvasGeneration({ projectId, domainProjectId, projectLoaded,
                 await applyGenerationTaskResult(node.id, result.task);
                 if (signal.aborted) return;
                 message.success("视频已取回并放回画布，未重新生成");
+            } else if (result.message) {
+                // 上游已给出结论（失败/被拒）：这是结果，不是故障。
+                // 把原因写到节点上并明确告知，别让用户对着"稍后再试"反复取回一个已被拒的任务。
+                const node = nodesRef.current.find((item) => item.metadata?.taskId === task.id);
+                if (node) {
+                    setNodes((current) => current.map((item) => item.id === node.id
+                        ? { ...item, metadata: { ...item.metadata, status: "error" as const, taskStatus: "failed" as const, errorDetails: result.message } }
+                        : item));
+                }
+                message.error(`上游已拒绝：${result.message}`);
             } else {
                 message.info("原任务仍在处理中，请稍后再取回结果");
             }
@@ -359,7 +369,7 @@ export function useCanvasGeneration({ projectId, domainProjectId, projectLoaded,
                 setRetrievingTaskId(null);
             }
         }
-    }, [applyGenerationTaskResult, message, nodesRef, projectId, queryClient]);
+    }, [applyGenerationTaskResult, message, nodesRef, projectId, queryClient, setNodes]);
 
     const observeSubscribedGenerationTask = useCallback(
         (taskId: string, signal: AbortSignal, onUpdate?: (task: GenerationTask) => void) =>

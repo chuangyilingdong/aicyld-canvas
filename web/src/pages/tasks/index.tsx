@@ -373,7 +373,9 @@ export default function TasksPage() {
                 const logs = await listTaskLogs(task.id);
                 if (request === detailRequestRef.current) {
                     setTaskLogs(logs);
-                    message.info("原任务仍在处理中，请稍后再取回结果");
+                    // 上游已给出结论时是结果而不是故障，直接说明原因。
+                    if (result.message) message.error(`上游已拒绝：${result.message}`);
+                    else message.info("原任务仍在处理中，请稍后再取回结果");
                 }
                 return;
             }
