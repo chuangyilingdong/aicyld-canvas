@@ -323,8 +323,15 @@ const defaultVideoCapabilityConfig = `{
 func CapabilityConfigFor(capability, model string) (json.RawMessage, bool) {
 	switch strings.ToLower(strings.TrimSpace(capability)) {
 	case "video":
-		if strings.Contains(strings.ToLower(strings.TrimSpace(model)), "seedance-2") {
+		name := strings.ToLower(strings.TrimSpace(model))
+		if strings.Contains(name, "seedance-2") {
 			return seedanceCapabilityConfigBody(seedanceModeForModel(model)), true
+		}
+		// MiniMax H3 支持参考视频/参考音频（reference_audio / drive_audio）。
+		// 以前它落到通用视频默认值（maxAudios/maxVideos = 0），客户端的模型列表据此
+		// 把 H3 灰掉、发送按钮点不动；DB channel_models 里一直是 3/3，种子却写 0。
+		if isMiniMaxH3Model(name) {
+			return minimaxH3CapabilityConfigBody(), true
 		}
 		return json.RawMessage(defaultVideoCapabilityConfig), true
 	case "image":
@@ -336,6 +343,37 @@ func CapabilityConfigFor(capability, model string) (json.RawMessage, bool) {
 	default:
 		return nil, false
 	}
+}
+
+func isMiniMaxH3Model(name string) bool {
+	return strings.Contains(name, "minimax-h3") || strings.Contains(name, "minimax h3") ||
+		strings.Contains(name, "h3-max") || strings.Contains(name, "h3 max")
+}
+
+// minimaxH3CapabilityConfigBody 与 channel_models(MiniMax-H3) 的权威配置保持一致。
+func minimaxH3CapabilityConfigBody() json.RawMessage {
+	body := map[string]any{
+		"version": 1,
+		"video": map[string]any{
+			"references": map[string]any{
+				"promptMaxChars": 4000,
+				"minImages":      0, "maxImages": 9, "maxImageBytes": 31457280,
+				"maxVideos": 3, "maxVideoBytes": 209715200, "maxVideoDurationSeconds": 0,
+				"maxAudios": 3, "maxAudioBytes": 15728640, "maxAudioDurationSeconds": 0,
+			},
+			"duration":          map[string]any{"selection": "range", "min": 4, "max": 15, "step": 1, "default": 5},
+			"ratios":            []string{"16:9", "9:16", "1:1", "4:3", "3:4", "21:9"},
+			"defaultRatio":      "16:9",
+			"resolutions":       []string{"480p", "768p", "1080p"},
+			"defaultResolution": "768p",
+			"generateAudio":     map[string]any{"supported": false, "default": false},
+			"watermark":         map[string]any{"supported": false, "default": false},
+			"operations":        []string{"text_to_video", "image_to_video", "reference_to_video", "first_last_frame"},
+			"defaultOperation":  "text_to_video",
+		},
+	}
+	raw, _ := json.Marshal(body)
+	return json.RawMessage(raw)
 }
 
 // seedanceFamilyProfile 生成「家族模型 + 模式变体」预置条目：

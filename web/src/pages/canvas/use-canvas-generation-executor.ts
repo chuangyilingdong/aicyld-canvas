@@ -106,8 +106,8 @@ export function useCanvasGenerationExecutor({
     );
 
     return useCallback(
-        (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string, options?: CanvasNodeGenerationOptions) =>
-            runCanvasGenerationSubmissionOnce(
+        (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string, options?: CanvasNodeGenerationOptions) => {
+            const submission = runCanvasGenerationSubmissionOnce(
                 submissionLocksRef.current,
                 nodeId,
                 async () => {
@@ -423,7 +423,27 @@ export function useCanvasGenerationExecutor({
                     }
                 },
                 () => message.info({ key: `canvas-generation-submission-${nodeId}`, content: "该节点已有生成请求正在提交或执行，请勿重复点击" }),
-            ),
+            );
+            // 提交链里任何"逃逸的异常"或"卡住的 await"都不能表现为"点了没反应"：
+            // - 逃逸异常：这里兜底提示 + 留 console 线索；
+            // - 卡住：30 秒后给一条可见提示（不取消请求，避免误杀已经发出的付费提交）。
+            let settled = false;
+            const watchdog = window.setTimeout(() => {
+                if (settled) return;
+                console.warn("[canvas-generate] submission still pending after 30s", { nodeId, mode });
+                message.warning({ key: `canvas-generation-slow-${nodeId}`, content: "生成提交超过 30 秒仍未完成（可能卡在读取参考素材），请稍候或刷新页面重试" });
+            }, 30_000);
+            return submission
+                .finally(() => {
+                    settled = true;
+                    window.clearTimeout(watchdog);
+                })
+                .catch((error) => {
+                    if (isGenerationCanceled(error)) return;
+                    console.error("[canvas-generate] submission failed", { nodeId, mode, error });
+                    message.error(generationErrorMessage(error) || "生成提交失败，请重试");
+                });
+        },
         [
             addedSkills,
             applyGenerationTaskResult,

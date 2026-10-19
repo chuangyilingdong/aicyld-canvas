@@ -1,5 +1,5 @@
-import { Select, Button, Image as AntImage, InputNumber, Modal, Popover } from "antd";
-import { resolveVideoOperation } from "@/lib/model-selection";
+import { App, Select, Button, Image as AntImage, InputNumber, Modal, Popover } from "antd";
+import { modelCompatibilityError, resolveVideoOperation } from "@/lib/model-selection";
 import {
     defaultModelCapabilityConfig,
     modelCapabilityConfigFor,
@@ -104,6 +104,7 @@ const PROMPT_EDITOR_MODAL_DEFAULT_WIDTH = 1200;
 const PROMPT_EDITOR_MODAL_DEFAULT_HEIGHT = 420;
 
 export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChange, onConfigChange, onGenerate, mentionReferences = [], onAddReference, onRemoveReference, onReorderReferences, onReplaceReference, onReplaceReferenceFiles, onClose, onNodeMouseDown, onImageSettingsOpenChange, workspaceMode = "professional" }: CanvasNodePromptPanelProps) {
+    const { message } = App.useApp();
     const globalConfig = useEffectiveConfig();
     const themeName = useActiveTheme();
     const theme = canvasThemes[themeName];
@@ -177,6 +178,9 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
         options: modelRequestOptions(config, mode),
         videoSeconds: mode === "video" ? config.videoSeconds : undefined,
     };
+    // 用户选了这个模型，就按这个模型的要求把"哪里不满足"直接摆出来，
+    // 而不是把模型灰掉、发送按钮点不动却什么都不说（2026-10-19 线上反馈）。
+    const selectedModelError = modelCompatibilityError(config, config.model, resolvedRequirements);
     const promptOptimizerProvider = useMemo(() => {
         if (!promptOptimizerEnabled || !promptOptimizerInstallation || !promptOptimizerPlugin.createPromptOptimizer) return null;
         return promptOptimizerPlugin.createPromptOptimizer(createPluginHostContext(promptOptimizerPlugin, promptOptimizerInstallation, globalConfig));
@@ -272,6 +276,8 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
 
     const submit = () => {
         const text = prompt.trim();
+        // 留痕：线上出现"点发送没反应"时，先确认点击有没有到达这里。
+        console.info("[canvas-generate] submit", { nodeId: node.id, mode, promptChars: text.length, isRunning, disabled: isSubmitDisabled });
         if (!text || isRunning) return false;
         onGenerate(node.id, mode, text);
         return true;
@@ -352,11 +358,13 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
 
     const renderSubmitButton = (expanded: boolean) => {
         const actionLabel = isRunning ? "生成中" : "生成";
-        return (
+        // 生成中时按钮不再"静默禁用"：点一下要说明为什么没反应、以及怎么继续
+        // （2026-10-19 线上反馈「提示词填好了点发送没反应」，实际是该节点上一笔任务还在跑）。
+        const button = (
             <Button
                 type="text"
                 className="canvas-node-composer-submit canvas-node-composer-submit-canvas"
-                disabled={isRunning || isSubmitDisabled}
+                disabled={isSubmitDisabled}
                 style={
                     {
                         color: isSubmitDisabled ? theme.node.faint : theme.node.text,
@@ -364,16 +372,35 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                         "--canvas-composer-submit-action-fg": isSubmitDisabled ? theme.node.faint : theme.canvas.background,
                     } as CSSProperties
                 }
-                onClick={() => (expanded ? submitExpandedPrompt() : submit())}
+                onClick={() => {
+                    console.info("[canvas-generate] click", { nodeId: node.id, mode, isRunning, disabled: isSubmitDisabled });
+                    if (isRunning) {
+                        message.info("这个节点还在生成中，完成后才能再次生成；如需中止，请在右侧任务面板停止。");
+                        return;
+                    }
+                    if (expanded) submitExpandedPrompt();
+                    else submit();
+                }}
                 aria-label={actionLabel}
-                title={actionLabel}
+                title={isRunning ? "正在生成中：完成后可再次生成，或到任务面板停止" : actionLabel}
             >
                 <span className="canvas-node-composer-submit-action" aria-hidden>
                     {isRunning ? <LoaderCircle className="size-3.5 animate-spin motion-reduce:animate-none" /> : <ArrowUp className="size-3.5" strokeWidth={2.4} />}
                 </span>
             </Button>
         );
+        return isRunning
+            ? <span className="inline-flex" title="正在生成中：完成后可再次生成，或到任务面板停止">{button}</span>
+            : button;
     };
+
+    const renderModelCapabilityWarning = () => selectedModelError
+        ? (
+            <div role="alert" className="canvas-node-composer-warning px-2 pb-1 text-[var(--fs-tiny)] leading-snug" style={{ color: "#f87171" }}>
+                当前模型不支持这组输入：{selectedModelError}。请调整参考素材或参数，或换一个模型后再生成。
+            </div>
+        )
+        : null;
 
     const renderComposerControls = (expanded: boolean) =>
         simpleMode ? (
@@ -648,6 +675,7 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                 </div>
             ) : null}
 
+            {renderModelCapabilityWarning()}
             {renderComposerControls(false)}
 
             <Modal
@@ -677,6 +705,7 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                                 <CanvasVideoPromptTools metadata={node.metadata} frameOptions={videoFrameOptions} onMetadataChange={(patch) => onConfigChange(node.id, patch)} />
                             </div>
                         ) : null}
+                        {renderModelCapabilityWarning()}
                         <div className="shrink-0">{renderComposerControls(true)}</div>
                     </div>
                     <PromptModalResizeHandle size={expandedModalSize} measure={measureExpandedModalSize} onResize={setExpandedModalSize} accent={theme.node.muted} />
