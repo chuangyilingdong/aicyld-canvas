@@ -32,10 +32,6 @@ func TestVideoBindingRecoversAcceptedPendingNodeWithoutTaskID(t *testing.T) {
 				MimeType: "video/mp4", Width: 720, Height: 1280, Size: 24, CreatedAt: now, UpdatedAt: now}).Error; err != nil {
 				t.Fatal(err)
 			}
-			// Deliver before the node exists so this test controls the first binding attempt.
-			if err := h.service.DeliverSucceededTask(task); err != nil {
-				t.Fatal(err)
-			}
 			metadata := map[string]any{"status": "error", "taskClientOperationId": operationID}
 			if state == "different-operation" {
 				metadata["taskClientOperationId"] = "newer-operation"
