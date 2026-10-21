@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -240,5 +241,36 @@ func TestAsyncImageRecoveryKeepsPendingTaskForLaterRetrieval(t *testing.T) {
 	stored, err := s.repo.Task(task.ID)
 	if err != nil || stored.Status != model.TaskStatusFailed || stored.ProviderRequestID != "task-pending" {
 		t.Fatalf("pending async task changed unexpectedly: %+v err=%v", stored, err)
+	}
+}
+
+func TestAsyncImageRecoveryUpstreamFailureIsTerminal(t *testing.T) {
+	s, db, _, _ := creationTestService(t)
+	task := imageRecoveryTestTask()
+	task.ProviderRequestID = "task-failed"
+	task.InputJSON = `{"mode":"image","config":{"baseUrl":"https://example.com","apiKey":"test-key","interfaceType":"newapi-image","model":"image"}}`
+	if err := db.Create(&task).Error; err != nil {
+		t.Fatal(err)
+	}
+	receipt := imageRecoveryTestReceipt(task)
+	receipt.Path = "/v1/video/generations"
+	receipt.ProviderRequestID = "task-failed"
+	receipt.ResponseBody = `{"task_id":"task-failed","id":"task-failed"}`
+	if err := db.Create(&receipt).Error; err != nil {
+		t.Fatal(err)
+	}
+	original := imageRecoveryGetJSON
+	defer func() { imageRecoveryGetJSON = original }()
+	imageRecoveryGetJSON = func(ctx context.Context, config generation.Config, path string, target interface{}) error {
+		*target.(*map[string]any) = map[string]any{"data": map[string]any{"task_id": "task-failed", "status": "failed", "fail_reason": "upstream rejected"}}
+		return nil
+	}
+	restored, handled, err := s.recoverAcceptedImage(task)
+	if !handled || restored != nil || err == nil {
+		t.Fatalf("terminal failure recovered=%+v handled=%v err=%v", restored, handled, err)
+	}
+	var appErr *AppError
+	if !errors.As(err, &appErr) || appErr.Reason != imageUpstreamFailedReason || !strings.Contains(appErr.Message, "upstream rejected") {
+		t.Fatalf("terminal failure reason = %#v", err)
 	}
 }

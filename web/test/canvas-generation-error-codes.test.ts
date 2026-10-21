@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { explainGenerationError, shouldBlockAutomaticRetry } from "@/lib/generation-error";
 import { CanvasGenerationDurableAckError, CanvasGenerationMaterializationError } from "@/services/canvas-generation-errors";
 import { ApiError } from "@/services/api/request";
-import { canvasGenerationFailureMetadata, canvasGenerationRetryBlocked, canvasImageGenerationHasPendingResult, canvasGenerationTaskNodes, isKeptGenerationResultCode } from "@/pages/canvas/canvas-generation-failure";
+import { canvasGenerationFailureMetadata, canvasGenerationRetryBlocked, canvasImageGenerationHasPendingResult, canvasGenerationTaskNodes, isImageRecoveryTerminalError, isKeptGenerationResultCode } from "@/pages/canvas/canvas-generation-failure";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 import type { GenerationTask } from "@/services/api/task-center";
 
@@ -22,6 +22,12 @@ const succeededTask: GenerationTask = {
 };
 
 describe("generation result-apply error codes", () => {
+    test("only an explicit upstream image failure ends the continue-retrieval entry", () => {
+        expect(isImageRecoveryTerminalError(new ApiError("上游原图片任务已失败", { status: 400, reason: "image_upstream_failed" }))).toBe(true);
+        expect(isImageRecoveryTerminalError(new ApiError("原图片任务仍在上游处理中", { status: 400, reason: "invalid_argument" }))).toBe(false);
+        expect(isImageRecoveryTerminalError(new Error("network"))).toBe(false);
+    });
+
     test("a retained video is not a newly succeeded task output until its own binding arrives", () => {
         const original: CanvasNodeData = {
             ...node({ taskId: "new-task", status: "loading", content: "old-video.mp4", storageKey: "resource:old", assetId: "old-asset", generationEffectKeys: ["attach-node:old-task:n1:0"] }),

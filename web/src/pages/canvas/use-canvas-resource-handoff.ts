@@ -22,7 +22,7 @@ import { CanvasNodeType, type CanvasNodeData, type Position } from "@/types/canv
 
 import { readOwnedCanvasNodes, runOwnedCanvasEnsureQueue, runOwnedCanvasPageCommit, useCanvasOwnerLifetime } from "./canvas-owner-epoch";
 import { applyArchivedCanvasNodeAssets, CANVAS_HANDOFF_PERSIST_FAILED_MESSAGE, commitOwnedCanvasAssetHandoff, rebaseCreatedCanvasNodes } from "./canvas-resource-handoff-commit";
-import { canvasGenerationFailureMetadata } from "./canvas-generation-failure";
+import { canvasGenerationFailureMetadata, isImageRecoveryTerminalError } from "./canvas-generation-failure";
 import { linkedFolderPresentation, planCanvasHandoffEffect, resolveCanvasAssetHandoffPlan } from "./canvas-resource-handoff-plan";
 
 const NODE_STATUS_SUCCESS = "success" as const;
@@ -335,7 +335,7 @@ export function useCanvasResourceHandoff({
                                       ...item.metadata,
                                       status: "error",
                                       ...canvasGenerationFailureMetadata(error, { prompt: item.metadata?.prompt || "", mode: item.type === CanvasNodeType.Image ? "image" : undefined }),
-                                      resourceReloadAvailable: true,
+                                      resourceReloadAvailable: isImageRecoveryTerminalError(error) ? undefined : true,
                                   },
                               }
                             : item,

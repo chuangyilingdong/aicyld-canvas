@@ -14,6 +14,8 @@ import (
 
 var imageRecoveryGetJSON = generation.GetJSON
 
+const imageUpstreamFailedReason = "image_upstream_failed"
+
 // recoverAcceptedImage restores a failed image task from the original provider
 // task. It never sends another paid create request.
 func (s *Service) recoverAcceptedImage(task model.Task) (*model.Task, bool, error) {
@@ -140,7 +142,12 @@ func (s *Service) queryAcceptedAsyncImage(task *model.Task, createPath string, t
 	}
 	status, urls, reason := imageTaskResultFromState(state)
 	if status == "failed" || status == "cancelled" || status == "expired" {
-		return nil, BadAuthRequest("上游原图片任务已失败：" + defaultString(reason, "请调整输入后重新生成"))
+		return nil, &AppError{
+			Status:  400,
+			Code:    400,
+			Reason:  imageUpstreamFailedReason,
+			Message: "上游原图片任务已失败：" + defaultString(reason, "请调整输入后重新生成"),
+		}
 	}
 	if !generation.VideoTaskSucceeded(status) {
 		return nil, imageRecoveryError{errors.New("原图片任务仍在上游处理中，请稍后再次点击「继续取回」")}

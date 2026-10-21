@@ -4,6 +4,7 @@ import type { GenerationTask } from "@/services/api/task-center";
 import { CanvasGenerationTargetSaveError } from "@/services/canvas-generation-errors";
 import { generationTaskMetadata } from "@/lib/canvas/canvas-project-generation";
 import { attachNodeEffectKey } from "@/services/generation-task-materializer";
+import { ApiError } from "@/services/api/request";
 
 type GenerationReference = { id?: string; storageKey?: string; url?: string; dataUrl?: string };
 export type CanvasGenerationFailureInput = {
@@ -31,6 +32,10 @@ const KEPT_GENERATION_RESULT_CODES = new Set(["canvas_conflict", "download_faile
 
 export function isKeptGenerationResultCode(code: string | undefined) {
     return Boolean(code && KEPT_GENERATION_RESULT_CODES.has(code));
+}
+
+export function isImageRecoveryTerminalError(error: unknown) {
+    return error instanceof ApiError && error.reason === "image_upstream_failed";
 }
 
 export function canvasGenerationFailureMetadata(error: unknown, input: CanvasGenerationFailureInput) {
