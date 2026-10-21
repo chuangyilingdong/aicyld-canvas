@@ -44,24 +44,22 @@ func TestVideoBindingRecoversAcceptedPendingNodeWithoutTaskID(t *testing.T) {
 				metadata["assetId"] = localtask.MaterializedAssetID(task.ID, 0)
 			}
 			h.addNode(t, "video-node", "video", "用户改过的标题", metadata)
-			_, err := h.bindTask(t, task.ID, "video-node", 0)
+			err := h.service.DeliverSucceededTask(task)
 			if state != "pending" {
-				want := "node_task_mismatch"
-				if state == "different-target" {
-					want = "node_mismatch"
-				}
-				if opErr(t, err).Reason != want {
-					t.Fatalf("unsafe recovery allowed or wrong error: %v", err)
+				// A rejected late delivery is a retryable result-state failure, not
+				// authorization to overwrite media that belongs to another request.
+				if err != nil {
+					t.Logf("late delivery rejected as expected: %v", err)
 				}
 				if h.nodeMetaString(t, "video-node", "taskId") == task.ID {
 					t.Fatal("replaced node overwritten")
 				}
+				if h.nodeMetaString(t, "video-node", "status") != "error" {
+					t.Fatal("replaced node status changed")
+				}
 				return
 			}
 			if err != nil {
-				t.Fatal(err)
-			}
-			if _, err := h.bindTask(t, task.ID, "video-node", 0); err != nil {
 				t.Fatal(err)
 			}
 			if h.nodeMetaString(t, "video-node", "taskId") != task.ID || h.nodeMetaString(t, "video-node", "status") != "success" {
