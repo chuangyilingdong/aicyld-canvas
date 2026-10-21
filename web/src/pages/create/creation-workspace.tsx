@@ -17,7 +17,7 @@ import { WorkingDots, WorkingGlow } from "@/components/ai/working-indicator";
 import { MessageReasoning } from "@/components/ai/message-reasoning";
 import { creationResultAssetIds } from "@/lib/canvas/canvas-asset-handoff";
 import { GenerationFailureNotice } from "@/components/generation/generation-failure-notice";
-import { explainGenerationError, shouldBlockAutomaticRetry } from "@/lib/generation-error";
+import { explainGenerationError, shouldBlockManualRetry } from "@/lib/generation-error";
 import { formatVideoResolutionLabel as videoResolutionLabel } from "@/lib/video-generation-options";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { CachedResourceImage } from "@/components/cached-resource-image";
@@ -220,7 +220,7 @@ export function CreationMessageView({ item, shotNumber, onRetryFailure, onCreate
     const toolStatus: GenerationToolStatus = item.status === "pending" ? "running" : item.status === "error" ? "error" : item.status === "cancelled" ? "cancelled" : "completed";
     return <article className={`creation-assistant-message is-${mode}`}>
         {mode === "text" ? <><div className="creation-message-heading">{heading}</div>{item.reasoning ? <div className="creation-message-reasoning-wrap"><MessageReasoning reasoning={item.reasoning} isStreaming={item.status === "streaming"} /></div> : null}<div className="creation-message-content">{item.content ? <AIMessageMarkdown isStreaming={item.status === "streaming"}>{item.content}</AIMessageMarkdown> : <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><WorkingDots dotSize={5} gap={2} /><span>正在生成…</span></span>}</div></> : <GenerationToolCard status={toolStatus} heading={heading}><MediaResult item={item} onRetryFailure={onRetryFailure} onCreateVariant={onCreateVariant} onContinueCanvas={onContinueCanvas} openingCanvas={openingCanvas} /></GenerationToolCard>}
-        {item.error && mode === "text" ? <div className="creation-message-error"><GenerationFailureNotice explanation={explainGenerationError(item.error)} onRetry={shouldBlockAutomaticRetry(item.error) ? undefined : onRetryFailure} /></div> : null}
+        {item.error && mode === "text" ? <div className="creation-message-error"><GenerationFailureNotice explanation={explainGenerationError(item.error)} onRetry={shouldBlockManualRetry(item.error) ? undefined : onRetryFailure} /></div> : null}
     </article>;
 }
 

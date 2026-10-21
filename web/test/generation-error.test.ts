@@ -207,6 +207,7 @@ import {
     generationInputFingerprint,
     isContentModerationError,
     shouldBlockAutomaticRetry,
+    shouldBlockManualRetry,
     unchangedModeratedPrompt,
 } from "../src/lib/generation-error";
 import { readFetchError, readStatusError } from "../src/services/api/image-response";
@@ -525,4 +526,17 @@ test("media details preserve authentication and ignore prompt echoes", () => {
         expect(failure.requestId).toBe("req_media_auth_123");
     }
     expect(explainGenerationError({error: {code: "unknown", message: "Failure"}, prompt: "unsupported video codec"}).category).toBe("unknown");
+});
+
+test("reference upload preparation failures say the request was not submitted and stay retryable", () => {
+    const message = "参考素材上传失败，本次尚未开始生成。请检查网络或稍后重试。";
+    for (const input of [{ code: "reference_preupload_failed", message }, message]) {
+        const failure = explainGenerationError(input);
+        expect(failure.category).toBe("provider_unavailable");
+        expect(failure.uncertain).toBe(false);
+        expect(failure.blockAutomaticRetry).toBe(true);
+        expect(failure.blockManualRetry).toBe(false);
+        expect(shouldBlockManualRetry(input)).toBe(false);
+        expect(failure.message).toContain("本次尚未开始生成");
+    }
 });
