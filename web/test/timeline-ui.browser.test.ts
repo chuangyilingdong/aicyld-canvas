@@ -2,6 +2,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { chromium, type Browser, type Page } from "playwright";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
+import { canvasThemes } from "../src/lib/canvas-theme";
 
 let browser: Browser;
 let server: ReturnType<typeof Bun.serve>;
@@ -86,5 +87,32 @@ test("EditorExport default server route preserves all media, submits once and di
         await page.getByText("服务端字幕字体缺失，渲染失败", { exact: true }).waitFor();
         expect(await page.locator("video, a[download]").count()).toBe(0);
         expect((await snapshot(page)).downloads).toBe(0);
+    } finally { await page.close(); }
+}, 15_000);
+
+test("canvas timeline editor follows the active light canvas theme", async () => {
+    const page = await browser.newPage({ viewport: { width: 1600, height: 1100 } });
+    try {
+        await page.goto(`${server.url}?mode=canvas&theme=light`);
+        const dialog = page.locator(".canvas-timeline-dialog");
+        await dialog.waitFor();
+        const variables = await dialog.evaluate(element => {
+            const style = getComputedStyle(element);
+            return {
+                background: style.getPropertyValue("--editor-bg").trim(),
+                panel: style.getPropertyValue("--editor-panel").trim(),
+                text: style.getPropertyValue("--editor-text").trim(),
+                button: style.getPropertyValue("--editor-button-bg").trim(),
+                clipText: style.getPropertyValue("--editor-clip-text").trim(),
+            };
+        });
+        expect(variables).toEqual({
+            background: canvasThemes.light.node.panel,
+            panel: canvasThemes.light.node.fill,
+            text: canvasThemes.light.node.text,
+            button: canvasThemes.light.node.fill,
+            clipText: canvasThemes.dark.node.text,
+        });
+        expect(await dialog.locator(".media-editor-body").evaluate(element => getComputedStyle(element).backgroundColor)).not.toBe("rgb(16, 17, 18)");
     } finally { await page.close(); }
 }, 15_000);

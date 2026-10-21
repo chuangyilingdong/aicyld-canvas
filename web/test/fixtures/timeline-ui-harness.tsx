@@ -4,6 +4,7 @@ import { EditorStoreProvider } from "../../src/components/editor/editor-context"
 import { createEditorStore } from "../../src/stores/editor/editor-store";
 import { EditorExport } from "../../src/lib/plugins/builtin/editor/editor-export";
 import { CanvasTimelineDialog } from "../../src/components/canvas/canvas-timeline-dialog";
+import { useCanvasThemeStore } from "../../src/stores/canvas/use-canvas-theme-store";
 import { receipt } from "./timeline-ui-runtime";
 import type { CanvasNodeData } from "../../src/types/canvas";
 import type { TimelineProject } from "../../src/types/timeline";
@@ -20,6 +21,7 @@ const project: TimelineProject = {
 const node = { id: "video", type: "video", title: "测试成片", metadata: {}, x: 0, y: 0, width: 320, height: 180 } as CanvasNodeData;
 const store = createEditorStore();
 store.getState().load(project);
+if (new URLSearchParams(location.search).get("theme") === "light") useCanvasThemeStore.setState({ theme: "light", active: true });
 HTMLAnchorElement.prototype.click = function () { receipt.downloads++; };
 const root = createRoot(document.getElementById("root")!);
 Object.assign(window, { timelineFixture: { receipt, unmount: () => root.unmount() } });
