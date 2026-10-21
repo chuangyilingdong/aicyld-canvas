@@ -7,7 +7,7 @@ import type { CanvasNodeGenerationMode } from "@/components/canvas/canvas-node-p
 import { isGenerationCanceled } from "@/lib/canvas/canvas-project-generation";
 import { buildConfirmedGenerationConfig } from "./canvas-assistant-proposal-execution";
 import type { ConfirmedGenerationInputs } from "./canvas-assistant-proposal-snapshot";
-import { canvasGenerationPromptMetadata, canvasGenerationRequestFingerprint, runCanvasGenerationSubmissionOnce } from "@/lib/canvas/canvas-generation-submission";
+import { canReleaseCanvasGenerationSource, canvasGenerationPromptMetadata, canvasGenerationRequestFingerprint, runCanvasGenerationSubmissionOnce } from "@/lib/canvas/canvas-generation-submission";
 import { isGenerationTaskCapacityError } from "@/lib/canvas/canvas-generation-batch";
 import { buildPortraitTexturePrompt } from "@/lib/canvas/canvas-portrait-texture";
 import { buildCameraPrompt } from "@/lib/canvas/camera-prompt-library";
@@ -107,10 +107,11 @@ export function useCanvasGenerationExecutor({
 
     return useCallback(
         (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string, options?: CanvasNodeGenerationOptions) => {
+            let submissionReleased = false;
             const submission = runCanvasGenerationSubmissionOnce(
                 submissionLocksRef.current,
                 nodeId,
-                async () => {
+                async (releaseSubmission) => {
                     const inputNodes = options?.confirmedInputs?.nodes ?? nodesRef.current;
                     const inputConnections = options?.confirmedInputs?.connections ?? connectionsRef.current;
                     const inputConfig = options?.confirmedInputs?.config ?? effectiveConfig;
@@ -287,6 +288,7 @@ export function useCanvasGenerationExecutor({
 
                     setRunningNodeId(nodeId);
                     const controller = startGenerationRequest(nodeId, nodeId, nodeId, options?.controller);
+                    let sourceReleased = false;
                     if (controller.signal.aborted) {
                         finishGenerationRequest(nodeId, controller);
                         setRunningNodeId(null);
@@ -335,6 +337,7 @@ export function useCanvasGenerationExecutor({
                         );
 
                     let pendingNodeIds: string[] = [];
+                    const boundTaskIds = new Set<string>();
                     const execution = {
                         projectId,
                         nodesRef,
@@ -363,8 +366,17 @@ export function useCanvasGenerationExecutor({
                         startGenerationRequest,
                         finishGenerationRequest,
                         bindGenerationTask: (targetNodeId: string, task: GenerationTask) => {
+                            const firstBinding = boundTaskIds.size === 0;
+                            boundTaskIds.add(task.id);
                             bindGenerationTask(targetNodeId, task);
-                            setNodes((current) => {
+                            if (!sourceReleased && !controller.signal.aborted && canReleaseCanvasGenerationSource(nodeId, targetNodeId, task)) {
+                                sourceReleased = true;
+                                submissionReleased = true;
+                                finishGenerationRequest(nodeId, controller);
+                                setRunningNodeId((current) => current === nodeId ? null : current);
+                                releaseSubmission();
+                            }
+                            if (firstBinding) setNodes((current) => {
                                 const source = current.find((node) => node.id === nodeId);
                                 if (!source || source.metadata?.lastGenerationRequestFingerprint === requestFingerprint) return current;
                                 return current.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, lastGenerationRequestFingerprint: requestFingerprint } } : node));
@@ -410,6 +422,7 @@ export function useCanvasGenerationExecutor({
                         setNodes((current) =>
                             current.map((node) => {
                                 if (node.id !== nodeId && !pendingNodeIds.includes(node.id)) return node;
+                                    if (node.id === nodeId && sourceReleased) return node;
                                 if (node.id === nodeId && hasPreviousResult) {
                                     return { ...node, metadata: { ...node.metadata, status: NODE_STATUS_SUCCESS, errorDetails: undefined, generationErrorCode: undefined, failedPromptFingerprint: undefined, failedInputFingerprint: undefined } };
                                 }
@@ -419,7 +432,7 @@ export function useCanvasGenerationExecutor({
                         );
                     } finally {
                         finishGenerationRequest(nodeId, controller);
-                        setRunningNodeId(null);
+                        if (!sourceReleased) setRunningNodeId((current) => current === nodeId ? null : current);
                     }
                 },
                 () => message.info({ key: `canvas-generation-submission-${nodeId}`, content: "该节点已有生成请求正在提交或执行，请勿重复点击" }),
@@ -429,7 +442,7 @@ export function useCanvasGenerationExecutor({
             // - 卡住：30 秒后给一条可见提示（不取消请求，避免误杀已经发出的付费提交）。
             let settled = false;
             const watchdog = window.setTimeout(() => {
-                if (settled) return;
+                if (settled || submissionReleased) return;
                 console.warn("[canvas-generate] submission still pending after 30s", { nodeId, mode });
                 message.warning({ key: `canvas-generation-slow-${nodeId}`, content: "生成提交超过 30 秒仍未完成（可能卡在读取参考素材），请稍候或刷新页面重试" });
             }, 30_000);

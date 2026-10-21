@@ -3,6 +3,7 @@ import { strict as assert } from "node:assert";
 
 // Run in a separate process: deterministic model/network boundaries must not leak
 // into the rest of the frontend suite. The real hook owns confirmation and dispatch.
+(globalThis as any).window = globalThis;
 const confirmations: { onOk: () => void }[] = [];
 const dispatched: any[] = [];
 const react = await import("react");
@@ -11,7 +12,7 @@ mock.module("antd", () => ({ App: { useApp: () => ({ modal: { confirm: (input: a
 mock.module("@/stores/use-config-store", () => ({ useEffectiveConfig: () => ({}), useConfigStore: (select: any) => select({ isAiConfigReady: () => true }), resolveModelRequestConfig: () => ({}) }));
 mock.module("@/components/canvas/canvas-node-generation", () => ({ buildNodeGenerationContext: (_nodes: any, _edges: any, _id: any, prompt: string) => ({ prompt, referenceImages: [], referenceVideos: [], referenceAudios: [], characterReferences: [], resolvedCharacterVoices: [] }), hydrateNodeGenerationContext: async (context: any) => context }));
 mock.module("@/pages/canvas/canvas-assistant-proposal-execution", () => ({ buildConfirmedGenerationConfig: () => ({ model: "fixture", taskWorkflowProvider: "model", size: "1:1" }) }));
-mock.module("@/lib/canvas/canvas-generation-submission", () => ({ canvasGenerationPromptMetadata: () => ({}), canvasGenerationRequestFingerprint: () => "repeat", runCanvasGenerationSubmissionOnce: async (locks: Map<string, any>, id: string, fn: any) => { if (locks.has(id)) return; const result = fn(); locks.set(id, result); try { return await result; } finally { locks.delete(id); } } }));
+mock.module("@/lib/canvas/canvas-generation-submission", () => ({ canReleaseCanvasGenerationSource: () => false, canvasGenerationPromptMetadata: () => ({}), canvasGenerationRequestFingerprint: () => "repeat", runCanvasGenerationSubmissionOnce: async (locks: Map<string, any>, id: string, fn: any) => { if (locks.has(id)) return; const running = fn(() => { if (locks.get(id) === running) locks.delete(id); }); locks.set(id, running); try { return await running; } finally { if (locks.get(id) === running) locks.delete(id); } } }));
 mock.module("@/lib/canvas/canvas-project-generation", () => ({ isGenerationCanceled: () => false }));
 mock.module("@/lib/model-selection", () => ({ modelCompatibilityError: () => "", modelGroupReferenceLimits: () => undefined, modelPromptLengthError: () => "", modelRequestOptions: () => ({}) }));
 mock.module("@/services/skill-runtime", () => ({ skillRuntime: { prepare: async ({ prompt }: any) => ({ prompt, metadata: {} }) } }));
