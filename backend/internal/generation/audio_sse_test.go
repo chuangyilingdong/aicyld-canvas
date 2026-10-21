@@ -25,6 +25,7 @@ func TestSpeechAudioEventsRequireCompletion(t *testing.T) {
 }
 
 func TestRunMusicNormalizesOldFormatAndSendsSSE(t *testing.T) {
+	t.Setenv("CANVAS_ALLOWED_PRIVATE_UPSTREAM_HOSTS", "127.0.0.1")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]interface{}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -111,6 +112,7 @@ func TestMusicPluginRejectsIncompleteOrNonAudioResponses(t *testing.T) {
 
 func TestMusicChannelNameDoesNotEnableSSEForCustomOrigin(t *testing.T) {
 	t.Setenv("BEEFTV_ENTERPRISE_TEST_ORIGIN", "")
+	t.Setenv("CANVAS_ALLOWED_PRIVATE_UPSTREAM_HOSTS", "127.0.0.1")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]interface{}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
