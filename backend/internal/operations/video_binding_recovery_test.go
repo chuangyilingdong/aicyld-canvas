@@ -40,8 +40,7 @@ func TestVideoBindingRecoversAcceptedPendingNodeWithoutTaskID(t *testing.T) {
 				metadata["taskId"] = "newer-task"
 			}
 			if state == "has-media" {
-				metadata["storageKey"] = "resource:video-result"
-				metadata["assetId"] = localtask.MaterializedAssetID(task.ID, 0)
+				metadata["url"] = "https://example.invalid/existing-result.mp4"
 			}
 			h.addNode(t, "video-node", "video", "用户改过的标题", metadata)
 			err := h.service.DeliverSucceededTask(task)
