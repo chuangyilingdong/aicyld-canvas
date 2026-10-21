@@ -1070,6 +1070,8 @@ function InfiniteCanvasPage() {
         getCanvasCenter,
         createHandoffNodes: createAssetPayloadNodes,
         applyGenerationTaskResult,
+        startGenerationRequest,
+        finishGenerationRequest,
     });
     const canvasContext = useMemo(() => summarizeCanvasContext(nodes, selectedNodeIds, linkedProjectQuery.data?.units), [linkedProjectQuery.data?.units, nodes, selectedNodeIds]);
     const directorReferenceTargetRef = useRef<{ projectId: string; nodeId: string | null; scope: string } | null>(null);

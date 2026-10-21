@@ -172,9 +172,11 @@ func downloadResumableAttempt(ctx context.Context, parsed *url.URL, opts Resumab
 	emitter.observe(offset)
 	emitter.emit(offset, sidecarTotal, "downloading", true)
 
-	attemptCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	headerTimer := time.AfterFunc(headerTimeout, cancel)
+	attemptCtx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	headerTimer := time.AfterFunc(headerTimeout, func() {
+		cancel(fmt.Errorf("等待下载响应超时：%w", context.DeadlineExceeded))
+	})
 
 	request, err := http.NewRequestWithContext(attemptCtx, http.MethodGet, parsed.String(), nil)
 	if err != nil {
@@ -193,7 +195,7 @@ func downloadResumableAttempt(ctx context.Context, parsed *url.URL, opts Resumab
 	response, err := OutboundHTTPClient(0).Do(request)
 	headerTimer.Stop()
 	if err != nil {
-		return ResumableResult{}, true, err
+		return ResumableResult{}, true, resumableTransferError(attemptCtx, err)
 	}
 	defer response.Body.Close()
 
@@ -253,7 +255,9 @@ func downloadResumableAttempt(ctx context.Context, parsed *url.URL, opts Resumab
 	emitter.observe(offset)
 	emitter.emit(offset, total, "downloading", true)
 
-	idleTimer := time.AfterFunc(idleTimeout, cancel)
+	idleTimer := time.AfterFunc(idleTimeout, func() {
+		cancel(fmt.Errorf("下载长时间没有收到数据：%w", context.DeadlineExceeded))
+	})
 	defer idleTimer.Stop()
 	reader := &idleResetReader{body: response.Body, timer: idleTimer, idle: idleTimeout}
 
@@ -302,7 +306,7 @@ func downloadResumableAttempt(ctx context.Context, parsed *url.URL, opts Resumab
 		readErr = closeErr
 	}
 	if readErr != nil {
-		return ResumableResult{}, true, readErr
+		return ResumableResult{}, true, resumableTransferError(attemptCtx, readErr)
 	}
 	if total >= 0 && written != total {
 		return ResumableResult{}, true, io.ErrUnexpectedEOF
@@ -322,6 +326,19 @@ func downloadResumableAttempt(ctx context.Context, parsed *url.URL, opts Resumab
 		MimeType: mimeType,
 		FileName: resumableFileName(parsed.Path),
 	}, false, nil
+}
+
+func resumableTransferError(ctx context.Context, err error) error {
+	if cause := context.Cause(ctx); cause != nil {
+		return cause
+	}
+	// net/http includes the final signed URL in url.Error. Keep the transport
+	// cause for classification, without persisting the artifact credential.
+	var requestErr *url.Error
+	for errors.As(err, &requestErr) {
+		err = requestErr.Err
+	}
+	return err
 }
 
 func strongResumableETag(value string) bool {

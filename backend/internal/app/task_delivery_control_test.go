@@ -2,11 +2,13 @@ package app
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -30,7 +32,8 @@ func TestGenerationDownloadCanPauseAndResumeWithoutRegenerating(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "image/png")
-		_, _ = w.Write([]byte("completed"))
+		image, _ := base64.StdEncoding.DecodeString(strings.SplitN(tinyPNGDataURL, ",", 2)[1])
+		_, _ = w.Write(image)
 	}))
 	defer server.Close()
 	svc, db := newGenerationDeliveryMediaService(t, filepath.Join(t.TempDir(), "delivery.db"), t.TempDir())

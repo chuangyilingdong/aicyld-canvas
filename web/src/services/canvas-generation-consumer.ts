@@ -208,6 +208,7 @@ export async function bindBackendCanvasGenerationResult(input: {
     outputIndex?: number;
     signal?: AbortSignal;
     isCurrent: () => boolean;
+    isNodeOwned?: () => boolean;
     nodesRef: { current: CanvasNodeData[] };
     setNodes: Dispatch<SetStateAction<CanvasNodeData[]>>;
     runtime?: BindBackendCanvasGenerationRuntime;
@@ -231,6 +232,11 @@ export async function bindBackendCanvasGenerationResult(input: {
     const now = runtime.now ?? Date.now;
     const publishDeliveryProgress = runtime.publishDeliveryProgress ?? publishGenerationDeliveryProgress;
     const startedAt = now();
+    // A mounted recovery can lose this node to a newer request while awaiting
+    // hydration or persistence. Check again before dispatching a durable bind.
+    const assertNodeOwnership = () => {
+        if (input.isNodeOwned && !input.isNodeOwned()) throw new DOMException("The node belongs to a newer request", "AbortError");
+    };
 
     const waitForMaterialization = (task: GenerationTask, forceRefresh = false) =>
         waitForMaterializedGenerationOutput(
@@ -265,6 +271,7 @@ export async function bindBackendCanvasGenerationResult(input: {
     });
     assertBindDispatchScope(capturedScope, liveScope);
 
+    assertNodeOwnership();
     const live = useCanvasStore.getState().projects.find((project) => project.id === capturedCanvasId);
     if (live) {
         try {
@@ -286,6 +293,7 @@ export async function bindBackendCanvasGenerationResult(input: {
     const operationId = attachNodeEffectKey(task.id, input.nodeId, outputIndex);
     let response: Awaited<ReturnType<typeof bindCanvasTaskOutput>>;
     for (;;) {
+        assertNodeOwnership();
         try {
             response = await bindOutput({
                 operationId,
