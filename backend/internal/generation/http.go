@@ -252,6 +252,9 @@ func DoBinary(req *http.Request) ([]byte, string, error) {
 }
 
 func DoBinaryWithConsumer(req *http.Request, onChunk func(string, []byte)) ([]byte, string, error) {
+	if partial, _ := req.Context().Value(videoDownloadPartialContext{}).(string); partial != "" && req.Method == http.MethodGet && onChunk == nil {
+		return getResumableVideoBinary(req, partial)
+	}
 	return doBinaryWithAdmission(req, onChunk, nil)
 }
 
