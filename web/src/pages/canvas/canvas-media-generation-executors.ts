@@ -6,6 +6,7 @@ import { nodeSizeFromRatio } from "@/lib/canvas/canvas-node-size";
 import { nextCanvasVersionLabel } from "@/lib/canvas/canvas-layout";
 import { buildAudioGenerationMetadata, buildVideoGenerationMetadata, generationReferenceUrls, runCanvasGenerationTaskToConsumer } from "@/lib/canvas/canvas-project-generation";
 import { canvasGenerationPromptMetadata } from "@/lib/canvas/canvas-generation-submission";
+import { projectCanvasGenerationSubmission } from "@/lib/canvas/canvas-generation-live-target";
 import { mediaResultMetadata } from "@/lib/canvas/canvas-node-semantics";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 
@@ -24,6 +25,7 @@ export async function executeVideoGeneration({
     generationContext,
     controller,
     projectId,
+    nodesRef,
     canvasConnections,
     setNodes,
     setConnections,
@@ -76,20 +78,24 @@ export async function executeVideoGeneration({
     };
     registerPendingNodeIds([videoId]);
     // 待生成版本先加入版本族，但只有成功结果才能替换当前主版本。
-    setNodes((current) => {
-        if (reuseSourceNode) return current.map((node) => (node.id === nodeId ? { ...node, ...videoNode } : node));
-        if (!isExistingVideoNode || !sourceNode) return [...current.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_SUCCESS } } : node)), videoNode];
+    // 直接发布数组，确保提交屏障读取 nodesRef 时新目标节点已经存在。
+    const currentVideoNodes = nodesRef.current;
+    if (reuseSourceNode) {
+        setNodes(currentVideoNodes.map((node) => (node.id === nodeId ? { ...node, ...videoNode } : node)));
+    } else if (!isExistingVideoNode || !sourceNode) {
+        setNodes([...currentVideoNodes.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_SUCCESS } } : node)), videoNode]);
+    } else {
         const rootId = versionRootId!;
-        const nextLabel = nextCanvasVersionLabel(rootId, current);
-        const hasPrimaryVersion = current.some((node) => (node.metadata?.versionOfNodeId || node.id) === rootId && node.metadata?.versionPrimary);
-        return [
-            ...current.map((node) => {
+        const nextLabel = nextCanvasVersionLabel(rootId, currentVideoNodes);
+        const hasPrimaryVersion = currentVideoNodes.some((node) => (node.metadata?.versionOfNodeId || node.id) === rootId && node.metadata?.versionPrimary);
+        setNodes([
+            ...currentVideoNodes.map((node) => {
                 if ((node.metadata?.versionOfNodeId || node.id) !== rootId) return node;
                 return { ...node, metadata: { ...node.metadata, versionOfNodeId: rootId, versionLabel: node.metadata?.versionLabel || "A", versionPrimary: node.metadata?.versionPrimary || (!hasPrimaryVersion && node.id === sourceNode.id), status: node.id === nodeId ? NODE_STATUS_SUCCESS : node.metadata?.status } };
             }),
             { ...videoNode, metadata: { ...videoNode.metadata, versionOfNodeId: rootId, versionLabel: nextLabel, versionPrimary: false } },
-        ];
-    });
+        ]);
+    }
     // 重新生成已有视频时，新节点继承源视频的上游连接，与源视频保持并行关系，而不是作为其下游子节点。
     if (!reuseSourceNode) {
         setConnections((current) => {
@@ -129,6 +135,8 @@ export async function executeVideoGeneration({
             {
                 bindTask: (task) => bindGenerationTask(videoId, task),
                 consumeTask: (task) => applyGenerationTaskResult(videoId, task),
+                onSubmission: (metadata) => projectCanvasGenerationSubmission(nodesRef, setNodes, [videoId], metadata),
+                targetSnapshot: () => ({ nodes: nodesRef.current }),
             },
         );
     } finally {
@@ -145,6 +153,7 @@ export async function executeAudioGeneration({
     generationContext,
     controller,
     projectId,
+    nodesRef,
     setNodes,
     setConnections,
     startGenerationRequest,
@@ -172,8 +181,9 @@ export async function executeAudioGeneration({
         metadata: mediaResultMetadata("generated", { ...canvasGenerationPromptMetadata(prompt, effectivePrompt), status: NODE_STATUS_LOADING, ...buildAudioGenerationMetadata(generationConfig), ...skillMetadata, generatedFromNodeId: nodeId }),
     };
     registerPendingNodeIds([audioId]);
-    setNodes((current) =>
-        reuseSourceNode ? current.map((node) => (node.id === nodeId ? { ...node, ...audioNode } : node)) : [...current.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_SUCCESS } } : node)), audioNode],
+    const currentAudioNodes = nodesRef.current;
+    setNodes(
+        reuseSourceNode ? currentAudioNodes.map((node) => (node.id === nodeId ? { ...node, ...audioNode } : node)) : [...currentAudioNodes.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_SUCCESS } } : node)), audioNode],
     );
     if (!reuseSourceNode && !isExistingAudioNode) setConnections((current) => [...current, { id: nanoid(), fromNodeId: nodeId, toNodeId: audioId }]);
 
@@ -194,6 +204,8 @@ export async function executeAudioGeneration({
             {
                 bindTask: (task) => bindGenerationTask(audioId, task),
                 consumeTask: (task) => applyGenerationTaskResult(audioId, task),
+                onSubmission: (metadata) => projectCanvasGenerationSubmission(nodesRef, setNodes, [audioId], metadata),
+                targetSnapshot: () => ({ nodes: nodesRef.current }),
             },
         );
     } finally {

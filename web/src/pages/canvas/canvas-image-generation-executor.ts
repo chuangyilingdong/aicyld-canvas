@@ -8,6 +8,7 @@ import { nodeSizeFromRatio } from "@/lib/canvas/canvas-node-size";
 import { canvasImageReferenceLimitError, buildImageGenerationMetadata, getGenerationCount, isGenerationCanceled, providerSafeImageEditPrompt, runCanvasGenerationTaskToConsumer } from "@/lib/canvas/canvas-project-generation";
 import { imageGenerationReferenceConnections } from "@/lib/canvas/canvas-resource-references";
 import { canvasGenerationPromptMetadata } from "@/lib/canvas/canvas-generation-submission";
+import { projectCanvasGenerationSubmission } from "@/lib/canvas/canvas-generation-live-target";
 import { isImageEditModel, withPlatformImageEditModel } from "@/lib/canvas/feature-models";
 import { mediaResultMetadata } from "@/lib/canvas/canvas-node-semantics";
 import { CONTENT_MODERATION_ERROR_CODE, type GenerationFailureMetadata } from "@/lib/generation-error";
@@ -235,6 +236,8 @@ export async function executeImageGeneration({
                     {
                         bindTask: (task) => bindGenerationTask(targetId, task),
                         consumeTask: (task) => applyGenerationTaskResult(targetId, task),
+                        onSubmission: (metadata) => projectCanvasGenerationSubmission(nodesRef, setNodes, [targetId], metadata),
+                        targetSnapshot: () => ({ nodes: nodesRef.current }),
                     },
                 );
                 if (!isCurrent()) return false;

@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 
+	"infinite-canvas/backend/internal/generation"
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/modelcatalog"
 	"infinite-canvas/backend/internal/repository"
@@ -149,6 +150,11 @@ func (s *Service) routeCatalogSideEffects(context.Context) {
 func routeFailureInfo(err error) modelcatalog.FailureInfo {
 	info := modelcatalog.FailureInfo{}
 	if err == nil {
+		return info
+	}
+	var unknown generation.SubmissionUnknownError
+	if errors.As(err, &unknown) {
+		// Earlier uncertainty invalidates any nested rejection evidence.
 		return info
 	}
 	if isImageRecoveryError(err) {

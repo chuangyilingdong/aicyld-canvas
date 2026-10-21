@@ -421,6 +421,10 @@ func ClassifyError(err error) Failure {
 	if err == nil {
 		return normalizeFailure(Failure{Category: CategoryUnknown})
 	}
+	var unknown SubmissionUnknownError
+	if errors.As(err, &unknown) {
+		return normalizeFailure(Failure{Category: CategorySubmissionUncertain, Uncertain: true, Retryable: false})
+	}
 	if errors.Is(err, context.Canceled) {
 		return normalizeFailure(Failure{Category: CategoryCancelled})
 	}
@@ -451,10 +455,6 @@ func ClassifyError(err error) Failure {
 			failure.Action = ""
 		}
 		return normalizeFailure(failure)
-	}
-	var unknown SubmissionUnknownError
-	if errors.As(err, &unknown) {
-		return normalizeFailure(Failure{Category: CategorySubmissionUncertain, Uncertain: true, Retryable: false})
 	}
 	var pending StatePendingError
 	if errors.As(err, &pending) {

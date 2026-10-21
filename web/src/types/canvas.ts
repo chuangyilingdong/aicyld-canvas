@@ -342,6 +342,8 @@ export type CanvasNodeMetadata = {
     actionBoardColumns?: number;
     taskId?: string;
     taskClientOperationId?: string;
+    /** 当前生成尝试的提交状态；unknown 时禁止自动或手动重新提交。 */
+    generationSubmissionState?: "submitting" | "accepted" | "rejected" | "unknown";
     taskClientOperationInput?: string;
     taskClientOperationTerminal?: boolean;
     retryOf?: string;

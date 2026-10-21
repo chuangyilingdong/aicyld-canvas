@@ -21,6 +21,7 @@ import {
     sourceNodeReferenceImages,
     supportsVideoReferenceAudio,
 } from "@/lib/canvas/canvas-project-generation";
+import { projectCanvasGenerationSubmission } from "@/lib/canvas/canvas-generation-live-target";
 import { isCanvasWorkflowProvider } from "@/lib/canvas/canvas-workflow";
 import { isDepthCaptureResultNode } from "@/lib/canvas/canvas-depth-capture";
 import { buildPortraitTexturePrompt } from "@/lib/canvas/canvas-portrait-texture";
@@ -238,6 +239,8 @@ export function useCanvasGenerationRetry({
                     {
                         bindTask: (task) => bindGenerationTask(node.id, task),
                         consumeTask: (task) => applyGenerationTaskResult(node.id, task),
+                        onSubmission: (metadata) => projectCanvasGenerationSubmission(nodesRef, setNodes, [node.id], metadata),
+                        targetSnapshot: () => ({ nodes: nodesRef.current }),
                     },
                 );
             };

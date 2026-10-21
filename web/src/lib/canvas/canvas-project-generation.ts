@@ -21,6 +21,7 @@ import { CanvasNodeType, type CanvasAssistantSession, type CanvasConnection, typ
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 import { assertUserScope, captureUserScope, isUserScopeAbandonedError } from "@/lib/user-scope-guard";
+import { explainGenerationError } from "@/lib/generation-error";
 import { CanvasGenerationDurableAckError, CanvasGenerationMaterializationError } from "@/services/canvas-generation-errors";
 import type { persistCanvasGenerationTarget } from "@/services/canvas-generation-target";
 
@@ -129,6 +130,22 @@ export function runGenerationOperationOnce<T>(clientOperationId: string | undefi
     return running;
 }
 
+const SUBMISSION_UNCERTAIN_REASONS = new Set([
+    "provider_submission_unknown",
+    "video_submission_unknown",
+    "image_result_unknown",
+    "image_submission_pending",
+    "image_result_expired",
+    "image_result_unavailable",
+    "idempotency_conflict",
+]);
+
+function isSubmissionUncertain(error: unknown) {
+    const reason = error && typeof error === "object" && "reason" in error ? (error as { reason?: unknown }).reason : undefined;
+    if (typeof reason === "string" && SUBMISSION_UNCERTAIN_REASONS.has(reason)) return true;
+    return explainGenerationError(error).uncertain;
+}
+
 export async function runCanvasGenerationTaskToConsumer(
     input: Parameters<typeof runBackendCanvasGenerationTask>[0],
     dependencies: {
@@ -136,28 +153,50 @@ export async function runCanvasGenerationTaskToConsumer(
         consumeTask(task: GenerationTask): Promise<void>;
         runTask?: (options: Parameters<typeof runBackendCanvasGenerationTask>[0]) => ReturnType<typeof runBackendCanvasGenerationTask>;
         prepareTarget?: typeof persistCanvasGenerationTarget;
+        onSubmission?: (metadata: Pick<CanvasNodeMetadata, "taskClientOperationId" | "generationSubmissionState" | "taskStage">) => void;
+        targetSnapshot?: () => { nodes: CanvasNodeData[]; connections?: CanvasConnection[] };
     },
 ) {
     return runGenerationOperationOnce(input.clientOperationId, async () => {
         const expectedScope = input.expectedScope ?? captureUserScope();
-        if (input.mode === "image") {
+        const submission = (state: NonNullable<CanvasNodeMetadata["generationSubmissionState"]>) => {
+            dependencies.onSubmission?.({
+                taskClientOperationId: input.clientOperationId,
+                generationSubmissionState: state,
+                taskStage: state === "submitting" ? "正在提交生成任务" : state === "unknown" ? "提交结果待确认，请先查询原任务" : undefined,
+            });
+        };
+        submission("submitting");
+        try {
             const prepare = dependencies.prepareTarget ?? (await import("@/services/canvas-generation-target")).persistCanvasGenerationTarget;
-            await prepare({ ...input, expectedScope });
+            await prepare({ ...input, expectedScope, ...dependencies.targetSnapshot?.() });
+        } catch (error) {
+            submission("rejected");
+            throw error;
         }
         if (input.signal?.aborted) throw new DOMException("The operation was aborted", "AbortError");
         assertUserScope(expectedScope);
         let completedTask: GenerationTask | undefined;
-        const result = await (dependencies.runTask ?? runBackendCanvasGenerationTask)({
-            ...input,
-            expectedScope,
-            onTaskCreated: (task) => {
-                if (input.signal?.aborted) throw new DOMException("The operation was aborted", "AbortError");
-                assertUserScope(expectedScope);
-                input.onTaskCreated?.(task);
-                dependencies.bindTask(task);
-                if (task.status === "succeeded") completedTask = task;
-            },
-        });
+        let accepted = false;
+        let result: Awaited<ReturnType<typeof runBackendCanvasGenerationTask>>;
+        try {
+            result = await (dependencies.runTask ?? runBackendCanvasGenerationTask)({
+                ...input,
+                expectedScope,
+                onTaskCreated: (task) => {
+                    accepted = true;
+                    submission("accepted");
+                    if (input.signal?.aborted) throw new DOMException("The operation was aborted", "AbortError");
+                    assertUserScope(expectedScope);
+                    input.onTaskCreated?.(task);
+                    dependencies.bindTask(task);
+                    if (task.status === "succeeded") completedTask = task;
+                },
+            });
+        } catch (error) {
+            if (!accepted) submission(isSubmissionUncertain(error) ? "unknown" : "rejected");
+            throw error;
+        }
         if (input.signal?.aborted) throw new DOMException("The operation was aborted", "AbortError");
         assertUserScope(expectedScope);
         if (!completedTask) throw new Error("生成任务缺少成功终态");
@@ -203,6 +242,7 @@ export function generationTaskMetadata(task: GenerationTask): CanvasNodeMetadata
     return {
         taskId: task.id,
         taskClientOperationId: task.clientOperationId,
+        generationSubmissionState: "accepted",
         retryOf: task.retryOf,
         attemptGroupId: task.attemptGroupId,
         taskStatus: task.status,
@@ -236,6 +276,7 @@ export function resetGenerationTaskMetadata(metadata: CanvasNodeMetadata | undef
     };
     delete next.taskId;
     delete next.taskClientOperationId;
+    delete next.generationSubmissionState;
     delete next.retryOf;
     delete next.attemptGroupId;
     delete next.taskStatus;

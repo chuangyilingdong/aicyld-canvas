@@ -3,6 +3,7 @@ import { nanoid } from "nanoid";
 import { NODE_DEFAULT_SIZE } from "@/constant/canvas";
 import { getGenerationCount, runCanvasGenerationTaskToConsumer } from "@/lib/canvas/canvas-project-generation";
 import { canvasGenerationPromptMetadata } from "@/lib/canvas/canvas-generation-submission";
+import { projectCanvasGenerationSubmission } from "@/lib/canvas/canvas-generation-live-target";
 import { planTextGenerationTargets } from "@/lib/canvas/canvas-generation-layout";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 
@@ -21,6 +22,7 @@ export async function executeTextGeneration({
     controller,
     editingTextNode,
     projectId,
+    nodesRef,
     setNodes,
     setConnections,
     startGenerationRequest,
@@ -54,7 +56,8 @@ export async function executeTextGeneration({
             height: textConfig.height,
             metadata: { ...canvasGenerationPromptMetadata(prompt, effectivePrompt), status: NODE_STATUS_LOADING, fontSize: 14, ...skillMetadata },
         }));
-        setNodes((current) => [...current.map((node) => (node.id === nodeId && (isConfigNode || generateInPlace) ? { ...node, metadata: { ...node.metadata, ...canvasGenerationPromptMetadata(prompt, effectivePrompt), status: NODE_STATUS_LOADING, errorDetails: undefined } } : node)), ...childNodes]);
+        const nextNodes = [...nodesRef.current.map((node) => (node.id === nodeId && (isConfigNode || generateInPlace) ? { ...node, metadata: { ...node.metadata, ...canvasGenerationPromptMetadata(prompt, effectivePrompt), status: NODE_STATUS_LOADING, errorDetails: undefined } } : node)), ...childNodes];
+        setNodes(nextNodes);
         setConnections((current) => [...current, ...childIds.map((childId) => ({ id: nanoid(), fromNodeId: nodeId, toNodeId: childId }))]);
     }
 
@@ -77,6 +80,8 @@ export async function executeTextGeneration({
                 {
                     bindTask: (task) => bindGenerationTask(targetNodeId, task),
                     consumeTask: (task) => applyGenerationTaskResult(targetNodeId, task),
+                    onSubmission: (metadata) => projectCanvasGenerationSubmission(nodesRef, setNodes, [targetNodeId], metadata),
+                    targetSnapshot: () => ({ nodes: nodesRef.current }),
                 },
             )
                 .then(() => ({ nodeId: targetNodeId }))
