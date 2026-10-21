@@ -4,7 +4,7 @@ import { NODE_DEFAULT_SIZE } from "@/constant/canvas";
 import { canGenerateMediaInPlace } from "@/lib/canvas/canvas-generation-layout";
 import { nodeSizeFromRatio } from "@/lib/canvas/canvas-node-size";
 import { nextCanvasVersionLabel } from "@/lib/canvas/canvas-layout";
-import { buildAudioGenerationMetadata, buildVideoGenerationMetadata, generationReferenceUrls, runCanvasGenerationTaskToConsumer } from "@/lib/canvas/canvas-project-generation";
+import { buildAudioGenerationMetadata, buildVideoGenerationMetadata, generationReferenceUrls, resetGenerationTaskMetadata, runCanvasGenerationTaskToConsumer } from "@/lib/canvas/canvas-project-generation";
 import { canvasGenerationPromptMetadata } from "@/lib/canvas/canvas-generation-submission";
 import { projectCanvasGenerationSubmission } from "@/lib/canvas/canvas-generation-live-target";
 import { mediaResultMetadata } from "@/lib/canvas/canvas-node-semantics";
@@ -55,7 +55,7 @@ export async function executeVideoGeneration({
         width: reuseSourceNode ? sourceNode!.width : spec.width,
         height: reuseSourceNode ? sourceNode!.height : spec.height,
         metadata: mediaResultMetadata("generated", {
-            ...(reuseSourceNode ? sourceNode?.metadata || {} : {}),
+            ...(reuseSourceNode ? resetGenerationTaskMetadata(sourceNode?.metadata, NODE_STATUS_LOADING) : {}),
             ...canvasGenerationPromptMetadata(prompt, effectivePrompt),
             status: NODE_STATUS_LOADING,
             errorDetails: undefined,
