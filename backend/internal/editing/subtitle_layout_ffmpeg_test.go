@@ -14,7 +14,7 @@ func TestPortraitSubtitleStaysInsideFrame(t *testing.T) {
 	if err != nil {
 		t.Skip("ffmpeg required")
 	}
-	for _, text := range []string{"新的一天，从一口热面包开始。", "新的一天，\n从一口热面包开始。"} {
+	for _, text := range []string{"Fresh bread starts the day.", "Fresh bread\nstarts the day."} {
 		t.Run(text, func(t *testing.T) {
 			dir := t.TempDir()
 			plan := Plan{
