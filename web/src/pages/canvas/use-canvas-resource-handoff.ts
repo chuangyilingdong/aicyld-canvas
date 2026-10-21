@@ -326,6 +326,7 @@ export function useCanvasResourceHandoff({
                 if (!isCurrent()) return;
             } catch (error) {
                 if (!isCurrent()) return;
+                const failure = canvasGenerationFailureMetadata(error, { prompt: node.metadata?.prompt || "", mode: node.type === CanvasNodeType.Image ? "image" : undefined });
                 setNodes((current) =>
                     current.map((item) =>
                         item.id === targetNodeId
@@ -334,8 +335,8 @@ export function useCanvasResourceHandoff({
                                   metadata: {
                                       ...item.metadata,
                                       status: "error",
-                                      ...canvasGenerationFailureMetadata(error, { prompt: item.metadata?.prompt || "", mode: item.type === CanvasNodeType.Image ? "image" : undefined }),
-                                      resourceReloadAvailable: isImageRecoveryTerminalError(error) ? undefined : true,
+                                      ...failure,
+                                      resourceReloadAvailable: isImageRecoveryTerminalError(error) || failure.generationErrorCode === "result_target_unavailable" ? undefined : true,
                                   },
                               }
                             : item,

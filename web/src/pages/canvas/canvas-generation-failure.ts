@@ -27,8 +27,8 @@ function submittedReferences(input: CanvasGenerationFailureInput) {
     }));
 }
 
-// “结果已保留、可继续取回”的三类码：画布版本冲突、下载失败、放回画布失败。
-const KEPT_GENERATION_RESULT_CODES = new Set(["canvas_conflict", "download_failed", "result_apply_failed"]);
+// 已保存的结果必须先取回，不能再次提交付费生成。
+const KEPT_GENERATION_RESULT_CODES = new Set(["canvas_conflict", "download_failed", "result_apply_failed", "result_target_unavailable"]);
 
 export function isKeptGenerationResultCode(code: string | undefined) {
     return Boolean(code && KEPT_GENERATION_RESULT_CODES.has(code));
@@ -40,6 +40,7 @@ export function isImageRecoveryTerminalError(error: unknown) {
 
 export function canvasGenerationFailureMetadata(error: unknown, input: CanvasGenerationFailureInput) {
     const failure = generationFailureMetadata(error, input.prompt, submittedReferences(input));
+    if (failure.generationErrorCode === "result_target_unavailable") return { ...failure, resourceReloadAvailable: false };
     if (error instanceof CanvasGenerationTargetSaveError) return { ...failure, errorDetails: error.message, generationErrorSummary: error.message };
     // An uncertain image create may still have a complete provider receipt. The
     // server restores that result without another paid create, so keep the
@@ -94,6 +95,19 @@ export function canvasImageGenerationHasPendingResult(node: CanvasNodeData | und
         }));
 }
 
+export function imageSubmissionUnknown(metadata: CanvasNodeMetadata | undefined) {
+    return metadata?.generationSubmissionState === "unknown" || metadata?.taskStage === "submission_unknown" || metadata?.generationErrorCode === "submission_uncertain";
+}
+
+export function canvasImagePendingResultMessage(node: CanvasNodeData | undefined, nodes: CanvasNodeData[]) {
+    const related = [node, ...nodes.filter((item) => node?.metadata?.batchChildIds?.includes(item.id) || item.metadata?.generatedFromNodeId === node?.id)];
+    const unavailable = related.find((item) => item?.metadata?.generationErrorCode === "result_target_unavailable");
+    if (unavailable) return explainGenerationError({ code: "result_target_unavailable" }).message;
+    if (related.some((item) => imageSubmissionUnknown(item?.metadata))) return "提交结果尚未确认，请查询原任务";
+    const missing = related.find((item) => item?.metadata?.generationErrorCode === "results_missing");
+    return missing?.metadata?.errorDetails || node?.metadata?.errorDetails || "生成结果已保留，请点击「继续取回」";
+}
+
 export function canvasGenerationTaskNodes(nodes: CanvasNodeData[], targetNodeId: string, task: GenerationTask): CanvasNodeData[] {
     return nodes.map((node) => {
         if (node.id !== targetNodeId) return node;
@@ -107,6 +121,7 @@ export function canvasGenerationTaskNodes(nodes: CanvasNodeData[], targetNodeId:
             || Boolean(output?.materializedAssetId && output.materializedAssetId === node.metadata?.assetId);
         const hasCompletedContent = task.status === "succeeded" && !paused && hasCurrentVideoOutput && (!output || Boolean(output.materializedAssetId)) && Boolean(node.metadata?.content || node.metadata?.storageKey);
         const retainRecovery = task.status === "succeeded" && !hasCompletedContent && Boolean(node.metadata?.resourceReloadAvailable || isKeptGenerationResultCode(node.metadata?.generationErrorCode));
+        const targetUnavailable = node.metadata?.generationErrorCode === "result_target_unavailable";
         const failure = paused ? { resourceReloadAvailable: true, generationErrorCode: "download_failed", errorDetails: task.stage === "delivery_timed_out" ? "取回结果已超时，可以继续取回" : "已停止取回，可以继续取回" } : failed ? canvasTaskFailureMetadata(task, node.metadata) : undefined;
         return {
             ...node,
@@ -115,7 +130,7 @@ export function canvasGenerationTaskNodes(nodes: CanvasNodeData[], targetNodeId:
                 ...generationTaskMetadata(task),
                 status: failed || paused || retainRecovery ? "error" : hasCompletedContent ? "success" : "loading",
                 ...(failure || (retainRecovery
-                    ? { resourceReloadAvailable: true, generationErrorCode: node.metadata?.generationErrorCode, errorDetails: node.metadata?.errorDetails || "生成结果已保留，请点击「继续取回」" }
+                    ? { resourceReloadAvailable: !targetUnavailable, generationErrorCode: node.metadata?.generationErrorCode, errorDetails: node.metadata?.errorDetails || (targetUnavailable ? explainGenerationError({ code: "result_target_unavailable" }).message : "生成结果已保留，请点击「继续取回」") }
                     : { errorDetails: undefined, generationErrorCode: undefined, resourceReloadAvailable: undefined, failedPromptFingerprint: undefined, failedInputFingerprint: undefined })),
             },
         };

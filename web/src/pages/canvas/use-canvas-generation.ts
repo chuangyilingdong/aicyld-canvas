@@ -422,6 +422,7 @@ export function useCanvasGeneration({ projectId, domainProjectId, projectLoaded,
     const selectRecoveryNodes = useCallback(
         (candidates: CanvasNodeData[]) =>
             candidates.filter((node) => {
+                if (node.metadata?.generationErrorCode === "result_target_unavailable") return false;
                 if (!canvasNodeNeedsGenerationRecovery(node) || isLiveRequestNode(node.id)) return false;
                 const identity = recoveryTaskIdentity(node);
                 return recoveringNodesRef.current.get(node.id)?.identity !== identity && !(identity && recoveringTaskIdsRef.current.has(identity));

@@ -18,6 +18,7 @@ export const GENERATION_ERROR_CATEGORIES = [
     "local_storage",
     "canvas_conflict",
     "result_apply_failed",
+    "result_target_unavailable",
     "context_too_long",
     "input_inaccessible",
     "input_too_large",
@@ -49,6 +50,7 @@ export type GenerationFailureExplanation = {
     message: string;
     errorCode: string;
     providerCode?: string;
+    httpStatus?: number;
     requestId?: string;
     taskId?: string;
     retryable: boolean;
@@ -117,6 +119,7 @@ const CATEGORY_COPY: Record<GenerationErrorCategory, CategoryCopy> = {
     local_storage: { reason: "本地数据库无法读写", action: "请重启应用；若仍失败，请保留排查信息并联系支持，不要重复生成" },
     canvas_conflict: { reason: "生成结果已保留，画布尚未更新", action: "请点击「继续取回」，不要重新生成" },
     result_apply_failed: { reason: "生成结果已保留，还没放回画布", action: "请点击「继续取回」，不要重新生成" },
+    result_target_unavailable: { reason: "生成结果已保存，无法放回原节点", action: "从「生成历史」取回，无需重新生成" },
     context_too_long: { reason: "输入内容超出模型长度限制", action: "请缩短提示词或减少参考内容后重试" },
     input_inaccessible: { reason: "参考素材无法读取", action: "请检查素材后重试" },
     input_too_large: { reason: "参考素材过大", action: "请压缩或更换素材后重试" },
@@ -290,6 +293,7 @@ export function explainGenerationError(error: unknown, context: GenerationFailur
         message: message || DEFAULT_GENERATION_ERROR_MESSAGE,
         errorCode: classified.category,
         providerCode: classified.providerCode || undefined,
+        httpStatus: classified.status,
         requestId: sanitizeDebugId(classified.requestId || context.providerRequestId) || undefined,
         taskId: sanitizeDebugId(classified.taskId || context.taskId) || undefined,
         retryable: Boolean(classified.retryable) && !uncertain && !moderation && !preparation,
@@ -465,7 +469,10 @@ function classifyUnknown(error: unknown, context: GenerationFailureContext): Cla
         if (record.reason === "stale_revision" || record.code === "canvas_conflict") {
             return { category: "canvas_conflict", fromCode: true, retryable: false };
         }
-        if (record.code === "download_failed" || record.code === "result_apply_failed") {
+        if (["node_task_mismatch", "node_mismatch", "canvas_mismatch", "node_deleted"].includes(String(record.reason || ""))) {
+            return { category: "result_target_unavailable", status: numericStatus(record.status), fromCode: true, retryable: false };
+        }
+        if (record.code === "download_failed" || record.code === "result_apply_failed" || record.code === "result_target_unavailable") {
             return { category: record.code, fromCode: true, retryable: false };
         }
         if (typeof record.message === "string" && isCanvasSaveConflictText(record.message) && (record.reason === "conflict" || record.status === 409 || record.status === 428)) {
