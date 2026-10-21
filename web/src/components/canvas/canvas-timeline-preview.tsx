@@ -37,6 +37,9 @@ export function CanvasTimelinePreview({ clips, nodes, playheadMs, playing, theme
     const [videoSize, setVideoSize] = useState<{ width: number; height: number } | null>(null);
     // 源内定位目标（秒）；视频换源后 metadata 尚未加载时先记录，loadedmetadata 后再应用。
     const targetSeekSecRef = useRef<number | null>(null);
+    // timeupdate 驱动的播放头更新不能再反向 seek 视频，否则低帧率视频会在两次
+    // timeupdate 之间反复退回上一帧。
+    const publishedPlayheadMsRef = useRef<number | null>(null);
 
     const videoClips = useMemo(() => clips.filter((clip) => clip.kind === "video").sort((a, b) => a.startMs - b.startMs), [clips]);
     const activeVideoClip = useMemo(() => videoClips.find((clip) => playheadMs >= clip.startMs && playheadMs < clip.startMs + clip.durationMs) || null, [playheadMs, videoClips]);
@@ -94,7 +97,9 @@ export function CanvasTimelinePreview({ clips, nodes, playheadMs, playing, theme
         const targetSec = sourceStartSec + Math.max(0, playheadMs - activeVideoClip.startMs) / 1000;
         const clampedTargetSec = Math.min(targetSec, sourceStartSec + Math.max(0, sourceDurationSec - 0.05));
         targetSeekSecRef.current = clampedTargetSec;
-        if (video.readyState >= 1 && Math.abs(video.currentTime - clampedTargetSec) > 0.05) {
+        const published = publishedPlayheadMsRef.current;
+        const internalPlaybackUpdate = playing && published !== null && Math.abs(playheadMs - published) <= 1;
+        if (video.readyState >= 1 && !internalPlaybackUpdate && Math.abs(video.currentTime - clampedTargetSec) > 0.05) {
             video.currentTime = clampedTargetSec;
         }
         if (playing) {
@@ -118,13 +123,21 @@ export function CanvasTimelinePreview({ clips, nodes, playheadMs, playing, theme
         if (!video || !activeVideoClip || !playing) return;
         const sourceStartSec = (activeVideoClip.sourceStartMs || 0) / 1000;
         const timelineMs = activeVideoClip.startMs + Math.round((video.currentTime - sourceStartSec) * 1000);
-        onPlayheadChange(Math.max(0, timelineMs));
+        const publishedMs = Math.max(0, timelineMs);
+        publishedPlayheadMsRef.current = publishedMs;
+        onPlayheadChange(publishedMs);
         const clipEndMs = activeVideoClip.startMs + activeVideoClip.durationMs;
         if (timelineMs >= clipEndMs) {
             const next = videoClips.find((clip) => clip.startMs >= clipEndMs - AUTO_ADVANCE_GAP_MS && clip.id !== activeVideoClip.id);
             if (next) {
+                publishedPlayheadMsRef.current = next.startMs;
                 onPlayheadChange(next.startMs);
             } else {
+                // Keep the final frame addressable so the play control remains visible
+                // and the next click can replay from the clip start.
+                const stopMs = Math.max(activeVideoClip.startMs, clipEndMs - 1);
+                publishedPlayheadMsRef.current = stopMs;
+                onPlayheadChange(stopMs);
                 onTogglePlay();
             }
         }
@@ -157,6 +170,10 @@ export function CanvasTimelinePreview({ clips, nodes, playheadMs, playing, theme
                             aria-label={playing ? "暂停预览" : "播放预览"}
                             onClick={(event) => {
                                 event.stopPropagation();
+                                if (!playing && playheadMs >= activeVideoClip.startMs + activeVideoClip.durationMs - 1) {
+                                    publishedPlayheadMsRef.current = activeVideoClip.startMs;
+                                    onPlayheadChange(activeVideoClip.startMs);
+                                }
                                 onTogglePlay();
                             }}
                         >
