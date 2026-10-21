@@ -46,6 +46,13 @@ func SafeRouteRejection(err error) bool {
 	}
 	var upstream HTTPError
 	if errors.As(err, &upstream) {
+		// A structured missing-model response rejects routing before a task is
+		// created, even when the gateway reports it as HTTP 503. Generic 5xx
+		// responses and transport failures still cannot prove non-submission.
+		fields := extractProviderFields(upstream.Body)
+		if upstream.StatusCode >= 400 && fields.Code == "model_not_found" && fields.TaskID == "" {
+			return true
+		}
 		switch upstream.StatusCode {
 		// 参数校验类 4xx 是上游明确拒绝（没有创建任务），重试安全，不能当成「提交结果未知」。
 		case http.StatusBadRequest, http.StatusUnauthorized, http.StatusPaymentRequired, http.StatusForbidden,

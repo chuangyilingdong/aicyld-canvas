@@ -12,7 +12,7 @@ const remote = { id: "c1", revision: 111, title: "Restart", createdAt: "2026-10-
 let backend = structuredClone(remote);
 
 beforeAll(async () => {
-    const build = await Bun.build({ entrypoints: [import.meta.dir + "/fixtures/canvas-lifecycle-restart-harness.tsx"], target: "browser", define: { "import.meta.env.DEV": "false", "import.meta.env.PROD": "true", "import.meta.env.MODE": '"production"', "import.meta.env.VITE_CANVAS_LOCAL_MODE": '"true"', "import.meta.env.VITE_CANVAS_BACKEND_URL": '"/api"', "process.env.NODE_ENV": '"production"' }, plugins: [{ name: "source", setup(builder) {
+    const build = await Bun.build({ entrypoints: [import.meta.dir + "/fixtures/canvas-lifecycle-restart-harness.tsx"], target: "browser", define: { "import.meta.env.DEV": "false", "import.meta.env.PROD": "true", "import.meta.env.MODE": '"production"', "import.meta.env.VITE_CANVAS_HOSTED": '"0"', "import.meta.env.VITE_CANVAS_LOCAL_MODE": '"true"', "import.meta.env.VITE_CANVAS_BACKEND_URL": '"/api"', "process.env.NODE_ENV": '"production"' }, plugins: [{ name: "source", setup(builder) {
         builder.onResolve({ filter: /^@\// }, args => ({ path: Bun.resolveSync("../src/" + args.path.slice(2), import.meta.dir) }));
         builder.onLoad({ filter: /\.(css|svg|png|jpe?g|gif|webp|woff2?)$/ }, () => ({ contents: "export default ''", loader: "js" }));
     } }] });
@@ -31,7 +31,7 @@ beforeAll(async () => {
             return json({ revision: backend.revision, result: { canvasId: "c1", revision: backend.revision, title: backend.title, updatedAt: backend.updatedAt } });
         }
         if (path.startsWith("/api/")) return json([]);
-        return new Response('<div id="root"></div>' + (['reopen-stamp', 'startup-stamp'].includes(new URL(request.url).searchParams.get('scenario') || '') ? '<script>window.__reopenProject=' + JSON.stringify(backend).replaceAll('<', '\\u003c') + '</script>' : '') + '<script type="module" src="/harness.js"></script>', { headers: { "Content-Type": "text/html" } });
+        return new Response('<div id="root"></div>' + (['reopen-stamp', 'startup-stamp', 'missing-chat-sessions'].includes(new URL(request.url).searchParams.get('scenario') || '') ? '<script>window.__reopenProject=' + JSON.stringify(backend).replaceAll('<', '\\u003c') + '</script>' : '') + '<script type="module" src="/harness.js"></script>', { headers: { "Content-Type": "text/html" } });
     } });
     const executablePath = [process.env.CHROME_PATH, "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"].find((path): path is string => Boolean(path && existsSync(path)));
     browser = await chromium.launch({ executablePath, headless: true });
@@ -136,10 +136,14 @@ test("completed task acknowledgement prepublished in store is autosaved through 
 }, 30000);
 
 
-test("already observed task stamps schedule a CAS save on initial load, without resubmitting after confirmation", async () => {
+for (const scenario of ["startup-stamp", "missing-chat-sessions"]) test(`already observed task stamps schedule a CAS save on initial load (${scenario})`, async () => {
     const page = await browser.newPage();
     release();
-    await page.goto(`${server.url}?scenario=startup-stamp`);
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
+    await page.goto(`${server.url}?scenario=${scenario}`);
+    await page.waitForTimeout(100);
+    expect(errors).toEqual([]);
     await page.waitForFunction(() => document.querySelector('[data-testid="graph"]')?.textContent === "true:10:6");
     await page.evaluate(() => (window as any).__lifecycle.pulse());
     expect(commits).toHaveLength(1);
@@ -149,5 +153,15 @@ test("already observed task stamps schedule a CAS save on initial load, without 
     expect(await page.evaluate(() => (window as any).__lifecycle.dirty())).toBe(false);
     await page.evaluate(() => (window as any).__lifecycle.pulse());
     expect(commits).toHaveLength(1);
+    if (scenario === "missing-chat-sessions") {
+        await page.getByRole("button", { name: "Switch video model" }).click();
+        await page.evaluate(() => (window as any).__lifecycle.pulse());
+        expect((backend.nodes[0].metadata as any).model).toBe("beefapi::seedance-2.0-mini");
+        expect((backend.nodes[0].metadata as any).generationEffectKeys).toEqual(["attach-node:completed-task-receipt:n0:0"]);
+        await page.goto(`${server.url}?scenario=reopen-stamp`);
+        await page.waitForFunction(() => document.querySelector('[data-testid="graph"]')?.textContent === "true:10:6");
+        expect((backend.nodes[0].metadata as any).model).toBe("beefapi::seedance-2.0-mini");
+    }
+    expect(errors).toEqual([]);
     await page.close();
 }, 30000);
