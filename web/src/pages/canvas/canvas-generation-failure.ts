@@ -35,11 +35,16 @@ export function isKeptGenerationResultCode(code: string | undefined) {
 export function canvasGenerationFailureMetadata(error: unknown, input: CanvasGenerationFailureInput) {
     const failure = generationFailureMetadata(error, input.prompt, submittedReferences(input));
     if (error instanceof CanvasGenerationTargetSaveError) return { ...failure, errorDetails: error.message, generationErrorSummary: error.message };
-    return { ...failure, ...(isKeptGenerationResultCode(failure.generationErrorCode) ? { resourceReloadAvailable: true } : {}) };
+    // An uncertain image create may still have a complete provider receipt. The
+    // server restores that result without another paid create, so keep the
+    // recovery entry visible instead of asking the user to resubmit blindly.
+    const imageResultMayBeRecoverable = input.mode === "image" && failure.generationErrorCode === "submission_uncertain";
+    return { ...failure, ...(imageResultMayBeRecoverable || isKeptGenerationResultCode(failure.generationErrorCode) ? { resourceReloadAvailable: true } : {}) };
 }
 
 export function canvasTaskFailureMetadata(task: GenerationTask, metadata?: CanvasNodeMetadata, error: unknown = { code: task.errorCode, message: task.error || (task.status === "cancelled" ? "任务已取消" : "任务失败") }) {
-    let input: CanvasGenerationFailureInput = { prompt: task.prompt || metadata?.prompt || "" };
+    const mode: CanvasGenerationFailureInput["mode"] = task.type === "canvas_image" ? "image" : task.type === "canvas_video" ? "video" : task.type === "canvas_audio" ? "audio" : task.type === "canvas_text" ? "text" : undefined;
+    let input: CanvasGenerationFailureInput = { prompt: task.prompt || metadata?.prompt || "", mode };
     try {
         const stored = JSON.parse(task.inputJson || "{}");
         if (stored && typeof stored === "object") {

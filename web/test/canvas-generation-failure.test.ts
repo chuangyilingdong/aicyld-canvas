@@ -21,6 +21,14 @@ test("confirmed unsent submission remains retryable after restoring the task", (
     expect(canvasGenerationRetryBlocked({ ...metadata, taskStage: "submission_unknown", generationErrorCode: "submission_uncertain" })).toBe(true);
 });
 
+test("uncertain image tasks expose receipt recovery without enabling paid retry", () => {
+    const imageTask = { ...task, status: "failed", errorCode: "image_result_unknown", error: "图片结果尚未确认，请保留原任务并查询结果" } as GenerationTask;
+    const metadata = canvasTaskFailureMetadata(imageTask);
+    expect(metadata.generationErrorCode).toBe("submission_uncertain");
+    expect(metadata.resourceReloadAvailable).toBe(true);
+    expect(canvasGenerationRetryBlocked(metadata, { prompt: "draw", mode: "image" })).toBe(true);
+});
+
 test("completed media with a canvas commit conflict offers reload without another paid generation", () => {
     const failure = canvasGenerationFailureMetadata({ code: "canvas_conflict" }, { prompt: "red square", mode: "video" });
     expect(failure.errorDetails).toContain("生成结果已保留");

@@ -303,6 +303,13 @@ export function useCanvasResourceHandoff({
             try {
                 let task = await queryGenerationTask(taskId);
                 if (!lifetime.matches(owner, projectIdRef.current)) return;
+                // A failed image task can still be restored from the original
+                // successful provider receipt. RetryTask performs that recovery
+                // without creating another paid request.
+                if (task.status === "failed" && task.type === "canvas_image") {
+                    task = await retryGenerationTask(taskId);
+                    if (!lifetime.matches(owner, projectIdRef.current)) return;
+                }
                 if (task.status !== "succeeded") throw new Error("原生成任务尚未成功，暂时无法取回结果");
                 if (task.stage === "delivery_paused" || task.stage === "delivery_timed_out") {
                     task = await retryGenerationTask(taskId);
@@ -312,7 +319,19 @@ export function useCanvasResourceHandoff({
             } catch (error) {
                 if (!lifetime.matches(owner, projectIdRef.current)) return;
                 setNodes((current) =>
-                    current.map((item) => (item.id === targetNodeId ? { ...item, metadata: { ...item.metadata, status: "error", ...canvasGenerationFailureMetadata(error, { prompt: item.metadata?.prompt || "" }), resourceReloadAvailable: true } } : item)),
+                    current.map((item) =>
+                        item.id === targetNodeId
+                            ? {
+                                  ...item,
+                                  metadata: {
+                                      ...item.metadata,
+                                      status: "error",
+                                      ...canvasGenerationFailureMetadata(error, { prompt: item.metadata?.prompt || "", mode: item.type === CanvasNodeType.Image ? "image" : undefined }),
+                                      resourceReloadAvailable: true,
+                                  },
+                              }
+                            : item,
+                    ),
                 );
             }
         },
