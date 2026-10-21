@@ -47,6 +47,14 @@ test("HTTP 200 JSON blob is rejected instead of returned as audio or video", asy
     await expect(assertVideoBlob(new Blob(["{}"], { type: "application/json" }))).rejects.toBeInstanceOf(ChannelResponseError);
 });
 
+test("event-stream blobs require an explicit SSE audio call", async () => {
+    axios.defaults.adapter = async (config) => ({ config, data: new Blob(["data: {\"type\":\"speech.audio.done\"}\n\n"], { type: "text/event-stream" }), status: 200, statusText: "OK", headers: {} });
+    await expect(transport().postBlob("https://example.invalid/v1/audio/speech", {})).rejects.toBeInstanceOf(ChannelResponseError);
+    const blob = await transport().postBlob("https://example.invalid/v1/audio/speech", {}, { acceptEventStream: true });
+    expect(blob.type).toBe("text/event-stream");
+    expect(await blob.text()).toContain("speech.audio.done");
+});
+
 test("non-2xx blob errors decode once within bound without retaining Axios secrets", async () => {
     const config = { headers: { Authorization: "Bearer PRIVATE_SENTINEL" } } as never;
     const response = { config, data: new Blob([JSON.stringify(rejectedPayload)], { type: "application/json" }), status: 451, statusText: "Unavailable", headers: {} };
