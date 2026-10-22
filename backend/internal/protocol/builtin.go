@@ -3,6 +3,7 @@ package protocol
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -275,27 +276,63 @@ func midjourneyAdapter() Adapter {
 	return builtinAdapter{
 		info: info,
 		create: func(r GenerationRequest) (RequestSpec, error) {
-			model := strings.ToLower(strings.TrimSpace(r.Model))
-			action := strings.TrimPrefix(model, "midjourney-")
-			if model == "midjourney" {
-				action = ""
+			action, options := midjourneyActionOptions(r)
+			allowed := map[string]bool{"imagine": true, "upscale": true, "variation": true, "high-variation": true, "low-variation": true, "reroll": true, "zoom": true, "pan": true, "inpaint": true, "modal": true, "remix-strong": true, "remix-subtle": true, "blend": true, "describe": true, "edits": true, "video": true}
+			if !allowed[action] {
+				return RequestSpec{}, fmt.Errorf("不支持的 Midjourney 动作：%s", action)
 			}
-			path := "/v1/midjourney/generations"
-			if action != "" {
-				path += "/" + url.PathEscape(action)
-			}
+			path := "/v1/midjourney/generations/" + url.PathEscape(action)
 			body := map[string]any{"model": "midjourney"}
-			if prompt := strings.TrimSpace(r.Prompt); prompt != "" {
+			prompt := strings.TrimSpace(r.Prompt)
+			if prompt != "" && (action == "imagine" || action == "edits" || action == "video" || action == "modal" || action == "remix-strong" || action == "remix-subtle") {
 				body["prompt"] = prompt
 			}
-			if ratio := strings.TrimSpace(r.AspectRatio); ratio != "" {
+			if ratio := strings.TrimSpace(r.AspectRatio); ratio != "" && (action == "imagine" || action == "edits" || action == "blend") {
 				body["size"] = ratio
 			}
-			if speed := strings.ToLower(strings.TrimSpace(r.Quality)); speed == "relax" || speed == "fast" || speed == "turbo" {
+			if speed := strings.ToLower(strings.TrimSpace(r.Quality)); action != "video" && (speed == "relax" || speed == "fast" || speed == "turbo") {
 				body["speed"] = speed
 			}
-			if images := mediaValues(r.Images); len(images) > 0 {
+			images := make([]string, 0, len(r.Images))
+			maskURL := ""
+			for _, image := range r.Images {
+				if image.Role == "mask" {
+					maskURL = mediaValue(image)
+					continue
+				}
+				images = append(images, mediaValue(image))
+			}
+			if len(images) > 0 && (action == "imagine" || action == "blend" || action == "describe" || action == "edits" || action == "video") {
 				body["image_urls"] = images
+			}
+			copyMidjourneyOption(body, options, "taskId", "task_id")
+			copyMidjourneyOption(body, options, "customId", "custom_id")
+			copyMidjourneyOption(body, options, "direction", "direction")
+			copyMidjourneyOption(body, options, "dimensions", "dimensions")
+			copyMidjourneyOption(body, options, "videoType", "video_type")
+			copyMidjourneyOption(body, options, "animateMode", "animate_mode")
+			copyMidjourneyOption(body, options, "motion", "motion")
+			copyMidjourneyOption(body, options, "endUrl", "end_url")
+			copyMidjourneyOption(body, options, "version", "version")
+			if value := midjourneyInt(options, "index"); value > 0 {
+				body["index"] = value
+			}
+			if value := midjourneyFloat(options, "zoomRatio"); value > 0 {
+				body["zoom_ratio"] = value
+			}
+			if value := midjourneyInt(options, "batchSize"); value == 1 || value == 2 || value == 4 {
+				body["batch_size"] = value
+			}
+			if action == "modal" {
+				if maskURL == "" {
+					maskURL = midjourneyString(options, "maskUrl")
+				}
+				if maskURL != "" {
+					body["mask_url"] = maskURL
+				}
+			}
+			if err := validateMidjourneyAction(action, body, len(images)); err != nil {
+				return RequestSpec{}, err
 			}
 			return jsonSpec(http.MethodPost, path, body), nil
 		},
@@ -1038,6 +1075,13 @@ func parseMidjourneyPoll(c PollContext, payload map[string]any) (PollResult, err
 	if status != StatusSucceeded {
 		return PollResult{TaskID: taskID, Status: status, Message: message}, nil
 	}
+	if action, _ := midjourneyActionOptions(c.Request); action == "describe" {
+		text := firstString(payload, "prompt", "description", "text")
+		if text == "" {
+			return PollResult{}, fmt.Errorf("Midjourney describe 完成响应没有返回提示词")
+		}
+		return PollResult{TaskID: taskID, Status: status, Result: &Result{Text: text, Usage: object(payload["usage"])}, Message: message}, nil
+	}
 	images := make([]MediaReference, 0, 4)
 	if grid := firstString(payload, "grid_image_url", "gridImageUrl"); grid != "" {
 		images = append(images, MediaReference{URL: grid, Kind: "image"})
@@ -1052,10 +1096,146 @@ func parseMidjourneyPoll(c PollContext, payload map[string]any) (PollResult, err
 			}
 		}
 	}
+	action, _ := midjourneyActionOptions(c.Request)
+	if action == "video" {
+		videos := mediaFromArray(payload["video_urls"], CapabilityVideo)
+		if len(videos) == 0 {
+			videos = mediaFromArray(payload["videos"], CapabilityVideo)
+		}
+		if len(videos) == 0 {
+			if value := firstString(payload, "video_url", "videoUrl"); value != "" {
+				videos = append(videos, MediaReference{URL: value, Kind: "video"})
+			}
+		}
+		if len(videos) == 0 {
+			return PollResult{}, fmt.Errorf("Midjourney video 完成响应没有返回视频")
+		}
+		return PollResult{TaskID: taskID, Status: status, Result: &Result{Videos: videos, Usage: object(payload["usage"])}, Message: message}, nil
+	}
 	if len(images) == 0 {
 		return PollResult{}, fmt.Errorf("Midjourney 完成响应没有返回图片")
 	}
 	return PollResult{TaskID: taskID, Status: status, Result: &Result{Images: images, Usage: object(payload["usage"])}, Message: message}, nil
+}
+
+func midjourneyActionOptions(request GenerationRequest) (string, map[string]any) {
+	options := map[string]any{}
+	if configured := object(request.Extra["midjourney"]); configured != nil {
+		for key, value := range configured {
+			options[key] = value
+		}
+	}
+	action := strings.ToLower(strings.TrimSpace(midjourneyString(options, "action")))
+	if action == "" {
+		model := strings.ToLower(strings.TrimSpace(request.Model))
+		if strings.HasPrefix(model, "midjourney-") {
+			action = strings.TrimPrefix(model, "midjourney-")
+		} else {
+			action = "imagine"
+		}
+	}
+	return action, options
+}
+
+func copyMidjourneyOption(body map[string]any, options map[string]any, key string, wire string) {
+	if value := strings.TrimSpace(midjourneyString(options, key)); value != "" {
+		body[wire] = value
+	}
+}
+
+func midjourneyString(options map[string]any, key string) string {
+	value, _ := options[key].(string)
+	return value
+}
+
+func midjourneyInt(options map[string]any, key string) int {
+	switch value := options[key].(type) {
+	case int:
+		return value
+	case float64:
+		return int(value)
+	case json.Number:
+		result, _ := value.Int64()
+		return int(result)
+	default:
+		return 0
+	}
+}
+
+func midjourneyFloat(options map[string]any, key string) float64 {
+	switch value := options[key].(type) {
+	case float64:
+		return value
+	case int:
+		return float64(value)
+	case json.Number:
+		result, _ := value.Float64()
+		return result
+	default:
+		return 0
+	}
+}
+
+func validateMidjourneyAction(action string, body map[string]any, imageCount int) error {
+	taskID := strings.TrimSpace(midjourneyString(body, "task_id"))
+	customID := strings.TrimSpace(midjourneyString(body, "custom_id"))
+	index := midjourneyInt(body, "index")
+	switch action {
+	case "imagine":
+		if strings.TrimSpace(midjourneyString(body, "prompt")) == "" {
+			return errors.New("Midjourney imagine 缺少 prompt")
+		}
+	case "blend":
+		if imageCount < 2 || imageCount > 4 {
+			return errors.New("Midjourney blend 需要 2–4 张图片")
+		}
+	case "describe", "edits":
+		if imageCount == 0 {
+			return errors.New("Midjourney " + action + " 缺少图片")
+		}
+		if action == "edits" && strings.TrimSpace(midjourneyString(body, "prompt")) == "" {
+			return errors.New("Midjourney edits 缺少 prompt")
+		}
+	case "upscale", "variation", "high-variation", "low-variation", "inpaint", "remix-strong", "remix-subtle":
+		if taskID == "" {
+			return errors.New("Midjourney " + action + " 缺少父任务 task_id")
+		}
+		if customID == "" && index < 1 {
+			return errors.New("Midjourney " + action + " 需要 index 1–4")
+		}
+		if index > 4 {
+			return errors.New("Midjourney " + action + " 的 index 必须在 1–4")
+		}
+	case "reroll", "zoom":
+		if taskID == "" {
+			return errors.New("Midjourney " + action + " 缺少父任务 task_id")
+		}
+	case "pan":
+		if taskID == "" {
+			return errors.New("Midjourney pan 缺少父任务 task_id")
+		}
+		if customID == "" {
+			direction := strings.ToLower(strings.TrimSpace(midjourneyString(body, "direction")))
+			if direction != "left" && direction != "right" && direction != "up" && direction != "down" {
+				return errors.New("Midjourney pan 缺少有效 direction")
+			}
+		}
+	case "modal":
+		if taskID == "" {
+			return errors.New("Midjourney modal 缺少 inpaint task_id")
+		}
+		if strings.TrimSpace(midjourneyString(body, "mask_url")) == "" {
+			return errors.New("Midjourney modal 缺少 mask_url")
+		}
+	case "video":
+		if taskID == "" && imageCount == 0 {
+			return errors.New("Midjourney video 需要图片或父任务 task_id")
+		}
+		if mode := strings.TrimSpace(midjourneyString(body, "animate_mode")); mode == "auto" && (taskID == "" || index < 1) {
+			return errors.New("Midjourney video animate_mode=auto 需要 task_id 和 index")
+		}
+	}
+	return nil
 }
 
 func parseAudioResponse(payload map[string]any) (CreateResult, error) {

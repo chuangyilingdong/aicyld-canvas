@@ -101,6 +101,56 @@ func TestMidjourneyImagineMapsRequestAndGridPoll(t *testing.T) {
 	}
 }
 
+func TestMidjourneyActionsMapIndependentParameters(t *testing.T) {
+	adapter, _ := Builtins().Get("midjourney")
+	tests := []struct {
+		action string
+		opts   map[string]any
+		images []MediaReference
+		want   map[string]any
+	}{
+		{"upscale", map[string]any{"taskId": "mj-parent", "index": float64(2)}, nil, map[string]any{"task_id": "mj-parent", "index": 2}},
+		{"variation", map[string]any{"taskId": "mj-parent", "index": float64(3)}, nil, map[string]any{"task_id": "mj-parent", "index": 3}},
+		{"high-variation", map[string]any{"taskId": "mj-single", "index": float64(1)}, nil, map[string]any{"task_id": "mj-single"}},
+		{"low-variation", map[string]any{"taskId": "mj-single", "index": float64(1)}, nil, map[string]any{"task_id": "mj-single"}},
+		{"reroll", map[string]any{"taskId": "mj-grid"}, nil, map[string]any{"task_id": "mj-grid"}},
+		{"zoom", map[string]any{"taskId": "mj-single", "zoomRatio": 1.5}, nil, map[string]any{"task_id": "mj-single", "zoom_ratio": 1.5}},
+		{"pan", map[string]any{"taskId": "mj-single", "direction": "right"}, nil, map[string]any{"task_id": "mj-single", "direction": "right"}},
+		{"blend", map[string]any{"dimensions": "LANDSCAPE"}, []MediaReference{{URL: "https://cdn/a.png"}, {URL: "https://cdn/b.png"}}, map[string]any{"dimensions": "LANDSCAPE"}},
+		{"describe", map[string]any{}, []MediaReference{{URL: "https://cdn/a.png"}}, map[string]any{}},
+		{"edits", map[string]any{}, []MediaReference{{URL: "https://cdn/a.png"}}, map[string]any{"prompt": "replace sky"}},
+		{"video", map[string]any{"motion": "high", "videoType": "vid_1.1_i2v_720", "batchSize": float64(2)}, []MediaReference{{URL: "https://cdn/a.png"}}, map[string]any{"motion": "high", "video_type": "vid_1.1_i2v_720", "batch_size": 2}},
+		{"remix-strong", map[string]any{"taskId": "mj-parent", "index": float64(1)}, nil, map[string]any{"task_id": "mj-parent", "index": 1}},
+		{"remix-subtle", map[string]any{"taskId": "mj-parent", "index": float64(2)}, nil, map[string]any{"task_id": "mj-parent", "index": 2}},
+	}
+	for _, test := range tests {
+		t.Run(test.action, func(t *testing.T) {
+			opts := map[string]any{"action": test.action}
+			for key, value := range test.opts { opts[key] = value }
+			request := GenerationRequest{Model: "midjourney-imagine", Prompt: "replace sky", Images: test.images, Extra: map[string]any{"midjourney": opts}}
+			spec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: request})
+			if err != nil { t.Fatal(err) }
+			if spec.Path != "/v1/midjourney/generations/"+test.action { t.Fatalf("path=%s", spec.Path) }
+			body, _ := spec.Body.(map[string]any)
+			for key, want := range test.want {
+				if got := body[key]; got != want { t.Fatalf("%s=%#v want %#v body=%#v", key, got, want, body) }
+			}
+		})
+	}
+}
+
+func TestMidjourneyInpaintModalDescribeAndVideoResults(t *testing.T) {
+	adapter, _ := Builtins().Get("midjourney")
+	spec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{Model: "midjourney-imagine", Prompt: "new sofa", Extra: map[string]any{"midjourney": map[string]any{"action": "modal", "taskId": "mj-modal", "maskUrl": "https://cdn/mask.png"}}, Images: []MediaReference{{URL: "https://cdn/mask.png", Role: "mask"}}}})
+	if err != nil { t.Fatal(err) }
+	body, _ := spec.Body.(map[string]any)
+	if body["task_id"] != "mj-modal" || body["mask_url"] != "https://cdn/mask.png" || body["prompt"] != "new sofa" { t.Fatalf("modal body=%#v", body) }
+	describe, err := adapter.ParsePoll(context.Background(), PollContext{Request: GenerationRequest{Extra: map[string]any{"midjourney": map[string]any{"action": "describe"}}}}, []byte(`{"status":"SUCCESS","description":"a quiet forest"}`))
+	if err != nil || describe.Result == nil || describe.Result.Text != "a quiet forest" { t.Fatalf("describe=%#v %v", describe, err) }
+	video, err := adapter.ParsePoll(context.Background(), PollContext{Request: GenerationRequest{Extra: map[string]any{"midjourney": map[string]any{"action": "video"}}}}, []byte(`{"status":"SUCCESS","video_url":"https://cdn/out.mp4"}`))
+	if err != nil || video.Result == nil || len(video.Result.Videos) != 1 { t.Fatalf("video=%#v %v", video, err) }
+}
+
 func TestTextAdaptersMapRequestsAndResponses(t *testing.T) {
 	cases := []struct {
 		id   string

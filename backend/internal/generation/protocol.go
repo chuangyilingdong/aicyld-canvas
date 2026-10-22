@@ -325,6 +325,13 @@ func ProtocolRequestFromInput(input Input) protocol.GenerationRequest {
 			"count":           input.Config.Count,
 		},
 	}
+	if midjourney, ok := input.Metadata["midjourney"].(map[string]any); ok {
+		copied := make(map[string]any, len(midjourney))
+		for key, value := range midjourney {
+			copied[key] = value
+		}
+		request.Extra["midjourney"] = copied
+	}
 	if input.Mode == "audio" && strings.Contains(strings.ToLower(input.Config.Model), "minimax-music-") {
 		request.Extra["audioFormat"] = "mp3"
 		if strings.Contains(strings.ToLower(input.Config.Model), "minimax-music-v3") {
@@ -1158,6 +1165,12 @@ func ValidateGenerationInterfaceWithRegistry(registry *protocol.Registry, mode s
 	metadata := adapter.Metadata()
 	if !metadata.Enabled || metadata.UnavailableReason != "" {
 		return fmt.Errorf("接口类型 %s 当前不可用：%s", interfaceType, metadata.UnavailableReason)
+	}
+	// Midjourney actions are grouped under one image protocol but include
+	// describe (text), video and two-stage inpaint/modal responses. The action
+	// envelope is validated by the adapter before any paid request is built.
+	if interfaceType == "midjourney" && (mode == "text" || mode == "video") {
+		return nil
 	}
 	if mode != "" && !ProtocolCapabilityMatches(metadata, protocol.Capability(mode)) {
 		return fmt.Errorf("接口类型 %s 不支持%s生成", interfaceType, mode)
