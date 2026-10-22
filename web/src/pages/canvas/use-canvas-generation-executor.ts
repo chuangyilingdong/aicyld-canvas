@@ -20,7 +20,7 @@ import { mergedImageCapabilityConfig, modelCompatibilityError, modelGroupReferen
 import type { Skill } from "@/services/api/skills";
 import { skillRuntime } from "@/services/skill-runtime";
 import { prepareBackendGenerationTask } from "@/services/api/generation-task";
-import { quoteGenerationTask, type CreateTaskInput, type GenerationTask } from "@/services/api/task-center";
+import { quoteGenerationTask, type CreateTaskInput, type GenerationBillingQuote, type GenerationTask } from "@/services/api/task-center";
 import { useConfigStore, useEffectiveConfig, resolveModelRequestConfig } from "@/stores/use-config-store";
 import { seedanceReferenceRatioWarning } from "@/lib/seedance-channel-warning";
 import type { Asset } from "@/stores/use-asset-store";
@@ -71,6 +71,15 @@ export type CanvasNodeGenerationOptions = {
     skipDuplicateConfirmation?: boolean;
     /** 助手提案等已有整批确认的入口，避免一次提案弹出多个报价框。 */
     skipBillingConfirmation?: boolean;
+    /** 只完成素材准备和报价收集，不创建任务。 */
+    collectBillingQuote?: (plan: CanvasNodeBillingPlan) => void;
+    /** 助手整批确认后复用预报价阶段准备好的素材引用。 */
+    preparedBillingInput?: CreateTaskInput;
+};
+
+export type CanvasNodeBillingPlan = {
+    quote: GenerationBillingQuote;
+    preparedInput: CreateTaskInput;
 };
 
 export function useCanvasGenerationExecutor({
@@ -235,6 +244,9 @@ export function useCanvasGenerationExecutor({
                         return;
                     }
                     let generationContext = { ...rawGenerationContext, prompt: effectivePrompt };
+                    if (options?.preparedBillingInput) {
+                        generationContext = adoptPreparedGenerationReferences(generationContext, options.preparedBillingInput);
+                    }
                     if (canvasGenerationRetryBlocked(sourceNode?.metadata, { ...generationContext, mode })) {
                         message.warning(sourceNode?.metadata?.errorDetails || "请先查看失败原因并调整输入，再重新生成");
                         return;
@@ -285,14 +297,14 @@ export function useCanvasGenerationExecutor({
                         ratio: generationConfig.size,
                         operation: sourceNode?.metadata?.videoEditOperation,
                     }) : undefined;
-                    if (ratioWarning) {
+                    if (ratioWarning && !options?.collectBillingQuote) {
                         const accepted = await new Promise<boolean>((resolve) => {
                             modal.confirm({ ...ratioWarning, centered: true, onOk: () => resolve(true), onCancel: () => resolve(false), afterClose: () => resolve(false) });
                         });
                         if (!accepted || options?.controller?.signal.aborted) return;
                     }
 
-                    if (mode !== "text" && !options?.skipBillingConfirmation) {
+                    if (mode !== "text" && (!options?.skipBillingConfirmation || options?.collectBillingQuote)) {
                         let quoteConfig = generationConfig;
                         if (mode === "image" && generationContext.referenceImages.length > 0 && !isImageEditModel(quoteConfig.model)) {
                             quoteConfig = withPlatformImageEditModel(quoteConfig);
@@ -343,6 +355,11 @@ export function useCanvasGenerationExecutor({
                                 };
                             }
                             hideQuoteMessage();
+                            if (options?.collectBillingQuote) {
+                                generationContext = adoptPreparedGenerationReferences(generationContext, preparedInput);
+                                options.collectBillingQuote({ quote, preparedInput });
+                                return;
+                            }
                             if (!(await confirmCanvasBillingQuote(modal, quote))) return;
                             generationContext = adoptPreparedGenerationReferences(generationContext, preparedInput);
                         } catch (error) {

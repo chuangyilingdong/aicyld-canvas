@@ -159,6 +159,11 @@ func routeFailureInfo(err error) modelcatalog.FailureInfo {
 	}
 	if isImageRecoveryError(err) {
 		info.ImageRecovery = true
+	} else {
+		var notSent generation.RequestNotSentError
+		if errors.As(err, &notSent) {
+			info.RequestNotSent = true
+		}
 	}
 	if code, _ := ChannelSlotFailureDetails(err); code != "" {
 		info.SlotCode = code

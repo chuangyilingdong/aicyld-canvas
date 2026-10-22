@@ -166,6 +166,16 @@ export function createGenerationTask(input: CreateTaskInput, config?: HttpReques
     });
 }
 
+export async function createGenerationTaskWithConfirmation(
+    input: CreateTaskInput,
+    confirmTask?: (request: CreateTaskInput) => Promise<boolean>,
+    config?: HttpRequestConfig,
+) {
+    if (confirmTask && !(await confirmTask(input))) throw new DOMException("用户取消生成", "AbortError");
+    if (config?.signal?.aborted) throw new DOMException("用户取消生成", "AbortError");
+    return createGenerationTask(input, config);
+}
+
 export type GenerationTaskPageRequest = {
     limit: number;
     projectId?: string;

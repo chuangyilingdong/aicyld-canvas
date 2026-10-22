@@ -49,6 +49,7 @@ export async function runBackendCanvasGenerationTask(
         expectedScope,
         resolveReferenceLinks,
         onReferenceProgress,
+        confirmTask,
     }: {
         projectId: string;
         nodeId: string;
@@ -68,6 +69,7 @@ export async function runBackendCanvasGenerationTask(
         expectedScope?: import("@/lib/user-scope-guard").CapturedUserScope;
         resolveReferenceLinks?: import("@/services/api/reference-link-replacement").ResolveReferenceLinks;
         onReferenceProgress?: (progress: ReferenceTransferProgress) => void;
+        confirmTask?: (request: import("@/services/api/task-center").CreateTaskInput) => Promise<boolean>;
     },
     dependencies?: GenerationTaskDependencies,
 ) {
@@ -91,6 +93,7 @@ export async function runBackendCanvasGenerationTask(
             expectedScope,
             resolveReferenceLinks,
             onReferenceProgress,
+            confirmTask,
         },
         dependencies,
     );

@@ -13,6 +13,7 @@ import type { CanvasImageEmotionPayload } from "@/components/canvas/canvas-node-
 import type { PanoramaGenerateConfig } from "@/components/canvas/canvas-panorama-config-modal";
 import type { CanvasVideoFrameParams } from "@/components/canvas/canvas-video-frame-dialog";
 import { NODE_DEFAULT_SIZE } from "@/constant/canvas";
+import { confirmCanvasGenerationTaskQuote } from "@/components/canvas/canvas-billing-confirmation";
 import { cropDataUrl, splitDataUrl, upscaleDataUrl } from "@/lib/canvas/canvas-image-data";
 import { normalizeVideoCropForEncoding } from "@/lib/canvas/video-crop-geometry";
 import { isValidGridSplit, layoutGridSplitCells } from "@/lib/canvas/canvas-grid-split";
@@ -60,7 +61,7 @@ import { syncLocalCanvasSnapshot } from "@/services/local-workspace-sync";
 import { openLocalCanvasProjectFromBackend, persistCanvasDocument } from "@/services/local-workspace-repository";
 import { http } from "@/services/api/request";
 import { flushCanvasStorePersistence, useCanvasStore } from "@/stores/canvas/use-canvas-store";
-import { queryGenerationTask, type GenerationTask } from "@/services/api/task-center";
+import { queryGenerationTask, type CreateTaskInput, type GenerationTask } from "@/services/api/task-center";
 import { ownedResourceIdFromMediaRef } from "@/services/api/resources";
 import {
     assertLocalExecutorSession,
@@ -144,6 +145,8 @@ export function useCanvasMediaTools({
     const { message, modal } = App.useApp();
     const effectiveConfig = useEffectiveConfig();
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
+    const confirmGenerationBilling = useCallback((request: CreateTaskInput, taskCount = 1) =>
+        confirmCanvasGenerationTaskQuote(modal, request, { taskCount }), [modal]);
     const extractingVideoFramesNodeIdRef = useRef<string | null>(null);
     const mergeVideoRunningRef = useRef(false);
     const [cropNodeId, setCropNodeId] = useState<string | null>(null);
@@ -1057,6 +1060,8 @@ export function useCanvasMediaTools({
         const rootId = nanoid();
         const childIds = requestedCount > 1 ? Array.from({ length: requestedCount }, () => nanoid()) : [];
         const targetIds = requestedCount > 1 ? childIds : [rootId];
+        let maskBillingConfirmation: Promise<boolean> | undefined;
+        const confirmMaskTask = (request: CreateTaskInput) => (maskBillingConfirmation ??= confirmGenerationBilling(request, targetIds.length));
         const imageSize = { width: node.width, height: node.height };
         const preferredPosition = { x: node.position.x + node.width + 96, y: node.position.y };
         const rootPosition = findAvailableGenerationGroupPosition(nodesRef.current, preferredPosition, imageGenerationGroupSize(imageSize, imageSize, childIds.length));
@@ -1118,6 +1123,7 @@ export function useCanvasMediaTools({
                         signal: controller.signal,
                         metadata: { sourceNodeId: node.id, edit: "mask", inpaintMode: inpaintRegion ? "local-composite" : "provider-mask", ...styleMetadata },
                         onTaskCreated: (task) => bindGenerationTask(targetId, task),
+                        confirmTask: confirmMaskTask,
                     });
                     const image = result.images?.find((item) => item?.dataUrl);
                     if (!image?.dataUrl) throw new Error("后端任务没有返回图片");
@@ -1180,7 +1186,7 @@ export function useCanvasMediaTools({
             if (requestedCount > 1) finishGenerationRequest(rootId, controller);
             setRunningNodeId(null);
         }
-    }, [bindGenerationTask, effectiveConfig, finishGenerationRequest, isAiConfigReady, message, nodesRef, persistMediaNodes, projectId, resolveImageEditStyle, setConnections, setDialogNodeId, setNodes, setRunningNodeId, setSelectedConnectionId, setSelectedNodeIds, startGenerationRequest]);
+    }, [bindGenerationTask, confirmGenerationBilling, effectiveConfig, finishGenerationRequest, isAiConfigReady, message, nodesRef, persistMediaNodes, projectId, resolveImageEditStyle, setConnections, setDialogNodeId, setNodes, setRunningNodeId, setSelectedConnectionId, setSelectedNodeIds, startGenerationRequest]);
 
     const upscaleImageNode = useCallback(async (node: CanvasNodeData, params: CanvasImageUpscaleParams) => {
         if (!node.metadata?.content) return;
@@ -1223,7 +1229,7 @@ export function useCanvasMediaTools({
         setDialogNodeId(childId);
         const controller = startGenerationRequest(childId, node.id, childId);
         try {
-            const result = await runBackendCanvasGenerationTask({ projectId, nodeId: childId, mode: "image", prompt: effectivePrompt, config: generationConfig, referenceImages: [source], signal: controller.signal, metadata: { sourceNodeId: node.id, edit: "angle", ...styleMetadata }, onTaskCreated: (task) => bindGenerationTask(childId, task) });
+            const result = await runBackendCanvasGenerationTask({ projectId, nodeId: childId, mode: "image", prompt: effectivePrompt, config: generationConfig, referenceImages: [source], signal: controller.signal, metadata: { sourceNodeId: node.id, edit: "angle", ...styleMetadata }, onTaskCreated: (task) => bindGenerationTask(childId, task), confirmTask: (request) => confirmGenerationBilling(request) });
             const image = result.images?.[0];
             if (!image?.dataUrl) throw new Error("后端任务没有返回图片");
             const uploaded = await uploadImage(image.dataUrl);
@@ -1241,7 +1247,7 @@ export function useCanvasMediaTools({
             finishGenerationRequest(childId, controller);
             setRunningNodeId(null);
         }
-    }, [bindGenerationTask, effectiveConfig, finishGenerationRequest, isAiConfigReady, nodesRef, persistMediaNodes, projectId, resolveImageEditStyle, setConnections, setDialogNodeId, setNodes, setRunningNodeId, setSelectedNodeIds, startGenerationRequest]);
+    }, [bindGenerationTask, confirmGenerationBilling, effectiveConfig, finishGenerationRequest, isAiConfigReady, nodesRef, persistMediaNodes, projectId, resolveImageEditStyle, setConnections, setDialogNodeId, setNodes, setRunningNodeId, setSelectedNodeIds, startGenerationRequest]);
 
     const generateLightingNode = useCallback((node: CanvasNodeData, options: CanvasImageLightingOptions, prompt: string) => {
         if (!node.metadata?.content) return;
@@ -1332,7 +1338,7 @@ export function useCanvasMediaTools({
         const controller = startGenerationRequest(childId, node.id, childId);
         try {
             const mask = emotionProviderMask(editPlan, { id: `${node.id}-emotion-mask`, name: "emotion-mask.png", type: "image/png", dataUrl: payload.maskDataUrl });
-            const result = await runBackendCanvasGenerationTask({ projectId, nodeId: childId, mode: "image", prompt: providerPrompt, config: generationConfig, referenceImages: [editReference, characterReference], mask, signal: controller.signal, metadata: { sourceNodeId: node.id, edit: "emotion", emotionEditMode: editPlan.mode, emotion: emotionEdit, ...styleMetadata }, onTaskCreated: (task) => bindGenerationTask(childId, task) });
+            const result = await runBackendCanvasGenerationTask({ projectId, nodeId: childId, mode: "image", prompt: providerPrompt, config: generationConfig, referenceImages: [editReference, characterReference], mask, signal: controller.signal, metadata: { sourceNodeId: node.id, edit: "emotion", emotionEditMode: editPlan.mode, emotion: emotionEdit, ...styleMetadata }, onTaskCreated: (task) => bindGenerationTask(childId, task), confirmTask: (request) => confirmGenerationBilling(request) });
             const image = result.images?.[0];
             if (!image?.dataUrl) throw new Error("后端任务没有返回图片");
             const sourceDataUrl = await resolveImageUrl(node.metadata.storageKey, node.metadata.content, { cacheMiss: true });
@@ -1351,7 +1357,7 @@ export function useCanvasMediaTools({
             setNodes((current) => current.map((item) => item.id === childId ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_ERROR, errorDetails: details } } : item));
         } finally { finishGenerationRequest(childId, controller); setRunningNodeId(null); }
         return true;
-    }, [bindGenerationTask, effectiveConfig, finishGenerationRequest, isAiConfigReady, message, nodesRef, persistMediaNodes, projectId, resolveImageEditStyle, setConnections, setDialogNodeId, setNodes, setRunningNodeId, setSelectedConnectionId, setSelectedNodeIds, startGenerationRequest]);
+    }, [bindGenerationTask, confirmGenerationBilling, effectiveConfig, finishGenerationRequest, isAiConfigReady, message, nodesRef, persistMediaNodes, projectId, resolveImageEditStyle, setConnections, setDialogNodeId, setNodes, setRunningNodeId, setSelectedConnectionId, setSelectedNodeIds, startGenerationRequest]);
 
     return {
         angleNodeId,

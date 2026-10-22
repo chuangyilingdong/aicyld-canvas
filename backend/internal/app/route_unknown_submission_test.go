@@ -36,3 +36,10 @@ func TestUnknownRouteFailureDoesNotRecoverNestedRejectionEvidence(t *testing.T) 
 		})
 	}
 }
+
+func TestImageRecoveryKeepsNestedNotSentEvidenceUncertain(t *testing.T) {
+	info := routeFailureInfo(imageRecoveryError{cause: generation.RequestNotSentError{Cause: context.DeadlineExceeded}})
+	if !info.ImageRecovery || info.RequestNotSent || safeRouteRejection(imageRecoveryError{cause: generation.RequestNotSentError{Cause: context.DeadlineExceeded}}) {
+		t.Fatalf("image recovery leaked retry-safe evidence: %+v", info)
+	}
+}

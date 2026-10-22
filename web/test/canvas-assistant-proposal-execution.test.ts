@@ -6,26 +6,74 @@ import { defaultConfig, type AiConfig } from "@/stores/use-config-store";
 import { defaultModelCapabilityConfig } from "@/lib/model-capabilities";
 import { buildGenerationConfig, runCanvasGenerationTaskToConsumer } from "@/lib/canvas/canvas-project-generation";
 import type { GenerationTask } from "@/services/api/task-center";
+import type { CanvasNodeGenerationOptions } from "@/pages/canvas/use-canvas-generation-executor";
 import { backendProviderConfig } from "@/services/api/generation-task";
 
 const node: CanvasNodeData = { id: "node-1", title: "Image", type: CanvasNodeType.Image, position: { x: 0, y: 0 }, width: 100, height: 100, metadata: { prompt: "test image" } };
 const proposal = { proposalId: "proposal-1", kind: "image" as const, nodeIds: [node.id], model: "Confirmed", modelKey: "channel::confirmed" };
+const billingQuote = { enabled: true, points: 1, modelKey: "channel::confirmed", displayName: "Confirmed", balance: 10 };
 function input(overrides: Partial<Parameters<typeof executeAssistantProposal>[0]> = {}) {
+    const { generate: generateOverride, ...rest } = overrides;
+    const generate = async (id: string, mode: "image" | "video", prompt: string, options?: CanvasNodeGenerationOptions) => {
+        if (options?.collectBillingQuote) {
+            options.collectBillingQuote({ quote: billingQuote, preparedInput: { type: `canvas_${mode}`, prompt, input: { mode } } });
+            return;
+        }
+        return generateOverride?.(id, mode, prompt, options);
+    };
     return { proposal, nodes: [node], claims: new Set<string>(), isHandled: false,
         prepare: async () => structuredClone({ nodes: overrides.nodes ?? [node], connections: [], config: defaultConfig, assets: [], skills: [] }),
-        generate: async () => {}, markHandled: () => {}, notify: () => {}, ...overrides };
+        confirmBilling: async () => true, generate, markHandled: () => {}, notify: () => {}, ...rest };
 }
 
 test("F02: confirmed proposal model reaches the generation execution boundary", async () => {
     let options: unknown;
     await executeAssistantProposal(input({ generate: async (_id, _mode, _prompt, received) => { options = received; } }));
-    expect(options).toMatchObject({ confirmedModelKey: proposal.modelKey, clientOperationId: `proposal:${proposal.proposalId}:${node.id}` });
+    expect(options).toMatchObject({
+        confirmedModelKey: proposal.modelKey,
+        clientOperationId: `proposal:${proposal.proposalId}:${node.id}`,
+        preparedBillingInput: { input: { mode: "image" } },
+    });
 });
 
 test("F04: a validation early return does not claim generation started", async () => {
     const handled: string[] = [];
     await executeAssistantProposal(input({ markHandled: (id) => { handled.push(id); } }));
     expect(handled).toEqual([]);
+});
+
+test("assistant proposal collects one aggregate quote before creating any task", async () => {
+    let actualGenerations = 0;
+    let quotedPoints = 0;
+    let confirmedNodes = 0;
+    await executeAssistantProposal(input({
+        confirmBilling: async (quotes, nodeCount) => {
+            quotedPoints = quotes.reduce((total, quote) => total + quote.points, 0);
+            confirmedNodes = nodeCount;
+            return false;
+        },
+        generate: async () => { actualGenerations++; },
+    }));
+    expect(quotedPoints).toBe(1);
+    expect(confirmedNodes).toBe(1);
+    expect(actualGenerations).toBe(0);
+});
+
+test("assistant proposal confirms one quote per target node", async () => {
+    const node2: CanvasNodeData = { ...node, id: "node-2", title: "Image 2" };
+    let quoteCount = 0;
+    let nodeCount = 0;
+    await executeAssistantProposal(input({
+        proposal: { ...proposal, nodeIds: [node.id, node2.id] },
+        nodes: [node, node2],
+        confirmBilling: async (quotes, count) => {
+            quoteCount = quotes.length;
+            nodeCount = count;
+            return false;
+        },
+    }));
+    expect(quoteCount).toBe(2);
+    expect(nodeCount).toBe(2);
 });
 
 test("proposal read failures are not reported as proven input drift", async () => {
@@ -101,6 +149,7 @@ test("same-window rapid clicks and stale renders cannot resubmit an accepted pro
     } });
     const first = executeAssistantProposal(args);
     await executeAssistantProposal(args);
+    while (submissions === 0) await Promise.resolve();
     expect(submissions).toBe(1);
     release();
     await first;
