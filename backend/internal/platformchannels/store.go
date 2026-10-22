@@ -506,6 +506,7 @@ var FeatureKeys = []string{
 	"audio.music",  // 音频 · 音乐 / BGM（mureka / minimax 音乐档）
 	"audio.sfx",    // 音频 · 音效（Suno sounds）
 	"image.vision", // 图片理解（反推提示词等，留空表示跟随 text.chat）
+	"media.review", // 独立多模态审片 / 审音
 }
 
 // FeatureModels 读取「功能 → 模型」映射（只返回已知功能键）。
