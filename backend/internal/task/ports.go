@@ -130,6 +130,15 @@ type ProviderControl interface {
 	RequestCancel(ctx context.Context, task *model.Task) error
 }
 
+// Billing is the main-site points ledger boundary. Quote is used by the
+// pre-submit price panel; Reserve/Settle/Release are idempotent by task id.
+type Billing interface {
+	Quote(ctx context.Context, userID string, task *model.Task) (*model.BillingQuote, error)
+	Reserve(ctx context.Context, userID string, task *model.Task) (*model.BillingReservation, error)
+	Settle(ctx context.Context, task *model.Task, outcome string, reason string) (*model.BillingSettlement, error)
+	Release(ctx context.Context, task *model.Task, reason string) (*model.BillingSettlement, error)
+}
+
 // Presenter projects durable rows onto the public read model.
 type Presenter interface {
 	Task(model.Task) *model.Task
@@ -176,6 +185,7 @@ type Dependencies struct {
 	Failures               Failures
 	TextReplay             TextReplay
 	Provider               ProviderControl
+	Billing                Billing
 	Present                Presenter
 	Logs                   Logger
 	Activity               Activity

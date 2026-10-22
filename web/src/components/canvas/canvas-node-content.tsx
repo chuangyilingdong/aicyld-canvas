@@ -92,7 +92,9 @@ export function CanvasNodeContent(props: CanvasNodeContentProps) {
         || Boolean(props.node.metadata?.directorSceneId)
         || (props.node.metadata?.workflowKind === "character" && Boolean(props.node.metadata.characterAssetId))
         || (props.node.metadata?.workflowKind === "story_input" && !props.isEditingContent)
-        || (props.node.metadata?.workflowKind === "styleboard" && !props.node.metadata.content);
+        || (props.node.metadata?.workflowKind === "styleboard" && !props.node.metadata.content)
+        || Boolean(props.node.metadata?.reusableWorkflow)
+        || Boolean(props.node.metadata?.workflowSlot);
     if (hasCustomContent && props.renderNodeContent) return props.renderNodeContent(props.node);
     if (props.node.type === ART_CRITIQUE_NODE_TYPE) return <ArtCritiqueNodeContent node={props.node} />;
     if (props.node.type === MEDIA_CONVERSION_NODE_TYPE) return <MediaConversionNodeContent node={props.node} theme={props.theme} />;

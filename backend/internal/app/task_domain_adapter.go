@@ -42,6 +42,7 @@ func (s *Service) taskDependencies() localtask.Dependencies {
 		Failures:               taskFailuresAdapter{},
 		TextReplay:             s.TextReplay(),
 		Provider:               taskProviderAdapter{s},
+		Billing:                taskBillingAdapter{s},
 		Present:                taskPresenterAdapter{s},
 		Logs:                   taskLogAdapter{s},
 		Activity:               taskActivityAdapter{s},

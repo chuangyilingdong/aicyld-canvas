@@ -159,3 +159,33 @@ test("background generation submission returns after task creation without waiti
     expect(submitted).toBe(task);
     expect(waitCalls).toBe(0);
 });
+
+test("task confirmation runs before creation and can cancel without submitting", async () => {
+    let createCalls = 0;
+    let confirmedModel = "";
+    const dependencies: GenerationTaskDependencies = {
+        createTask: async () => {
+            createCalls += 1;
+            throw new Error("should not create");
+        },
+        waitTask: async () => { throw new Error("should not wait"); },
+        runLocal: async () => ({ mode: "video" }),
+        createId: () => "id-1",
+        now: () => "2026-08-30T00:00:00.000Z",
+    };
+
+    await expect(submitBackendGenerationTask({
+        projectId: "project-1",
+        mode: "video",
+        prompt: "角色表演",
+        config: videoTaskConfig(),
+        metadata: { shotId: "shot-1", videoEditOperation: "text_to_video" },
+        confirmTask: async (request) => {
+            confirmedModel = request.model || "";
+            return false;
+        },
+    }, dependencies)).rejects.toMatchObject({ name: "AbortError" });
+
+    expect(confirmedModel).toContain("MiniMax-H3");
+    expect(createCalls).toBe(0);
+});

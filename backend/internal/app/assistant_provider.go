@@ -75,6 +75,33 @@ func (s *Service) ResolveAssistantProvider() (AssistantProvider, error) {
 	return modelcatalog.ResolveAssistantProvider(snapshot, s.assistantManagedCredentialLookup())
 }
 
+// ResolveMediaReviewProvider uses the platform channel snapshot as well as the
+// local model config. Hosted deployments keep their default multimodal model
+// in platform featureModels, not in the browser-local provider config.
+func (s *Service) ResolveMediaReviewProvider() (AssistantProvider, string) {
+	snapshot, err := s.assistantConfig()
+	if err != nil {
+		return AssistantProvider{}, AssistantReasonModelNotConfigured
+	}
+	platform := s.platformAssistantChannels()
+	features := map[string]string{}
+	if store, storeErr := platformchannels.New(s.dataDir); storeErr == nil {
+		features, _ = store.FeatureModels()
+	}
+	snapshot = mergePlatformMediaReviewConfig(snapshot, platform, features)
+	return modelcatalog.ResolveMediaReviewProvider(snapshot, s.assistantManagedCredentialLookup())
+}
+
+func mergePlatformMediaReviewConfig(snapshot assistantConfigSnapshot, platform []assistantChannel, features map[string]string) assistantConfigSnapshot {
+	if len(platform) > 0 {
+		snapshot.Channels = append(platform, snapshot.Channels...)
+	}
+	if selection := strings.TrimSpace(features["media.review"]); selection != "" {
+		snapshot.MediaReviewModel = selection
+	}
+	return snapshot
+}
+
 // platformAssistantChannels 把平台统一渠道转换成助手渠道快照。
 //
 // 与浏览器侧的区别只有一处：这里必须带真实密钥（助手的模型请求由宿主发出，

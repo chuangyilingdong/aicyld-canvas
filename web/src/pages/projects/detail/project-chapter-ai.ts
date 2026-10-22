@@ -5,7 +5,8 @@ import { parseChapterAssetBreakdown, type ChapterAssetBreakdown } from "@/lib/ca
 import { parseCharacterBreakdown } from "@/lib/canvas/canvas-character-reference";
 import { backendProviderConfig, parseBackendGenerationResult } from "@/services/api/generation-task";
 import type { CapturedUserScope } from "@/lib/user-scope-guard";
-import { createGenerationTask, waitForGenerationTask, type GenerationTask } from "@/services/api/task-center";
+import { createGenerationTaskWithConfirmation } from "@/services/api/task-billing";
+import { waitForGenerationTask, type CreateTaskInput, type GenerationTask } from "@/services/api/task-center";
 import type { Skill } from "@/services/api/skills";
 import { skillRuntime } from "@/services/skill-runtime";
 import { logicalModelIDForConfig, type AiConfig } from "@/stores/use-config-store";
@@ -25,6 +26,7 @@ type ChapterAnalysisInput = {
 type ChapterTaskOptions = {
     onTaskUpdate?: (task: GenerationTask) => void;
     expectedScope?: CapturedUserScope;
+    confirmTask?: (request: CreateTaskInput) => Promise<boolean>;
 };
 
 export type ChapterTaskKind = "characters" | "storyboard";
@@ -128,7 +130,7 @@ export async function generateChapterStoryboard(input: ChapterStoryboardGenerati
         skillExecution.prompt,
         storyboardRowsOutputContract("每个镜头必须能独立用于生成首帧图片和镜头视频。"),
     ].join("\n\n");
-    const task = await createGenerationTask({
+    const task = await createGenerationTaskWithConfirmation({
         projectId: input.projectId,
         type: "canvas_text",
         operation: "storyboard",
@@ -154,7 +156,7 @@ export async function generateChapterStoryboard(input: ChapterStoryboardGenerati
                 approvedShotIds: input.approvedShotIds.slice(),
             },
         },
-    }, options?.expectedScope ? { expectedScope: options.expectedScope } : undefined);
+    }, options?.confirmTask, options?.expectedScope ? { expectedScope: options.expectedScope } : undefined);
     options?.onTaskUpdate?.(task);
     const completed = await waitForGenerationTask(task.id, { initialTask: task, useTextEvents: true, onTaskUpdate: options?.onTaskUpdate, expectedScope: options?.expectedScope });
     return { ...storyboardRowsFromTask(completed), skillCount: skillExecution.selectedSkills.length, taskId: completed.id };
@@ -175,6 +177,7 @@ async function runProjectTextTask(input: ChapterAnalysisInput, operation: string
             options?.onTaskUpdate?.(task);
         },
         expectedScope: options?.expectedScope,
+        confirmTask: options?.confirmTask,
     });
     if (!result.text?.trim()) throw new Error("模型没有返回可用结果");
     if (!taskId) throw new Error("生成任务身份缺失");

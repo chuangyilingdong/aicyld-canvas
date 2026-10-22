@@ -1,7 +1,8 @@
 import type { AssistantGenerationProposal } from "@/services/api/agent-assistant";
 import { ApiError } from "@/services/api/request";
+import type { GenerationBillingQuote } from "@/services/api/task-billing";
 import type { CanvasNodeData } from "@/types/canvas";
-import type { CanvasNodeGenerationOptions } from "./use-canvas-generation-executor";
+import type { CanvasNodeBillingPlan, CanvasNodeGenerationOptions } from "./use-canvas-generation-executor";
 import { buildGenerationConfig } from "@/lib/canvas/canvas-project-generation";
 import { ASSISTANT_PROPOSAL_BLOCKED_TEXT, AssistantProposalBlockedError, type ConfirmedGenerationInputs } from "./canvas-assistant-proposal-snapshot";
 
@@ -15,6 +16,7 @@ type ProposalExecution = {
     /** 后端确认这一轮仍有效；返回的文案表示拒绝，不会提交任何生成。 */
     confirmRunnable?: () => Promise<string | null>;
     prepare: () => Promise<ConfirmedGenerationInputs>;
+    confirmBilling?: (quotes: GenerationBillingQuote[], nodeCount: number) => Promise<boolean>;
     generate: (nodeId: string, mode: "image" | "video", prompt: string, options?: CanvasNodeGenerationOptions) => Promise<unknown>;
     markHandled: (proposalId: string) => void;
     notify: (content: string) => void;
@@ -40,7 +42,7 @@ export function buildConfirmedGenerationConfig(
     return result;
 }
 
-export async function executeAssistantProposal({ proposal, nodes, claims, isHandled, confirmRunnable, prepare, generate, markHandled, notify, stillOwns }: ProposalExecution) {
+export async function executeAssistantProposal({ proposal, nodes, claims, isHandled, confirmRunnable, prepare, confirmBilling, generate, markHandled, notify, stillOwns }: ProposalExecution) {
     const kind = proposal.kind;
     if (kind === "audio") { notify("请将配音加入完整制作方案后确认。"); return; }
     if (isHandled || claims.has(proposal.proposalId)) {
@@ -89,12 +91,35 @@ export async function executeAssistantProposal({ proposal, nodes, claims, isHand
             notify(ASSISTANT_PROPOSAL_BLOCKED_TEXT.canvas_changed);
             return;
         }
+        const billingPlans = new Map<string, CanvasNodeBillingPlan>();
+        if (confirmBilling) {
+            await Promise.allSettled(confirmedTargets.map(async (node) => {
+                if (!node) return;
+                let plan: CanvasNodeBillingPlan | undefined;
+                await generate(node.id, kind, node.metadata?.composerContent ?? node.metadata?.prompt ?? "", {
+                    confirmedModelKey: modelKey,
+                    confirmedInputs,
+                    skipDuplicateConfirmation: true,
+                    skipBillingConfirmation: true,
+                    collectBillingQuote: (next) => { plan = next; },
+                });
+                if (plan) billingPlans.set(node.id, plan);
+            }));
+            if (billingPlans.size !== targets.length) {
+                notify(`仅完成 ${billingPlans.size}/${targets.length} 个节点的报价准备。请检查节点提示和模型配置后重新确认提案。`);
+                return;
+            }
+            if (!(await confirmBilling([...billingPlans.values()].map((plan) => plan.quote), targets.length))) return;
+        }
         await Promise.allSettled(confirmedTargets.map(async (node) => {
             if (!node) return;
+            const plan = billingPlans.get(node.id);
             await generate(node.id, kind, node.metadata?.composerContent ?? node.metadata?.prompt ?? "", {
                 confirmedModelKey: modelKey,
                 confirmedInputs,
                 clientOperationId: `proposal:${proposal.proposalId}:${node.id}`,
+                skipBillingConfirmation: true,
+                preparedBillingInput: plan?.preparedInput,
                 onTaskUpdate: (task) => {
                     if (!task.id) return;
                     receivedTask = true;

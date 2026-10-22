@@ -1,5 +1,7 @@
 import { useCallback, useRef, useState } from "react";
+import { App } from "antd";
 
+import { confirmCanvasBillingQuotes } from "@/components/canvas/canvas-billing-confirmation";
 import { confirmAssistantProduction, confirmAssistantProposalRunnable, type AssistantGenerationProposal } from "@/services/api/agent-assistant";
 import { armAssistantContinuation, registerAssistantSubmission, type AssistantSubmissionManifest } from "@/services/api/assistant-continuation";
 import type { Skill } from "@/services/api/skills";
@@ -38,6 +40,7 @@ export function useCanvasAssistantProposal({
     continuePlan,
     onContinuationArmed,
 }: UseCanvasAssistantProposalOptions) {
+    const { modal } = App.useApp();
     const claimsRef = useRef(new Set<string>());
     const attemptedProductionsRef = useRef(new Set<string>());
     const [assistantProposalFeedback, setAssistantProposalFeedback] = useState<Record<string, string>>({});
@@ -120,6 +123,10 @@ export function useCanvasAssistantProposal({
                     if (continuePlan && sessionId) { continuationId = (await armAssistantContinuation(owner.canvasId, sessionId, turnId, proposal)).id; onContinuationArmed?.(); }
                     return snapshot;
                 },
+                confirmBilling: (quotes, nodeCount) => confirmCanvasBillingQuotes(modal, quotes, {
+                    title: "确认生成整批方案",
+                    description: `将一次确认 ${nodeCount} 个节点的生成；各节点仍按实际任务分别预扣、结算或退款。`,
+                }),
                 generate: (id, kind, prompt, options) => generateForThisRun(id, kind, prompt, { ...options, ...(continuationId ? { onSubmissionPlan: (manifest: AssistantSubmissionManifest) => registerAssistantSubmission(continuationId!, manifest).then(() => undefined) } : {}) }),
                 stillOwns: () => lifetime.matches(owner, projectIdRef.current),
                 markHandled: (proposalId) => markHandledRef.current(proposalId),
@@ -134,7 +141,7 @@ export function useCanvasAssistantProposal({
                 });
             });
         },
-        [connectionsRef, lifetime, nodesRef, projectId, continuationSessionId, continuePlan, onContinuationArmed],
+        [connectionsRef, lifetime, modal, nodesRef, projectId, continuationSessionId, continuePlan, onContinuationArmed],
     );
 
     return { runAssistantProposal, assistantProposalFeedback, runningProposalIds };

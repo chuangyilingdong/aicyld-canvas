@@ -45,6 +45,8 @@ func taskSummaryForOutput(task model.Task) TaskSummary {
 		Operation:                 task.Operation,
 		Provider:                  task.Provider,
 		Model:                     task.Model,
+		BillingStatus:             task.BillingStatus,
+		BillingPoints:             task.BillingPoints,
 		ProviderRequestID:         task.ProviderRequestID,
 		ProviderCancelStatus:      task.ProviderCancelStatus,
 		ProviderCancelError:       task.ProviderCancelError,

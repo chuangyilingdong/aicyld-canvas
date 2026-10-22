@@ -5,11 +5,11 @@ import { useEffect, useState } from "react";
 import { aceternityMotion } from "@/lib/aceternity-motion";
 import { formatTaskKind, generationTaskShowsProgress, generationTaskStageLabel, generationTaskStatusLabel } from "@/lib/generation-task-display";
 import { canvasThemes } from "@/lib/canvas-theme";
-import type { GenerationTask } from "@/services/api/task-center";
+import type { BillingGenerationTask } from "@/services/api/task-billing";
 import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
 
 // 顶栏是绝对定位浮层，面板必须按调用方传入的 topInset 避让；专注模式隐藏顶栏时传小间距。
-export function CanvasActiveTaskPanel({ tasks, align = "right", topInset = "var(--canvas-topbar-offset)", onCancelTask }: { tasks: GenerationTask[]; align?: "left" | "right"; topInset?: string; onCancelTask?: (task: GenerationTask) => void }) {
+export function CanvasActiveTaskPanel({ tasks, align = "right", topInset = "var(--canvas-topbar-offset)", onCancelTask }: { tasks: BillingGenerationTask[]; align?: "left" | "right"; topInset?: string; onCancelTask?: (task: BillingGenerationTask) => void }) {
     const theme = canvasThemes[useActiveTheme()];
     const reducedMotion = useReducedMotion();
     const [now, setNow] = useState(() => Date.now());
@@ -116,12 +116,12 @@ function ActiveTaskCard({
     onCancelTask,
     reducedMotion,
 }: {
-    task: GenerationTask;
+    task: BillingGenerationTask;
     now: number;
     theme: (typeof canvasThemes)[keyof typeof canvasThemes];
     expanded: boolean;
     onToggle: () => void;
-    onCancelTask?: (task: GenerationTask) => void;
+    onCancelTask?: (task: BillingGenerationTask) => void;
     reducedMotion: boolean;
 }) {
     const showsProgress = generationTaskShowsProgress(task);
@@ -211,6 +211,14 @@ function ActiveTaskCard({
                                 {generationTaskStageLabel(task)}
                             </span>
                         </div>
+                        {task.billingPoints ? (
+                            <div className="mt-2 flex items-center justify-between gap-2">
+                                <span>积分</span>
+                                <span className="text-right" style={{ color: task.billingStatus === "refunded" ? theme.accent.danger : theme.node.text }}>
+                                    {taskBillingStatusLabel(task.billingStatus)} {task.billingPoints} 积分
+                                </span>
+                            </div>
+                        ) : null}
                         {onCancelTask && (task.status === "queued" || task.status === "running") ? (
                             <button
                                 type="button"
@@ -237,6 +245,14 @@ function parseTime(value?: string) {
     if (!value) return Date.now();
     const time = new Date(value).getTime();
     return Number.isFinite(time) ? time : Date.now();
+}
+
+function taskBillingStatusLabel(status?: string) {
+    if (status === "refunded") return "已退回";
+    if (status === "settled") return "已结算";
+    if (status === "refund_pending") return "退款处理中";
+    if (status === "pending_reconcile") return "待对账";
+    return "已预扣";
 }
 
 function formatDuration(value: number) {

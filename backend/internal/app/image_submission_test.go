@@ -117,6 +117,55 @@ func TestImageSubmissionUnknownProviderCannotReplayOrRetryLostResponse(t *testin
 	}
 }
 
+func TestUnsentImageSubmissionBecomesRetrySafeRouteFailure(t *testing.T) {
+	s, _, task, _, _ := imageSubmissionFixture(t, false)
+	attempt, err := s.repo.LatestRouteAttempt(task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempt.DispatchState = "not_sent"
+	if err := s.repo.SaveRouteAttempt(attempt); err != nil {
+		t.Fatal(err)
+	}
+
+	executor := newTaskRouteExecutor(s)
+	adapter := executor.port.(taskRouteServiceAdapter)
+	adapter.process = func(context.Context, model.Task) (map[string]interface{}, []map[string]interface{}, error) {
+		return nil, nil, generation.RequestNotSentError{Cause: errors.New("tls connection reset")}
+	}
+	executor.port = adapter
+	result, err := executor.execute(context.Background(), &task, attempt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isImageRecoveryError(result.err) {
+		t.Fatalf("unsent image request was marked uncertain: %v", result.err)
+	}
+	storedAttempt, err := s.repo.LatestRouteAttempt(task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if storedAttempt.DispatchState != "rejected_no_job" || storedAttempt.FailureCode != "request_not_sent" {
+		t.Fatalf("unsent attempt state = %+v", storedAttempt)
+	}
+	if err := s.validateImageTaskRetry(&task); err != nil {
+		t.Fatalf("unsent image task should be retryable: %v", err)
+	}
+	if err := s.terminalCoordinator().handleExecutionFailure(&task, result.err, false, false); !errors.Is(err, result.err) {
+		t.Fatalf("terminal failure = %v, want original request-not-sent cause", err)
+	}
+	storedTask, err := s.repo.Task(task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if storedTask.Stage == "submission_unknown" || persistedFailureBlocksRetry(storedTask.Error, storedTask.Stage) {
+		t.Fatalf("unsent image task remained locked: %+v", storedTask)
+	}
+	if code := taskForOutput(*storedTask).ErrorCode; code != "request_not_sent" {
+		t.Fatalf("error code = %q", code)
+	}
+}
+
 func TestImageSubmissionDeferPreservesDiagnosticsForRestart(t *testing.T) {
 	s, _, task, _, _ := imageSubmissionFixture(t, false)
 	task.FailureDiagnostics = &model.TaskFailureDiagnostics{ExecutionResult: "unknown", Requests: []model.TaskRequestEvidence{{Operation: "submit", RequestID: "request-before-restart"}}}

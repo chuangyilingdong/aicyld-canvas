@@ -63,6 +63,9 @@ func RouteFailureCode(info FailureInfo) string {
 	if info.SlotCode != "" {
 		return info.SlotCode
 	}
+	if info.RequestNotSent {
+		return "request_not_sent"
+	}
 	if info.StatusCode > 0 {
 		return fmt.Sprintf("upstream_%d", info.StatusCode)
 	}
@@ -72,6 +75,9 @@ func RouteFailureCode(info FailureInfo) string {
 func SafeRouteRejection(info FailureInfo) bool {
 	if info.ImageRecovery {
 		return false
+	}
+	if info.RequestNotSent {
+		return true
 	}
 	if info.SlotCode != "" {
 		return true

@@ -6,7 +6,15 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { createServer as createTCPServer } from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
-import { packageAgentHost, verifyRuntime, NODE_VERSION } from './package-agent-host.mjs';
+import { discoverRuntimeModules, packageAgentHost, verifyRuntime, NODE_VERSION } from './package-agent-host.mjs';
+
+test('packages every local runtime import', () => {
+  const modules = discoverRuntimeModules(path.resolve('agent-host'));
+  expect(new Set(modules).size).toBe(modules.length);
+  for (const name of ['plan.mjs', 'studio-digest.mjs', 'canvas-write-view.mjs', 'dispatch-diagnostics.mjs', 'durable-stream-text.mjs', 'model-transport-error.mjs', 'await-business-tasks.mjs', 'timeline-delivery.mjs']) {
+    expect(modules).toContain(name);
+  }
+});
 
 test('release rejects missing runtime and unsupported target', () => {
   expect(() => verifyRuntime('', 'darwin/arm64')).toThrow('required');

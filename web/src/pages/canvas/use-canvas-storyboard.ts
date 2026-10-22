@@ -24,8 +24,10 @@ import { resolveStoryboardGenerationContext } from "@/lib/canvas/canvas-storyboa
 import { reconcileStoryboardTargetConnections, storyboardComposerContent, storyboardRowReferenceNodeIds } from "@/lib/canvas/canvas-storyboard-materializer";
 import { generationErrorMessage } from "@/lib/generation-error";
 import { navigateToSettings } from "@/lib/settings-navigation";
+import { confirmCanvasBillingQuote } from "@/components/canvas/canvas-billing-confirmation";
 import type { Skill } from "@/services/api/skills";
-import { createGenerationTask, waitForGenerationTask } from "@/services/api/task-center";
+import { quoteGenerationTask } from "@/services/api/task-billing";
+import { createGenerationTask, waitForGenerationTask, type CreateTaskInput } from "@/services/api/task-center";
 import { skillRuntime } from "@/services/skill-runtime";
 import { submitStoryboardTask } from "@/services/storyboard-submission";
 import { getActiveUserScope } from "@/lib/user-scope";
@@ -91,6 +93,28 @@ export function useCanvasStoryboard({
             onCancel: () => resolve(false),
         });
     }), [effectiveConfig, modal]);
+
+    const confirmStoryboardTaskSubmission = useCallback(async (request: CreateTaskInput, description: string, signal: AbortSignal) => {
+        if (localMode) return true;
+        const quote = await quoteGenerationTask(request);
+        signal.throwIfAborted();
+        if (quote.enabled && quote.points > 0) {
+            return confirmCanvasBillingQuote(modal, quote, { title: "确认生成分镜", description, okText: "确认生成", signal });
+        }
+        const model = request.model || effectiveConfig.model;
+        return new Promise<boolean>((resolve) => {
+            const dialog = modal.confirm({
+                title: "确认生成分镜",
+                content: `使用 ${modelDisplayName(effectiveConfig, model)} 拆分镜头。${description}`,
+                okText: "确认生成", cancelText: "取消", centered: true,
+                onOk: () => resolve(true), onCancel: () => resolve(false),
+                afterClose: () => signal.removeEventListener("abort", cancel),
+            });
+            const cancel = () => { dialog.destroy(); resolve(false); };
+            signal.addEventListener("abort", cancel, { once: true });
+            if (signal.aborted) cancel();
+        });
+    }, [effectiveConfig, localMode, modal]);
 
     const updateScriptRows = useCallback((nodeId: string, updater: (rows: StoryboardRow[]) => StoryboardRow[]) => {
         setNodes((current) => current.map((node) => node.id === nodeId ? {
@@ -193,20 +217,9 @@ export function useCanvasStoryboard({
                 },
             };
             const managed = Boolean(logicalModelIDForConfig(generationConfig) || resolveModelRequestConfig(generationConfig, generationConfig.model).channelId);
-            const task = managed ? await submitStoryboardTask(request, { signal, assertCurrent, confirm: (submission) => localMode ? Promise.resolve(true) : new Promise<boolean>((resolve) => {
-                const execution = submission.execution;
-                const dialog = modal.confirm({
-                    title: "确认生成分镜",
-                    content: `使用 ${modelDisplayName(effectiveConfig, execution.model)} 拆分镜头。${(scriptNode.metadata?.storyboard?.rows || []).length ? "本次将替换现有分镜行，原图片视频保留，镜头关联需要重新核对。" : "确认后生成可编辑的分镜表。"}`,
-                    okText: "确认生成", cancelText: "取消", centered: true,
-                    onOk: () => resolve(true), onCancel: () => resolve(false),
-                    afterClose: () => signal.removeEventListener("abort", cancel),
-                });
-                const cancel = () => { dialog.destroy(); resolve(false); };
-                signal.addEventListener("abort", cancel, { once: true });
-                if (signal.aborted) cancel();
-            }) }) : await (async () => {
-                const confirmed = await confirmGenerationSubmission(1, generationConfig.model, `专业拆镜${(scriptNode.metadata?.storyboard?.rows || []).length ? "（替换现有镜头，保留原媒体）" : ""}`);
+            const description = (scriptNode.metadata?.storyboard?.rows || []).length ? "本次将替换现有分镜行，原图片视频保留，镜头关联需要重新核对。" : "确认后生成可编辑的分镜表。";
+            const task = managed ? await submitStoryboardTask(request, { signal, assertCurrent, confirm: () => confirmStoryboardTaskSubmission(request, description, signal) }) : await (async () => {
+                const confirmed = await confirmStoryboardTaskSubmission(request, description, signal);
                 if (!confirmed) return undefined;
                 assertCurrent();
                 return createGenerationTask(request);
@@ -257,7 +270,7 @@ export function useCanvasStoryboard({
             }));
             storyboardRequests.current.delete(nodeId);
         }
-    }, [addedSkills, confirmGenerationSubmission, connectionsRef, effectiveConfig, isAiConfigReady, localMode, message, modal, nodesRef, projectId, replaceScriptRows, setNodes]);
+    }, [addedSkills, confirmStoryboardTaskSubmission, connectionsRef, effectiveConfig, isAiConfigReady, localMode, message, modal, nodesRef, projectId, replaceScriptRows, setNodes]);
 
     const ensureScriptImageNodes = useCallback((nodeId: string, rowIds: string[]) => {
         const scriptNode = nodesRef.current.find((node) => node.id === nodeId && node.type === CanvasNodeType.Script);

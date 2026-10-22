@@ -7,17 +7,12 @@ import (
 	"time"
 
 	"infinite-canvas/backend/internal/generation"
-	"infinite-canvas/backend/internal/modelcatalog"
 	"infinite-canvas/backend/internal/operations"
 )
 
 func (s *operationSession) ReviewMedia(ctx context.Context, part operations.MediaPart, question string) (operations.MediaReviewObservation, error) {
 	var empty operations.MediaReviewObservation
-	snapshot, err := s.service.assistantConfig()
-	if err != nil {
-		return empty, err
-	}
-	provider, reason := modelcatalog.ResolveMediaReviewProvider(snapshot, s.service.assistantManagedCredentialLookup())
+	provider, reason := s.service.ResolveMediaReviewProvider()
 	if reason != "" {
 		return empty, operations.Unsupported("media_review_unavailable", "请在设置的默认模型中选择可用的多模态模型")
 	}

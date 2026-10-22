@@ -62,6 +62,8 @@ type BackendGenerationTaskOptions = {
     retryContextsByBatchIndex?: Array<{ retryOf: string; attemptGroupId: string; clientOperationId: string }>;
     attemptGroupId?: string;
     expectedScope?: import("@/lib/user-scope-guard").CapturedUserScope;
+    /** Runs after reference preparation and immediately before task creation. */
+    confirmTask?: (request: CreateTaskInput) => Promise<boolean>;
 };
 
 export type GenerationTaskDependencies = {
@@ -106,6 +108,7 @@ export async function runBackendGenerationTask(
         attemptGroupId,
         expectedScope = captureUserScope(),
         resolveReferenceLinks,
+        confirmTask,
     }: BackendGenerationTaskOptions,
     dependencies: GenerationTaskDependencies = defaultDependencies,
 ) {
@@ -116,7 +119,7 @@ export async function runBackendGenerationTask(
     throwIfAborted(signal);
     assertPreparedVideoCapability(mode, config, prepared);
     return createAndWaitGenerationTask(
-        { projectId, mode, prompt, config, referenceImages, referenceVideos, referenceAudios, textHistory, signal, metadata, onTaskUpdate, onTextDelta, streamText, enableThinking, clientOperationId, retryOf, attemptGroupId, expectedScope, resolveReferenceLinks },
+        { projectId, mode, prompt, config, referenceImages, referenceVideos, referenceAudios, textHistory, signal, metadata, onTaskUpdate, onTextDelta, streamText, enableThinking, clientOperationId, retryOf, attemptGroupId, expectedScope, resolveReferenceLinks, confirmTask },
         prepared,
         dependencies,
     );
@@ -384,10 +387,18 @@ async function createAndWaitGenerationTask(options: BackendGenerationTaskOptions
 
 async function createBackendGenerationTask(options: BackendGenerationTaskOptions, prepared: PreparedGenerationReferences, dependencies: GenerationTaskDependencies) {
     const expectedScope = options.expectedScope ?? captureUserScope();
-    const submit = () => {
+    let confirmationPassed = false;
+    const submit = async () => {
         throwIfAborted(options.signal);
         assertUserScope(expectedScope);
-        return dependencies.createTask(backendGenerationTaskInput(options, prepared), { expectedScope });
+        const input = backendGenerationTaskInput(options, prepared);
+        if (!confirmationPassed && options.confirmTask) {
+            if (!(await options.confirmTask(input))) throw new DOMException("用户取消生成", "AbortError");
+            throwIfAborted(options.signal);
+            assertUserScope(expectedScope);
+            confirmationPassed = true;
+        }
+        return dependencies.createTask(input, { expectedScope });
     };
     let task: GenerationTask;
     try {

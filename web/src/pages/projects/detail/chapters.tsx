@@ -55,7 +55,9 @@ import { SkillRuntimePicker, useSkillRuntimeCatalog } from "@/components/skills/
 import { ModelPicker } from "@/components/model-picker";
 import { WorkspaceState } from "@/components/layout/workspace-state";
 import { resolveProjectCanvasStyle } from "@/components/canvas/canvas-style-picker-modal";
+import { confirmCanvasGenerationTaskQuote } from "@/components/canvas/canvas-billing-confirmation";
 import { decodeNovelText, splitTextIntoChapters } from "@/lib/canvas/canvas-document";
+import { isGenerationCanceled } from "@/lib/canvas/canvas-project-generation";
 import { navigateToSettings } from "@/lib/settings-navigation";
 import { captureUserScope, type CapturedUserScope } from "@/lib/user-scope-guard";
 import {
@@ -403,7 +405,11 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
             setCharacterExtractOpen(false);
             beginChapterOperation(operationUnitId, "characters");
             message.info("角色、场景与道具提取任务已开始，可继续编辑或切换章节");
-            const assets = await extractChapterAssets(input, { onTaskUpdate: (task) => updateChapterOperation(operationUnitId, "characters", task), expectedScope });
+            const assets = await extractChapterAssets(input, {
+                onTaskUpdate: (task) => updateChapterOperation(operationUnitId, "characters", task),
+                expectedScope,
+                confirmTask: (request) => confirmCanvasGenerationTaskQuote(modal, request),
+            });
             const freshCount = await storeExtractedAssets(operationUnitId, assets, { sourceTaskId: assets.taskId, expectedScope });
             if (!freshCount) {
                 message.info("没有新增资产：提取为空或资产已存在");
@@ -411,6 +417,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
             }
             message.success(`已提取 ${freshCount} 个角色、场景或道具，请到项目资产确认`);
         } catch (error) {
+            if (isGenerationCanceled(error)) return;
             message.error(error instanceof Error ? error.message : "章节资产提取失败");
         } finally {
             if (operationUnitId) finishChapterOperation(operationUnitId, "characters");
@@ -458,11 +465,16 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                 selectedSkillIds,
                 approvedRevision,
                 approvedShotIds,
-            }, { onTaskUpdate: (task) => updateChapterOperation(unit.id, "storyboard", task), expectedScope });
+            }, {
+                onTaskUpdate: (task) => updateChapterOperation(unit.id, "storyboard", task),
+                expectedScope,
+                confirmTask: (request) => confirmCanvasGenerationTaskQuote(modal, request, { title: "确认生成章节分镜" }),
+            });
             const shotCount = await storeGeneratedStoryboard(unit.id, generated.rows, { revision: approvedRevision, shotIds: approvedShotIds }, { sourceTaskId: generated.taskId, expectedScope });
             message.success(generated.skillCount ? `已生成 ${shotCount} 个分镜，并应用 ${generated.skillCount} 个技能` : `已生成 ${shotCount} 个分镜`);
             navigate(`/projects/${detail.project.id}/workflow/${unit.id}/storyboard`);
         } catch (error) {
+            if (isGenerationCanceled(error)) return;
             if (generated && isStoryboardReplacementConflict(error)) {
                 queuePendingStoryboardRecovery({ taskId: generated.taskId, chapterId: unit.id, rows: generated.rows });
                 message.warning("本章分镜已变化，已生成的结果仍保留。核对当前镜头后再写入。");
