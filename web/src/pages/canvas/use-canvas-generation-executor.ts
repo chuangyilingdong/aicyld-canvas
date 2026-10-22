@@ -328,7 +328,8 @@ export function useCanvasGenerationExecutor({
                                 ? 4
                                 : mergedImageCapabilityConfig(quoteConfig, quoteConfig.model || quoteConfig.imageModel).fixedOutputs || 0;
                             const taskCount = mode === "image" && !nativeOutputCount ? getGenerationCount(quoteConfig.count) : 1;
-                            if (mode === "image" && taskCount > 1 && String(quote.breakdown?.billingMode || "") === "per_request") {
+                            const billingMode = String(quote.breakdown?.billingMode || "");
+                            if (mode === "image" && taskCount > 1 && billingMode !== "per_output") {
                                 quoteInput = structuredClone(preparedInput);
                                 const inputConfig = quoteInput.input?.config as Record<string, unknown> | undefined;
                                 if (inputConfig) {
@@ -338,7 +339,7 @@ export function useCanvasGenerationExecutor({
                                 quote = {
                                     ...singleQuote,
                                     points: singleQuote.points * taskCount,
-                                    breakdown: { ...singleQuote.breakdown, taskCount, aggregate: "per_request_x_tasks" },
+                                    breakdown: { ...singleQuote.breakdown, taskCount, aggregate: `${billingMode || "fixed"}_x_tasks` },
                                 };
                             }
                             hideQuoteMessage();
