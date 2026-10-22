@@ -76,6 +76,27 @@ test("assistant proposal confirms one quote per target node", async () => {
     expect(nodeCount).toBe(2);
 });
 
+test("unexpected quote rejection is reported instead of escaping as unhandled", async () => {
+    const notices: string[] = [];
+    const claims = new Set<string>();
+    await executeAssistantProposal({
+        proposal,
+        nodes: [node],
+        claims,
+        isHandled: false,
+        prepare: async () => structuredClone({ nodes: [node], connections: [], config: defaultConfig, assets: [], skills: [] }),
+        confirmBilling: async () => true,
+        generate: async (_id, _mode, _prompt, options) => {
+            if (options?.collectBillingQuote) throw new Error("synthetic quote failure");
+        },
+        markHandled: () => {},
+        notify: (text) => { notices.push(text); },
+    });
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toContain("0/1");
+    expect(claims.size).toBe(0);
+});
+
 test("proposal read failures are not reported as proven input drift", async () => {
     const notices: string[] = [];
     let submissions = 0;

@@ -93,7 +93,7 @@ export async function executeAssistantProposal({ proposal, nodes, claims, isHand
         }
         const billingPlans = new Map<string, CanvasNodeBillingPlan>();
         if (confirmBilling) {
-            await Promise.all(confirmedTargets.map(async (node) => {
+            await Promise.allSettled(confirmedTargets.map(async (node) => {
                 if (!node) return;
                 let plan: CanvasNodeBillingPlan | undefined;
                 await generate(node.id, kind, node.metadata?.composerContent ?? node.metadata?.prompt ?? "", {
