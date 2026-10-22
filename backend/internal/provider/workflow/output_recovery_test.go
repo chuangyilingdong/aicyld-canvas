@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"reflect"
 	"testing"
@@ -111,7 +112,7 @@ func TestRunningHubPollRenewsOriginalOutputByID(t *testing.T) {
 				return []byte("\x00\x00\x00\x18ftypmp42fixture"), "video/mp4", nil
 			}
 		}
-		return nil, "", errors.New("unexpected provider request")
+		return nil, "", fmt.Errorf("unexpected provider request: %s %s", req.Method, req.URL)
 	}}
 	client := &Client{Requests: exec, Poller: retryingDownloadPoller{}}
 	result, err := client.PollVideo(context.Background(), Config{BaseURL: "https://workflow.example", APIKey: "fixture"}, "https://workflow.example", "original", defaultVideoPolicy())
