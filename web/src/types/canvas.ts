@@ -36,6 +36,7 @@ export enum CanvasNodeType {
     Chart = "chart",
     ColorGrade = "colorgrade",
     MediaConversion = "media-conversion",
+    Upscale = "upscale",
     BatchTable = "batch-table",
     Director = "director",
 }
@@ -446,6 +447,15 @@ export type CanvasNodeMetadata = {
     /** 调色节点的参数；缺省视为未调色。 */
     colorGrade?: CanvasColorGrade;
     mediaConversion?: MediaConversionNodeState;
+    /** Dedicated server-side upscale settings and last confirmed quote. */
+    videoUpscale?: {
+        resolution: "720p" | "1080p" | "2K" | "4K";
+        quality: "Low" | "Medium" | "High" | "Max" | "Ultra";
+        sourceNodeId?: string;
+        sourceResourceId?: string;
+        reservationCny?: number;
+        quotedAt?: number;
+    };
     /** 用户手动拉伸过尺寸；图片按真实比例自动适配时避让它。 */
     manualSize?: boolean;
     storyboard?: StoryboardData;

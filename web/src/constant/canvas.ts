@@ -30,6 +30,7 @@ export const NODE_DEFAULT_SIZE = {
     [CanvasNodeType.Chart]: { width: 480, height: 320, title: "图表" },
     [CanvasNodeType.ColorGrade]: { width: 420, height: 360, title: "调色" },
     [CanvasNodeType.MediaConversion]: { width: 480, height: 460, title: "转换" },
+    [CanvasNodeType.Upscale]: { width: 440, height: 420, title: "视频超分" },
     [CanvasNodeType.BatchTable]: { width: 1280, height: 560, title: "批量创作表" },
     [CanvasNodeType.Director]: { width: 640, height: 640, title: "导演台" },
 } satisfies Record<CanvasNodeType, { width: number; height: number; title: string }>;
@@ -108,6 +109,10 @@ export const NODE_SPECS = {
         metadata: { status: "idle" },
     },
     [CanvasNodeType.MediaConversion]: { ...NODE_DEFAULT_SIZE[CanvasNodeType.MediaConversion], metadata: { status: "idle" } },
+    [CanvasNodeType.Upscale]: {
+        ...NODE_DEFAULT_SIZE[CanvasNodeType.Upscale],
+        metadata: { status: "idle", videoUpscale: { resolution: "1080p", quality: "Max" } },
+    },
     [CanvasNodeType.BatchTable]: {
         ...NODE_DEFAULT_SIZE[CanvasNodeType.BatchTable],
         metadata: {

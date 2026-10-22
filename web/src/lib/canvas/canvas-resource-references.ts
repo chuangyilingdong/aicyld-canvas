@@ -323,11 +323,11 @@ export function buildCanvasAgentMentionReferences(nodes: CanvasNodeData[]): Canv
                 ? node.metadata.characterCoverUrl
                 : node.type === CanvasNodeType.Drawing
                   ? node.metadata?.drawingPreviewUrl
-                  : node.type === CanvasNodeType.Video
+                  : node.type === CanvasNodeType.Video || node.type === CanvasNodeType.Upscale
                     ? canvasNodeVideoPreviewUrl(node)
                     : node.metadata?.previewContent || node.metadata?.content,
             storageKey: node.metadata?.storageKey,
-            previewStorageKey: node.type === CanvasNodeType.Video ? node.metadata?.videoPreview?.storageKey : undefined,
+            previewStorageKey: node.type === CanvasNodeType.Video || node.type === CanvasNodeType.Upscale ? node.metadata?.videoPreview?.storageKey : undefined,
             drawingId: node.type === CanvasNodeType.Drawing ? node.metadata?.drawingId : undefined,
             drawingRevision: node.type === CanvasNodeType.Drawing ? node.metadata?.drawingRevision : undefined,
             text: node.metadata?.content || node.metadata?.composerContent || node.metadata?.prompt || node.title,
@@ -421,7 +421,7 @@ export function collectUpstreamVideoNodes(nodeId: string, nodes: CanvasNodeData[
         if (visited.has(currentId)) continue;
         visited.add(currentId);
         const node = nodes.find((item) => item.id === currentId);
-        if (node?.type === CanvasNodeType.Video && Boolean(node.metadata?.content || node.metadata?.storageKey)) result.push(node);
+        if ((node?.type === CanvasNodeType.Video || node?.type === CanvasNodeType.Upscale) && Boolean(node.metadata?.content || node.metadata?.storageKey)) result.push(node);
         connections.filter((connection) => connection.toNodeId === currentId).forEach((connection) => queue.push(connection.fromNodeId));
     }
     return result;
@@ -489,11 +489,11 @@ function labelResourceNodes(nodes: CanvasNodeData[], active: boolean) {
                     ? node.metadata.characterCoverUrl
                     : node.type === CanvasNodeType.Drawing
                       ? node.metadata?.drawingPreviewUrl
-                      : node.type === CanvasNodeType.Video
+                      : node.type === CanvasNodeType.Video || node.type === CanvasNodeType.Upscale
                         ? canvasNodeVideoPreviewUrl(node)
                         : node.metadata?.previewContent || node.metadata?.content,
                 storageKey: node.metadata?.storageKey,
-                previewStorageKey: node.type === CanvasNodeType.Video ? node.metadata?.videoPreview?.storageKey : undefined,
+                previewStorageKey: node.type === CanvasNodeType.Video || node.type === CanvasNodeType.Upscale ? node.metadata?.videoPreview?.storageKey : undefined,
                 drawingId: node.type === CanvasNodeType.Drawing ? node.metadata?.drawingId : undefined,
                 drawingRevision: node.type === CanvasNodeType.Drawing ? node.metadata?.drawingRevision : undefined,
                 text: node.metadata?.workflowKind === "character" ? node.metadata.characterPrompt : node.type === CanvasNodeType.Text ? node.metadata?.content || node.metadata?.prompt : node.type === CanvasNodeType.Skill ? skillResourceText(node) : undefined,

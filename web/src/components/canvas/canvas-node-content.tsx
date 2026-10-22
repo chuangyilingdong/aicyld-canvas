@@ -50,6 +50,7 @@ import { PanoramaNodeContent } from "./nodes/panorama-node";
 import { SvgNodeContent } from "./nodes/svg-node";
 import { ArtCritiqueNodeContent } from "./nodes/ai-art-critique-node";
 import { MediaConversionNodeContent } from "./nodes/media-conversion-node";
+import { VideoUpscaleNodeContent } from "./nodes/video-upscale-node";
 import { MEDIA_CONVERSION_NODE_TYPE } from "@/lib/media-conversion/contracts";
 
 export type CanvasNodeContentProps = {
@@ -143,6 +144,7 @@ const nodeContentRenderers: Partial<Record<string, (props: CanvasNodeContentProp
     [CanvasNodeType.Compare]: CompareNodeContent,
     [CanvasNodeType.Chart]: ChartNodeContent,
     [CanvasNodeType.ColorGrade]: ColorGradeNodeContent,
+    [CanvasNodeType.Upscale]: VideoUpscaleNodeContent,
 };
 
 function DrawingContent({ node, theme, drawingProjectId }: CanvasNodeContentProps) {

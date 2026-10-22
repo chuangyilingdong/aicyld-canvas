@@ -13,7 +13,7 @@ function normalizeAudioSetting(metadata: CanvasNodeMetadata): CanvasNodeMetadata
 }
 
 export function isCanvasMediaNode(node: CanvasNodeData | null | undefined): boolean {
-    return node?.type === CanvasNodeType.Image || node?.type === CanvasNodeType.Video || node?.type === CanvasNodeType.Audio;
+    return node?.type === CanvasNodeType.Image || node?.type === CanvasNodeType.Video || node?.type === CanvasNodeType.Audio || node?.type === CanvasNodeType.Upscale;
 }
 
 function hasMediaResource(node: CanvasNodeData): boolean {
@@ -23,6 +23,7 @@ function hasMediaResource(node: CanvasNodeData): boolean {
 /** Reads explicit semantics first and falls back to legacy persisted data. */
 export function canvasMediaNodeRole(node: CanvasNodeData | null | undefined): CanvasMediaNodeRole | null {
     if (!node || !isCanvasMediaNode(node)) return null;
+    if (node.type === CanvasNodeType.Upscale && !hasMediaResource(node)) return null;
     return node.metadata?.nodeRole || (hasMediaResource(node) ? "result" : "generator");
 }
 

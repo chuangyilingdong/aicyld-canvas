@@ -111,6 +111,7 @@ import { useCanvasDirector } from "./use-canvas-director";
 import { useCanvasHistory } from "./use-canvas-history";
 import { useCanvasKeyboard } from "./use-canvas-keyboard";
 import { useCanvasMediaTools } from "./use-canvas-media-tools";
+import { useCanvasVideoUpscale } from "./use-canvas-video-upscale";
 import { useCanvasNodeEditor } from "./use-canvas-node-editor";
 import { useCanvasNodeOperations } from "./use-canvas-node-operations";
 import { useCanvasProjectLifecycle } from "./use-canvas-project-lifecycle";
@@ -1057,6 +1058,13 @@ function InfiniteCanvasPage() {
         setDialogNodeId,
     });
     const replaceCanvasNodeMedia = useCallback((node: CanvasNodeData) => handleUploadRequest(node.id), [handleUploadRequest]);
+    const startVideoUpscale = useCanvasVideoUpscale({
+        projectId,
+        nodesRef,
+        setNodes,
+        bindGenerationTask,
+        applyGenerationTaskResult,
+    });
     const { linkedProjectQuery, refetchLinkedProject, archiveNodesToLinkedFolder, reloadCanvasNodeResource } = useCanvasResourceHandoff({
         projectId,
         linkedProjectId,
@@ -1808,8 +1816,9 @@ function InfiniteCanvasPage() {
             updateMediaNode: updateMediaNodeFromContent,
             openArtCritique,
             addPanoramaCaptureNode,
+            startVideoUpscale,
         }),
-        [addPanoramaCaptureNode, deleteNodeFromContent, downloadNodeImage, duplicateNodeFromContent, openArtCritique, replaceCanvasNodeMedia, updateMediaNodeFromContent, updateNodeFromContent, updateNodeMetadataFromContent],
+        [addPanoramaCaptureNode, deleteNodeFromContent, downloadNodeImage, duplicateNodeFromContent, openArtCritique, replaceCanvasNodeMedia, startVideoUpscale, updateMediaNodeFromContent, updateNodeFromContent, updateNodeMetadataFromContent],
     );
     const { selectCanvasStyle, applyCanvasStyleAsync, styleApplying } = useCanvasStyleWorkflow({
         canvasId: projectId,

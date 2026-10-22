@@ -698,7 +698,7 @@ export function useCanvasGeneration({ projectId, domainProjectId, projectLoaded,
         if (!projectLoaded || localMode) return;
         nodes.forEach((node) => {
             const taskId = node.metadata?.taskId;
-            if (!taskId || !node.metadata?.content || node.metadata.status !== NODE_STATUS_SUCCESS || (node.type !== CanvasNodeType.Image && node.type !== CanvasNodeType.Video && node.type !== CanvasNodeType.Audio)) return;
+            if (!taskId || !node.metadata?.content || node.metadata.status !== NODE_STATUS_SUCCESS || (node.type !== CanvasNodeType.Image && node.type !== CanvasNodeType.Video && node.type !== CanvasNodeType.Audio && node.type !== CanvasNodeType.Upscale)) return;
             const saveKey = `${taskId}:${node.id}:${domainProjectId || "personal"}`;
             if (autoSavedTaskIdsRef.current.has(saveKey)) return;
             autoSavedTaskIdsRef.current.add(saveKey);
