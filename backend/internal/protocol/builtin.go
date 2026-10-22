@@ -317,6 +317,23 @@ func midjourneyAdapter() Adapter {
 			copyMidjourneyOption(body, options, "version", "version")
 			if action == "imagine" || action == "edits" {
 				copyMidjourneyOption(body, options, "quality", "quality")
+				copyMidjourneyOption(body, options, "style", "style")
+				copyMidjourneyOption(body, options, "negativePrompt", "negative_prompt")
+				copyMidjourneyOption(body, options, "cref", "cref")
+				copyMidjourneyOption(body, options, "sref", "sref")
+				copyMidjourneyOption(body, options, "dref", "dref")
+				copyMidjourneyOption(body, options, "extra", "extra")
+				for _, option := range []struct{ key, wire string }{
+					{"seed", "seed"}, {"stylize", "stylize"}, {"chaos", "chaos"}, {"weird", "weird"},
+					{"cw", "cw"}, {"sw", "sw"}, {"iw", "iw"}, {"dw", "dw"}, {"stop", "stop"},
+				} {
+					copyMidjourneyNumberOption(body, options, option.key, option.wire)
+				}
+				for _, option := range []struct{ key, wire string }{
+					{"tile", "tile"}, {"niji", "niji"}, {"raw", "raw"}, {"draft", "draft"}, {"hd", "hd"},
+				} {
+					copyMidjourneyBoolOption(body, options, option.key, option.wire)
+				}
 			}
 			if value := midjourneyInt(options, "index"); value > 0 {
 				body["index"] = value
@@ -1190,6 +1207,32 @@ func midjourneyActionOptions(request GenerationRequest) (string, map[string]any)
 
 func copyMidjourneyOption(body map[string]any, options map[string]any, key string, wire string) {
 	if value := strings.TrimSpace(midjourneyString(options, key)); value != "" {
+		body[wire] = value
+	}
+}
+
+func copyMidjourneyNumberOption(body map[string]any, options map[string]any, key string, wire string) {
+	if _, present := options[key]; !present {
+		return
+	}
+	switch value := options[key].(type) {
+	case float64:
+		body[wire] = value
+	case float32:
+		body[wire] = value
+	case int:
+		body[wire] = value
+	case int64:
+		body[wire] = value
+	case json.Number:
+		if number, err := value.Float64(); err == nil {
+			body[wire] = number
+		}
+	}
+}
+
+func copyMidjourneyBoolOption(body map[string]any, options map[string]any, key string, wire string) {
+	if value, ok := options[key].(bool); ok {
 		body[wire] = value
 	}
 }

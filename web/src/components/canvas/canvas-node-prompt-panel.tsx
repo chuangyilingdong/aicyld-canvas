@@ -41,6 +41,7 @@ import { CanvasImageSettingsPopover } from "./canvas-image-settings-popover";
 import { CanvasAudioSettingsPopover, type CanvasAudioSettingKey } from "./canvas-audio-settings-popover";
 import { CanvasResourceMentionTextarea } from "./canvas-resource-mention-textarea";
 import { CanvasVideoSettingsPopover } from "./canvas-video-settings-popover";
+import { MIDJOURNEY_VERSIONS } from "@/lib/canvas/canvas-midjourney";
 import { seedanceSettingsConstraints } from "@/lib/seedance-task-constraints";
 import { CanvasVideoPromptTools } from "./canvas-video-prompt-tools";
 import { CanvasPresetPicker, type CanvasPromptPreset } from "./canvas-preset-picker";
@@ -162,11 +163,19 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
     };
     const config = buildNodeConfig(globalConfig, node, mode, requirements);
     const isMidjourneyImage = mode === "image" && resolveModelRequestConfig(config, config.model).interfaceType === "midjourney";
+    const rawMidjourneyVersion = String(node.metadata?.midjourneyVersion || node.metadata?.midjourneyParameters?.version || "").replace(/^v/i, "");
+    const selectedMidjourneyVersion = (MIDJOURNEY_VERSIONS as readonly string[]).includes(rawMidjourneyVersion) ? rawMidjourneyVersion : undefined;
     const updateMidjourneyParameter = (key: string, value: string | number | boolean | undefined) => {
         const next = { ...(node.metadata?.midjourneyParameters || {}) };
         if (value === undefined || value === "") delete next[key];
         else next[key] = value;
         onConfigChange(node.id, { midjourneyParameters: Object.keys(next).length ? next : undefined });
+    };
+    const updateMidjourneyVersion = (version: string) => {
+        const next: Record<string, unknown> = { ...(node.metadata?.midjourneyParameters || {}), version };
+        if (version !== "7") delete next.niji;
+        if (version !== "8.1" && version !== "8.2") delete next.hd;
+        onConfigChange(node.id, { midjourneyVersion: version, midjourneyParameters: next });
     };
     const availableModels = selectableModelsByCapability(config, mode);
     // 音频节点：模型按「用途」分组，只列当前用途可用的那几档（配音 / 音乐 / 音效）。
@@ -437,7 +446,15 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                                     fullWidth
                                     config={config}
                                     value={config.model}
-                                    onChange={(model) => onConfigChange(node.id, mode === "image" ? { model, ...defaultImageParamsForModel(config, model) } : { model })}
+                                    onChange={(model) => {
+                                        const patch: Partial<CanvasNodeMetadata> = mode === "image" ? { model, ...defaultImageParamsForModel(config, model) } : { model };
+                                        if (mode === "image" && resolveModelRequestConfig(config, model).interfaceType === "midjourney") {
+                                            const version = selectedMidjourneyVersion || "8.1";
+                                            patch.midjourneyVersion = version;
+                                            patch.midjourneyParameters = { ...(node.metadata?.midjourneyParameters || {}), version };
+                                        }
+                                        onConfigChange(node.id, patch);
+                                    }}
                                     capability={mode}
                                     hiddenModels={hiddenModels}
                                     requirements={resolvedRequirements}
@@ -446,6 +463,18 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                                     showConfiguredModelName
                                 />
                             </div>
+                            {isMidjourneyImage ? (
+                                <Select
+                                    aria-label="Midjourney 版本"
+                                    size="small"
+                                    popupMatchSelectWidth={false}
+                                    className="canvas-node-composer-mode-select !h-7 w-[72px] shrink-0 [&_.ant-select-selector]:!h-7 [&_.ant-select-selection-item]:!text-[var(--fs-tiny)] [&_.ant-select-selection-item]:!leading-7"
+                                    value={selectedMidjourneyVersion}
+                                    placeholder="版本"
+                                    options={MIDJOURNEY_VERSIONS.map((version) => ({ value: version, label: `v${version}` }))}
+                                    onChange={updateMidjourneyVersion}
+                                />
+                            ) : null}
                             {mode === "audio" ? (
                                 <Select
                                     aria-label="音频用途"
@@ -533,7 +562,7 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                             />
                             <CanvasImageSettingsPopover
                                 config={config}
-                                midjourneyParameters={isMidjourneyImage ? node.metadata?.midjourneyParameters : undefined}
+                                midjourneyParameters={isMidjourneyImage ? { ...(node.metadata?.midjourneyParameters || {}), ...(selectedMidjourneyVersion ? { version: selectedMidjourneyVersion } : {}) } : undefined}
                                 onMidjourneyParameterChange={isMidjourneyImage ? updateMidjourneyParameter : undefined}
                                 placement={expanded ? "topRight" : "topLeft"}
                                 buttonClassName="canvas-node-composer-settings-trigger [&>span]:min-w-0 [&_.lucide]:!size-3"

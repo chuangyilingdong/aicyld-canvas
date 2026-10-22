@@ -22,6 +22,9 @@
   `version`。宿主在发往上游时转换为对应 snake_case 字段。
 - Imagine / Edits 的 `quality` 对应 Midjourney `--q`，取值为 `0.25`、`0.5`、`1`、`2`。
   它控制细节量，不是像素尺寸；像素比例仍由 `size`（`--ar`）决定，更高分辨率使用 upscale 动作。
+- Imagine / Edits 同步映射 `style`、`negativePrompt`、`seed`、`stylize`、`chaos`、`weird`、`tile`、
+  `niji`、`iw`、`cw`、`sw`、`cref`、`sref`、`dref`、`dw`、`raw`、`draft`、`hd`、`stop` 和 `extra`。
+  画布版本入口只开放 `8.2 / 8.1 / 7`；`repeat` 不开放，避免一次设置倍增付费请求。
 - `taskId` 必须是 Midjourney 上游任务 ID，即任务记录里的 `providerRequestId`；不得使用 Canvas 的本地任务 ID。
 - 图片选择的 `index` 从 `taskOutputIndex + 1` 自动推导为 1–4，也允许用户显式选择宫格位置；Video 的 `index` 是 0–3。
 - `upscale`、`variation`、`high-variation`、`low-variation`、`inpaint`、`remix-strong`、

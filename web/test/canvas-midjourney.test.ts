@@ -8,6 +8,7 @@ import {
     midjourneyHdUpscaleUnavailableReason,
     midjourneyIndexForNode,
     midjourneyImagineRequestOptions,
+    MIDJOURNEY_VERSIONS,
     midjourneyResultMode,
     midjourneyTaskButtons,
     midjourneyTaskMetadata,
@@ -38,12 +39,23 @@ function task(action: string, extra: Record<string, unknown> = {}): GenerationTa
 
 describe("Midjourney canvas contract", () => {
     test("maps Imagine quality and version without turning quality into a speed tier", () => {
-        expect(midjourneyImagineRequestOptions({ quality: "1", version: "v8.1", repeat: 8, tile: false })).toEqual({
+        expect(MIDJOURNEY_VERSIONS).toEqual(["8.2", "8.1", "7"]);
+        expect(midjourneyImagineRequestOptions({
+            quality: "1", version: "v8.1", repeat: 8, tile: false, style: "raw", stylize: 750,
+            negativePrompt: "blurry", niji: false, hd: true, iw: 1.2,
+        })).toEqual({
             action: "imagine",
             quality: "1",
             version: "8.1",
             tile: false,
+            style: "raw",
+            stylize: 750,
+            negativePrompt: "blurry",
+            niji: false,
+            hd: true,
+            iw: 1.2,
         });
+        expect(midjourneyImagineRequestOptions({ version: "6.1" }).version).toBeUndefined();
     });
 
     test("uses only providerRequestId as the upstream parent", () => {

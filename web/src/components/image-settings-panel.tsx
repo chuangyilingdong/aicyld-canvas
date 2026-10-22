@@ -1,7 +1,7 @@
 import { ImageSizePicker } from "./image-size-picker";
 import { imageResolutionUsesQuality } from "@/lib/image-size-presets";
 import { type ReactNode } from "react";
-import { ConfigProvider } from "antd";
+import { ConfigProvider, Input, InputNumber, Select } from "antd";
 import { Switch } from "@/components/ui/base/switch";
 
 import { type CanvasTheme } from "@/lib/canvas-theme";
@@ -71,7 +71,6 @@ export function ImageSettingsPanel({ config, onConfigChange, midjourneyParameter
     const activeQualityOptions = profile.quality.values.map((value) => qualityOptions.find((item) => item.value === value) || { value, label: value });
     const isMidjourney = isMidjourneySpeedQuality(profile);
     const midjourneyQuality = typeof midjourneyParameters?.quality === "string" ? midjourneyParameters.quality : "";
-    const midjourneyVersion = typeof midjourneyParameters?.version === "string" ? midjourneyParameters.version : "";
 
     return (
         <ImageSettingsTheme theme={theme}>
@@ -104,17 +103,7 @@ export function ImageSettingsPanel({ config, onConfigChange, midjourneyParameter
                             </OptionPill>
                         ))}
                     </div>
-                    <div className="text-[var(--fs-label)]" style={{ color: theme.node.muted }}>
-                        控制画面细节量，不等于像素尺寸；更高分辨率请使用“MJ 动作 → 放大”。
-                    </div>
-                    <SettingTitle color={theme.node.muted}>Midjourney 版本</SettingTitle>
-                    <div className="grid grid-cols-4 gap-1.5">
-                        {["default", "8.2", "8.1", "7", "6.1", "5.2", "5.1"].map((value) => (
-                            <OptionPill key={value} selected={(midjourneyVersion || "default") === value} theme={theme} onClick={() => onMidjourneyParameterChange("version", value === "default" ? undefined : value)}>
-                                {value === "default" ? "默认" : `v${value}`}
-                            </OptionPill>
-                        ))}
-                    </div>
+                    <MidjourneyAdvancedPanel theme={theme} parameters={midjourneyParameters || {}} onChange={onMidjourneyParameterChange} />
                 </div> : null}
                 {showTransparent && profile.transparentBackground.supported ? <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
@@ -236,4 +225,68 @@ function SettingTitle({ children, color }: { children: string; color: string }) 
             {children}
         </div>
     );
+}
+
+function MidjourneyAdvancedPanel({
+    theme,
+    parameters,
+    onChange,
+}: {
+    theme: CanvasTheme;
+    parameters: Record<string, unknown>;
+    onChange: (key: string, value: string | number | boolean | undefined) => void;
+}) {
+    const version = typeof parameters.version === "string" ? parameters.version : "";
+    const stringValue = (key: string) => typeof parameters[key] === "string" ? parameters[key] as string : "";
+    const numberValue = (key: string) => typeof parameters[key] === "number" ? parameters[key] as number : undefined;
+    const booleanValue = (key: string) => parameters[key] === true;
+    const numberChange = (key: string) => (value: number | null) => onChange(key, value ?? undefined);
+    const stringChange = (key: string) => (value: string) => onChange(key, value.trim() || undefined);
+    return (
+        <details className="rounded-xl border px-2.5 py-2" style={{ borderColor: theme.node.stroke }}>
+            <summary className="cursor-pointer select-none text-xs font-medium" style={{ color: theme.node.muted }}>高级参数</summary>
+            <div className="mt-3 space-y-3">
+                <div className="grid grid-cols-2 gap-2">
+                    <SmallField label="风格">
+                        <Select value={stringValue("style") || "default"} onChange={(value) => onChange("style", value === "default" ? undefined : value)} options={[{ value: "default", label: "默认" }, { value: "raw", label: "Raw" }]} />
+                    </SmallField>
+                    <SmallField label="种子">
+                        <InputNumber className="w-full" min={0} precision={0} value={numberValue("seed")} onChange={numberChange("seed")} placeholder="默认" />
+                    </SmallField>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                    <SmallField label="风格化"><InputNumber className="w-full" min={0} max={1000} value={numberValue("stylize")} onChange={numberChange("stylize")} placeholder="0–1000" /></SmallField>
+                    <SmallField label="混乱"><InputNumber className="w-full" min={0} max={100} value={numberValue("chaos")} onChange={numberChange("chaos")} placeholder="0–100" /></SmallField>
+                    <SmallField label="怪异"><InputNumber className="w-full" min={0} max={3000} value={numberValue("weird")} onChange={numberChange("weird")} placeholder="0–3000" /></SmallField>
+                </div>
+                <SmallField label="负面提示词"><Input value={stringValue("negativePrompt")} onChange={(event) => stringChange("negativePrompt")(event.target.value)} placeholder="ugly, blurry" /></SmallField>
+                <div className="flex flex-wrap gap-x-4 gap-y-2">
+                    {version === "7" ? <ToggleField label="Niji" checked={booleanValue("niji")} theme={theme} onChange={(checked) => onChange("niji", checked)} /> : null}
+                    <ToggleField label="Tiled" checked={booleanValue("tile")} theme={theme} onChange={(checked) => onChange("tile", checked)} />
+                    <ToggleField label="Draft" checked={booleanValue("draft")} theme={theme} onChange={(checked) => onChange("draft", checked)} />
+                    {(version === "8.1" || version === "8.2") ? <ToggleField label="HD" checked={booleanValue("hd")} theme={theme} onChange={(checked) => onChange("hd", checked)} /> : null}
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                    <SmallField label="图片权重"><InputNumber className="w-full" min={0} max={3} step={0.1} value={numberValue("iw")} onChange={numberChange("iw")} placeholder="0–3" /></SmallField>
+                    <SmallField label="角色权重"><InputNumber className="w-full" min={0} max={100} value={numberValue("cw")} onChange={numberChange("cw")} placeholder="0–100" /></SmallField>
+                    <SmallField label="风格权重"><InputNumber className="w-full" min={0} max={1000} value={numberValue("sw")} onChange={numberChange("sw")} placeholder="0–1000" /></SmallField>
+                    <SmallField label="深度权重"><InputNumber className="w-full" min={0} max={100} value={numberValue("dw")} onChange={numberChange("dw")} placeholder="0–100" /></SmallField>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                    <SmallField label="角色参考"><Input value={stringValue("cref")} onChange={(event) => stringChange("cref")(event.target.value)} placeholder="URL" /></SmallField>
+                    <SmallField label="风格参考"><Input value={stringValue("sref")} onChange={(event) => stringChange("sref")(event.target.value)} placeholder="URL" /></SmallField>
+                    <SmallField label="深度参考"><Input value={stringValue("dref")} onChange={(event) => stringChange("dref")(event.target.value)} placeholder="URL" /></SmallField>
+                </div>
+                <SmallField label="额外参数"><Input value={stringValue("extra")} onChange={(event) => stringChange("extra")(event.target.value)} placeholder="--xxx" /></SmallField>
+            </div>
+        </details>
+    );
+}
+
+function SmallField({ label, children }: { label: string; children: ReactNode }) {
+    return <label className="block space-y-1"><span className="text-[11px]" style={{ color: "var(--muted-foreground)" }}>{label}</span>{children}</label>;
+}
+
+function ToggleField({ label, checked, theme, onChange }: { label: string; checked: boolean; theme: CanvasTheme; onChange: (checked: boolean) => void }) {
+    return <label className="inline-flex items-center gap-2 text-xs" style={{ color: theme.node.text }}><Switch size="sm" checked={checked} onChange={onChange} />{label}</label>;
 }

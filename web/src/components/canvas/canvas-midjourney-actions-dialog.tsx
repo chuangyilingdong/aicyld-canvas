@@ -40,7 +40,6 @@ export function CanvasMidjourneyActionsDialog({ open, node, nodes, config, onClo
     const [direction, setDirection] = useState<"left" | "right" | "up" | "down">("right");
     const [zoomRatio, setZoomRatio] = useState(2);
     const [dimensions, setDimensions] = useState<"LANDSCAPE" | "PORTRAIT" | "SQUARE">("LANDSCAPE");
-    const [version, setVersion] = useState("");
     const [upscaleMode, setUpscaleMode] = useState<MidjourneyUpscaleMode>("normal");
     const [referenceNodeIds, setReferenceNodeIds] = useState<string[]>([]);
     const [animateMode, setAnimateMode] = useState<"auto" | "manual">("manual");
@@ -65,7 +64,6 @@ export function CanvasMidjourneyActionsDialog({ open, node, nodes, config, onClo
         setDirection("right");
         setZoomRatio(2);
         setDimensions("LANDSCAPE");
-        setVersion(node.metadata?.midjourneyVersion || "");
         setUpscaleMode("normal");
         setReferenceNodeIds(node.type === CanvasNodeType.Image ? [node.id] : []);
         setAnimateMode(midjourneyActionFromNode(node) === "imagine" && midjourneyUpstreamTaskId(node) ? "auto" : "manual");
@@ -87,7 +85,7 @@ export function CanvasMidjourneyActionsDialog({ open, node, nodes, config, onClo
     const upstreamTaskId = node ? midjourneyUpstreamTaskId(node) : "";
     const canAutoVideo = parentAction === "imagine" && Boolean(upstreamTaskId);
     const modalStage = action === "modal";
-    const hdUpscaleUnavailableReason = action === "upscale" ? midjourneyHdUpscaleUnavailableReason(node!, index, version) : "";
+    const hdUpscaleUnavailableReason = action === "upscale" ? midjourneyHdUpscaleUnavailableReason(node!, index) : "";
 
     const submit = async (maskDataUrl?: string, promptOverride?: string) => {
         if (!node || !current?.enabled || submitting) return;
@@ -105,7 +103,7 @@ export function CanvasMidjourneyActionsDialog({ open, node, nodes, config, onClo
             return;
         }
         const hdCustomId = action === "upscale" && upscaleMode !== "normal"
-            ? midjourneyHdUpscaleCustomId(node, index, upscaleMode, version)
+            ? midjourneyHdUpscaleCustomId(node, index, upscaleMode)
             : "";
         if (action === "upscale" && upscaleMode !== "normal" && !hdCustomId) {
             setError(hdUpscaleUnavailableReason || "当前父任务无法生成 HD 放大命令");
@@ -126,7 +124,6 @@ export function CanvasMidjourneyActionsDialog({ open, node, nodes, config, onClo
                 direction: action === "pan" ? direction : undefined,
                 zoomRatio: action === "zoom" ? zoomRatio : undefined,
                 dimensions: action === "blend" ? dimensions : undefined,
-                version: normalizeVersionForSubmit(version),
                 referenceNodeIds: action === "blend" ? referenceNodeIds : undefined,
                 animateMode: action === "video" ? animateMode : undefined,
                 motion: action === "video" ? motion : undefined,
@@ -225,8 +222,6 @@ export function CanvasMidjourneyActionsDialog({ open, node, nodes, config, onClo
                                 onZoomRatioChange={setZoomRatio}
                                 dimensions={dimensions}
                                 onDimensionsChange={setDimensions}
-                                version={version}
-                                onVersionChange={setVersion}
                                 upscaleMode={upscaleMode}
                                 onUpscaleModeChange={setUpscaleMode}
                                 hdUpscaleUnavailableReason={hdUpscaleUnavailableReason}
@@ -281,8 +276,6 @@ type ActionFormProps = {
     onZoomRatioChange: (value: number) => void;
     dimensions: "LANDSCAPE" | "PORTRAIT" | "SQUARE";
     onDimensionsChange: (value: "LANDSCAPE" | "PORTRAIT" | "SQUARE") => void;
-    version: string;
-    onVersionChange: (value: string) => void;
     upscaleMode: MidjourneyUpscaleMode;
     onUpscaleModeChange: (value: MidjourneyUpscaleMode) => void;
     hdUpscaleUnavailableReason: string;
@@ -423,19 +416,6 @@ function ActionForm(props: ActionFormProps) {
                 </div>
             ) : null}
 
-            <Field label="Midjourney 版本（可选）">
-                <Select value={normalizeVersionForSubmit(props.version) || "default"} onChange={(value) => props.onVersionChange(value === "default" ? "" : value)} options={[
-                    { value: "default", label: "沿用父任务 / 上游默认" },
-                    { value: "8.2", label: "v8.2" },
-                    { value: "8.1", label: "v8.1" },
-                    { value: "7", label: "v7" },
-                    { value: "6.1", label: "v6.1" },
-                    { value: "6", label: "v6" },
-                    { value: "5.2", label: "v5.2" },
-                    { value: "5.1", label: "v5.1" },
-                ]} />
-            </Field>
-
             {props.error ? <Alert type="error" showIcon message={props.error} /> : null}
         </div>
     );
@@ -450,9 +430,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     );
 }
 
-function normalizeVersionForSubmit(value: string) {
-    return value.trim().replace(/^v/i, "");
-}
 function fitMaskDisplay(width: number, height: number) {
     const ratio = width > 0 && height > 0 ? width / height : 1;
     let displayWidth = Math.min(760, width || 760);

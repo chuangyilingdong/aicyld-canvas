@@ -33,12 +33,10 @@ export function CanvasImageSettingsPopover({ config, onConfigChange, midjourneyP
     const profile = modelCapabilityConfigFor(config, config.model || config.imageModel).image!;
     const normalized = normalizeImageValue(profile, config);
     const midjourneyQuality = typeof midjourneyParameters?.quality === "string" ? midjourneyParameters.quality : "";
-    const midjourneyVersion = typeof midjourneyParameters?.version === "string" ? midjourneyParameters.version : "";
     const summaryParts = [
         ...(profile.size.parameter !== "none" ? [imageSizeLabel(normalized.size)] : []),
         ...(profile.quality.supported ? [imageQualityLabel(normalized.quality)] : []),
         ...(midjourneyQuality ? [`细节 ${midjourneyQuality}`] : []),
-        ...(midjourneyVersion ? [`v${midjourneyVersion.replace(/^v/i, "")}`] : []),
         ...(showCount && profile.maxOutputs > 1 ? [`${normalized.count} 张`] : []),
         ...(profile.transparentBackground.supported && normalized.transparentBackground === "true" ? ["透明"] : []),
     ];

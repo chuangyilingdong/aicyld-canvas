@@ -22,8 +22,9 @@ describe("统一图片分辨率与宽高比", () => {
         expect(picker).toContain("宽高比");
         expect(picker).toContain("16:9");
         expect(picker).not.toContain('class="image-size-tiers"');
-        expect(picker).toContain("尺寸由模型版本决定");
-        expect(picker).toContain("细节质量（--q）");
+        expect(picker).not.toContain("尺寸由模型版本决定");
+        expect(picker).not.toContain("控制画面细节量");
+        expect(picker).not.toContain("画面尺寸由比例和版本决定");
     });
 
     test("默认 Gemini 质量枚举不能把未启用的 1K 显示出来", () => {

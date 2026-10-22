@@ -62,7 +62,7 @@ export type MidjourneyActionSubmission = {
 export type MidjourneyUpscaleMode = "normal" | "hd-subtle" | "hd-creative";
 
 export const MIDJOURNEY_IMAGINE_QUALITIES = ["0.25", "0.5", "1", "2"] as const;
-export const MIDJOURNEY_VERSIONS = ["8.2", "8.1", "7", "6.1", "5.2", "5.1"] as const;
+export const MIDJOURNEY_VERSIONS = ["8.2", "8.1", "7"] as const;
 
 /**
  * Build the upstream option bag for an Imagine request. `quality` here is MJ's
@@ -86,7 +86,9 @@ export function midjourneyImagineRequestOptions(parameters?: Record<string, unkn
         if (value) options[key] = value;
     }
     for (const key of ["seed", "stylize", "chaos", "weird", "cw", "sw", "iw", "dw", "stop"] as const) {
-        const value = Number(parameters[key]);
+        const raw = parameters[key];
+        if ((typeof raw !== "number" && typeof raw !== "string") || (typeof raw === "string" && !raw.trim())) continue;
+        const value = Number(raw);
         if (Number.isFinite(value)) options[key] = value;
     }
     for (const key of ["tile", "niji", "raw", "draft", "hd"] as const) {

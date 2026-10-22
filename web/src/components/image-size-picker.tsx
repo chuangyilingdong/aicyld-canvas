@@ -161,10 +161,9 @@ export function ImageSizePicker({ profile, size, quality, onChange }: { profile:
             </div>
             {!choices.length ? <p className="image-size-hint">未配置预设尺寸{profile.size.allowCustom ? "，可输入自定义比例或尺寸" : ""}</p> : null}
             <output aria-live="polite" className="image-size-output">
-                {size === "auto" ? "尺寸由模型决定" : active ? ratioOnly ? `${active.ratio} · 尺寸由模型版本决定` : `${active.ratio} · ${active.width} × ${active.height} px` : size.replace("x", " × ")}
+                {size === "auto" ? "尺寸由模型决定" : active ? ratioOnly ? active.ratio : `${active.ratio} · ${active.width} × ${active.height} px` : size.replace("x", " × ")}
             </output>
             {!ratioOnly && profile.size.parameter === "aspect_ratio" && active ? <p className="image-size-hint">像素尺寸为换算参考，最终以模型输出为准。</p> : null}
-            {ratioOnly ? <p className="image-size-hint">画面尺寸由比例和版本决定；更高细节可调“细节质量（--q）”，更高分辨率再使用“MJ 动作 → 放大”。</p> : null}
             {profile.size.allowCustom ? (
                 <details className="image-size-custom">
                     <summary>自定义比例或尺寸</summary>
