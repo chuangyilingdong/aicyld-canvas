@@ -64,6 +64,8 @@ type BackendGenerationTaskOptions = {
     expectedScope?: import("@/lib/user-scope-guard").CapturedUserScope;
     /** Runs after reference preparation and immediately before task creation. */
     confirmTask?: (request: CreateTaskInput) => Promise<boolean>;
+    /** Live price estimates use counts only and must not read or upload media. */
+    quoteReferenceCounts?: { images?: number; videos?: number; audios?: number };
 };
 
 export type GenerationTaskDependencies = {
@@ -226,9 +228,9 @@ function generationOperation(options: BackendGenerationTaskOptions) {
     return resolveVideoOperation(
         {
             textCount: 0,
-            imageCount: options.referenceImages?.length ?? 0,
-            videoCount: options.referenceVideos?.length ?? 0,
-            audioCount: options.referenceAudios?.length ?? 0,
+            imageCount: options.quoteReferenceCounts?.images ?? options.referenceImages?.length ?? 0,
+            videoCount: options.quoteReferenceCounts?.videos ?? options.referenceVideos?.length ?? 0,
+            audioCount: options.quoteReferenceCounts?.audios ?? options.referenceAudios?.length ?? 0,
             characterCount: 0,
         },
         options.metadata?.videoEditOperation as string | undefined,
@@ -446,6 +448,20 @@ export async function prepareBackendGenerationTask(options: BackendGenerationTas
     throwIfAborted(options.signal);
     assertPreparedVideoCapability(options.mode, options.config, prepared);
     return backendGenerationTaskInput(options, prepared);
+}
+
+/**
+ * Builds the same task shape used by the price quote, without reading or
+ * uploading reference media. This keeps slider/model changes cheap; the real
+ * submission still prepares and reuses transportable references.
+ */
+export function buildBackendGenerationTaskQuoteInput(options: BackendGenerationTaskOptions): CreateTaskInput {
+    throwIfAborted(options.signal);
+    assertBackendRuntimeConfigured(options.config, options.mode);
+    return backendGenerationTaskInput(
+        { ...options, prompt: options.prompt.trim() ? options.prompt : "生成" },
+        { referenceImages: [], referenceVideos: [], referenceAudios: [] },
+    );
 }
 
 function assertPreparedVideoCapability(mode: BackendGenerationMode, config: AiConfig, prepared: PreparedGenerationReferences) {

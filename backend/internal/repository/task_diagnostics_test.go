@@ -40,11 +40,14 @@ func TestTaskDiagnosticsRoundTripAndRetry(t *testing.T) {
 	}
 	retried.Status = model.TaskStatusSucceeded
 	retried.FailureDiagnostics = &model.TaskFailureDiagnostics{ExecutionResult: "completed", Requests: []model.TaskRequestEvidence{{HTTPStatus: 200, RequestID: "req-success"}}}
+	retried.BillingHoldID = "hold-success"
+	retried.BillingStatus = "settled"
+	retried.BillingPoints = 3
 	if err = r.SaveTaskCompletion(retried, model.TaskStatusQueued, nil); err != nil {
 		t.Fatal(err)
 	}
 	listed, err = r.Tasks("user", 10, "", false)
-	if err != nil || len(listed) != 1 || listed[0].FailureDiagnostics == nil || listed[0].FailureDiagnostics.Requests[0].RequestID != "req-success" {
+	if err != nil || len(listed) != 1 || listed[0].FailureDiagnostics == nil || listed[0].FailureDiagnostics.Requests[0].RequestID != "req-success" || listed[0].BillingStatus != "settled" || listed[0].BillingPoints != 3 {
 		t.Fatalf("success list: %+v %v", listed, err)
 	}
 }

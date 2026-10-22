@@ -43,6 +43,7 @@ func (w *taskWorkerCoordinator) start(ctx context.Context) {
 	s.startProviderCancellationReconciliation(ctx)
 	s.startGenerationDeliveryRecovery(ctx)
 	s.startCanvasWorkflowScheduler(ctx)
+	s.startCanvasBillingReconciliation(ctx)
 	// 旧内置 Agent 的后台调度已整体从产品生命周期移出：
 	//   - 不再启动记忆自动压缩（它会按周期调用用户的文本模型）；
 	//   - 不再按运行模式启动 advanceCloudAgents 轮次调度。

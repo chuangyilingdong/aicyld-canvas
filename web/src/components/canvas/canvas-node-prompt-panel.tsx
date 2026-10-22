@@ -22,7 +22,7 @@ import {
 import { CanvasNodeType, type CanvasGenerationMode, type CanvasNodeData, type CanvasNodeMetadata, type CanvasVideoEditOperation, type CanvasWorkspaceMode } from "@/types/canvas";
 import { Tooltip } from "@/components/ui/base/tooltip";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { ArrowLeftRight, ArrowUp, AtSign, Boxes, Camera, ChevronDown, FileText, GripVertical, ImageIcon, ImagePlus, Link2, LoaderCircle, Maximize2, Music2, Pencil, SlidersHorizontal, UserRound, Video, WandSparkles, X } from "lucide-react";
+import { ArrowLeftRight, ArrowUp, AtSign, Boxes, Camera, ChevronDown, FileText, GripVertical, ImageIcon, ImagePlus, Link2, LoaderCircle, Maximize2, Music2, Pencil, SlidersHorizontal, UserRound, Video, WandSparkles, X, Zap } from "lucide-react";
 
 import { ModelPicker } from "@/components/model-picker";
 import { defaultConfig, modelOptionName, resolveModelChannel, resolveModelRequestConfig, selectableModelsByCapability, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
@@ -35,7 +35,6 @@ import { normalizeVideoDuration, normalizeVideoResolution } from "@/lib/video-ge
 import { modelRequestOptions, resolveCompatibleModel, resolveModelGenerationDefaults, defaultImageParamsForModel, type ModelRequirements } from "@/lib/model-selection";
 import { navigateToSettings } from "@/lib/settings-navigation";
 import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
-import { useUserStore } from "@/stores/use-user-store";
 import { CanvasCameraControlPopover } from "./canvas-camera-control-popover";
 import { CanvasImageSettingsPopover } from "./canvas-image-settings-popover";
 import { CanvasAudioSettingsPopover, type CanvasAudioSettingKey } from "./canvas-audio-settings-popover";
@@ -52,6 +51,9 @@ import { promptOptimizerPlugin, PROMPT_OPTIMIZER_PLUGIN_ID } from "@/lib/plugins
 import { createPluginHostContext } from "@/services/plugin-host";
 import { usePluginStore } from "@/stores/use-plugin-store";
 import { useResolvedCanvasResourceReferences } from "./use-resolved-canvas-resource-references";
+import { buildBackendGenerationTaskQuoteInput } from "@/services/api/generation-task";
+import { useCanvasBillingBalance } from "@/hooks/use-canvas-billing";
+import { useCanvasGenerationQuote } from "@/hooks/use-canvas-generation-quote";
 
 export type CanvasNodeGenerationMode = CanvasGenerationMode;
 
@@ -162,6 +164,34 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
         }, mode),
     };
     const config = buildNodeConfig(globalConfig, node, mode, requirements);
+    const quoteInput = useMemo(() => {
+        if (mode === "text") return null;
+        try {
+            return buildBackendGenerationTaskQuoteInput({
+                projectId,
+                mode,
+                prompt: "生成",
+                config,
+                quoteReferenceCounts: {
+                    images: requirements.input?.imageCount || 0,
+                    videos: requirements.input?.videoCount || 0,
+                    audios: requirements.input?.audioCount || 0,
+                },
+                metadata: {
+                    sourceNodeId: node.id,
+                    ...(node.metadata?.videoEditOperation ? { videoEditOperation: node.metadata.videoEditOperation } : {}),
+                },
+            });
+        } catch {
+            return null;
+        }
+    }, [config, mode, node.id, node.metadata?.videoEditOperation, projectId, requirements.input?.audioCount, requirements.input?.imageCount, requirements.input?.videoCount]);
+    const billingQuoteQuery = useCanvasGenerationQuote(quoteInput);
+    const billingBalanceQuery = useCanvasBillingBalance();
+    const estimatedPoints = billingQuoteQuery.quote?.enabled ? billingQuoteQuery.quote.points : 0;
+    const availableBalance = billingBalanceQuery.data?.enabled ? billingBalanceQuery.data.balance : billingQuoteQuery.quote?.balance;
+    const insufficientPoints = Boolean(mode !== "text" && billingQuoteQuery.quote?.enabled && estimatedPoints > 0 && typeof availableBalance === "number" && availableBalance < estimatedPoints);
+    const billingPending = Boolean(quoteInput) && (billingQuoteQuery.loading || (billingQuoteQuery.quote === undefined && !billingQuoteQuery.error));
     const isMidjourneyImage = mode === "image" && resolveModelRequestConfig(config, config.model).interfaceType === "midjourney";
     const rawMidjourneyVersion = String(node.metadata?.midjourneyVersion || node.metadata?.midjourneyParameters?.version || "").replace(/^v/i, "");
     const selectedMidjourneyVersion = (MIDJOURNEY_VERSIONS as readonly string[]).includes(rawMidjourneyVersion) ? rawMidjourneyVersion : undefined;
@@ -229,7 +259,7 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
         if (!rect?.width || !rect.height) return { width: PROMPT_EDITOR_MODAL_DEFAULT_WIDTH, height: PROMPT_EDITOR_MODAL_DEFAULT_HEIGHT };
         return { width: Math.round(rect.width), height: Math.round(rect.height) };
     };
-    const isSubmitDisabled = !isRunning && !prompt.trim();
+    const isSubmitDisabled = !isRunning && (!prompt.trim() || insufficientPoints || billingPending);
     const canExpandPrompt = mode === "image" || mode === "video";
     const canOptimizePrompt = Boolean(promptOptimizerProvider) && canExpandPrompt;
     const isPortraitTexture = mode === "image" && Boolean(node.metadata?.portraitTexture);
@@ -410,13 +440,45 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
             : button;
     };
 
-    const renderModelCapabilityWarning = () => selectedModelError
-        ? (
+    const renderBillingCost = () => {
+        if (mode === "text") return null;
+        const label = billingPending ? "…" : billingQuoteQuery.error ? "—" : billingQuoteQuery.quote?.enabled ? String(estimatedPoints) : "免费";
+        const detail = billingQuoteQuery.error
+            ? "暂时无法读取价格，请稍后重试"
+            : insufficientPoints
+                ? `积分不足：本次预计 ${estimatedPoints} 积分，当前 ${availableBalance ?? 0} 积分`
+                : billingQuoteQuery.quote?.enabled
+                    ? `预计消耗 ${estimatedPoints} 积分，当前余额 ${availableBalance ?? billingQuoteQuery.quote.balance} 积分`
+                    : "当前模型不扣积分";
+        return (
+            <Tooltip title={detail}>
+                <span
+                    className="inline-flex h-7 shrink-0 items-center gap-1 rounded-lg border px-1.5 text-[var(--fs-tiny)] font-medium tabular-nums"
+                    style={{
+                        color: insufficientPoints ? theme.accent.danger : theme.node.muted,
+                        borderColor: insufficientPoints ? `${theme.accent.danger}55` : theme.toolbar.border,
+                        background: insufficientPoints ? `${theme.accent.danger}12` : theme.toolbar.itemHover,
+                    }}
+                    aria-label={billingQuoteQuery.quote?.enabled ? `预计消耗 ${estimatedPoints} 积分` : detail}
+                >
+                    <Zap className="size-3" strokeWidth={2.2} />
+                    <span>{label}</span>
+                </span>
+            </Tooltip>
+        );
+    };
+
+    const renderModelCapabilityWarning = () => {
+        const warnings: string[] = [];
+        if (selectedModelError) warnings.push(`当前模型不支持这组输入：${selectedModelError}。请调整参考素材或参数，或换一个模型后再生成。`);
+        if (insufficientPoints) warnings.push(`积分不足：本次预计 ${estimatedPoints} 积分，当前 ${availableBalance ?? 0} 积分。`);
+        else if (billingQuoteQuery.error) warnings.push(`暂时无法读取积分价格：${billingQuoteQuery.error instanceof Error ? billingQuoteQuery.error.message : "请稍后重试"}`);
+        return warnings.length ? (
             <div role="alert" className="canvas-node-composer-warning px-2 pb-1 text-[var(--fs-tiny)] leading-snug" style={{ color: "#f87171" }}>
-                当前模型不支持这组输入：{selectedModelError}。请调整参考素材或参数，或换一个模型后再生成。
+                {warnings.join(" ")}
             </div>
-        )
-        : null;
+        ) : null;
+    };
 
     const renderComposerControls = (expanded: boolean) =>
         simpleMode ? (
@@ -433,6 +495,7 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                     compact
                     label={autoLinkLabel}
                 />
+                {renderBillingCost()}
                 {renderSubmitButton(expanded)}
             </div>
         ) : (
@@ -594,6 +657,7 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                             onConfigChange={(key, value) => onConfigChange(node.id, audioConfigPatch(key, value))}
                         />
                     ) : null}
+                    {renderBillingCost()}
                     {renderSubmitButton(expanded)}
                 </div>
             </div>

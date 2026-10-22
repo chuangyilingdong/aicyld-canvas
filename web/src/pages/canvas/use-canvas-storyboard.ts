@@ -24,7 +24,7 @@ import { resolveStoryboardGenerationContext } from "@/lib/canvas/canvas-storyboa
 import { reconcileStoryboardTargetConnections, storyboardComposerContent, storyboardRowReferenceNodeIds } from "@/lib/canvas/canvas-storyboard-materializer";
 import { generationErrorMessage } from "@/lib/generation-error";
 import { navigateToSettings } from "@/lib/settings-navigation";
-import { confirmCanvasBillingQuote } from "@/components/canvas/canvas-billing-confirmation";
+import { useCanvasBillingBalance } from "@/hooks/use-canvas-billing";
 import type { Skill } from "@/services/api/skills";
 import { quoteGenerationTask } from "@/services/api/task-billing";
 import { createGenerationTask, waitForGenerationTask, type CreateTaskInput } from "@/services/api/task-center";
@@ -67,9 +67,10 @@ export function useCanvasStoryboard({
     setSelectedNodeIds,
     enqueueGenerationBatch,
 }: UseCanvasStoryboardOptions) {
-    const { message, modal } = App.useApp();
+    const { message } = App.useApp();
     const effectiveConfig = useEffectiveConfig();
     const localMode = workspaceCapabilities().local;
+    const balanceQuery = useCanvasBillingBalance();
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const storyboardRequests = useRef(new Set<string>());
     const storyboardLifetime = useRef(new AbortController());
@@ -79,42 +80,19 @@ export function useCanvasStoryboard({
         return () => controller.abort();
     }, [projectId]);
 
-    const confirmGenerationSubmission = useCallback((count: number, model: string, taskLabel: string) => new Promise<boolean>((resolve) => {
-        if (!count) return resolve(false);
-        modal.confirm({
-            title: `确认提交 ${count} 个${taskLabel}任务`,
-            content: localMode
-                ? `任务数：${count}；模型：${modelDisplayName(effectiveConfig, model)}。确认后将提交到本地任务队列。`
-                : `任务数：${count}；模型：${modelDisplayName(effectiveConfig, model)}。当前没有可用价格数据，将提交 ${count} 个外部模型任务。`,
-            okText: "确认生成",
-            cancelText: "取消",
-            centered: true,
-            onOk: () => resolve(true),
-            onCancel: () => resolve(false),
-        });
-    }), [effectiveConfig, modal]);
+    const confirmGenerationSubmission = useCallback((count: number) => Promise.resolve(count > 0), []);
 
     const confirmStoryboardTaskSubmission = useCallback(async (request: CreateTaskInput, description: string, signal: AbortSignal) => {
         if (localMode) return true;
         const quote = await quoteGenerationTask(request);
         signal.throwIfAborted();
-        if (quote.enabled && quote.points > 0) {
-            return confirmCanvasBillingQuote(modal, quote, { title: "确认生成分镜", description, okText: "确认生成", signal });
+        const balance = balanceQuery.data?.enabled ? balanceQuery.data.balance : quote.balance;
+        if (quote.enabled && quote.points > 0 && typeof balance === "number" && balance < quote.points) {
+            message.error(`积分不足：本次预计 ${quote.points} 积分，当前 ${balance} 积分。${description}`);
+            return false;
         }
-        const model = request.model || effectiveConfig.model;
-        return new Promise<boolean>((resolve) => {
-            const dialog = modal.confirm({
-                title: "确认生成分镜",
-                content: `使用 ${modelDisplayName(effectiveConfig, model)} 拆分镜头。${description}`,
-                okText: "确认生成", cancelText: "取消", centered: true,
-                onOk: () => resolve(true), onCancel: () => resolve(false),
-                afterClose: () => signal.removeEventListener("abort", cancel),
-            });
-            const cancel = () => { dialog.destroy(); resolve(false); };
-            signal.addEventListener("abort", cancel, { once: true });
-            if (signal.aborted) cancel();
-        });
-    }, [effectiveConfig, localMode, modal]);
+        return true;
+    }, [balanceQuery.data, localMode, message]);
 
     const updateScriptRows = useCallback((nodeId: string, updater: (rows: StoryboardRow[]) => StoryboardRow[]) => {
         setNodes((current) => current.map((node) => node.id === nodeId ? {
@@ -270,7 +248,7 @@ export function useCanvasStoryboard({
             }));
             storyboardRequests.current.delete(nodeId);
         }
-    }, [addedSkills, confirmStoryboardTaskSubmission, connectionsRef, effectiveConfig, isAiConfigReady, localMode, message, modal, nodesRef, projectId, replaceScriptRows, setNodes]);
+    }, [addedSkills, confirmStoryboardTaskSubmission, connectionsRef, effectiveConfig, isAiConfigReady, localMode, message, nodesRef, projectId, replaceScriptRows, setNodes]);
 
     const ensureScriptImageNodes = useCallback((nodeId: string, rowIds: string[]) => {
         const scriptNode = nodesRef.current.find((node) => node.id === nodeId && node.type === CanvasNodeType.Script);
@@ -349,7 +327,7 @@ export function useCanvasStoryboard({
             return !imageNode?.metadata?.content && (!imageNode || !activeNodeIds.has(imageNode.id));
         });
         if (!targetRows.length) return message.info("所选分镜图已生成或正在生成");
-        if (!await confirmGenerationSubmission(targetRows.length, imageModel, "图片生成")) return;
+        if (!await confirmGenerationSubmission(targetRows.length)) return;
         const targets = ensureScriptImageNodes(nodeId, targetRows.map((row) => row.id));
         if (enqueueGenerationBatch(nodeId, "storyboard_image", targets.map((target) => ({ rowId: target.row.id, nodeId: target.node.id })))) message.success("分镜图已加入生成队列");
     }, [effectiveConfig, enqueueGenerationBatch, ensureScriptImageNodes, confirmGenerationSubmission, isAiConfigReady, message, nodesRef]);
@@ -426,7 +404,7 @@ export function useCanvasStoryboard({
             else message.warning("请先补充镜头画面描述");
             return;
         }
-        if (!await confirmGenerationSubmission(targetRows.length, videoModel, "视频生成")) return;
+        if (!await confirmGenerationSubmission(targetRows.length)) return;
         createScriptVideoNodes(nodeId, true, targetRows.map((row) => row.id));
         scriptNode = nodesRef.current.find((node) => node.id === nodeId && node.type === CanvasNodeType.Script);
         const targetRowIds = new Set(targetRows.map((row) => row.id));
@@ -467,7 +445,7 @@ export function useCanvasStoryboard({
             message.info("动作拆分板已存在");
             return;
         }
-        if (!await confirmGenerationSubmission(actionBoardRows.length, imageModel, "动作板生成")) return;
+        if (!await confirmGenerationSubmission(actionBoardRows.length)) return;
         const imageSpec = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
         const startX = scriptNode.position.x + scriptNode.width + 120;
         const nextNodes = [...nodesRef.current];
@@ -518,7 +496,7 @@ export function useCanvasStoryboard({
             return !videoNode?.metadata?.content && (!videoNode || !activeNodeIds.has(videoNode.id));
         });
         if (!targetRows.length) return message.info("所选镜头视频已生成或正在生成");
-        if (!await confirmGenerationSubmission(targetRows.length, videoModel, "视频生成")) return;
+        if (!await confirmGenerationSubmission(targetRows.length)) return;
         createScriptVideoNodes(nodeId, true, targetRows.map((row) => row.id));
         scriptNode = nodesRef.current.find((node) => node.id === nodeId && node.type === CanvasNodeType.Script);
         if (!scriptNode) return;

@@ -83,6 +83,11 @@ type BillingReservation struct {
 	Status  string `json:"status,omitempty"`
 }
 
+type BillingBalance struct {
+	Enabled bool `json:"enabled"`
+	Balance int  `json:"balance"`
+}
+
 type BillingSettlement struct {
 	Status         string `json:"status,omitempty"`
 	ChargedPoints  int    `json:"chargedPoints"`

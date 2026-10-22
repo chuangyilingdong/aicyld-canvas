@@ -15,6 +15,7 @@ export function CanvasActiveTaskPanel({ tasks, align = "right", topInset = "var(
     const [now, setNow] = useState(() => Date.now());
     const [open, setOpen] = useState(false);
     const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
+    const activeCount = tasks.filter((task) => task.status === "queued" || task.status === "running").length;
 
     useEffect(() => {
         if (!tasks.length) return;
@@ -64,12 +65,12 @@ export function CanvasActiveTaskPanel({ tasks, align = "right", topInset = "var(
                                 <span className="min-w-0">
                                     <span className="block text-sm font-semibold leading-5">生成任务</span>
                                     <span className="block truncate text-[var(--fs-label)]" style={{ color: theme.node.muted }} aria-live="polite">
-                                        当前画布 · {tasks.length} 个进行中
+                                        {activeCount > 0 ? `当前画布 · ${activeCount} 个进行中` : `当前画布 · ${tasks.length} 个最近任务`}
                                     </span>
                                 </span>
                             </span>
                             <span className="flex shrink-0 items-center gap-2" style={{ color: theme.accent.primary }}>
-                                <LoaderCircle className="size-4 animate-spin opacity-70 motion-reduce:animate-none" />
+                                {activeCount > 0 ? <LoaderCircle className="size-4 animate-spin opacity-70 motion-reduce:animate-none" /> : <Clock3 className="size-4 opacity-70" />}
                                 {open ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
                             </span>
                         </motion.button>

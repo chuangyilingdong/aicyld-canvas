@@ -103,3 +103,29 @@ func TestBillingQuoteKeepsZeroBalance(t *testing.T) {
 		t.Fatalf("zero balance must stay in the quote contract: %s", raw)
 	}
 }
+
+func TestBillingBalanceUsesMainUserID(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/internal/canvas-billing/balance" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if body["userId"] != "cmpz123" {
+			t.Fatalf("userId = %v", body["userId"])
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"enabled":true,"balance":16}`))
+	}))
+	defer server.Close()
+	client := &Client{baseURL: server.URL, secret: "test-secret", http: server.Client()}
+	balance, err := client.Balance(context.Background(), "sso_cmpz123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if balance == nil || !balance.Enabled || balance.Balance != 16 {
+		t.Fatalf("balance = %+v", balance)
+	}
+}

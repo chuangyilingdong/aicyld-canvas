@@ -55,7 +55,6 @@ import { SkillRuntimePicker, useSkillRuntimeCatalog } from "@/components/skills/
 import { ModelPicker } from "@/components/model-picker";
 import { WorkspaceState } from "@/components/layout/workspace-state";
 import { resolveProjectCanvasStyle } from "@/components/canvas/canvas-style-picker-modal";
-import { confirmCanvasGenerationTaskQuote } from "@/components/canvas/canvas-billing-confirmation";
 import { decodeNovelText, splitTextIntoChapters } from "@/lib/canvas/canvas-document";
 import { isGenerationCanceled } from "@/lib/canvas/canvas-project-generation";
 import { navigateToSettings } from "@/lib/settings-navigation";
@@ -408,7 +407,6 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
             const assets = await extractChapterAssets(input, {
                 onTaskUpdate: (task) => updateChapterOperation(operationUnitId, "characters", task),
                 expectedScope,
-                confirmTask: (request) => confirmCanvasGenerationTaskQuote(modal, request),
             });
             const freshCount = await storeExtractedAssets(operationUnitId, assets, { sourceTaskId: assets.taskId, expectedScope });
             if (!freshCount) {
@@ -468,7 +466,6 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
             }, {
                 onTaskUpdate: (task) => updateChapterOperation(unit.id, "storyboard", task),
                 expectedScope,
-                confirmTask: (request) => confirmCanvasGenerationTaskQuote(modal, request, { title: "确认生成章节分镜" }),
             });
             const shotCount = await storeGeneratedStoryboard(unit.id, generated.rows, { revision: approvedRevision, shotIds: approvedShotIds }, { sourceTaskId: generated.taskId, expectedScope });
             message.success(generated.skillCount ? `已生成 ${shotCount} 个分镜，并应用 ${generated.skillCount} 个技能` : `已生成 ${shotCount} 个分镜`);
