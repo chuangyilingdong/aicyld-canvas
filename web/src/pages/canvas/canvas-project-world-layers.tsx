@@ -239,6 +239,7 @@ export const CanvasProjectWorldLayers = memo(function CanvasProjectWorldLayers(p
                         mentionReferences={props.mentionReferencesByNodeId.get(node.id) || EMPTY_RESOURCE_REFERENCES}
                         renderNodeContent={props.renderCanvasNodeContent}
                         drawingProjectId={props.projectId}
+                        projectId={props.projectId}
                         onMouseDown={props.onNodeMouseDown}
                         onHoverStart={props.onNodeHoverStart}
                         onHoverEnd={props.onNodeHoverEnd}

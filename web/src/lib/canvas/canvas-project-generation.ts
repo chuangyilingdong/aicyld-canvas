@@ -1,5 +1,5 @@
 import { type GenerationTask } from "@/services/api/task-center";
-import { backendProviderConfig, logicalModelIDForConfig, runBackendGenerationTask, type GenerationTaskDependencies } from "@/services/api/generation-task";
+import { backendProviderConfig, logicalModelIDForConfig, runBackendGenerationTask, type GenerationTaskDependencies, type ReferenceTransferProgress } from "@/services/api/generation-task";
 import { configuredModelMatchesCapability, defaultConfig, normalizeModelOptionValue, normalizeRunningHubCapability, resolveModelRequestConfig, type AiConfig, type WorkflowFieldMapping } from "@/stores/use-config-store";
 import { resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { resolveMediaUrl } from "@/services/file-storage";
@@ -25,6 +25,7 @@ import { assertUserScope, captureUserScope, isUserScopeAbandonedError } from "@/
 import { explainGenerationError } from "@/lib/generation-error";
 import { CanvasGenerationDurableAckError, CanvasGenerationMaterializationError } from "@/services/canvas-generation-errors";
 import type { persistCanvasGenerationTarget } from "@/services/canvas-generation-target";
+import { startOperation } from "@/stores/use-operation-progress";
 
 export async function runBackendCanvasGenerationTask(
     {
@@ -45,6 +46,7 @@ export async function runBackendCanvasGenerationTask(
         attemptGroupId,
         expectedScope,
         resolveReferenceLinks,
+        onReferenceProgress,
     }: {
         projectId: string;
         nodeId: string;
@@ -63,6 +65,7 @@ export async function runBackendCanvasGenerationTask(
         attemptGroupId?: string;
         expectedScope?: import("@/lib/user-scope-guard").CapturedUserScope;
         resolveReferenceLinks?: import("@/services/api/reference-link-replacement").ResolveReferenceLinks;
+        onReferenceProgress?: (progress: ReferenceTransferProgress) => void;
     },
     dependencies?: GenerationTaskDependencies,
 ) {
@@ -85,6 +88,7 @@ export async function runBackendCanvasGenerationTask(
             attemptGroupId,
             expectedScope,
             resolveReferenceLinks,
+            onReferenceProgress,
         },
         dependencies,
     );
@@ -160,6 +164,10 @@ export async function runCanvasGenerationTaskToConsumer(
 ) {
     return runGenerationOperationOnce(input.clientOperationId, async () => {
         const expectedScope = input.expectedScope ?? captureUserScope();
+        const operation = input.mode === "text" ? undefined : startOperation(input.mode === "video" ? "准备视频生成" : "准备生成素材", {
+            target: { projectId: input.projectId, nodeId: input.nodeId },
+            detail: "正在准备参考素材",
+        });
         const submission = (state: NonNullable<CanvasNodeMetadata["generationSubmissionState"]>) => {
             dependencies.onSubmission?.({
                 taskClientOperationId: input.clientOperationId,
@@ -168,11 +176,14 @@ export async function runCanvasGenerationTaskToConsumer(
             });
         };
         submission("submitting");
+        operation?.update({ phase: "processing", detail: "正在保存生成节点并提交任务" });
         try {
             const prepare = dependencies.prepareTarget ?? (await import("@/services/canvas-generation-target")).persistCanvasGenerationTarget;
             await prepare({ ...input, expectedScope, ...dependencies.targetSnapshot?.() });
         } catch (error) {
             submission("rejected");
+            if (input.signal?.aborted || isUserScopeAbandonedError(error)) operation?.dismiss();
+            else operation?.fail("生成节点保存失败");
             throw error;
         }
         if (input.signal?.aborted) throw new DOMException("The operation was aborted", "AbortError");
@@ -184,6 +195,14 @@ export async function runCanvasGenerationTaskToConsumer(
             result = await (dependencies.runTask ?? runBackendCanvasGenerationTask)({
                 ...input,
                 expectedScope,
+                onReferenceProgress: (progress) => {
+                    input.onReferenceProgress?.(progress);
+                    operation?.progress(
+                        progress.loadedBytes,
+                        progress.totalBytes,
+                        progress.phase === "processing" ? `${progress.label}已传输，正在确认` : `正在上传 ${progress.label}`,
+                    );
+                },
                 onTaskCreated: (task) => {
                     accepted = true;
                     submission("accepted");
@@ -191,25 +210,38 @@ export async function runCanvasGenerationTaskToConsumer(
                     assertUserScope(expectedScope);
                     input.onTaskCreated?.(task);
                     dependencies.bindTask(task);
+                    operation?.retarget({ projectId: input.projectId, nodeId: input.nodeId, taskId: task.id });
+                    operation?.update({ phase: "processing", detail: "任务已提交，正在等待生成结果" });
                     if (task.status === "succeeded") completedTask = task;
                 },
             });
         } catch (error) {
             if (!accepted) submission(isSubmissionUncertain(error) ? "unknown" : "rejected");
+            if (input.signal?.aborted || isUserScopeAbandonedError(error)) operation?.dismiss();
+            else operation?.fail("生成提交没有完成，请查看错误后重试");
             throw error;
         }
         if (input.signal?.aborted) throw new DOMException("The operation was aborted", "AbortError");
         assertUserScope(expectedScope);
-        if (!completedTask) throw new Error("生成任务缺少成功终态");
+        if (!completedTask) {
+            operation?.fail("生成任务缺少成功终态");
+            throw new Error("生成任务缺少成功终态");
+        }
         const taskForConsumer = input.mode === "text" && completedTask.type === "canvas_text" && result.text
             ? hydrateCompletedTextTask(completedTask, result.text)
             : completedTask;
         try {
+            operation?.update({ phase: "processing", detail: "正在取回并保存生成结果" });
             await dependencies.consumeTask(taskForConsumer);
             if (input.signal?.aborted) throw new DOMException("The operation was aborted", "AbortError");
             assertUserScope(expectedScope);
+            operation?.done("生成结果已保存");
         } catch (error) {
-            if (isUserScopeAbandonedError(error) || (error instanceof Error && error.name === "AbortError")) throw error;
+            if (isUserScopeAbandonedError(error) || (error instanceof Error && error.name === "AbortError")) {
+                operation?.dismiss();
+                throw error;
+            }
+            operation?.fail("生成结果取回或保存失败");
             const cause = error instanceof CanvasGenerationDurableAckError || error instanceof CanvasGenerationMaterializationError ? error.cause : error;
             dependencies.bindTask({
                 ...taskForConsumer,

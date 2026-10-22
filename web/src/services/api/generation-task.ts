@@ -22,6 +22,13 @@ export { logicalModelIDForConfig };
 
 export type BackendGenerationMode = "text" | "image" | "video" | "audio";
 
+export type ReferenceTransferProgress = {
+    label: string;
+    phase: "transferring" | "processing";
+    loadedBytes: number;
+    totalBytes: number;
+};
+
 export type BackendGenerationResult = {
     mode?: BackendGenerationMode;
     images?: Array<{ dataUrl: string; url?: string; storageKey?: string; width?: number; height?: number; bytes?: number; mimeType?: string }>;
@@ -46,6 +53,7 @@ type BackendGenerationTaskOptions = {
     metadata?: Record<string, unknown>;
     onTaskUpdate?: (task: GenerationTask) => void;
     onTextDelta?: (text: string) => void;
+    onReferenceProgress?: (progress: ReferenceTransferProgress) => void;
     resolveReferenceLinks?: ResolveReferenceLinks;
     streamText?: boolean;
     enableThinking?: boolean;
@@ -253,29 +261,39 @@ async function prepareGenerationReferences({
     referenceVideos = [],
     referenceAudios = [],
     mask,
-}: Pick<BackendGenerationTaskOptions, "config" | "mode" | "referenceImages" | "referenceVideos" | "referenceAudios" | "mask">): Promise<PreparedGenerationReferences> {
+    onReferenceProgress,
+}: Pick<BackendGenerationTaskOptions, "config" | "mode" | "referenceImages" | "referenceVideos" | "referenceAudios" | "mask" | "onReferenceProgress">): Promise<PreparedGenerationReferences> {
     const portraitError = mode === "video" ? portraitGenerationError(config, config.model, config.vquality) : "";
     if (portraitError) throw new Error(portraitError);
     // asset:// 仅视频生成可用；Agent Plan Seedream 与 Seedance 共用 /api/plan/v3，不能按 BaseURL 误判。
     const preferArkAssetUrl = mode === "video" && usesArkVideoAssetReference(config);
-    const preparedImages = await Promise.all(referenceImages.map((image) => prepareBackendImageReference(image, preferArkAssetUrl)));
-    const preparedVideos = await Promise.all(referenceVideos.map(prepareBackendMediaReference));
-    const preparedAudios = await Promise.all(referenceAudios.map(prepareBackendMediaReference));
-    const preparedMask = mask ? await prepareBackendImageReference(mask, false) : undefined;
-    return ensureTransportableReferences({ referenceImages: preparedImages, referenceVideos: preparedVideos, referenceAudios: preparedAudios, mask: preparedMask });
+    const preparedImages = await Promise.all(referenceImages.map((image, index) => prepareBackendImageReference(image, preferArkAssetUrl, referenceProgressHandler(onReferenceProgress, image.name || `参考图片 ${index + 1}`))));
+    const preparedVideos = await Promise.all(referenceVideos.map((media, index) => prepareBackendMediaReference(media, referenceProgressHandler(onReferenceProgress, media.name || `参考视频 ${index + 1}`))));
+    const preparedAudios = await Promise.all(referenceAudios.map((media, index) => prepareBackendMediaReference(media, referenceProgressHandler(onReferenceProgress, media.name || `参考音频 ${index + 1}`))));
+    const preparedMask = mask ? await prepareBackendImageReference(mask, false, referenceProgressHandler(onReferenceProgress, mask.name || "遮罩")) : undefined;
+    return ensureTransportableReferences({ referenceImages: preparedImages, referenceVideos: preparedVideos, referenceAudios: preparedAudios, mask: preparedMask }, onReferenceProgress);
+}
+
+function referenceProgressHandler(report: BackendGenerationTaskOptions["onReferenceProgress"], label: string) {
+    return (loadedBytes: number, totalBytes: number) => report?.({
+        label,
+        phase: totalBytes > 0 && loadedBytes >= totalBytes ? "processing" : "transferring",
+        loadedBytes,
+        totalBytes,
+    });
 }
 
 // 服务端只放行两种参考素材形态：托管资源键（resource:<id>，且资源端口可用）或可公开读取的
 // HTTPS 地址；其余形态（浏览器本地键、blob:/data: 地址、http:// 地址、上游素材引用）都会在
 // 预检里被拒绝。预检拒绝以前既不写任务也不写日志，线上只能靠猜是哪张素材。
 // 这里在提交前统一兜底：能取到字节的先上传成托管资源，取不到的才留给手动入口。
-async function ensureTransportableReferences(prepared: PreparedGenerationReferences): Promise<PreparedGenerationReferences> {
+async function ensureTransportableReferences(prepared: PreparedGenerationReferences, report?: BackendGenerationTaskOptions["onReferenceProgress"]): Promise<PreparedGenerationReferences> {
     const [referenceImages, referenceVideos, referenceAudios] = await Promise.all([
-        Promise.all(prepared.referenceImages.map(reuploadUntransportableImageReference)),
-        Promise.all(prepared.referenceVideos.map((media) => reuploadUntransportableMediaReference(media))),
-        Promise.all(prepared.referenceAudios.map((media) => reuploadUntransportableMediaReference(media))),
+        Promise.all(prepared.referenceImages.map((media, index) => reuploadUntransportableImageReference(media, referenceProgressHandler(report, media.name || `参考图片 ${index + 1}`)))),
+        Promise.all(prepared.referenceVideos.map((media, index) => reuploadUntransportableMediaReference(media, referenceProgressHandler(report, media.name || `参考视频 ${index + 1}`)))),
+        Promise.all(prepared.referenceAudios.map((media, index) => reuploadUntransportableMediaReference(media, referenceProgressHandler(report, media.name || `参考音频 ${index + 1}`)))),
     ]);
-    const mask = prepared.mask ? await reuploadUntransportableImageReference(prepared.mask) : undefined;
+    const mask = prepared.mask ? await reuploadUntransportableImageReference(prepared.mask, referenceProgressHandler(report, prepared.mask.name || "遮罩")) : undefined;
     return { referenceImages, referenceVideos, referenceAudios, mask };
 }
 
@@ -292,16 +310,18 @@ function needsTransportRepair(media: { storageKey?: string; url?: string }) {
     }
 }
 
-async function reuploadUntransportableImageReference(image: Awaited<ReturnType<typeof prepareBackendImageReference>>) {
+async function reuploadUntransportableImageReference(image: Awaited<ReturnType<typeof prepareBackendImageReference>>, onProgress?: (loaded: number, total: number) => void) {
     if (!needsTransportRepair(image)) return image;
     const blob = await readTransportRepairBlob(image.storageKey, image.url || image.dataUrl, getImageBlob);
     if (!blob) return image;
     try {
+        onProgress?.(0, blob.size);
         const resource = await uploadResourceFile(blob, "image", {
             fileName: image.name,
             width: "width" in image ? image.width : undefined,
             height: "height" in image ? image.height : undefined,
-        });
+        }, onProgress);
+        onProgress?.(blob.size, blob.size);
         return backendImageReference(image, { storageKey: resourceStorageKey(resource.id), type: resource.mimeType || image.type || blob.type });
     } catch {
         // 补传失败不能吞掉原始素材：保持原样交给服务端预检与手动入口处理。
@@ -309,18 +329,20 @@ async function reuploadUntransportableImageReference(image: Awaited<ReturnType<t
     }
 }
 
-async function reuploadUntransportableMediaReference(media: ReferenceVideo | ReferenceAudio): Promise<ReferenceVideo | ReferenceAudio> {
+async function reuploadUntransportableMediaReference(media: ReferenceVideo | ReferenceAudio, onProgress?: (loaded: number, total: number) => void): Promise<ReferenceVideo | ReferenceAudio> {
     if (!needsTransportRepair(media)) return media;
     const blob = await readTransportRepairBlob(media.storageKey, media.url, getMediaBlob);
     if (!blob) return media;
     try {
+        onProgress?.(0, blob.size);
         const kind: "video" | "audio" | "file" = blob.type.startsWith("video/") ? "video" : blob.type.startsWith("audio/") ? "audio" : "file";
         const resource = await uploadResourceFile(blob, kind, {
             fileName: media.name,
             width: "width" in media ? media.width : undefined,
             height: "height" in media ? media.height : undefined,
             durationMs: media.durationMs,
-        });
+        }, onProgress);
+        onProgress?.(blob.size, blob.size);
         return backendMediaReference(media, { storageKey: resourceStorageKey(resource.id), type: resource.mimeType || media.type || blob.type });
     } catch {
         return media;
@@ -471,7 +493,7 @@ function generationMetadata(config: AiConfig, metadata?: Record<string, unknown>
     return { ...metadata, providerOptions: { ...existing, [protocol]: { ...defaults, ...namespace } } };
 }
 
-async function prepareBackendMediaReference(media: ReferenceVideo | ReferenceAudio) {
+async function prepareBackendMediaReference(media: ReferenceVideo | ReferenceAudio, onProgress?: (loaded: number, total: number) => void) {
     media = await resolveReferenceMediaDuration(media);
     if (resourceIdFromStorageKey(media.storageKey)) return backendMediaReference(media, { storageKey: media.storageKey });
     const url = media.url || "";
@@ -481,15 +503,17 @@ async function prepareBackendMediaReference(media: ReferenceVideo | ReferenceAud
     if (!blob && (url.startsWith("blob:") || url.startsWith("data:"))) blob = await (await fetch(url)).blob();
     if (!blob) throw new Error("参考媒体尚未保存，请重新上传后再生成");
     try {
+        onProgress?.(0, blob.size);
         const kind: "video" | "audio" | "file" = blob.type.startsWith("video/") ? "video" : blob.type.startsWith("audio/") ? "audio" : "file";
-        const resource = await uploadResourceFile(blob, kind, { fileName: media.name, width: "width" in media ? media.width : undefined, height: "height" in media ? media.height : undefined, durationMs: media.durationMs });
+        const resource = await uploadResourceFile(blob, kind, { fileName: media.name, width: "width" in media ? media.width : undefined, height: "height" in media ? media.height : undefined, durationMs: media.durationMs }, onProgress);
+        onProgress?.(blob.size, blob.size);
         return backendMediaReference(media, { storageKey: resourceStorageKey(resource.id), type: resource.mimeType || media.type || blob.type });
     } catch (error) {
         throw new Error(error instanceof Error ? `参考媒体上传失败：${error.message}` : "参考媒体上传失败");
     }
 }
 
-async function prepareBackendImageReference(image: ReferenceImage, preferArkAssetUrl = false) {
+async function prepareBackendImageReference(image: ReferenceImage, preferArkAssetUrl = false, onProgress?: (loaded: number, total: number) => void) {
     if (preferArkAssetUrl && image.arkAssetId) return backendImageReference(image, { url: `asset://${image.arkAssetId}` });
     if (resourceIdFromStorageKey(image.storageKey)) return backendImageReference(image, { storageKey: image.storageKey });
     const sourceUrl = image.url || image.dataUrl;
@@ -497,7 +521,9 @@ async function prepareBackendImageReference(image: ReferenceImage, preferArkAsse
     const blob = image.storageKey ? await getImageBlob(image.storageKey) : sourceUrl ? await (await fetch(sourceUrl)).blob() : null;
     if (!blob) throw new Error("参考图片尚未保存，请重新上传后再生成");
     try {
-        const resource = await uploadResourceFile(blob, "image", { fileName: image.name });
+        onProgress?.(0, blob.size);
+        const resource = await uploadResourceFile(blob, "image", { fileName: image.name }, onProgress);
+        onProgress?.(blob.size, blob.size);
         return backendImageReference(image, { storageKey: resourceStorageKey(resource.id), type: resource.mimeType || image.type || blob.type });
     } catch (error) {
         throw new Error(error instanceof Error ? `参考图片上传失败：${error.message}` : "参考图片上传失败");

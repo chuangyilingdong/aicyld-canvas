@@ -42,6 +42,7 @@ type CanvasNodeProps = {
     mentionReferences?: CanvasResourceReference[];
     renderNodeContent?: (node: CanvasNodeData) => ReactNode;
     drawingProjectId?: string;
+    projectId?: string;
     batchCount?: number;
     batchPreviewNodes?: CanvasNodeData[];
     batchExpanded?: boolean;
@@ -101,6 +102,7 @@ export const CanvasNode = React.memo(function CanvasNode({
     mentionReferences = [],
     renderNodeContent,
     drawingProjectId,
+    projectId,
     batchCount = 0,
     batchPreviewNodes,
     batchExpanded = false,
@@ -446,6 +448,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                         batchRecovering={batchRecovering}
                         renderNodeContent={renderNodeContent}
                         drawingProjectId={drawingProjectId}
+                        projectId={projectId}
                         mentionReferences={mentionReferences}
                         onContentChange={onContentChange}
                         onStopEditing={() => setIsEditingContent(false)}
