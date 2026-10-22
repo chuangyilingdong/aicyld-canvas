@@ -34,3 +34,39 @@ func TestDefaultsIncludeMidjourneyImagineProfile(t *testing.T) {
 		t.Fatalf("Midjourney capability = %#v", config.Image)
 	}
 }
+
+func TestSeedance25ProfileAllowsThirtySeconds(t *testing.T) {
+	type durationConfig struct {
+		Video struct {
+			Duration struct {
+				Max int `json:"max"`
+			} `json:"duration"`
+			References struct {
+				MaxVideoDurationSeconds int `json:"maxVideoDurationSeconds"`
+				MaxAudioDurationSeconds int `json:"maxAudioDurationSeconds"`
+			} `json:"references"`
+		} `json:"video"`
+	}
+	for _, tc := range []struct {
+		model string
+		want  int
+	}{
+		{model: "seedance-2.5-standard", want: 30},
+		{model: "seedance-2.0-standard", want: 15},
+	} {
+		raw, ok := VideoCapabilityConfigForModel(tc.model)
+		if !ok {
+			t.Fatalf("missing capability for %s", tc.model)
+		}
+		var config durationConfig
+		if err := json.Unmarshal(raw, &config); err != nil {
+			t.Fatal(err)
+		}
+		if config.Video.Duration.Max != tc.want {
+			t.Fatalf("%s duration max = %d, want %d", tc.model, config.Video.Duration.Max, tc.want)
+		}
+		if config.Video.References.MaxVideoDurationSeconds != tc.want || config.Video.References.MaxAudioDurationSeconds != tc.want {
+			t.Fatalf("%s reference duration caps = %#v", tc.model, config.Video.References)
+		}
+	}
+}

@@ -182,10 +182,10 @@ func VideoCapabilityConfigForModel(model string) (json.RawMessage, bool) {
 	if !strings.Contains(name, "seedance-2") {
 		return nil, false
 	}
-	return seedanceCapabilityConfigBody(seedanceModeForModel(name)), true
+	return seedanceCapabilityConfigBody(seedanceModeForModel(name), isSeedance25ModelName(name)), true
 }
 
-func seedanceCapabilityConfigBody(mode string) []byte {
+func seedanceCapabilityConfigBody(mode string, is25 bool) []byte {
 	references := map[string]any{
 		"promptMaxChars": 4000, "minImages": 0, "maxImages": 0, "maxImageBytes": 31457280,
 		"maxVideos": 0, "maxVideoBytes": 0, "maxVideoDurationSeconds": 0,
@@ -200,17 +200,23 @@ func seedanceCapabilityConfigBody(mode string) []byte {
 		operations = []string{"image_to_video", "first_last_frame"}
 		defaultOperation = "image_to_video"
 	case "multi", "all":
-		references["maxImages"] = 9
-		references["maxVideos"] = 3
+		maxImages, maxVideos, maxAudios := 9, 3, 3
+		maxDuration := 15
+		if is25 {
+			maxImages, maxVideos, maxAudios = 30, 10, 10
+			maxDuration = 30
+		}
+		references["maxImages"] = maxImages
+		references["maxVideos"] = maxVideos
 		references["maxVideoBytes"] = 209715200
-		references["maxVideoDurationSeconds"] = 15
+		references["maxVideoDurationSeconds"] = maxDuration
 		references["minVideoDurationSeconds"] = 2
-		references["maxVideoTotalDurationSeconds"] = 15
-		references["maxAudios"] = 3
+		references["maxVideoTotalDurationSeconds"] = maxDuration
+		references["maxAudios"] = maxAudios
 		references["maxAudioBytes"] = 15728640
-		references["maxAudioDurationSeconds"] = 15
+		references["maxAudioDurationSeconds"] = maxDuration
 		references["minAudioDurationSeconds"] = 1.8
-		references["maxAudioTotalDurationSeconds"] = 15
+		references["maxAudioTotalDurationSeconds"] = maxDuration
 		references["minImageWidth"], references["maxImageWidth"] = 300, 6000
 		references["minImageHeight"], references["maxImageHeight"] = 300, 6000
 		references["minImageAspect"], references["maxImageAspect"] = 0.4, 2.5
@@ -223,13 +229,20 @@ func seedanceCapabilityConfigBody(mode string) []byte {
 	}
 	if mode == "all" {
 		operations = []string{"text_to_video", "image_to_video", "first_last_frame", "reference_to_video"}
+		if is25 {
+			operations = append(operations, "audio_to_video")
+		}
 		defaultOperation = "text_to_video"
+	}
+	durationMax := 15
+	if is25 {
+		durationMax = 30
 	}
 	config := map[string]any{
 		"version": 1,
 		"video": map[string]any{
 			"references":        references,
-			"duration":          map[string]any{"selection": "range", "min": 1, "max": 15, "step": 1, "default": 6},
+			"duration":          map[string]any{"selection": "range", "min": 1, "max": durationMax, "step": 1, "default": 6},
 			"ratios":            []string{"adaptive", "16:9", "9:16", "1:1", "4:3", "3:4", "21:9"},
 			"defaultRatio":      "16:9",
 			"resolutions":       []string{"480p", "720p", "1080p"},
@@ -343,7 +356,7 @@ func CapabilityConfigFor(capability, model string) (json.RawMessage, bool) {
 	case "video":
 		name := strings.ToLower(strings.TrimSpace(model))
 		if strings.Contains(name, "seedance-2") {
-			return seedanceCapabilityConfigBody(seedanceModeForModel(model)), true
+			return seedanceCapabilityConfigBody(seedanceModeForModel(model), isSeedance25ModelName(name)), true
 		}
 		// MiniMax H3 支持参考视频/参考音频（reference_audio / drive_audio）。
 		// 以前它落到通用视频默认值（maxAudios/maxVideos = 0），客户端的模型列表据此
@@ -369,6 +382,11 @@ func CapabilityConfigFor(capability, model string) (json.RawMessage, bool) {
 func isMiniMaxH3Model(name string) bool {
 	return strings.Contains(name, "minimax-h3") || strings.Contains(name, "minimax h3") ||
 		strings.Contains(name, "h3-max") || strings.Contains(name, "h3 max")
+}
+
+func isSeedance25ModelName(name string) bool {
+	name = strings.ToLower(strings.TrimSpace(name))
+	return strings.Contains(name, "seedance-2.5") || strings.Contains(name, "seedance-2-5")
 }
 
 // minimaxH3CapabilityConfigBody 与 channel_models(MiniMax-H3) 的权威配置保持一致。
@@ -403,7 +421,7 @@ func seedanceFamilyProfile(family, display string) ModelProfile {
 	return ModelProfile{
 		Model: family, DisplayName: display, Capability: "video", Protocol: "newapi",
 		ProviderModelKey: family + "-t2v",
-		CapabilityConfig: seedanceCapabilityConfigBody("all"),
+		CapabilityConfig: seedanceCapabilityConfigBody("all", isSeedance25ModelName(family)),
 		// 变体按「用户选的生成模式」匹配（服务端不再按参考素材数量反推模式）：
 		// 图生视频（首帧）与首尾帧（首帧+尾帧）都落到上游 i2v 档，靠参考图数量区分；
 		// 全能参考无论几张参考图都落到多模态 multi 档。
