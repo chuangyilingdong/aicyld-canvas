@@ -79,6 +79,9 @@ func (s *Service) SkillVersions(userID string, id string) ([]SkillVersionItem, e
 func (s *Service) RollbackSkillVersion(userID string, id string, versionID string) (*SkillItem, error) {
 	return s.skillDomain().RollbackSkillVersion(userID, id, versionID)
 }
+func (s *Service) CreatePrivateSkillRewrite(userID string, id string) (*SkillItem, error) {
+	return s.skillDomain().CreatePrivateRewrite(userID, id)
+}
 func (s *Service) EnsureBuiltinSkills() error {
 	return s.skillDomain().EnsureBuiltinSkills()
 }

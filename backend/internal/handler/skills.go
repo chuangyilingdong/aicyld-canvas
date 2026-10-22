@@ -336,6 +336,19 @@ func registerSkillRoutes(r *gin.RouterGroup, owners workspaceOwners, skillsDomai
 		}
 		ok(c, gin.H{"skill": skill})
 	})
+	r.POST("/skills/:id/rewrite", func(c *gin.Context) {
+		user, err := currentUser(c, owners)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		skill, err := skillsDomain.CreatePrivateRewrite(user.ID, c.Param("id"))
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"skill": skill})
+	})
 	r.POST("/skills/:id/like", setSkillLiked(owners, skillsDomain, true))
 	r.DELETE("/skills/:id/like", setSkillLiked(owners, skillsDomain, false))
 }
