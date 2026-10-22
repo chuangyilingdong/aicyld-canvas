@@ -8,13 +8,79 @@ const confirmations: { onOk: () => void }[] = [];
 const dispatched: any[] = [];
 const react = await import("react");
 mock.module("react", () => ({ ...react, default: react.default, useCallback: (fn: any) => fn, useRef: (value: any) => ({ current: value }) }));
-mock.module("antd", () => ({ App: { useApp: () => ({ modal: { confirm: (input: any) => confirmations.push(input) }, message: { error: (x: string) => { throw Error(x); }, info: () => {}, warning: () => {} } }) } }));
-mock.module("@/stores/use-config-store", () => ({ useEffectiveConfig: () => ({}), useConfigStore: (select: any) => select({ isAiConfigReady: () => true }), resolveModelRequestConfig: () => ({}) }));
+mock.module("antd", () => ({ App: { useApp: () => ({ modal: { confirm: (input: any) => confirmations.push(input) }, message: { error: (x: string) => { throw Error(x); }, info: () => {}, warning: () => {}, loading: () => {}, destroy: () => {} } }) } }));
+const configStoreMock = {
+    useEffectiveConfig: () => ({}),
+    useConfigStore: Object.assign((select: any) => select({ isAiConfigReady: () => true }), {
+        getState: () => ({}),
+        setState: () => {},
+        subscribe: () => () => {},
+    }),
+    resolveModelRequestConfig: () => ({}),
+    isSystemProxyBaseUrl: () => false,
+    buildApiUrl: (baseUrl: string, path: string) => `${baseUrl.replace(/\/+$/, "")}${path.startsWith("/") ? path : `/${path}`}`,
+    resolveBackendApiUrl: (value: string) => value,
+    systemProxyChannelId: () => "",
+    MANAGED_BEEFAPI_CREDENTIAL_REF: "beefapi-enterprise",
+    modelOptionName: (value: string) => String(value || "").split("::").pop() || "",
+    modelDisplayName: (_config: unknown, value: string) => value,
+    resolveModelChannel: () => ({}),
+    logicalModelIDForConfig: () => "",
+    modelMatchesCapability: () => false,
+    configuredModelMatchesCapability: () => false,
+    channelHasGenerationCredential: () => false,
+    channelHasManagedBeefAPICredential: () => false,
+    isBuiltinBeefAPIChannel: () => false,
+    modelOptionsFromChannels: () => [],
+    encodeChannelModel: (channelId: string, model: string) => `${channelId}::${model}`,
+    decodeChannelModel: (value: string) => ({ channelId: String(value || "").split("::")[0] || "", model: String(value || "").split("::").pop() || "" }),
+    isChannelModelValue: (value: string) => String(value || "").includes("::"),
+    normalizeRunningHubCapability: (_value: unknown, fallback = "image") => fallback,
+    normalizeRunningHubWorkflowKind: (value: unknown) => value === "app" ? "app" : "workflow",
+    normalizeWorkflowFieldMappings: () => [],
+    mergeWorkflowFieldMappings: () => [],
+    PUBLIC_MODEL_CATALOG_ID: "managed",
+    CONFIG_STORE_KEY: "open_ai_canvas:ai_config_store",
+    defaultConfig: {},
+    channelModelProfile: () => undefined,
+    filterModelsByCapability: (models: string[]) => models,
+    selectableModelsByCapability: () => [],
+    effectiveConfigForCustomChannels: (config: unknown) => config,
+    createModelChannel: (channel: Record<string, unknown> = {}) => ({ id: "", ...channel }),
+    configWithoutCachedSecrets: (config: unknown) => config,
+    normalizeConfigSnapshot: (snapshot: unknown) => snapshot || {},
+    modelIcon: () => undefined,
+    modelOptionLabel: (_config: unknown, value: string) => value,
+    hasSystemModelProfile: () => false,
+    normalizeModelOptionValue: (value: unknown) => value,
+    channelConnectionSignature: () => "",
+    defaultBaseUrlForApiFormat: () => "",
+    defaultBaseUrlForChannelInterface: () => "",
+};
+mock.module("@/stores/use-config-store", () => configStoreMock);
 mock.module("@/components/canvas/canvas-node-generation", () => ({ buildNodeGenerationContext: (_nodes: any, _edges: any, _id: any, prompt: string) => ({ prompt, referenceImages: [], referenceVideos: [], referenceAudios: [], characterReferences: [], resolvedCharacterVoices: [] }), hydrateNodeGenerationContext: async (context: any) => context }));
 mock.module("@/pages/canvas/canvas-assistant-proposal-execution", () => ({ buildConfirmedGenerationConfig: () => ({ model: "fixture", taskWorkflowProvider: "model", size: "1:1" }) }));
 mock.module("@/lib/canvas/canvas-generation-submission", () => ({ canReleaseCanvasGenerationSource: () => false, canvasGenerationPromptMetadata: () => ({}), canvasGenerationRequestFingerprint: () => "repeat", runCanvasGenerationSubmissionOnce: async (locks: Map<string, any>, id: string, fn: any) => { if (locks.has(id)) return; const running = fn(() => { if (locks.get(id) === running) locks.delete(id); }); locks.set(id, running); try { return await running; } finally { if (locks.get(id) === running) locks.delete(id); } } }));
-mock.module("@/lib/canvas/canvas-project-generation", () => ({ isGenerationCanceled: () => false }));
-mock.module("@/lib/model-selection", () => ({ modelCompatibilityError: () => "", modelGroupReferenceLimits: () => undefined, modelPromptLengthError: () => "", modelRequestOptions: () => ({}) }));
+mock.module("@/lib/canvas/canvas-project-generation", () => ({ isGenerationCanceled: () => false, getGenerationCount: (value: unknown) => Math.max(1, Number(value) || 1) }));
+mock.module("@/lib/model-selection", () => ({
+    modelCompatibilityError: () => "",
+    modelGroupReferenceLimits: () => undefined,
+    modelPromptLengthError: () => "",
+    modelRequestOptions: () => ({}),
+    portraitGenerationError: () => undefined,
+    mergeImageCapabilityConfig: (config: unknown) => config,
+    mergedImageCapabilityConfig: (config: unknown) => config,
+    resolveCompatibleModel: (_config: unknown, selected: string) => selected,
+    resolveModelGenerationDefaults: () => ({}),
+    resolveModelVideoBooleanOptions: () => ({}),
+    resolveVideoOperation: () => undefined,
+    inferVideoOperation: () => undefined,
+    defaultImageParamsForModel: () => ({}),
+    groupModelsByDisplayName: () => [],
+    configuredModelDisplayName: (_config: unknown, value: string) => value,
+    compatibleModelInGroup: (_config: unknown, models: string[]) => models[0],
+    maxModelInputCapacity: () => 0,
+}));
 mock.module("@/services/skill-runtime", () => ({ skillRuntime: { prepare: async ({ prompt }: any) => ({ prompt, metadata: {} }) } }));
 mock.module("@/lib/canvas/canvas-style-execution", () => ({ resolveCanvasStyleExecution: () => undefined }));
 mock.module("@/pages/canvas/canvas-generation-failure", () => ({ canvasGenerationRetryBlocked: () => false, canvasImageGenerationHasPendingResult: () => false, canvasImagePendingResultMessage: () => "", canvasGenerationFailureMetadata: () => ({}) }));
@@ -30,7 +96,7 @@ const nodesRef = { current: structuredClone(frozenNodes) };
 const connectionsRef = { current: [] as any[] };
 const no = () => {};
 const generate = useCanvasGenerationExecutor({ projectId: "canvas", addedSkills: [], assets: [], nodesRef, connectionsRef, setNodes: no, setConnections: no, setSelectedNodeIds: no, setSelectedConnectionId: no, setDialogNodeId: no, setRunningNodeId: no, startGenerationRequest: () => new AbortController(), finishGenerationRequest: no, bindGenerationTask: no, applyGenerationTaskResult: async () => {} });
-const options = { confirmedInputs: { nodes: frozenNodes, connections: [], config: {} as any, assets: [], skills: [] } };
+const options = { confirmedInputs: { nodes: frozenNodes, connections: [], config: {} as any, assets: [], skills: [] }, skipBillingConfirmation: true };
 const first = generate("image", "image", "coffee", options);
 const second = generate("text", "image", "coffee", options);
 const deadline = Date.now() + 2000;
