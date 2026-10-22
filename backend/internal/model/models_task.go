@@ -70,7 +70,7 @@ type BillingQuote struct {
 	DisplayName      string         `json:"displayName,omitempty"`
 	RuleID           string         `json:"ruleId,omitempty"`
 	RuleVersion      int            `json:"ruleVersion,omitempty"`
-	Balance          int            `json:"balance,omitempty"`
+	Balance          int            `json:"balance"`
 	EstimatedCostCNY float64        `json:"estimatedCostCny,omitempty"`
 	Breakdown        map[string]any `json:"breakdown,omitempty"`
 }
@@ -79,7 +79,7 @@ type BillingReservation struct {
 	Enabled bool   `json:"enabled"`
 	HoldID  string `json:"holdId,omitempty"`
 	Points  int    `json:"points"`
-	Balance int    `json:"balance,omitempty"`
+	Balance int    `json:"balance"`
 	Status  string `json:"status,omitempty"`
 }
 

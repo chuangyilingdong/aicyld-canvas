@@ -88,3 +88,18 @@ func TestSettleReturnsActualChargedPoints(t *testing.T) {
 		t.Fatalf("settlement = %+v", settlement)
 	}
 }
+
+func TestBillingQuoteKeepsZeroBalance(t *testing.T) {
+	raw, err := json.Marshal(model.BillingQuote{Enabled: true, Points: 1, Balance: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatal(err)
+	}
+	balance, ok := payload["balance"]
+	if !ok || balance != float64(0) {
+		t.Fatalf("zero balance must stay in the quote contract: %s", raw)
+	}
+}
