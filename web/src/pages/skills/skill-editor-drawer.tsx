@@ -10,7 +10,7 @@ import { navigateToSettings } from "@/lib/settings-navigation";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { createSkill, updateSkill, type Skill, type SkillMutationInput, type SkillShowcaseMedia } from "@/services/api/skills";
 
-type SkillFormValues = Omit<SkillMutationInput, "isPrivate"> & { is_public: boolean };
+type SkillFormValues = Omit<SkillMutationInput, "isPrivate">;
 
 export function SkillEditorDrawer({ open, skill, onClose, onSaved }: { open: boolean; skill: Skill | null; onClose: () => void; onSaved: (skill: Skill) => void }) {
     const { message, modal } = App.useApp();
@@ -29,7 +29,6 @@ export function SkillEditorDrawer({ open, skill, onClose, onSaved }: { open: boo
             description: skill?.description || "",
             instruction: skill?.instruction || "",
             tag: skill?.tag || "creative",
-            is_public: false,
             markdownUrl: skill?.markdownUrl || skill?.sourceUrl || "",
             showcaseMedia: skill?.showcaseMedia || [],
             extraInfo: skill?.extraInfo || "",
@@ -138,12 +137,13 @@ export function SkillEditorDrawer({ open, skill, onClose, onSaved }: { open: boo
                     <Input.TextArea className="font-mono text-xs leading-5" autoSize={{ minRows: 14, maxRows: 28 }} maxLength={100000} showCount placeholder="使用 Markdown 编写角色、约束、流程、检查清单和输出格式" />
                 </Form.Item> : null}
 
-                <div className="grid gap-x-4 sm:grid-cols-[minmax(0,1fr)_180px]">
+                <div>
                     <Form.Item name="markdownUrl" label={isPackageSkill ? "来源地址" : "Markdown 地址"} rules={[{ type: "url", message: "请输入有效的 HTTP(S) 链接" }]}>
                         <Input type="url" inputMode="url" spellCheck={false} placeholder="https://example.com/SKILL.md" />
                     </Form.Item>
-                    <p className="text-sm text-foreground/60">保存到本机，仅自己使用。公开分享请到“我的投稿”确认送审。</p>
                 </div>
+
+                <p className="skill-editor-publish-note">保存后技能仍为私有；在详情页完成投稿并由审核员通过后，才会出现在技能广场。</p>
 
                 <Form.List name="showcaseMedia">
                     {(fields, { add, remove }) => (

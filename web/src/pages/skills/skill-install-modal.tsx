@@ -15,7 +15,6 @@ type InstallFormValues = {
     name?: string;
     description?: string;
     tag: string;
-    is_public: boolean;
     url?: string;
     ref?: string;
     subdir?: string;
@@ -41,7 +40,7 @@ export function SkillInstallModal({ open, onClose, onInstalled, onManualCreate }
         if (!open) return;
         setMode("markdown");
         setFileList([]);
-        form.setFieldsValue({ tag: "creative", is_public: !localRuntime, autoUpdate: true, name: "", description: "", url: "", ref: "", subdir: "" });
+        form.setFieldsValue({ tag: "creative", autoUpdate: true, name: "", description: "", url: "", ref: "", subdir: "" });
     }, [form, open, localRuntime]);
 
     const install = async () => {
@@ -59,7 +58,7 @@ export function SkillInstallModal({ open, onClose, onInstalled, onManualCreate }
                     ref: values.ref || undefined,
                     subdir: values.subdir || undefined,
                     tag: values.tag,
-                    isPrivate: localRuntime || !values.is_public,
+                    isPrivate: true,
                     autoUpdate: values.autoUpdate,
                 })
                 : await installSkillUpload({
@@ -68,7 +67,7 @@ export function SkillInstallModal({ open, onClose, onInstalled, onManualCreate }
                     name: values.name || undefined,
                     description: values.description || undefined,
                     tag: values.tag,
-                    isPrivate: localRuntime || !values.is_public,
+                    isPrivate: true,
                 });
             message.success("技能已安装");
             onInstalled(result.skill);
@@ -136,14 +135,12 @@ export function SkillInstallModal({ open, onClose, onInstalled, onManualCreate }
                     </>
                 )}
 
-                <div className="grid gap-x-3 sm:grid-cols-2">
+                <div>
                     <Form.Item name="tag" label="技能分类" rules={[{ required: true, message: "请选择技能分类" }]}>
                         <Select options={fallbackSkillCategories} />
                     </Form.Item>
-                    <Form.Item hidden={localRuntime} name="is_public" label="公开状态" valuePropName="checked" extra="公开后其他用户可以加入使用。">
-                        <Switch checkedChildren="公开" unCheckedChildren="私有" />
-                    </Form.Item>
                 </div>
+                <p className="skill-editor-publish-note">安装后的技能默认私有。需要公开时，请在技能详情中投稿并通过审核。</p>
                 {mode === "github" ? <Form.Item name="autoUpdate" label="自动同步" valuePropName="checked" extra="后台每 6 小时检查一次提交版本，并记录最近检查与同步时间。"><Switch checkedChildren="开启" unCheckedChildren="关闭" /></Form.Item> : null}
             </Form>
         </Modal>

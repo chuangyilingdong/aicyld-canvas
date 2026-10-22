@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"mime/multipart"
 
 	"infinite-canvas/backend/internal/skills"
 )
@@ -24,6 +25,13 @@ type (
 	SkillPackageBundle        = skills.SkillPackageBundle
 	SkillFileSearchResult     = skills.SkillFileSearchResult
 	SkillVersionItem          = skills.SkillVersionItem
+	SkillSubmissionMetadata   = skills.SkillSubmissionMetadata
+	SkillSubmissionItem       = skills.SkillSubmissionItem
+	SkillSubmissionRequest    = skills.SkillSubmissionRequest
+	SkillReviewTrial          = skills.SkillReviewTrial
+	SkillReviewSummary        = skills.SkillReviewSummary
+	SkillReviewSummaryInput   = skills.SkillReviewSummaryInput
+	SkillReviewRequest        = skills.SkillReviewRequest
 )
 
 func (s *Service) skillDomain() *skills.Service {
@@ -82,6 +90,37 @@ func (s *Service) RollbackSkillVersion(userID string, id string, versionID strin
 func (s *Service) CreatePrivateSkillRewrite(userID string, id string) (*SkillItem, error) {
 	return s.skillDomain().CreatePrivateRewrite(userID, id)
 }
+func (s *Service) PrepareSkillSubmission(userID string, skillID string, req SkillSubmissionRequest) (*SkillSubmissionItem, error) {
+	return s.skillDomain().PrepareSkillSubmission(userID, skillID, req)
+}
+
+func (s *Service) SubmitSkillSubmission(userID string, submissionID string, req SkillSubmissionRequest) (*SkillSubmissionItem, error) {
+	return s.skillDomain().SubmitSkillSubmission(userID, submissionID, req)
+}
+
+func (s *Service) WithdrawSkillSubmission(userID string, submissionID string) (*SkillSubmissionItem, error) {
+	return s.skillDomain().WithdrawSkillSubmission(userID, submissionID)
+}
+
+func (s *Service) SkillSubmissionHistory(userID string, skillID string) ([]SkillSubmissionItem, error) {
+	return s.skillDomain().SkillSubmissionHistory(userID, skillID)
+}
+
+func (s *Service) SkillSubmissionReviewQueue(adminID string, isAdmin bool, status string) ([]SkillSubmissionItem, error) {
+	return s.skillDomain().SkillSubmissionReviewQueue(adminID, isAdmin, status)
+}
+
+func (s *Service) ReviewSkillSubmission(adminID string, isAdmin bool, submissionID string, req SkillReviewRequest) (*SkillSubmissionItem, error) {
+	return s.skillDomain().ReviewSkillSubmission(adminID, isAdmin, submissionID, req)
+}
+
+func (s *Service) SkillSubmissionFiles(adminID string, isAdmin bool, submissionID string) ([]SkillPackageFileItem, error) {
+	return s.skillDomain().SkillSubmissionFiles(adminID, isAdmin, submissionID)
+}
+
+func (s *Service) SkillSubmissionFile(adminID string, isAdmin bool, submissionID string, filePath string) (*SkillPackageFileContent, error) {
+	return s.skillDomain().SkillSubmissionFile(adminID, isAdmin, submissionID, filePath)
+}
 func (s *Service) EnsureBuiltinSkills() error {
 	return s.skillDomain().EnsureBuiltinSkills()
 }
@@ -90,6 +129,17 @@ func (s *Service) EnsureSkillPackages() error {
 	return s.skillDomain().EnsureSkillPackages()
 }
 
+func (s *Service) InstallSkillUpload(userID string, sourceType string, header *multipart.FileHeader, req SkillInstallRequest) (*SkillItem, error) {
+	return s.skillDomain().InstallSkillUpload(userID, sourceType, header, req)
+}
+
+func (s *Service) ReplaceSkillPackage(userID string, skillID string, sourceType string, header *multipart.FileHeader, req SkillInstallRequest) (*SkillItem, error) {
+	return s.skillDomain().ReplaceSkillPackage(userID, skillID, sourceType, header, req)
+}
+
+func (s *Service) InstallGitHubSkill(userID string, req SkillGitHubInstallRequest) (*SkillItem, error) {
+	return s.skillDomain().InstallGitHubSkill(userID, req)
+}
 func (s *Service) SyncGitHubSkill(userID string, skillID string) (*SkillItem, error) {
 	if s.IsLocalMode() {
 		return nil, BadAuthRequest("本地工作区不支持从 GitHub 同步技能")

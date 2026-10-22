@@ -100,6 +100,7 @@ type Skill struct {
 	Tag               string     `json:"tag" gorm:"size:32;index"`
 	SortWeight        int        `json:"sortWeight" gorm:"index"`
 	IsPrivate         bool       `json:"isPrivate" gorm:"index"`
+	ReviewStatus      string     `json:"reviewStatus" gorm:"size:24;index"`
 	MarkdownURL       string     `json:"markdownUrl" gorm:"size:500"`
 	ShowcaseMediaJSON string     `json:"-" gorm:"type:text"`
 	ExtraInfo         string     `json:"extraInfo" gorm:"type:text"`
@@ -107,6 +108,28 @@ type Skill struct {
 	InitialAddedCount int64      `json:"initialAddedCount"`
 	CreatedAt         time.Time  `json:"createdAt" gorm:"index"`
 	UpdatedAt         time.Time  `json:"updatedAt" gorm:"index"`
+}
+
+// SkillSubmission freezes the exact skill version and public metadata that a
+// reviewer sees. Revisions are append-only so a rejected draft can be revised
+// without changing the evidence behind an earlier decision.
+type SkillSubmission struct {
+	ID                string     `json:"id" gorm:"primaryKey;size:36"`
+	AuthorID          string     `json:"authorId" gorm:"index;size:36"`
+	SkillID           string     `json:"skillId" gorm:"index;size:36;uniqueIndex:idx_skill_submission_revision,priority:1"`
+	VersionID         string     `json:"versionId" gorm:"index;size:36"`
+	Revision          int64      `json:"revision" gorm:"uniqueIndex:idx_skill_submission_revision,priority:2"`
+	Status            string     `json:"status" gorm:"size:24;index"`
+	ContentHash       string     `json:"contentHash" gorm:"size:64;index"`
+	MetadataJSON      string     `json:"-" gorm:"type:text"`
+	ReviewSummaryJSON string     `json:"-" gorm:"type:text"`
+	ReviewReason      string     `json:"reviewReason" gorm:"type:text"`
+	ReviewerID        string     `json:"reviewerId" gorm:"index;size:36"`
+	SubmittedAt       *time.Time `json:"submittedAt,omitempty"`
+	ReviewedAt        *time.Time `json:"reviewedAt,omitempty"`
+	PublishedAt       *time.Time `json:"publishedAt,omitempty"`
+	CreatedAt         time.Time  `json:"createdAt"`
+	UpdatedAt         time.Time  `json:"updatedAt"`
 }
 
 type SkillVersion struct {
