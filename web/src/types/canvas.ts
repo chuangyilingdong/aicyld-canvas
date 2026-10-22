@@ -361,6 +361,17 @@ export type CanvasNodeMetadata = {
     generationErrorSummary?: string;
     taskFailureDiagnostics?: import("@/lib/generation-error").GenerationFailureDiagnostics;
     taskProviderRequestId?: string;
+    /** Upstream Midjourney task id. Never populate this from the local task-center id. */
+    midjourneyParentTaskId?: string;
+    midjourneyAction?: string;
+    midjourneyVersion?: string;
+    midjourneyStage?: "inpaint" | "modal";
+    midjourneyNextAction?: string;
+    midjourneyParameters?: Record<string, unknown>;
+    midjourneyMaskSourceNodeId?: string;
+    midjourneyModalSubmittedTaskId?: string;
+    /** Zero-based output position used to derive Midjourney's one-based index. */
+    taskOutputIndex?: number;
     taskOfficialStatus?: "pending" | "processing" | "completed" | "failed" | "cancelled";
     taskReceiptRecorded?: boolean;
     taskCreatedAt?: string;

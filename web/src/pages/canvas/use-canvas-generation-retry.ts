@@ -82,6 +82,10 @@ export function useCanvasGenerationRetry({
                 return;
             }
             const retryMode = retryModeForNode(node.type);
+            if (node.metadata?.midjourneyAction) {
+                message.warning("Midjourney 动作请回到父节点的「MJ 动作」重新提交，避免把结果节点误当普通生成任务");
+                return;
+            }
             if (!retryMode) {
                 message.warning("当前节点不能使用通用生成重试");
                 return;

@@ -36,6 +36,7 @@ type CanvasNodeToolbarProps = {
     onDownload: (node: CanvasNodeData) => void;
     onSaveAsset: (node: CanvasNodeData) => void;
     onMaskEdit: (node: CanvasNodeData) => void;
+    onMidjourney: (node: CanvasNodeData) => void;
     onEmotion: (node: CanvasNodeData) => void;
     onPortraitTexture: (node: CanvasNodeData) => void;
     onCrop: (node: CanvasNodeData) => void;
@@ -98,6 +99,7 @@ export function CanvasNodeToolbar({
     onDownload,
     onSaveAsset,
     onMaskEdit,
+    onMidjourney,
     onEmotion,
     onPortraitTexture,
     onCrop,
@@ -233,6 +235,7 @@ export function CanvasNodeToolbar({
         onToggleFreeResize,
         onAnnotate,
         onMaskEdit,
+        onMidjourney,
         onEmotion,
         onPortraitTexture,
         onCrop,

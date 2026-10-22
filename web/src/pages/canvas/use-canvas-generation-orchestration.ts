@@ -30,6 +30,8 @@ import { useCanvasGeneration } from "./use-canvas-generation";
 import { useCanvasGenerationBatches } from "./use-canvas-generation-batches";
 import { useCanvasGenerationExecutor } from "./use-canvas-generation-executor";
 import { useCanvasGenerationRetry } from "./use-canvas-generation-retry";
+import { runMidjourneyCanvasAction } from "./canvas-midjourney-executor";
+import type { MidjourneyActionSubmission } from "@/lib/canvas/canvas-midjourney";
 import { useCanvasStoryboard } from "./use-canvas-storyboard";
 
 type UseCanvasGenerationOrchestrationOptions = {
@@ -307,6 +309,32 @@ export function useCanvasGenerationOrchestration({
         [handleRetryNode, message, reconcileImageBatchRootNode, setNodes],
     );
 
+    const runMidjourneyAction = useCallback(
+        async (parentNodeId: string, payload: MidjourneyActionSubmission, onInpaintTaskCreated?: (nodeId: string) => void) => {
+            await runMidjourneyCanvasAction({
+                projectId,
+                parentNodeId,
+                payload,
+                config: effectiveConfig,
+                nodesRef,
+                connectionsRef,
+                setNodes,
+                setConnections,
+                setSelectedNodeIds,
+                setSelectedConnectionId,
+                setDialogNodeId,
+                setRunningNodeId,
+                startGenerationRequest,
+                finishGenerationRequest,
+                bindGenerationTask,
+                applyGenerationTaskResult,
+                notify: (content) => message.success(content),
+                notifyError: (content) => message.error(content),
+                onInpaintTaskCreated,
+            });
+        },
+        [applyGenerationTaskResult, bindGenerationTask, connectionsRef, effectiveConfig, finishGenerationRequest, message, nodesRef, projectId, setConnections, setDialogNodeId, setNodes, setRunningNodeId, setSelectedConnectionId, setSelectedNodeIds, startGenerationRequest],
+    );
     const generateImageFromTextNode = useCallback(
         (node: CanvasNodeData) => {
             const created = createImageNodeFromTextSource({
@@ -380,5 +408,6 @@ export function useCanvasGenerationOrchestration({
         reconcileImageBatchRootNode,
         retryImageBatchChildren,
         generateImageFromTextNode,
+        runMidjourneyAction,
     };
 }

@@ -418,7 +418,7 @@ export function defaultImageCapabilityConfig(protocol?: ModelProtocol, model = "
         image.transparentBackground = { supported: false, default: false };
         image.responseFormat = { supported: false };
         image.outputFormat = { supported: false };
-        // imagine 单次返回一张四宫格图，后续动作模型再单独接。
+        // imagine 单次返回一张四宫格图；后续动作通过 metadata.midjourney 合同执行。
         image.maxOutputs = 1;
     } else if (protocol === "volcengine-ark-image" || protocol === "volcengine-ark-agent-plan-image") {
         image.references.maskSupported = false;

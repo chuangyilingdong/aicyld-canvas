@@ -43,6 +43,8 @@ import { CanvasAssetTray } from "@/components/canvas/canvas-asset-tray";
 import { CanvasProjectSidebar } from "@/components/canvas/canvas-project-sidebar";
 import { CanvasCharacterReferenceNodeContent } from "@/components/canvas/canvas-character-reference-node";
 import { CanvasNodeToolbar } from "@/components/canvas/canvas-node-toolbar";
+import { CanvasMidjourneyActionsDialog } from "@/components/canvas/canvas-midjourney-actions-dialog";
+import { midjourneyActionFromNode } from "@/lib/canvas/canvas-midjourney";
 import { CanvasVideoInlineTrimOverlay } from "@/components/canvas/canvas-video-inline-trim";
 import { syncNodeSubtitlesToTimeline } from "@/lib/timeline/timeline-build";
 import { CanvasNodeAnglePanel } from "@/components/canvas/canvas-node-angle-dialog";
@@ -330,6 +332,19 @@ function InfiniteCanvasPage() {
     const [toolbarNodeId, setToolbarNodeId] = useState<string | null>(null);
     const [arkPrivateAssetUploadNodeId, setArkPrivateAssetUploadNodeId] = useState<string | null>(null);
     const [nodeImageSettingsOpen, setNodeImageSettingsOpen] = useState(false);
+    const [midjourneyActionNodeId, setMidjourneyActionNodeId] = useState<string | null>(null);
+    const [midjourneyActionDismissedNodeId, setMidjourneyActionDismissedNodeId] = useState<string | null>(null);
+    const midjourneyActionNode = midjourneyActionNodeId ? nodes.find((node) => node.id === midjourneyActionNodeId) || null : null;
+    useEffect(() => {
+        if (!projectLoaded || midjourneyActionNodeId) return;
+        const pending = nodes.find((node) => node.id !== midjourneyActionDismissedNodeId
+            && midjourneyActionFromNode(node) === "inpaint"
+            && Boolean(node.metadata?.taskId)
+            && Boolean(node.metadata?.midjourneyMaskSourceNodeId)
+            && (node.metadata?.status === "loading" || node.metadata?.taskStatus === "queued" || node.metadata?.taskStatus === "running")
+            && !node.metadata?.midjourneyModalSubmittedTaskId);
+        if (pending) setMidjourneyActionNodeId(pending.id);
+    }, [midjourneyActionDismissedNodeId, midjourneyActionNodeId, nodes, projectLoaded]);
     const [dialogNodeId, setDialogNodeId] = useState<string | null>(null);
     const [scriptScrollTopById, setScriptScrollTopById] = useState<Record<string, number>>({});
     const [titleEditing, setTitleEditing] = useState(false);
@@ -951,6 +966,7 @@ function InfiniteCanvasPage() {
         reconcileImageBatchRootNode,
         retryImageBatchChildren,
         generateImageFromTextNode,
+        runMidjourneyAction,
     } = useCanvasGenerationOrchestration({
         projectId,
         linkedProjectId,
@@ -3014,6 +3030,7 @@ function InfiniteCanvasPage() {
                                 setDialogNodeId(null);
                                 setMaskEditNodeId(node.id);
                             }}
+                            onMidjourney={(node) => setMidjourneyActionNodeId(node.id)}
                             onEmotion={(node) => {
                                 setDialogNodeId(null);
                                 setEmotionNodeId((current) => (current === node.id ? null : node.id));
@@ -3050,6 +3067,20 @@ function InfiniteCanvasPage() {
                             onDelete={(node) => deleteNodes(new Set([node.id]))}
                         />
 
+                        <CanvasMidjourneyActionsDialog
+                            open={Boolean(midjourneyActionNode)}
+                            node={midjourneyActionNode}
+                            nodes={nodes}
+                            config={midjourneyActionNode ? { ...effectiveConfig, model: midjourneyActionNode.metadata?.model || effectiveConfig.model, imageModel: midjourneyActionNode.metadata?.model || effectiveConfig.imageModel, size: midjourneyActionNode.metadata?.size || effectiveConfig.size, quality: midjourneyActionNode.metadata?.quality || effectiveConfig.quality, count: "1" } : effectiveConfig}
+                            onClose={() => {
+                                setMidjourneyActionDismissedNodeId(midjourneyActionNodeId);
+                                setMidjourneyActionNodeId(null);
+                            }}
+                            onSubmit={(nodeId, payload) => runMidjourneyAction(nodeId, payload, (createdNodeId) => {
+                                setMidjourneyActionDismissedNodeId(null);
+                                setMidjourneyActionNodeId(createdNodeId);
+                            })}
+                        />
 {isMiniMapOpen && !focusMode ? <Minimap nodes={nodes} viewport={viewport} viewportSize={size} canvasContainerRef={containerRef} onViewportPreviewChange={previewViewport} onViewportChange={handleViewportChange} /> : null}
 
                         {!focusMode ? (

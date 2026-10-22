@@ -24,6 +24,7 @@ import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 import { assertUserScope, captureUserScope, isUserScopeAbandonedError } from "@/lib/user-scope-guard";
 import { explainGenerationError } from "@/lib/generation-error";
+import { midjourneyTaskMetadata } from "@/lib/canvas/canvas-midjourney";
 import { CanvasGenerationDurableAckError, CanvasGenerationMaterializationError } from "@/services/canvas-generation-errors";
 import type { persistCanvasGenerationTarget } from "@/services/canvas-generation-target";
 import { startOperation } from "@/stores/use-operation-progress";
@@ -273,7 +274,10 @@ export function createGenerationBatchRetryContexts(taskIds: readonly string[], a
 
 export function generationTaskMetadata(task: GenerationTask): CanvasNodeMetadata {
     const progress = normalizeTaskProgress(task.progress, task.status);
+    const midjourney = midjourneyTaskMetadata(task);
     return {
+        ...midjourney,
+        ...(midjourney.midjourneyAction ? { taskOutputIndex: 0 } : {}),
         taskId: task.id,
         taskType: task.type,
         taskClientOperationId: task.clientOperationId,
@@ -326,6 +330,15 @@ export function resetGenerationTaskMetadata(metadata: CanvasNodeMetadata | undef
     delete next.taskErrorCode;
     delete next.taskFailureDiagnostics;
     delete next.taskProviderRequestId;
+    delete next.midjourneyParentTaskId;
+    delete next.midjourneyAction;
+    delete next.midjourneyVersion;
+    delete next.midjourneyStage;
+    delete next.midjourneyNextAction;
+    delete next.midjourneyParameters;
+    delete next.midjourneyMaskSourceNodeId;
+    delete next.midjourneyModalSubmittedTaskId;
+    delete next.taskOutputIndex;
     delete next.taskOfficialStatus;
     delete next.taskReceiptRecorded;
     delete next.taskCreatedAt;

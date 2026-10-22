@@ -638,6 +638,8 @@ function specialize(classified: Classified, fields: ExtractedFields): Classified
         const moderationCopy = moderationErrorCopy(fields.code, fields.message);
         if (moderationCopy) return { ...classified, ...moderationCopy, retryable: false };
     }
+    const midjourneyAction = ["unknown", "invalid_params"].includes(classified.category) ? midjourneyActionErrorCopy(fields.message) : undefined;
+    if (midjourneyAction) return { ...classified, category: "invalid_params", ...midjourneyAction, retryable: false };
     const audioOrDuration = referenceAudioCopy(fields.message, normalizeCode(fields.code) === "invalid_reference_audio") || referenceDurationCopy(fields.message);
     if (audioOrDuration) return { ...classified, category: "invalid_params", ...audioOrDuration, retryable: false };
     const mediaCopy = ["unknown", "invalid_params", "input_too_large", "input_inaccessible"].includes(classified.category) ? referenceMediaConstraintCopy(fields.message) : undefined;
@@ -824,6 +826,15 @@ function categoryFromProviderCode(...values: string[]): GenerationErrorCategory 
     return "";
 }
 
+function midjourneyActionErrorCopy(text: string): CategoryCopy | undefined {
+    const reason = text.split("。排查编号：", 1)[0].trim();
+    if (!/^Midjourney\s/.test(reason)) return undefined;
+    if (/task_id/i.test(reason)) return { reason, action: "请从带有上游 task_id 的 Midjourney 原图重新发起动作，不要把本地任务 ID 当父任务" };
+    if (/mask_url|蒙版/i.test(reason)) return { reason, action: "请先完成 inpaint，再在结果节点补蒙版和提示词后提交 MODAL" };
+    if (/2–4 张图片/.test(reason)) return { reason, action: "请选择 2–4 张可读取的图片后重新提交 blend" };
+    if (/\bindex\b|宫格/i.test(reason)) return { reason, action: "请选择 1–4 的宫格位置后再提交" };
+    return { reason, action: "请检查动作、父任务、宫格位置和版本参数后重试" };
+}
 function referenceMediaConstraintCopy(text: string): CategoryCopy | undefined {
     text = text.split("。排查编号：", 1)[0];
     if (text.startsWith("当前渠道需要在线素材链接：")) {

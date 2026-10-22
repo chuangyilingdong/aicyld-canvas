@@ -978,20 +978,42 @@ func FinishProtocolResult(ctx context.Context, config Config, mode string, taskI
 	}
 }
 
+// ProtocolResultMode lets a Midjourney action choose its durable result shape
+// without changing the request capability used to build the paid action.
+func ProtocolResultMode(input Input) string {
+	mode := strings.ToLower(strings.TrimSpace(input.Mode))
+	if strings.ToLower(strings.TrimSpace(input.Config.InterfaceType)) != "midjourney" {
+		return mode
+	}
+	action := ""
+	if midjourney, ok := input.Metadata["midjourney"].(map[string]any); ok {
+		action, _ = midjourney["action"].(string)
+	}
+	switch strings.ToLower(strings.TrimSpace(action)) {
+	case "describe":
+		return "text"
+	case "video":
+		return "video"
+	default:
+		return mode
+	}
+}
+
 // finishProtocolAdapterResult 优先消费 create/poll 已返回的内联或 URL 结果，只有插件明确声明独立结果端点时才下载。
 // 空响应或下载失败必须向上失败，不能生成伪素材；application/octet-stream 仅表示传输层未知类型，
 // 不会把未知内容伪装成具体图片、视频或音频 MIME。
 func FinishProtocolAdapterResult(ctx context.Context, input Input, adapter protocol.Adapter, request protocol.GenerationRequest, taskID string, result *protocol.Result, pollPolicy VideoPollPolicy) (map[string]interface{}, error) {
-	if input.Mode == "video" {
+	resultMode := ProtocolResultMode(input)
+	if resultMode == "video" {
 		pollPolicy = videoPollPolicyForConfig(ctx, input.Config, pollPolicy)
 	}
-	if ProtocolResultHasOutput(input.Mode, result) {
-		return FinishProtocolResult(ctx, input.Config, input.Mode, taskID, result, pollPolicy)
+	if ProtocolResultHasOutput(resultMode, result) {
+		return FinishProtocolResult(ctx, input.Config, resultMode, taskID, result, pollPolicy)
 	}
 	resultAdapter, ok := adapter.(protocol.ResultAdapter)
 	capability, hasCapability := adapter.(protocol.ResultCapability)
 	if !ok || !hasCapability || !capability.ResultAvailable() {
-		return FinishProtocolResult(ctx, input.Config, input.Mode, taskID, result, pollPolicy)
+		return FinishProtocolResult(ctx, input.Config, resultMode, taskID, result, pollPolicy)
 	}
 	spec, err := resultAdapter.BuildResult(ctx, protocol.PollContext{BaseURL: input.Config.BaseURL, Model: request.Model, Request: request, TaskID: taskID})
 	if err != nil {
@@ -1000,7 +1022,7 @@ func FinishProtocolAdapterResult(ctx context.Context, input Input, adapter proto
 	download := func(ctx context.Context) ([]byte, string, error) {
 		return ExecuteProtocolBinaryRequest(WithRequestKind(ctx, "download"), input.Config, spec)
 	}
-	if input.Mode == "video" && IsBeefAPIVideoConfig(ctx, input.Config) && strings.EqualFold(spec.Method, http.MethodGet) {
+	if resultMode == "video" && IsBeefAPIVideoConfig(ctx, input.Config) && strings.EqualFold(spec.Method, http.MethodGet) {
 		resultURL, urlErr := ProtocolRequestURL(input.Config.BaseURL, spec)
 		if urlErr != nil {
 			return nil, urlErr
@@ -1009,7 +1031,7 @@ func FinishProtocolAdapterResult(ctx context.Context, input Input, adapter proto
 	}
 	var data []byte
 	var mimeType string
-	if input.Mode == "video" {
+	if resultMode == "video" {
 		data, mimeType, err = RunVideoDownload(ctx, taskID, pollPolicy, download)
 	} else {
 		data, mimeType, err = download(ctx)
@@ -1026,7 +1048,7 @@ func FinishProtocolAdapterResult(ctx context.Context, input Input, adapter proto
 	}
 	reference := protocol.MediaReference{DataURL: DataURL(mimeType, data), MIMEType: mimeType}
 	downloaded := &protocol.Result{}
-	switch input.Mode {
+	switch resultMode {
 	case "image":
 		downloaded.Images = []protocol.MediaReference{reference}
 	case "video":
@@ -1034,9 +1056,9 @@ func FinishProtocolAdapterResult(ctx context.Context, input Input, adapter proto
 	case "audio":
 		downloaded.Audios = []protocol.MediaReference{reference}
 	default:
-		return nil, fmt.Errorf("声明式协议结果下载不支持生成模式 %s", input.Mode)
+		return nil, fmt.Errorf("声明式协议结果下载不支持生成模式 %s", resultMode)
 	}
-	return FinishProtocolResult(ctx, input.Config, input.Mode, taskID, downloaded, pollPolicy)
+	return FinishProtocolResult(ctx, input.Config, resultMode, taskID, downloaded, pollPolicy)
 }
 
 func ProtocolResultHasOutput(mode string, result *protocol.Result) bool {

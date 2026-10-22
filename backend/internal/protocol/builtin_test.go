@@ -126,29 +126,66 @@ func TestMidjourneyActionsMapIndependentParameters(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.action, func(t *testing.T) {
 			opts := map[string]any{"action": test.action}
-			for key, value := range test.opts { opts[key] = value }
+			for key, value := range test.opts {
+				opts[key] = value
+			}
 			request := GenerationRequest{Model: "midjourney-imagine", Prompt: "replace sky", Images: test.images, Extra: map[string]any{"midjourney": opts}}
 			spec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: request})
-			if err != nil { t.Fatal(err) }
-			if spec.Path != "/v1/midjourney/generations/"+test.action { t.Fatalf("path=%s", spec.Path) }
+			if err != nil {
+				t.Fatal(err)
+			}
+			if spec.Path != "/v1/midjourney/generations/"+test.action {
+				t.Fatalf("path=%s", spec.Path)
+			}
 			body, _ := spec.Body.(map[string]any)
 			for key, want := range test.want {
-				if got := body[key]; got != want { t.Fatalf("%s=%#v want %#v body=%#v", key, got, want, body) }
+				if got := body[key]; got != want {
+					t.Fatalf("%s=%#v want %#v body=%#v", key, got, want, body)
+				}
 			}
 		})
 	}
 }
 
+func TestMidjourneyVideoAutoKeepsZeroBasedIndex(t *testing.T) {
+	adapter, _ := Builtins().Get("midjourney")
+	spec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
+		Model: "midjourney-imagine",
+		Extra: map[string]any{"midjourney": map[string]any{"action": "video", "taskId": "mj-parent", "index": float64(0), "animateMode": "auto"}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := spec.Body.(map[string]any)
+	if body["index"] != 0 || body["task_id"] != "mj-parent" {
+		t.Fatalf("video body=%#v", body)
+	}
+	_, err = adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
+		Model: "midjourney-imagine",
+		Extra: map[string]any{"midjourney": map[string]any{"action": "video", "taskId": "mj-parent", "index": float64(4), "animateMode": "auto"}},
+	}})
+	if err == nil {
+		t.Fatal("expected video index 4 to be rejected")
+	}
+}
 func TestMidjourneyInpaintModalDescribeAndVideoResults(t *testing.T) {
 	adapter, _ := Builtins().Get("midjourney")
 	spec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{Model: "midjourney-imagine", Prompt: "new sofa", Extra: map[string]any{"midjourney": map[string]any{"action": "modal", "taskId": "mj-modal", "maskUrl": "https://cdn/mask.png"}}, Images: []MediaReference{{URL: "https://cdn/mask.png", Role: "mask"}}}})
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	body, _ := spec.Body.(map[string]any)
-	if body["task_id"] != "mj-modal" || body["mask_url"] != "https://cdn/mask.png" || body["prompt"] != "new sofa" { t.Fatalf("modal body=%#v", body) }
+	if body["task_id"] != "mj-modal" || body["mask_url"] != "https://cdn/mask.png" || body["prompt"] != "new sofa" {
+		t.Fatalf("modal body=%#v", body)
+	}
 	describe, err := adapter.ParsePoll(context.Background(), PollContext{Request: GenerationRequest{Extra: map[string]any{"midjourney": map[string]any{"action": "describe"}}}}, []byte(`{"status":"SUCCESS","description":"a quiet forest"}`))
-	if err != nil || describe.Result == nil || describe.Result.Text != "a quiet forest" { t.Fatalf("describe=%#v %v", describe, err) }
+	if err != nil || describe.Result == nil || describe.Result.Text != "a quiet forest" {
+		t.Fatalf("describe=%#v %v", describe, err)
+	}
 	video, err := adapter.ParsePoll(context.Background(), PollContext{Request: GenerationRequest{Extra: map[string]any{"midjourney": map[string]any{"action": "video"}}}}, []byte(`{"status":"SUCCESS","video_url":"https://cdn/out.mp4"}`))
-	if err != nil || video.Result == nil || len(video.Result.Videos) != 1 { t.Fatalf("video=%#v %v", video, err) }
+	if err != nil || video.Result == nil || len(video.Result.Videos) != 1 {
+		t.Fatalf("video=%#v %v", video, err)
+	}
 }
 
 func TestTextAdaptersMapRequestsAndResponses(t *testing.T) {

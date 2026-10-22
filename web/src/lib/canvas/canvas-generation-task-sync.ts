@@ -15,6 +15,7 @@ import { applyGenerationConsumerEffect, generationEffectApplied } from "@/servic
 import { attachNodeEffectKey } from "@/services/generation-task-materializer";
 import { CanvasNodeType, type CanvasGenerationMode, type CanvasNodeData, type CanvasNodeMetadata } from "@/types/canvas";
 import { mediaResultMetadata } from "@/lib/canvas/canvas-node-semantics";
+import { midjourneyActionFromTask, midjourneyResultMode, midjourneyTaskMetadata } from "@/lib/canvas/canvas-midjourney";
 
 export function generationTaskInput(task: GenerationTask) {
     if (!task.inputJson) return null;
@@ -30,6 +31,8 @@ export function generationTaskNodeId(task: GenerationTask) {
 }
 
 export function generationTaskMode(task: GenerationTask, fallback?: CanvasGenerationMode): CanvasGenerationMode {
+    const midjourneyAction = midjourneyActionFromTask(task);
+    if (midjourneyAction) return midjourneyResultMode(midjourneyAction);
     const inputMode = generationTaskInput(task)?.mode;
     if (inputMode === "text" || inputMode === "image" || inputMode === "video" || inputMode === "audio") return inputMode;
     if (task.type === "canvas_text") return "text";
@@ -345,7 +348,10 @@ function findGenerationTaskNode(nodes: CanvasNodeData[], task: GenerationTask, t
 }
 
 function completedTaskMetadata(task: GenerationTask): CanvasNodeMetadata {
+    const midjourney = midjourneyTaskMetadata(task);
     return {
+        ...midjourney,
+        ...(midjourney.midjourneyAction ? { taskOutputIndex: 0 } : {}),
         taskFailureDiagnostics: task.failureDiagnostics,
         taskProviderRequestId: task.providerRequestId,
         taskId: task.id,

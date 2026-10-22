@@ -100,6 +100,23 @@ func TestBindTextUsesDurableResultJSON(t *testing.T) {
 	}
 }
 
+func TestBindMidjourneyDescribeUsesDurableTextResult(t *testing.T) {
+	ports := &fakePorts{
+		task: &model.Task{
+			ID: "task-mj-describe", UserID: "user-1", ProjectID: "canvas-1", Type: "canvas_image",
+			Status:     model.TaskStatusSucceeded,
+			InputJSON:  `{"metadata":{"nodeId":"node-text","midjourney":{"action":"describe"}}}`,
+			ResultJSON: `{"text":"a quiet forest at dawn"}`,
+		},
+	}
+	receipt, err := Bind(ports, "user-1", Request{CanvasID: "canvas-1", TaskID: "task-mj-describe", NodeID: "node-text"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt.Content != "a quiet forest at dawn" || ports.lastPatch.MediaType != "text" {
+		t.Fatalf("describe receipt = %#v patch=%#v", receipt, ports.lastPatch)
+	}
+}
 func TestBindRejectsUnreadableAndNotReadyOutputs(t *testing.T) {
 	unreadable := &fakePorts{
 		task:      testImageTask(),

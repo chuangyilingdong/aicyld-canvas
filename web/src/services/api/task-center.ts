@@ -316,6 +316,14 @@ export function retryGenerationTask(id: string) {
     return http.post<GenerationTask>(`/tasks/${encodeURIComponent(id)}/retry`);
 }
 
+export type MidjourneyModalInput = {
+    prompt: string;
+    maskResourceId: string;
+};
+
+export function submitMidjourneyModal(taskId: string, input: MidjourneyModalInput) {
+    return http.post<GenerationTask>(`/tasks/${encodeURIComponent(taskId)}/midjourney/modal`, input);
+}
 export function cancelGenerationTask(id: string, expectedScope = captureUserScope()) {
     return http.post<GenerationTask>(`/tasks/${encodeURIComponent(id)}/cancel`, undefined, { expectedScope }).then((task) => {
         window.dispatchEvent(new CustomEvent("canvas:task-cancelled", { detail: { task } }));

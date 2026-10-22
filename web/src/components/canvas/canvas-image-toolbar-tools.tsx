@@ -1,16 +1,18 @@
 import type { ReactNode } from "react";
-import { Brush, Camera, Copy, FileText, Globe2, Grid2x2, Lock, LockOpen, Maximize2, PencilLine, Crop, SlidersHorizontal, Smile, Sun, Upload, Scaling } from "lucide-react";
+import { Brush, Camera, Copy, FileText, Globe2, Grid2x2, Lock, LockOpen, Maximize2, PencilLine, Crop, SlidersHorizontal, Smile, Sun, Upload, Scaling, WandSparkles } from "lucide-react";
 
 import type { CanvasNodeData } from "@/types/canvas";
 import type { NodeToolbarGroup } from "@/lib/canvas/tool-registry";
+import { isMidjourneyNode } from "@/lib/canvas/canvas-midjourney";
 
-type ImageNodeActionToolId = "copyPrompt" | "reversePrompt" | "replace" | "resize" | "annotation" | "maskEdit" | "emotion" | "portraitTexture" | "crop" | "split" | "upscale" | "superResolve" | "angle" | "lighting" | "panorama" | "view";
+type ImageNodeActionToolId = "copyPrompt" | "reversePrompt" | "replace" | "resize" | "annotation" | "maskEdit" | "midjourney" | "emotion" | "portraitTexture" | "crop" | "split" | "upscale" | "superResolve" | "angle" | "lighting" | "panorama" | "view";
 
 type ImageToolHandlers = {
     onUpload: (node: CanvasNodeData) => void;
     onToggleFreeResize: (node: CanvasNodeData) => void;
     onAnnotate: (node: CanvasNodeData) => void;
     onMaskEdit: (node: CanvasNodeData) => void;
+    onMidjourney: (node: CanvasNodeData) => void;
     onEmotion: (node: CanvasNodeData) => void;
     onPortraitTexture: (node: CanvasNodeData) => void;
     onCrop: (node: CanvasNodeData) => void;
@@ -33,6 +35,7 @@ type ImageToolDefinition = {
     section?: string;
     description?: string;
     active?: (node: CanvasNodeData) => boolean;
+    applicable?: (node: CanvasNodeData) => boolean;
     run: (node: CanvasNodeData, handlers: ImageToolHandlers) => void;
 };
 
@@ -83,6 +86,16 @@ const imageToolDefinitions: ImageToolDefinition[] = [
         group: "process",
         order: 40,
         run: (node, handlers) => handlers.onAnnotate(node),
+    },
+    {
+        id: "midjourney",
+        label: "MJ 动作",
+        description: "执行上游 Midjourney 放大、变体、重混、反推或视频动作",
+        icon: () => <WandSparkles className="size-3.5" />,
+        group: "primary",
+        order: 12,
+        applicable: (node) => isMidjourneyNode(node),
+        run: (node, handlers) => handlers.onMidjourney(node),
     },
     {
         id: "maskEdit",
@@ -184,7 +197,7 @@ const imageToolDefinitions: ImageToolDefinition[] = [
 ];
 
 export function buildImageToolbarTools(node: CanvasNodeData, handlers: ImageToolHandlers) {
-    return imageToolDefinitions.map((tool) => ({
+    return imageToolDefinitions.filter((tool) => tool.applicable?.(node) ?? true).map((tool) => ({
         id: tool.id,
         label: resolveToolText(tool.label, node),
         icon: tool.icon(node),

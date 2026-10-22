@@ -205,6 +205,27 @@ func RegisterTaskRoutes(r *gin.RouterGroup, svc *app.Service, hostedProfile ...b
 		}
 		ok(c, task)
 	})
+	r.POST("/tasks/:id/midjourney/modal", func(c *gin.Context) {
+		if !requireTrustedDesktopWritePrincipal(c, "任务只能由当前桌面界面继续提交") {
+			return
+		}
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		var request app.MidjourneyModalRequest
+		if err := c.ShouldBindJSON(&request); err != nil {
+			fail(c, http.StatusBadRequest, err)
+			return
+		}
+		task, err := svc.SubmitMidjourneyModal(c.Request.Context(), user.ID, c.Param("id"), request)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, task)
+	})
 	r.POST("/tasks/:id/query-provider", func(c *gin.Context) {
 		user, err := currentUser(c, svc)
 		if err != nil {

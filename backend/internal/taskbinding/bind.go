@@ -180,9 +180,27 @@ func isTextTask(task model.Task) bool {
 	switch strings.TrimSpace(task.Type) {
 	case "canvas_text", "text_replay":
 		return true
+	case "canvas_image":
+		return midjourneyAction(task.InputJSON) == "describe"
 	default:
 		return false
 	}
+}
+
+func midjourneyAction(inputJSON string) string {
+	if strings.TrimSpace(inputJSON) == "" {
+		return ""
+	}
+	var input struct {
+		Metadata struct {
+			Midjourney map[string]any `json:"midjourney"`
+		} `json:"metadata"`
+	}
+	if json.Unmarshal([]byte(inputJSON), &input) != nil {
+		return ""
+	}
+	action, _ := input.Metadata.Midjourney["action"].(string)
+	return strings.ToLower(strings.TrimSpace(action))
 }
 
 func assetResourceID(asset *model.Asset) string {

@@ -316,6 +316,10 @@ func midjourneyAdapter() Adapter {
 			copyMidjourneyOption(body, options, "version", "version")
 			if value := midjourneyInt(options, "index"); value > 0 {
 				body["index"] = value
+			} else if action == "video" {
+				if _, present := options["index"]; present {
+					body["index"] = 0
+				}
 			}
 			if value := midjourneyFloat(options, "zoomRatio"); value > 0 {
 				body["zoom_ratio"] = value
@@ -1231,8 +1235,16 @@ func validateMidjourneyAction(action string, body map[string]any, imageCount int
 		if taskID == "" && imageCount == 0 {
 			return errors.New("Midjourney video 需要图片或父任务 task_id")
 		}
-		if mode := strings.TrimSpace(midjourneyString(body, "animate_mode")); mode == "auto" && (taskID == "" || index < 1) {
-			return errors.New("Midjourney video animate_mode=auto 需要 task_id 和 index")
+		if mode := strings.TrimSpace(midjourneyString(body, "animate_mode")); mode == "auto" {
+			if taskID == "" {
+				return errors.New("Midjourney video animate_mode=auto 需要 task_id")
+			}
+			if _, present := body["index"]; !present {
+				return errors.New("Midjourney video animate_mode=auto 需要 index 0–3")
+			}
+			if index < 0 || index > 3 {
+				return errors.New("Midjourney video 的 index 必须在 0–3")
+			}
 		}
 	}
 	return nil
