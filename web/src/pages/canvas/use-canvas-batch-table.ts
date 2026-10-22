@@ -20,7 +20,7 @@ type Options = {
 };
 
 export function useCanvasBatchTable({ nodesRef, connectionsRef, setNodes, setConnections, setSelectedNodeIds, enqueueGenerationBatch }: Options) {
-    const { message, modal } = App.useApp();
+    const { message } = App.useApp();
     const effectiveConfig = useEffectiveConfig();
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
 
@@ -137,16 +137,7 @@ export function useCanvasBatchTable({ nodesRef, connectionsRef, setNodes, setCon
             return !output?.metadata?.content;
         });
         if (!rows.length) return message.info("没有可提交的未完成任务，请检查参考图和提示词");
-        const confirmed = await new Promise<boolean>((resolve) => modal.confirm({
-            title: `确认提交 ${rows.length} 个批量图片任务`,
-            content: `模型：${modelDisplayName(effectiveConfig, imageModel)}；并发上限：${table.concurrency}。这些任务可能消耗积分或产生外部模型费用。`,
-            okText: "确认生成",
-            cancelText: "取消",
-            centered: true,
-            onOk: () => resolve(true),
-            onCancel: () => resolve(false),
-        }));
-        if (!confirmed) return;
+        message.info(`正在提交 ${rows.length} 个批量图片任务（${modelDisplayName(effectiveConfig, imageModel)}，并发 ${table.concurrency}）`);
 
         const imageSpec = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
         const nextNodes = [...nodesRef.current];
@@ -191,7 +182,7 @@ export function useCanvasBatchTable({ nodesRef, connectionsRef, setNodes, setCon
         setConnections(nextConnections);
         setSelectedNodeIds(new Set(targets.map((target) => target.nodeId)));
         if (enqueueGenerationBatch(nodeId, "batch_image", targets, { concurrency: table.concurrency })) message.success(`${targets.length} 个任务已加入并发队列`);
-    }, [connectionsRef, effectiveConfig, enqueueGenerationBatch, isAiConfigReady, message, modal, nodesRef, setConnections, setNodes, setSelectedNodeIds]);
+    }, [connectionsRef, effectiveConfig, enqueueGenerationBatch, isAiConfigReady, message, nodesRef, setConnections, setNodes, setSelectedNodeIds]);
 
     return { addReferenceColumn, addRow, fillRowsFromConnections, generateRows, moveReferenceCell, patchTable, removeReferenceColumn, removeRow, reorderReferenceColumns, syncRowsFromConnections, updateRow };
 }

@@ -64,6 +64,18 @@ func (c *Client) Quote(ctx context.Context, userID string, task *model.Task) (*m
 	return &quote, nil
 }
 
+func (c *Client) Balance(ctx context.Context, userID string) (*model.BillingBalance, error) {
+	if !c.Enabled() {
+		return &model.BillingBalance{Enabled: false}, nil
+	}
+	body := map[string]any{"userId": mainUserID(userID)}
+	var balance model.BillingBalance
+	if err := c.post(ctx, "/balance", body, &balance); err != nil {
+		return nil, err
+	}
+	return &balance, nil
+}
+
 func (c *Client) Reserve(ctx context.Context, userID string, task *model.Task) (*model.BillingReservation, error) {
 	if !c.Enabled() || task == nil || !Billable(task) {
 		return &model.BillingReservation{Enabled: false, Status: "free"}, nil

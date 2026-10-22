@@ -3,7 +3,6 @@ import { useCallback, useRef, type Dispatch, type SetStateAction } from "react";
 import { App } from "antd";
 
 import { buildNodeGenerationContext, hydrateNodeGenerationContext, type NodeGenerationContext } from "@/components/canvas/canvas-node-generation";
-import { confirmCanvasBillingQuote } from "@/components/canvas/canvas-billing-confirmation";
 import type { CanvasNodeGenerationMode } from "@/components/canvas/canvas-node-prompt-panel";
 import { isGenerationCanceled } from "@/lib/canvas/canvas-project-generation";
 import { buildConfirmedGenerationConfig } from "./canvas-assistant-proposal-execution";
@@ -305,7 +304,7 @@ export function useCanvasGenerationExecutor({
                         if (!accepted || options?.controller?.signal.aborted) return;
                     }
 
-                    if (mode !== "text" && (!options?.skipBillingConfirmation || options?.collectBillingQuote)) {
+                    if (mode !== "text" && options?.collectBillingQuote) {
                         let quoteConfig = generationConfig;
                         if (mode === "image" && generationContext.referenceImages.length > 0 && !isImageEditModel(quoteConfig.model)) {
                             quoteConfig = withPlatformImageEditModel(quoteConfig);
@@ -356,13 +355,9 @@ export function useCanvasGenerationExecutor({
                                 };
                             }
                             hideQuoteMessage();
-                            if (options?.collectBillingQuote) {
-                                generationContext = adoptPreparedGenerationReferences(generationContext, preparedInput);
-                                options.collectBillingQuote({ quote, preparedInput });
-                                return;
-                            }
-                            if (!(await confirmCanvasBillingQuote(modal, quote))) return;
                             generationContext = adoptPreparedGenerationReferences(generationContext, preparedInput);
+                            options.collectBillingQuote({ quote, preparedInput });
+                            return;
                         } catch (error) {
                             if (options?.controller?.signal?.aborted || isGenerationCanceled(error)) return;
                             message.error(generationErrorMessage(error) || "获取积分报价失败");

@@ -1,8 +1,8 @@
 import { useCallback, useRef, useState } from "react";
 import { App } from "antd";
 
-import { confirmCanvasBillingQuotes } from "@/components/canvas/canvas-billing-confirmation";
 import { confirmAssistantProduction, confirmAssistantProposalRunnable, type AssistantGenerationProposal } from "@/services/api/agent-assistant";
+import { useCanvasBillingBalance } from "@/hooks/use-canvas-billing";
 import { armAssistantContinuation, registerAssistantSubmission, type AssistantSubmissionManifest } from "@/services/api/assistant-continuation";
 import type { Skill } from "@/services/api/skills";
 import type { CanvasConnection, CanvasNodeData } from "@/types/canvas";
@@ -40,7 +40,8 @@ export function useCanvasAssistantProposal({
     continuePlan,
     onContinuationArmed,
 }: UseCanvasAssistantProposalOptions) {
-    const { modal } = App.useApp();
+    const { message } = App.useApp();
+    const balanceQuery = useCanvasBillingBalance();
     const claimsRef = useRef(new Set<string>());
     const attemptedProductionsRef = useRef(new Set<string>());
     const [assistantProposalFeedback, setAssistantProposalFeedback] = useState<Record<string, string>>({});
@@ -123,10 +124,16 @@ export function useCanvasAssistantProposal({
                     if (continuePlan && sessionId) { continuationId = (await armAssistantContinuation(owner.canvasId, sessionId, turnId, proposal)).id; onContinuationArmed?.(); }
                     return snapshot;
                 },
-                confirmBilling: (quotes, nodeCount) => confirmCanvasBillingQuotes(modal, quotes, {
-                    title: "确认生成整批方案",
-                    description: `将一次确认 ${nodeCount} 个节点的生成；各节点仍按实际任务分别预扣、结算或退款。`,
-                }),
+                confirmBilling: async (quotes, nodeCount) => {
+                    const total = quotes.reduce((sum, quote) => sum + (quote.enabled ? quote.points : 0), 0);
+                    const balance = balanceQuery.data?.enabled ? balanceQuery.data.balance : quotes.find((quote) => typeof quote.balance === "number")?.balance;
+                    if (typeof balance === "number" && balance < total) {
+                        message.error(`整批方案预计消耗 ${total} 积分，当前余额 ${balance} 积分，请先充值后再生成`);
+                        return false;
+                    }
+                    if (total > 0) message.info(`整批方案预计消耗 ${total} 积分，将生成 ${nodeCount} 个节点`);
+                    return true;
+                },
                 generate: (id, kind, prompt, options) => generateForThisRun(id, kind, prompt, { ...options, ...(continuationId ? { onSubmissionPlan: (manifest: AssistantSubmissionManifest) => registerAssistantSubmission(continuationId!, manifest).then(() => undefined) } : {}) }),
                 stillOwns: () => lifetime.matches(owner, projectIdRef.current),
                 markHandled: (proposalId) => markHandledRef.current(proposalId),
@@ -141,7 +148,7 @@ export function useCanvasAssistantProposal({
                 });
             });
         },
-        [connectionsRef, lifetime, modal, nodesRef, projectId, continuationSessionId, continuePlan, onContinuationArmed],
+        [balanceQuery.data, connectionsRef, lifetime, message, nodesRef, projectId, continuationSessionId, continuePlan, onContinuationArmed],
     );
 
     return { runAssistantProposal, assistantProposalFeedback, runningProposalIds };

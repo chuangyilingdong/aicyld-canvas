@@ -3,18 +3,33 @@ import { useQuery } from "@tanstack/react-query";
 
 import { listGenerationTasks, type GenerationTask } from "@/services/api/task-center";
 
+const COMPLETED_TASK_VISIBLE_MS = 30_000;
+
 export function shouldEnableCanvasActiveTaskQuery(enabled: boolean, projectId: string) {
     return enabled && Boolean(projectId);
+}
+
+/**
+ * 进行中的任务必须始终展示；刚结束的任务额外保留 30 秒，让预扣结果能落到
+ * “已结算/已退回”再消失。超过窗口的终态任务不进入浮层，避免历史任务堆积。
+ */
+export function isCanvasTaskVisibleInActivePanel(task: GenerationTask, now = Date.now()) {
+    if (task.status === "queued" || task.status === "running") return true;
+    if (task.status !== "succeeded" && task.status !== "failed" && task.status !== "cancelled") return false;
+    const finishedAt = Date.parse(task.completedAt || task.updatedAt || task.createdAt);
+    if (!Number.isFinite(finishedAt)) return false;
+    const age = now - finishedAt;
+    return age >= -5_000 && age <= COMPLETED_TASK_VISIBLE_MS;
 }
 
 export function useCanvasActiveTasks(projectId: string, enabled: boolean) {
     const query = useQuery<GenerationTask[]>({
         queryKey: ["canvas-active-tasks", projectId],
         // Agent 的持久化执行仍复用任务队列生命周期，但不应占据画布右上角的“生成任务”浮层。
-        // 保留这页中的全部生成任务，面板支持滚动，数量与实际任务一致。
-        queryFn: () => listGenerationTasks(30, { projectId, activeOnly: true }).then((tasks) => tasks.filter((task) => !isRetiredAgentTask(task))),
+        // 查询最近任务后在前端保留刚结束的任务，结算或退款状态才来得及展示。
+        queryFn: () => listGenerationTasks(30, { projectId, activeOnly: false }).then((tasks) => tasks.filter((task) => !isRetiredAgentTask(task) && isCanvasTaskVisibleInActivePanel(task))),
         enabled: shouldEnableCanvasActiveTaskQuery(enabled, projectId),
-        refetchInterval: (current) => (current.state.data?.length ? 2_000 : 10_000),
+        refetchInterval: (current) => (current.state.data?.some((task) => task.status === "queued" || task.status === "running") ? 2_000 : 10_000),
         refetchOnWindowFocus: true,
     });
 

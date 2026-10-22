@@ -2,7 +2,6 @@ import { useCallback, type Dispatch, type SetStateAction } from "react";
 import { App } from "antd";
 
 import { buildNodeGenerationContext, hydrateNodeGenerationContext } from "@/components/canvas/canvas-node-generation";
-import { confirmCanvasGenerationTaskQuote } from "@/components/canvas/canvas-billing-confirmation";
 import type { CanvasNodeGenerationMode } from "@/components/canvas/canvas-node-prompt-panel";
 import { buildEmotionImageArtifacts, emotionGenerationSize, emotionProviderMask, normalizeEmotionPromptForProvider, resolveEmotionEditPlan } from "@/lib/canvas/canvas-emotion";
 import {
@@ -243,7 +242,6 @@ export function useCanvasGenerationRetry({
                     {
                         ...input,
                         ...retryContext,
-                        confirmTask: (request) => confirmCanvasGenerationTaskQuote(modal, request),
                     },
                     {
                         bindTask: (task) => bindGenerationTask(node.id, task),

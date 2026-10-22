@@ -13,6 +13,19 @@ import (
 
 func RegisterTaskRoutes(r *gin.RouterGroup, svc *app.Service, hostedProfile ...bool) {
 	registerMediaUpscaleRoutes(r, svc)
+	r.GET("/billing/balance", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		balance, err := svc.BillingBalance(c.Request.Context(), user.ID)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, balance)
+	})
 	r.POST("/tasks", func(c *gin.Context) {
 		if !requireTrustedDesktopWritePrincipal(c, "任务只能由当前桌面界面创建") {
 			return

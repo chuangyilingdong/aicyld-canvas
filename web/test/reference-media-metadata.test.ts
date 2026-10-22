@@ -5,7 +5,7 @@ import * as resources from "../src/services/api/resources";
 import * as metadata from "../src/lib/media-metadata";
 import * as projects from "../src/services/api/projects";
 import { hydrateNodeGenerationContext, type NodeGenerationContext } from "../src/components/canvas/canvas-node-generation";
-import { prepareBackendGenerationTask } from "../src/services/api/generation-task";
+import { buildBackendGenerationTaskQuoteInput, prepareBackendGenerationTask } from "../src/services/api/generation-task";
 import { createVideoGenerationTask } from "../src/services/api/video";
 import { createModelChannel, defaultConfig, encodeChannelModel } from "../src/stores/use-config-store";
 import { modelCapabilityConfigFor } from "../src/lib/model-capabilities";
@@ -78,6 +78,18 @@ test("backend preparation also probes references without a canvas", async () => 
     } finally {
         mocks.restore();
     }
+});
+
+test("live billing quote input reflects duration and reference counts without uploading media", () => {
+    const task = buildBackendGenerationTaskQuoteInput({
+        config: { ...config, videoSeconds: "6" },
+        mode: "video",
+        prompt: "",
+        quoteReferenceCounts: { images: 1, videos: 0, audios: 0 },
+    });
+    expect((task.input as { config: { videoSeconds: string } }).config.videoSeconds).toBe("6");
+    expect(task.operation).toBe("image_to_video");
+    expect((task.input as { referenceImages: unknown[] }).referenceImages).toEqual([]);
 });
 
 test("a generated character voice sample with zero resource duration is probed before canvas preflight", async () => {
