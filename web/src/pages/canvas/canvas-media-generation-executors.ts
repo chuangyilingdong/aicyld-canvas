@@ -4,21 +4,26 @@ import { NODE_DEFAULT_SIZE } from "@/constant/canvas";
 import { canGenerateMediaInPlace } from "@/lib/canvas/canvas-generation-layout";
 import { nodeSizeFromRatio } from "@/lib/canvas/canvas-node-size";
 import { nextCanvasVersionLabel } from "@/lib/canvas/canvas-layout";
-import { buildAudioGenerationMetadata, buildVideoGenerationMetadata, generationReferenceUrls, resetGenerationTaskMetadata, runCanvasGenerationTaskToConsumer } from "@/lib/canvas/canvas-project-generation";
+import { buildAudioGenerationMetadata, buildVideoGenerationMetadata, clearInPlaceMediaOutputMetadata, generationReferenceUrls, runCanvasGenerationTaskToConsumer } from "@/lib/canvas/canvas-project-generation";
 import { canvasGenerationPromptMetadata } from "@/lib/canvas/canvas-generation-submission";
 import { projectCanvasGenerationSubmission } from "@/lib/canvas/canvas-generation-live-target";
 import { mediaResultMetadata } from "@/lib/canvas/canvas-node-semantics";
-import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
+import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
+import { CanvasNodeType, type CanvasConnection, type CanvasNodeData } from "@/types/canvas";
 
 import type { CanvasGenerationExecution } from "./canvas-generation-executor-types";
 
 const NODE_STATUS_LOADING = "loading" as const;
 const NODE_STATUS_SUCCESS = "success" as const;
 
+export { clearInPlaceMediaOutputMetadata };
+
 export async function executeVideoGeneration({
     resolveReferenceLinks,
     nodeId,
     sourceNode,
+    canvasNodes,
+    canvasConnections,
     prompt,
     effectivePrompt,
     generationConfig,
@@ -26,7 +31,6 @@ export async function executeVideoGeneration({
     controller,
     projectId,
     nodesRef,
-    canvasConnections,
     setNodes,
     setConnections,
     startGenerationRequest,
@@ -55,7 +59,7 @@ export async function executeVideoGeneration({
         width: reuseSourceNode ? sourceNode!.width : spec.width,
         height: reuseSourceNode ? sourceNode!.height : spec.height,
         metadata: mediaResultMetadata("generated", {
-            ...(reuseSourceNode ? resetGenerationTaskMetadata(sourceNode?.metadata, NODE_STATUS_LOADING) : {}),
+            ...(reuseSourceNode ? clearInPlaceMediaOutputMetadata(sourceNode?.metadata) : {}),
             ...canvasGenerationPromptMetadata(prompt, effectivePrompt),
             status: NODE_STATUS_LOADING,
             errorDetails: undefined,
@@ -78,30 +82,38 @@ export async function executeVideoGeneration({
     };
     registerPendingNodeIds([videoId]);
     // 待生成版本先加入版本族，但只有成功结果才能替换当前主版本。
-    // 直接发布数组，确保提交屏障读取 nodesRef 时新目标节点已经存在。
-    const currentVideoNodes = nodesRef.current;
-    if (reuseSourceNode) {
-        setNodes(currentVideoNodes.map((node) => (node.id === nodeId ? { ...node, ...videoNode } : node)));
-    } else if (!isExistingVideoNode || !sourceNode) {
-        setNodes([...currentVideoNodes.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_SUCCESS } } : node)), videoNode]);
-    } else {
+    const applyVideoNodes = (current: CanvasNodeData[]): CanvasNodeData[] => {
+        if (reuseSourceNode) return current.map((node) => (node.id === nodeId ? { ...node, ...videoNode } : node));
+        if (!isExistingVideoNode || !sourceNode) return [...current.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_SUCCESS } } : node)), videoNode];
         const rootId = versionRootId!;
-        const nextLabel = nextCanvasVersionLabel(rootId, currentVideoNodes);
-        const hasPrimaryVersion = currentVideoNodes.some((node) => (node.metadata?.versionOfNodeId || node.id) === rootId && node.metadata?.versionPrimary);
-        setNodes([
-            ...currentVideoNodes.map((node) => {
+        const nextLabel = nextCanvasVersionLabel(rootId, current);
+        const hasPrimaryVersion = current.some((node) => (node.metadata?.versionOfNodeId || node.id) === rootId && node.metadata?.versionPrimary);
+        return [
+            ...current.map((node) => {
                 if ((node.metadata?.versionOfNodeId || node.id) !== rootId) return node;
                 return { ...node, metadata: { ...node.metadata, versionOfNodeId: rootId, versionLabel: node.metadata?.versionLabel || "A", versionPrimary: node.metadata?.versionPrimary || (!hasPrimaryVersion && node.id === sourceNode.id), status: node.id === nodeId ? NODE_STATUS_SUCCESS : node.metadata?.status } };
             }),
             { ...videoNode, metadata: { ...videoNode.metadata, versionOfNodeId: rootId, versionLabel: nextLabel, versionPrimary: false } },
-        ]);
-    }
-    // 重新生成已有视频时，新节点继承源视频的上游连接，与源视频保持并行关系，而不是作为其下游子节点。
-    if (!reuseSourceNode) {
-        setConnections((current) => {
-            if (!isExistingVideoNode) return [...current, { id: nanoid(), fromNodeId: nodeId, toNodeId: videoId }];
-            return [...current, ...canvasConnections.filter((connection) => connection.toNodeId === nodeId).map((connection) => ({ ...connection, id: nanoid(), toNodeId: videoId }))];
-        });
+        ];
+    };
+    const storedVideoProject = projectId ? useCanvasStore.getState().projects.find((project) => project.id === projectId) : undefined;
+    const workingVideoConnections = storedVideoProject?.connections?.length ? storedVideoProject.connections : canvasConnections;
+    const newVideoConnections: CanvasConnection[] = reuseSourceNode
+        ? []
+        : !isExistingVideoNode
+          ? [{ id: nanoid(), fromNodeId: nodeId, toNodeId: videoId }]
+          : workingVideoConnections.filter((connection) => connection.toNodeId === nodeId).map((connection) => ({ ...connection, id: nanoid(), toNodeId: videoId }));
+    const workingVideoNodes = nodesRef.current?.length ? nodesRef.current : storedVideoProject?.nodes?.length ? storedVideoProject.nodes : canvasNodes;
+    if (workingVideoNodes?.length) {
+        const nextNodes = applyVideoNodes(workingVideoNodes);
+        const nextConnections = [...(workingVideoConnections || []), ...newVideoConnections];
+        if (projectId) useCanvasStore.getState().updateProject(projectId, reuseSourceNode ? { nodes: nextNodes } : { nodes: nextNodes, connections: nextConnections });
+        nodesRef.current = nextNodes;
+        setNodes(nextNodes);
+        if (!reuseSourceNode) setConnections(nextConnections);
+    } else {
+        setNodes(applyVideoNodes);
+        if (!reuseSourceNode) setConnections((current) => [...current, ...newVideoConnections]);
     }
 
     startGenerationRequest(videoId, nodeId, nodeId, controller);
@@ -147,6 +159,8 @@ export async function executeVideoGeneration({
 export async function executeAudioGeneration({
     nodeId,
     sourceNode,
+    canvasNodes,
+    canvasConnections,
     prompt,
     effectivePrompt,
     generationConfig,
@@ -178,14 +192,33 @@ export async function executeAudioGeneration({
         position: reuseSourceNode ? sourceNode!.position : { x: parent.x + (sourceNode?.width || spec.width) + 96, y: parent.y + ((sourceNode?.height || spec.height) - spec.height) / 2 },
         width: reuseSourceNode ? sourceNode!.width : spec.width,
         height: reuseSourceNode ? sourceNode!.height : spec.height,
-        metadata: mediaResultMetadata("generated", { ...canvasGenerationPromptMetadata(prompt, effectivePrompt), status: NODE_STATUS_LOADING, ...buildAudioGenerationMetadata(generationConfig), ...skillMetadata, generatedFromNodeId: nodeId }),
+        metadata: mediaResultMetadata("generated", {
+            ...(reuseSourceNode ? clearInPlaceMediaOutputMetadata(sourceNode?.metadata) : {}),
+            ...canvasGenerationPromptMetadata(prompt, effectivePrompt),
+            status: NODE_STATUS_LOADING,
+            ...buildAudioGenerationMetadata(generationConfig),
+            ...skillMetadata,
+            generatedFromNodeId: nodeId,
+        }),
     };
     registerPendingNodeIds([audioId]);
-    const currentAudioNodes = nodesRef.current;
-    setNodes(
-        reuseSourceNode ? currentAudioNodes.map((node) => (node.id === nodeId ? { ...node, ...audioNode } : node)) : [...currentAudioNodes.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_SUCCESS } } : node)), audioNode],
-    );
-    if (!reuseSourceNode && !isExistingAudioNode) setConnections((current) => [...current, { id: nanoid(), fromNodeId: nodeId, toNodeId: audioId }]);
+    const applyAudioNodes = (current: CanvasNodeData[]): CanvasNodeData[] =>
+        reuseSourceNode ? current.map((node) => (node.id === nodeId ? { ...node, ...audioNode } : node)) : [...current.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_SUCCESS } } : node)), audioNode];
+    const newAudioConnection: CanvasConnection | null = !reuseSourceNode && !isExistingAudioNode ? { id: nanoid(), fromNodeId: nodeId, toNodeId: audioId } : null;
+    const storedAudioProject = projectId ? useCanvasStore.getState().projects.find((project) => project.id === projectId) : undefined;
+    const workingAudioConnections = storedAudioProject?.connections?.length ? storedAudioProject.connections : canvasConnections;
+    const workingAudioNodes = nodesRef.current?.length ? nodesRef.current : storedAudioProject?.nodes?.length ? storedAudioProject.nodes : canvasNodes;
+    if (workingAudioNodes?.length) {
+        const nextNodes = applyAudioNodes(workingAudioNodes);
+        const nextConnections = newAudioConnection ? [...(workingAudioConnections || []), newAudioConnection] : workingAudioConnections;
+        if (projectId) useCanvasStore.getState().updateProject(projectId, newAudioConnection ? { nodes: nextNodes, connections: nextConnections } : { nodes: nextNodes });
+        nodesRef.current = nextNodes;
+        setNodes(nextNodes);
+        if (newAudioConnection) setConnections(nextConnections);
+    } else {
+        setNodes(applyAudioNodes);
+        if (newAudioConnection) setConnections((current) => [...current, newAudioConnection]);
+    }
 
     startGenerationRequest(audioId, nodeId, nodeId, controller);
     try {
