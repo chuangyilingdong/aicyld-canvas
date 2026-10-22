@@ -929,7 +929,7 @@ func FinishProtocolResult(ctx context.Context, config Config, mode string, taskI
 		if strings.TrimSpace(result.Reasoning) != "" {
 			output["reasoning"] = result.Reasoning
 		}
-		return output, nil
+		return protocolOutputWithProviderMetadata(output, result), nil
 	}
 	var references []protocol.MediaReference
 	switch mode {
@@ -970,12 +970,19 @@ func FinishProtocolResult(ctx context.Context, config Config, mode string, taskI
 	}
 	switch mode {
 	case "image":
-		return map[string]interface{}{"mode": "image", "images": items}, nil
+		return protocolOutputWithProviderMetadata(map[string]interface{}{"mode": "image", "images": items}, result), nil
 	case "video":
-		return map[string]interface{}{"mode": "video", "video": items[0]}, nil
+		return protocolOutputWithProviderMetadata(map[string]interface{}{"mode": "video", "video": items[0]}, result), nil
 	default:
-		return map[string]interface{}{"mode": "audio", "audio": items[0]}, nil
+		return protocolOutputWithProviderMetadata(map[string]interface{}{"mode": "audio", "audio": items[0]}, result), nil
 	}
+}
+
+func protocolOutputWithProviderMetadata(output map[string]interface{}, result *protocol.Result) map[string]interface{} {
+	if result != nil && len(result.ProviderMetadata) > 0 {
+		output["providerMetadata"] = result.ProviderMetadata
+	}
+	return output
 }
 
 // ProtocolResultMode lets a Midjourney action choose its durable result shape

@@ -184,6 +184,12 @@ export type CanvasSkillSnapshot = {
     tags: string[];
 };
 
+export type MidjourneyButton = {
+    customId: string;
+    label?: string;
+    emoji?: string;
+};
+
 export type CanvasNodeMetadata = {
     /** Media interaction role. `generator` owns generation controls; `result` is an inspect/process object. */
     nodeRole?: CanvasMediaNodeRole;
@@ -368,6 +374,7 @@ export type CanvasNodeMetadata = {
     midjourneyStage?: "inpaint" | "modal";
     midjourneyNextAction?: string;
     midjourneyParameters?: Record<string, unknown>;
+    midjourneyButtons?: MidjourneyButton[];
     midjourneyMaskSourceNodeId?: string;
     midjourneyModalSubmittedTaskId?: string;
     /** Zero-based output position used to derive Midjourney's one-based index. */

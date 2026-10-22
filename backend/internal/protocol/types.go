@@ -145,12 +145,13 @@ type PollResult struct {
 }
 
 type Result struct {
-	Images    []MediaReference `json:"images,omitempty"`
-	Videos    []MediaReference `json:"videos,omitempty"`
-	Audios    []MediaReference `json:"audios,omitempty"`
-	Text      string           `json:"text,omitempty"`
-	Reasoning string           `json:"reasoning,omitempty"`
-	Usage     map[string]any   `json:"usage,omitempty"`
+	Images           []MediaReference `json:"images,omitempty"`
+	Videos           []MediaReference `json:"videos,omitempty"`
+	Audios           []MediaReference `json:"audios,omitempty"`
+	Text             string           `json:"text,omitempty"`
+	Reasoning        string           `json:"reasoning,omitempty"`
+	Usage            map[string]any   `json:"usage,omitempty"`
+	ProviderMetadata map[string]any   `json:"providerMetadata,omitempty"`
 }
 
 type Parameter struct {

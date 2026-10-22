@@ -4,9 +4,12 @@ import {
     midjourneyActionCapabilities,
     midjourneyActionFromNode,
     midjourneyActionFromTask,
+    midjourneyHdUpscaleCustomId,
+    midjourneyHdUpscaleUnavailableReason,
     midjourneyIndexForNode,
     midjourneyImagineRequestOptions,
     midjourneyResultMode,
+    midjourneyTaskButtons,
     midjourneyTaskMetadata,
     midjourneyUpstreamTaskId,
     midjourneyVideoIndexForNode,
@@ -138,5 +141,23 @@ describe("Midjourney canvas contract", () => {
             midjourneyStage: "inpaint",
             midjourneyNextAction: "modal",
         });
+    });
+
+    test("keeps Midjourney button snapshots and derives documented HD upscale commands", () => {
+        const completed: GenerationTask = {
+            ...task("imagine", { version: "8.1" }),
+            resultJson: JSON.stringify({
+                mode: "image",
+                images: [{ dataUrl: "data:image/png;base64,large-image-payload" }],
+                providerMetadata: { midjourneyButtons: [{ customId: "MJ::JOB::upsample::2::token-2", label: "U2" }] },
+            }),
+        };
+        expect(midjourneyTaskButtons(completed)).toEqual([{ customId: "MJ::JOB::upsample::2::token-2", label: "U2", emoji: undefined }]);
+        const parent = { ...node({ midjourneyAction: "imagine", midjourneyVersion: "8.1", taskProviderRequestId: "upstream-grid", midjourneyButtons: midjourneyTaskButtons(completed) }) };
+        expect(midjourneyHdUpscaleCustomId(parent, 2, "hd-subtle", "8.1")).toBe("MJ::JOB::upsample_v7_2x_subtle::2::token-2");
+        expect(midjourneyHdUpscaleCustomId(parent, 2, "hd-creative", "8.1")).toBe("MJ::JOB::upsample_v7_2x_creative::2::token-2");
+        expect(midjourneyHdUpscaleUnavailableReason(parent, 2, "8.1")).toBe("");
+        expect(midjourneyHdUpscaleCustomId(parent, 2, "hd-subtle", "8.2")).toBe("");
+        expect(midjourneyHdUpscaleUnavailableReason(parent, 2, "8.2")).toContain("v8.2");
     });
 });

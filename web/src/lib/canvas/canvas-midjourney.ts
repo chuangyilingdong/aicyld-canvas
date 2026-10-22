@@ -1,5 +1,5 @@
 import type { GenerationTask } from "@/services/api/task-center";
-import type { CanvasGenerationMode, CanvasNodeData, CanvasNodeMetadata } from "@/types/canvas";
+import type { CanvasGenerationMode, CanvasNodeData, CanvasNodeMetadata, MidjourneyButton } from "@/types/canvas";
 
 export const MIDJOURNEY_ACTIONS = [
     "imagine",
@@ -58,6 +58,8 @@ export type MidjourneyActionSubmission = {
     referenceNodeIds?: string[];
     maskDataUrl?: string;
 };
+
+export type MidjourneyUpscaleMode = "normal" | "hd-subtle" | "hd-creative";
 
 export const MIDJOURNEY_IMAGINE_QUALITIES = ["0.25", "0.5", "1", "2"] as const;
 export const MIDJOURNEY_VERSIONS = ["8.2", "8.1", "7", "6.1", "5.2", "5.1"] as const;
@@ -118,6 +120,49 @@ export function midjourneyUpstreamTaskId(node: Pick<CanvasNodeData, "metadata"> 
     return node?.metadata?.taskProviderRequestId?.trim() || "";
 }
 
+export function midjourneyHdUpscaleCommand(version: string, mode: Exclude<MidjourneyUpscaleMode, "normal">) {
+    const number = midjourneyVersionNumber(version.replace(/^v/i, ""));
+    if (!Number.isFinite(number)) return "";
+    if (number >= 8.2) return "";
+    if (number >= 7) return mode === "hd-subtle" ? "upsample_v7_2x_subtle" : "upsample_v7_2x_creative";
+    if (number >= 6) return mode === "hd-subtle" ? "upsample_v6_2x_subtle" : "upsample_v6_2x_creative";
+    if (number >= 5.1) return mode === "hd-subtle" ? "upsample_v5_2x" : "upsample_v5_4x";
+    return "";
+}
+
+export function midjourneyHdUpscaleCustomId(
+    node: Pick<CanvasNodeData, "metadata">,
+    index: number,
+    mode: MidjourneyUpscaleMode,
+    versionOverride = "",
+) {
+    if (mode === "normal") return "";
+    const selectedIndex = Math.max(1, Math.min(4, Math.floor(Number(index) || 1)));
+    const version = versionOverride.trim() || stringOption(node.metadata?.midjourneyVersion);
+    const command = midjourneyHdUpscaleCommand(version, mode);
+    if (!command) return "";
+    const button = (node.metadata?.midjourneyButtons || []).find((item) => {
+        const match = item.customId.match(/^MJ::JOB::upsample::(\d+)::(.+)$/);
+        return match?.[1] === String(selectedIndex) && Boolean(match[2]);
+    });
+    const match = button?.customId.match(/^MJ::JOB::upsample::(\d+)::(.+)$/);
+    if (!match?.[2]) return "";
+    return `MJ::JOB::${command}::${selectedIndex}::${match[2]}`;
+}
+
+export function midjourneyHdUpscaleUnavailableReason(node: Pick<CanvasNodeData, "metadata">, index: number, versionOverride = "") {
+    const selectedIndex = Math.max(1, Math.min(4, Math.floor(Number(index) || 1)));
+    const version = versionOverride.trim() || stringOption(node.metadata?.midjourneyVersion);
+    if (!(node.metadata?.midjourneyButtons || []).some((item) => item.customId.startsWith(`MJ::JOB::upsample::${selectedIndex}::`))) {
+        return "父任务没有保存 U" + selectedIndex + " 按钮，请重新生成后再用 HD 放大";
+    }
+    if (!version) return "请先在下方选择 Midjourney 版本";
+    const number = midjourneyVersionNumber(version.replace(/^v/i, ""));
+    if (number >= 8.2) return "上游文档尚未列出 v8.2 的 HD 放大命令";
+    if (number < 5.1) return "当前 Midjourney 版本不支持 HD 放大";
+    return "";
+}
+
 export function midjourneyVideoIndexForNode(node: Pick<CanvasNodeData, "metadata"> | null | undefined) {
     return Math.max(0, Math.min(3, Math.floor(Number(node?.metadata?.taskOutputIndex) || 0)));
 }
@@ -170,6 +215,8 @@ export function midjourneyTaskMetadata(task: GenerationTask): Partial<CanvasNode
     const version = stringOption(options.version);
     if (parentTaskId) metadata.midjourneyParentTaskId = parentTaskId;
     if (version) metadata.midjourneyVersion = version;
+    const buttons = midjourneyTaskButtons(task);
+    if (buttons.length) metadata.midjourneyButtons = buttons;
     if (action === "inpaint") {
         metadata.midjourneyStage = "inpaint";
         metadata.midjourneyNextAction = "modal";
@@ -177,6 +224,18 @@ export function midjourneyTaskMetadata(task: GenerationTask): Partial<CanvasNode
         metadata.midjourneyStage = "modal";
     }
     return metadata;
+}
+
+export function midjourneyTaskButtons(task: GenerationTask): MidjourneyButton[] {
+    if (!task.resultJson?.includes('"midjourneyButtons"')) return [];
+    const providerMetadata = jsonObjectAfterKey(task.resultJson, "providerMetadata");
+    if (!providerMetadata || !Array.isArray(providerMetadata.midjourneyButtons)) return [];
+    return providerMetadata.midjourneyButtons.flatMap((item) => {
+        if (!isRecord(item)) return [];
+        const customId = stringOption(item.customId);
+        if (!customId) return [];
+        return [{ customId, label: stringOption(item.label) || undefined, emoji: stringOption(item.emoji) || undefined }];
+    });
 }
 
 export function midjourneyActionCapabilities(node: Pick<CanvasNodeData, "metadata">): MidjourneyActionCapability[] {
@@ -275,6 +334,40 @@ function midjourneyVersionNumber(version: string) {
 
 function stringOption(value: unknown) {
     return typeof value === "string" ? value.trim() : "";
+}
+
+function jsonObjectAfterKey(json: string, key: string): Record<string, unknown> | null {
+    const keyIndex = json.indexOf(`"${key}"`);
+    if (keyIndex < 0) return null;
+    const colonIndex = json.indexOf(":", keyIndex + key.length + 2);
+    const start = colonIndex >= 0 ? json.indexOf("{", colonIndex + 1) : -1;
+    if (start < 0) return null;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let index = start; index < json.length; index += 1) {
+        const char = json[index];
+        if (inString) {
+            if (escaped) escaped = false;
+            else if (char === "\\") escaped = true;
+            else if (char === '"') inString = false;
+            continue;
+        }
+        if (char === '"') inString = true;
+        else if (char === "{") depth += 1;
+        else if (char === "}") {
+            depth -= 1;
+            if (depth === 0) {
+                try {
+                    const parsed = JSON.parse(json.slice(start, index + 1));
+                    return isRecord(parsed) ? parsed : null;
+                } catch {
+                    return null;
+                }
+            }
+        }
+    }
+    return null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

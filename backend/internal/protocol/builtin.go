@@ -1095,12 +1095,13 @@ func parseMidjourneyPoll(c PollContext, payload map[string]any) (PollResult, err
 	if status != StatusSucceeded {
 		return PollResult{TaskID: taskID, Status: status, Message: message}, nil
 	}
+	providerMetadata := midjourneyProviderMetadata(payload)
 	if action, _ := midjourneyActionOptions(c.Request); action == "describe" {
 		text := firstString(payload, "prompt", "description", "text")
 		if text == "" {
 			return PollResult{}, fmt.Errorf("Midjourney describe 完成响应没有返回提示词")
 		}
-		return PollResult{TaskID: taskID, Status: status, Result: &Result{Text: text, Usage: object(payload["usage"])}, Message: message}, nil
+		return PollResult{TaskID: taskID, Status: status, Result: &Result{Text: text, Usage: object(payload["usage"]), ProviderMetadata: providerMetadata}, Message: message}, nil
 	}
 	images := make([]MediaReference, 0, 4)
 	if grid := firstString(payload, "grid_image_url", "gridImageUrl"); grid != "" {
@@ -1130,12 +1131,42 @@ func parseMidjourneyPoll(c PollContext, payload map[string]any) (PollResult, err
 		if len(videos) == 0 {
 			return PollResult{}, fmt.Errorf("Midjourney video 完成响应没有返回视频")
 		}
-		return PollResult{TaskID: taskID, Status: status, Result: &Result{Videos: videos, Usage: object(payload["usage"])}, Message: message}, nil
+		return PollResult{TaskID: taskID, Status: status, Result: &Result{Videos: videos, Usage: object(payload["usage"]), ProviderMetadata: providerMetadata}, Message: message}, nil
 	}
 	if len(images) == 0 {
 		return PollResult{}, fmt.Errorf("Midjourney 完成响应没有返回图片")
 	}
-	return PollResult{TaskID: taskID, Status: status, Result: &Result{Images: images, Usage: object(payload["usage"])}, Message: message}, nil
+	return PollResult{TaskID: taskID, Status: status, Result: &Result{Images: images, Usage: object(payload["usage"]), ProviderMetadata: providerMetadata}, Message: message}, nil
+}
+
+func midjourneyProviderMetadata(payload map[string]any) map[string]any {
+	items, _ := payload["buttons"].([]any)
+	if len(items) == 0 {
+		return nil
+	}
+	buttons := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		button, _ := item.(map[string]any)
+		if button == nil {
+			continue
+		}
+		customID := strings.TrimSpace(firstString(button, "customId", "custom_id"))
+		if customID == "" {
+			continue
+		}
+		next := map[string]any{"customId": customID}
+		if label := strings.TrimSpace(firstString(button, "label")); label != "" {
+			next["label"] = label
+		}
+		if emoji := strings.TrimSpace(firstString(button, "emoji")); emoji != "" {
+			next["emoji"] = emoji
+		}
+		buttons = append(buttons, next)
+	}
+	if len(buttons) == 0 {
+		return nil
+	}
+	return map[string]any{"midjourneyButtons": buttons}
 }
 
 func midjourneyActionOptions(request GenerationRequest) (string, map[string]any) {

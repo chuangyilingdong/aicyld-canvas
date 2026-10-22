@@ -93,12 +93,16 @@ func TestMidjourneyImagineMapsRequestAndGridPoll(t *testing.T) {
 	if poll.Method != http.MethodGet || poll.Path != "/v1/midjourney/tasks/mj-task-1" {
 		t.Fatalf("poll spec = %#v", poll)
 	}
-	result, err := adapter.ParsePoll(context.Background(), PollContext{TaskID: "mj-task-1"}, []byte(`{"task_id":"mj-task-1","status":"SUCCESS","grid_image_url":"https://cdn.example.com/grid.png","image_urls":["https://cdn.example.com/a.png","https://cdn.example.com/b.png"]}`))
+	result, err := adapter.ParsePoll(context.Background(), PollContext{TaskID: "mj-task-1"}, []byte(`{"task_id":"mj-task-1","status":"SUCCESS","grid_image_url":"https://cdn.example.com/grid.png","image_urls":["https://cdn.example.com/a.png","https://cdn.example.com/b.png"],"buttons":[{"customId":"MJ::JOB::upsample::1::token","label":"U1"}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.Status != StatusSucceeded || result.Result == nil || len(result.Result.Images) != 1 || result.Result.Images[0].URL != "https://cdn.example.com/grid.png" {
 		t.Fatalf("poll result = %#v", result)
+	}
+	buttons, _ := result.Result.ProviderMetadata["midjourneyButtons"].([]map[string]any)
+	if len(buttons) != 1 || buttons[0]["customId"] != "MJ::JOB::upsample::1::token" || buttons[0]["label"] != "U1" {
+		t.Fatalf("midjourney buttons = %#v", result.Result.ProviderMetadata)
 	}
 }
 

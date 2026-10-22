@@ -7,11 +7,14 @@ import {
     MIDJOURNEY_ACTION_LABELS,
     midjourneyActionCapabilities,
     midjourneyActionFromNode,
+    midjourneyHdUpscaleCustomId,
+    midjourneyHdUpscaleUnavailableReason,
     midjourneyIndexForNode,
     midjourneyUpstreamTaskId,
     midjourneyVideoIndexForNode,
     type MidjourneyAction,
     type MidjourneyActionSubmission,
+    type MidjourneyUpscaleMode,
 } from "@/lib/canvas/canvas-midjourney";
 import type { AiConfig } from "@/stores/use-config-store";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
@@ -38,6 +41,7 @@ export function CanvasMidjourneyActionsDialog({ open, node, nodes, config, onClo
     const [zoomRatio, setZoomRatio] = useState(2);
     const [dimensions, setDimensions] = useState<"LANDSCAPE" | "PORTRAIT" | "SQUARE">("LANDSCAPE");
     const [version, setVersion] = useState("");
+    const [upscaleMode, setUpscaleMode] = useState<MidjourneyUpscaleMode>("normal");
     const [referenceNodeIds, setReferenceNodeIds] = useState<string[]>([]);
     const [animateMode, setAnimateMode] = useState<"auto" | "manual">("manual");
     const [motion, setMotion] = useState<"low" | "high">("high");
@@ -62,6 +66,7 @@ export function CanvasMidjourneyActionsDialog({ open, node, nodes, config, onClo
         setZoomRatio(2);
         setDimensions("LANDSCAPE");
         setVersion(node.metadata?.midjourneyVersion || "");
+        setUpscaleMode("normal");
         setReferenceNodeIds(node.type === CanvasNodeType.Image ? [node.id] : []);
         setAnimateMode(midjourneyActionFromNode(node) === "imagine" && midjourneyUpstreamTaskId(node) ? "auto" : "manual");
         setMotion("high");
@@ -82,6 +87,7 @@ export function CanvasMidjourneyActionsDialog({ open, node, nodes, config, onClo
     const upstreamTaskId = node ? midjourneyUpstreamTaskId(node) : "";
     const canAutoVideo = parentAction === "imagine" && Boolean(upstreamTaskId);
     const modalStage = action === "modal";
+    const hdUpscaleUnavailableReason = action === "upscale" ? midjourneyHdUpscaleUnavailableReason(node!, index, version) : "";
 
     const submit = async (maskDataUrl?: string, promptOverride?: string) => {
         if (!node || !current?.enabled || submitting) return;
@@ -98,6 +104,13 @@ export function CanvasMidjourneyActionsDialog({ open, node, nodes, config, onClo
             setError("请先在图片上涂抹蒙版");
             return;
         }
+        const hdCustomId = action === "upscale" && upscaleMode !== "normal"
+            ? midjourneyHdUpscaleCustomId(node, index, upscaleMode, version)
+            : "";
+        if (action === "upscale" && upscaleMode !== "normal" && !hdCustomId) {
+            setError(hdUpscaleUnavailableReason || "当前父任务无法生成 HD 放大命令");
+            return;
+        }
         if (action === "video" && animateMode === "auto" && !canAutoVideo) {
             setError("自动动画需要 Midjourney 上游 task_id");
             return;
@@ -109,7 +122,7 @@ export function CanvasMidjourneyActionsDialog({ open, node, nodes, config, onClo
                 action,
                 prompt: nextPrompt || undefined,
                 index: action === "video" ? (animateMode === "auto" ? videoIndex : undefined) : INDEX_ACTIONS.has(action) ? index : undefined,
-                customId: customId.trim() || undefined,
+                customId: hdCustomId || customId.trim() || undefined,
                 direction: action === "pan" ? direction : undefined,
                 zoomRatio: action === "zoom" ? zoomRatio : undefined,
                 dimensions: action === "blend" ? dimensions : undefined,
@@ -214,6 +227,9 @@ export function CanvasMidjourneyActionsDialog({ open, node, nodes, config, onClo
                                 onDimensionsChange={setDimensions}
                                 version={version}
                                 onVersionChange={setVersion}
+                                upscaleMode={upscaleMode}
+                                onUpscaleModeChange={setUpscaleMode}
+                                hdUpscaleUnavailableReason={hdUpscaleUnavailableReason}
                                 referenceNodeIds={referenceNodeIds}
                                 onReferenceNodeIdsChange={setReferenceNodeIds}
                                 imageOptions={imageOptions}
@@ -267,6 +283,9 @@ type ActionFormProps = {
     onDimensionsChange: (value: "LANDSCAPE" | "PORTRAIT" | "SQUARE") => void;
     version: string;
     onVersionChange: (value: string) => void;
+    upscaleMode: MidjourneyUpscaleMode;
+    onUpscaleModeChange: (value: MidjourneyUpscaleMode) => void;
+    hdUpscaleUnavailableReason: string;
     referenceNodeIds: string[];
     onReferenceNodeIdsChange: (value: string[]) => void;
     imageOptions: Array<{ value: string; label: string }>;
@@ -309,6 +328,20 @@ function ActionForm(props: ActionFormProps) {
                     <Field label="custom_id（可选）">
                         <Input value={props.customId} onChange={(event) => props.onCustomIdChange(event.target.value)} placeholder="上游自定义标识" />
                     </Field>
+                </div>
+            ) : null}
+
+            {action === "upscale" ? (
+                <div className="space-y-2">
+                    <Field label="放大方式">
+                        <Select value={props.upscaleMode} onChange={props.onUpscaleModeChange} options={[
+                            { value: "normal", label: "普通 U1–U4（本地裁切，瞬时）" },
+                            { value: "hd-subtle", label: "HD 2x 精细放大", disabled: Boolean(props.hdUpscaleUnavailableReason) },
+                            { value: "hd-creative", label: "HD 2x 创意放大", disabled: Boolean(props.hdUpscaleUnavailableReason) },
+                        ]} />
+                    </Field>
+                    {props.hdUpscaleUnavailableReason ? <p className="text-xs text-foreground/55">HD 不可用：{props.hdUpscaleUnavailableReason}</p> : null}
+                    {props.upscaleMode !== "normal" ? <Alert type="warning" showIcon message="HD 放大是真实放大，通常需要 60–120 秒，并可能产生上游费用；提交前请确认宫格位置。" /> : null}
                 </div>
             ) : null}
 
