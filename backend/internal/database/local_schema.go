@@ -15,7 +15,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion int64 = 23
+const CurrentSchemaVersion int64 = 24
 
 type localSchemaMigration struct {
 	Version   int64 `gorm:"primaryKey;autoIncrement:false"`
@@ -104,6 +104,7 @@ func canonicalLocalMigrations() []localMigration {
 		}},
 		{version: 22, name: "assistant-market-release-metadata", apply: migrateSkillMarketReleaseColumn},
 		{version: 23, name: "user-skill-state-enabled", apply: migrateUserSkillStateEnabled},
+		{version: 24, name: "task-billing-fields", apply: migrateTaskBillingFields},
 	}
 }
 
@@ -116,6 +117,20 @@ func migrateUserSkillStateEnabled(tx *gorm.DB) error {
 		return err
 	}
 	return tx.Exec("CREATE INDEX IF NOT EXISTS idx_user_skill_states_enabled ON user_skill_states(enabled)").Error
+}
+
+func migrateTaskBillingFields(tx *gorm.DB) error {
+	if err := ensureSQLiteColumn(tx, "tasks", "billing_hold_id", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureSQLiteColumn(tx, "tasks", "billing_status", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureSQLiteColumn(tx, "tasks", "billing_points", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	return ensureSQLiteIndex(tx, "tasks", "idx_tasks_billing_hold_id",
+		"CREATE INDEX idx_tasks_billing_hold_id ON tasks(billing_hold_id)")
 }
 
 func migrateCanvasReusableWorkflows(tx *gorm.DB) error {

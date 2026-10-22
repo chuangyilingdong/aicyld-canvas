@@ -20,6 +20,11 @@ type Task struct {
 	Operation              string     `json:"operation" gorm:"size:64"`
 	Provider               string     `json:"provider" gorm:"size:64"`
 	Model                  string     `json:"model" gorm:"size:120"`
+	// 画布积分预扣。HoldID 只用于内部对账；BillingPoints 用于任务卡片展示。
+	BillingHoldID          string        `json:"-" gorm:"size:64;index"`
+	BillingStatus          string        `json:"billingStatus,omitempty" gorm:"size:32"`
+	BillingPoints          int           `json:"billingPoints,omitempty"`
+	BillingQuote           *BillingQuote `json:"billingQuote,omitempty" gorm:"-"`
 	LogicalModelID         string     `json:"logicalModelId,omitempty" gorm:"size:36;index"`
 	LogicalModelRevisionID string     `json:"logicalModelRevisionId,omitempty" gorm:"size:36;index"`
 	RouteID                string     `json:"routeId,omitempty" gorm:"size:36;index"`
@@ -55,6 +60,27 @@ type Task struct {
 	// WorkflowSourceCipher privately preserves a successful command before the
 	// public completion projection strips provider settings and media identities.
 	WorkflowSourceCipher string `json:"-" gorm:"type:text"`
+}
+
+// BillingQuote 是主站计费服务返回的价格快照。规则版本保证任务提交后改价不影响已预扣任务。
+type BillingQuote struct {
+	Enabled          bool           `json:"enabled"`
+	Points           int            `json:"points"`
+	ModelKey         string         `json:"modelKey,omitempty"`
+	DisplayName      string         `json:"displayName,omitempty"`
+	RuleID           string         `json:"ruleId,omitempty"`
+	RuleVersion      int            `json:"ruleVersion,omitempty"`
+	Balance          int            `json:"balance,omitempty"`
+	EstimatedCostCNY float64        `json:"estimatedCostCny,omitempty"`
+	Breakdown        map[string]any `json:"breakdown,omitempty"`
+}
+
+type BillingReservation struct {
+	Enabled bool   `json:"enabled"`
+	HoldID  string `json:"holdId,omitempty"`
+	Points  int    `json:"points"`
+	Balance int    `json:"balance,omitempty"`
+	Status  string `json:"status,omitempty"`
 }
 
 // TaskFailureDiagnostics contains bounded, redacted evidence, never request bodies.

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"infinite-canvas/backend/internal/generation"
@@ -83,7 +84,25 @@ func (s *Service) Retry(userID, id string) (*model.Task, error) {
 	if err := s.deps.Projects.EnsureActive(userID, task.ProjectID); err != nil {
 		return nil, err
 	}
+	var billingReserved bool
+	if s.deps.Billing != nil {
+		nextAttempt := *task
+		nextAttempt.RouteRun = task.RouteRun + 1
+		reservation, reserveErr := s.deps.Billing.Reserve(context.Background(), userID, &nextAttempt)
+		if reserveErr != nil {
+			return nil, reserveErr
+		}
+		if reservation != nil && reservation.Enabled {
+			task.BillingHoldID = reservation.HoldID
+			task.BillingStatus = reservation.Status
+			task.BillingPoints = reservation.Points
+			billingReserved = true
+		}
+	}
 	task, err = s.store.Retry(userID, task, limit)
+	if err != nil && billingReserved {
+		_ = s.deps.Billing.Release(context.Background(), task, "任务重试未进入队列，释放预扣")
+	}
 	if errors.Is(err, repository.ErrActiveTaskLimit) {
 		return nil, activeLimitError(limit)
 	}
@@ -144,6 +163,20 @@ func (s *Service) Cancel(ctx context.Context, userID, id string) (*model.Task, e
 	task.Error = "任务已取消"
 	task.CompletedAt = &now
 	s.deps.Runtime.StopLocalWait(task.ID)
+
+	if s.deps.Billing != nil && strings.TrimSpace(task.BillingHoldID) != "" {
+		if billingErr := s.deps.Billing.Release(context.Background(), task, "用户取消任务，释放预扣"); billingErr != nil {
+			task.BillingStatus = "refund_pending"
+			s.log(task.UserID, task.ID, "error", "取消任务后退还积分失败", billingErr.Error())
+		} else {
+			task.BillingStatus = "refunded"
+		}
+		if updater, ok := s.store.(interface {
+			UpdateTaskBilling(userID, taskID, holdID, status string, points int) error
+		}); ok {
+			_ = updater.UpdateTaskBilling(task.UserID, task.ID, task.BillingHoldID, task.BillingStatus, task.BillingPoints)
+		}
+	}
 
 	if s.deps.TextReplay != nil {
 		if err := s.deps.TextReplay.Finalize(task.ID, model.TaskStatusCancelled); err != nil {

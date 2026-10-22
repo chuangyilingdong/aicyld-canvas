@@ -353,6 +353,7 @@ func (r *Repository) RetryTask(userID string, prepared *model.Task, limit int) (
 			"provider_cancel_requested_at": nil, "provider_cancelled_at": nil, "provider_cancel_next_check_at": nil, "route_run": gorm.Expr("route_run + ?", 1),
 			"logical_model_revision_id": prepared.LogicalModelRevisionID, "route_id": prepared.RouteID, "channel_model_id": prepared.ChannelModelID, "input_json": prepared.InputJSON,
 			"model": prepared.Model, "provider": prepared.Provider, "lease_owner": "", "lease_expires_at": nil, "updated_at": time.Now(),
+			"billing_hold_id": prepared.BillingHoldID, "billing_status": prepared.BillingStatus, "billing_points": prepared.BillingPoints,
 		}
 		updated := tx.Model(&model.Task{}).Where("id = ? AND user_id = ? AND status IN ?", prepared.ID, userID, []model.TaskStatus{model.TaskStatusFailed, model.TaskStatusCancelled}).Updates(updates)
 		if updated.Error != nil {
@@ -367,6 +368,17 @@ func (r *Repository) RetryTask(userID string, prepared *model.Task, limit int) (
 		return tx.First(&task, "id = ? AND user_id = ?", prepared.ID, userID).Error
 	})
 	return &task, err
+}
+
+func (r *Repository) UpdateTaskBilling(userID, taskID, holdID, status string, points int) error {
+	if userID == "" || taskID == "" {
+		return nil
+	}
+	updates := map[string]any{"billing_status": status, "billing_points": points, "updated_at": time.Now()}
+	if holdID != "" {
+		updates["billing_hold_id"] = holdID
+	}
+	return r.db.Model(&model.Task{}).Where("id = ? AND user_id = ?", taskID, userID).Updates(updates).Error
 }
 
 func taskInputResourceIDs(inputJSON string) ([]string, error) {

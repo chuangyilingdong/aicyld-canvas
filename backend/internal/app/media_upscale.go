@@ -148,6 +148,7 @@ func (s *Service) CreateMediaUpscale(ctx context.Context, userID string, request
 			"upscaleResolution": normalized.Resolution,
 			"upscaleQuality":    normalized.Quality,
 			"sourceResourceId":  resource.ID,
+			"sourceDurationSeconds": float64(resource.DurationMs) / 1000,
 		},
 	}
 	if spec.MediaType == "image" {

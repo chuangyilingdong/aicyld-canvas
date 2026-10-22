@@ -10,7 +10,22 @@ const retiredAgentBoundaryMessage = localtask.RetiredAgentBoundaryMessage
 
 // CreateTask 把应用层请求交给任务域。模型目录、密钥和配额仍通过 typed ports 留在 app。
 func (s *Service) CreateTask(userID string, req CreateTaskRequest) (*model.Task, error) {
-	return s.taskDomain().CreateTask(userID, toTaskCreateRequest(req))
+	return s.CreateLocalTask(userID, toTaskCreateRequest(req))
+}
+
+// QuoteTask prepares the same normalized task shape used by CreateTask and
+// returns the main-site points quote without persisting a task or calling upstream.
+func (s *Service) QuoteTask(userID string, req CreateTaskRequest) (*model.BillingQuote, error) {
+	request := toTaskCreateRequest(req)
+	request.PrepareOnly = true
+	prepared, err := s.CreateLocalTask(userID, request)
+	if err != nil {
+		return nil, err
+	}
+	if prepared == nil || prepared.BillingQuote == nil {
+		return &model.BillingQuote{Enabled: false}, nil
+	}
+	return prepared.BillingQuote, nil
 }
 
 func (s *Service) requireCustomChannelsForTaskInput(input map[string]any) error {

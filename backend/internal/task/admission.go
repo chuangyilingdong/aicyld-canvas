@@ -1,6 +1,7 @@
 package task
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -159,13 +160,39 @@ func (s *Service) admit(userID string, req CreateRequest) (*model.Task, error) {
 			return nil, encodeErr
 		}
 		task.InputJSON = encoded
+		if s.deps.Billing != nil {
+			quote, quoteErr := s.deps.Billing.Quote(context.Background(), userID, &task)
+			if quoteErr != nil {
+				return nil, quoteErr
+			}
+			task.BillingQuote = quote
+		}
 		return &task, nil
 	}
+	if s.deps.Billing != nil {
+		reservation, reserveErr := s.deps.Billing.Reserve(context.Background(), userID, &task)
+		if reserveErr != nil {
+			return nil, reserveErr
+		}
+		if reservation != nil && reservation.Enabled {
+			task.BillingHoldID = reservation.HoldID
+			task.BillingStatus = reservation.Status
+			task.BillingPoints = reservation.Points
+		}
+	}
+	releaseBilling := func(reason string) {
+		if s.deps.Billing != nil && task.BillingHoldID != "" {
+			_ = s.deps.Billing.Release(context.Background(), &task, reason)
+			task.BillingStatus = "refunded"
+		}
+	}
 	if err := s.deps.Secrets.Protect(normalizedInput); err != nil {
+		releaseBilling("任务创建前保护密钥失败，释放预扣")
 		return nil, err
 	}
 	inputJSON, err := encodeTaskInput(normalizedInput)
 	if err != nil {
+		releaseBilling("任务序列化失败，释放预扣")
 		return nil, err
 	}
 	task.InputJSON = inputJSON
@@ -177,6 +204,7 @@ func (s *Service) admit(userID string, req CreateRequest) (*model.Task, error) {
 	}
 	err = s.deps.Persist.CreateAdmitted(&task, limit)
 	if mapped, mapErr := mapPersistError(err, req, s.deps.Present, limit); mapErr != nil || mapped != nil {
+		releaseBilling("任务准入未成功，释放预扣")
 		return mapped, mapErr
 	}
 	if !textReplay && s.deps.Activity != nil {

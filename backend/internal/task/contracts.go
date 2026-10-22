@@ -114,6 +114,8 @@ type Summary struct {
 	Operation                 string                        `json:"operation,omitempty"`
 	Provider                  string                        `json:"provider,omitempty"`
 	Model                     string                        `json:"model,omitempty"`
+	BillingStatus             string                        `json:"billingStatus,omitempty"`
+	BillingPoints             int                           `json:"billingPoints,omitempty"`
 	ProviderRequestID         string                        `json:"providerRequestId,omitempty"`
 	ProviderCancelStatus      model.ProviderCancelStatus    `json:"providerCancelStatus,omitempty"`
 	ProviderCancelError       string                        `json:"providerCancelError,omitempty"`

@@ -86,3 +86,10 @@ func (s repoStore) LatestProviderRequestID(taskID string) (string, error) {
 	}
 	return s.repo.LatestProviderRequestIDForTask(taskID)
 }
+
+func (s repoStore) UpdateTaskBilling(userID, taskID, holdID, status string, points int) error {
+	if err := s.require(); err != nil {
+		return err
+	}
+	return s.repo.UpdateTaskBilling(userID, taskID, holdID, status, points)
+}

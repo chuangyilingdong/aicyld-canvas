@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"infinite-canvas/backend/internal/model"
@@ -19,6 +20,7 @@ type taskTerminalCoordinator struct {
 	replay            taskReplayLifecycle
 	logger            taskLifecycleLogger
 	outputs           taskOutputLifecycle
+	billing           taskBillingLifecycle
 	userFacingMessage func(error) string
 	logFailedAttempt  func(model.Task, error)
 }
@@ -41,11 +43,16 @@ type taskOutputLifecycle interface {
 	RegisterTaskOutputFromTask(task model.Task) error
 }
 
+type taskBillingLifecycle interface {
+	Settle(task model.Task, outcome string, reason string) error
+}
+
 type taskTerminalServiceAdapter struct {
 	finalizeReplay func(string, model.TaskStatus) error
 	writeLog       func(string, string, string, string, string) error
 	deliver        func(model.Task) error
 	registerOutput func(model.Task) error
+	settleBilling  func(model.Task, string, string) error
 }
 
 func (a taskTerminalServiceAdapter) finalizeTaskTextReplay(taskID string, status model.TaskStatus) error {
@@ -67,12 +74,20 @@ func (a taskTerminalServiceAdapter) RegisterTaskOutputFromTask(task model.Task) 
 	return a.registerOutput(task)
 }
 
+func (a taskTerminalServiceAdapter) Settle(task model.Task, outcome string, reason string) error {
+	if a.settleBilling == nil {
+		return nil
+	}
+	return a.settleBilling(task, outcome, reason)
+}
+
 func newTaskTerminalCoordinator(s *Service) *taskTerminalCoordinator {
 	adapter := taskTerminalServiceAdapter{
 		finalizeReplay: s.finalizeTaskTextReplay,
 		writeLog:       s.log,
 		deliver:        s.DeliverSucceededTask,
 		registerOutput: s.RegisterTaskOutputFromTask,
+		settleBilling:  s.settleTaskBilling,
 	}
 	return &taskTerminalCoordinator{
 		repo:              s.repo,
@@ -81,7 +96,15 @@ func newTaskTerminalCoordinator(s *Service) *taskTerminalCoordinator {
 		outputs:           adapter,
 		userFacingMessage: s.UserFacingErrorMessage,
 		logFailedAttempt:  s.ensureFailedProviderAttemptLogged,
+		billing:           adapter,
 	}
+}
+
+func (s *Service) settleTaskBilling(task model.Task, outcome string, reason string) error {
+	if s == nil || s.billing == nil || strings.TrimSpace(task.BillingHoldID) == "" {
+		return nil
+	}
+	return s.billing.Settle(context.Background(), &task, outcome, reason)
 }
 
 func (s *Service) terminalCoordinator() *taskTerminalCoordinator {
@@ -101,6 +124,7 @@ func (c *taskTerminalCoordinator) markPreparationFailure(task *model.Task, stage
 	if terminalErr := c.markTerminalState(task); terminalErr != nil {
 		return errors.Join(err, terminalErr)
 	}
+	c.releaseBilling(task, "任务准备失败，退还预扣积分")
 	return err
 }
 
@@ -112,7 +136,11 @@ func (c *taskTerminalCoordinator) refuse(task *model.Task, stage string, message
 	task.Status = model.TaskStatusFailed
 	task.Stage = stage
 	task.Error = message
-	return c.markTerminalState(task)
+	if terminalErr := c.markTerminalState(task); terminalErr != nil {
+		return terminalErr
+	}
+	c.releaseBilling(task, "任务被产品边界拒绝，退还预扣积分")
+	return nil
 }
 
 // handleExecutionFailure 返回 nil 仅表示取消已被正常收尾；普通失败仍返回原始错误，
@@ -152,18 +180,25 @@ func (c *taskTerminalCoordinator) handleExecutionFailure(task *model.Task, err e
 	if terminalErr := c.markTerminalState(task); terminalErr != nil {
 		return errors.Join(err, terminalErr)
 	}
+	if task.Stage == "submission_unknown" {
+		c.markBillingPending(task, "上游提交结果未确认，等待核对")
+	} else {
+		c.releaseBilling(task, "任务失败，退还预扣积分")
+	}
 	c.finalizeReplay(task, model.TaskStatusFailed, "文本回放草稿归并失败")
 	_ = c.logger.log(task.UserID, task.ID, "error", "任务处理失败", task.Error)
 	return err
 }
 
 func (c *taskTerminalCoordinator) handleAlreadyCancelled(task model.Task) error {
+	c.releaseBilling(&task, "任务已取消，退还预扣积分")
 	c.finalizeReplay(&task, model.TaskStatusCancelled, "文本回放草稿归并失败")
 	_ = c.logger.log(task.UserID, task.ID, "warn", "任务已取消，worker 已停止执行", "")
 	return nil
 }
 
 func (c *taskTerminalCoordinator) handleCancelledResult(task model.Task) error {
+	c.releaseBilling(&task, "任务已取消，丢弃结果并退还预扣积分")
 	c.finalizeReplay(&task, model.TaskStatusCancelled, "文本回放草稿归并失败")
 	_ = c.logger.log(task.UserID, task.ID, "warn", "任务已取消，丢弃生成结果", "")
 	return nil
@@ -189,6 +224,7 @@ func (c *taskTerminalCoordinator) handleResultPersistenceFailure(task *model.Tas
 	if terminalErr := c.markTerminalState(task); terminalErr != nil {
 		return false, errors.Join(saveErr, terminalErr)
 	}
+	c.markBillingPending(task, "上游成功但本地结果保存失败，待核对")
 	c.finalizeReplay(task, model.TaskStatusFailed, "文本回放草稿归并失败")
 	_ = c.logger.log(task.UserID, task.ID, "error", "任务结果保存失败", task.Error)
 	return false, saveErr
@@ -203,6 +239,7 @@ func (c *taskTerminalCoordinator) ensureFailedAttemptLogged(task *model.Task, er
 
 func (c *taskTerminalCoordinator) handleSuccess(task *model.Task) error {
 	c.finalizeReplay(task, model.TaskStatusSucceeded, "文本回放窗口更新失败")
+	c.settleBilling(task, "任务成功，结算预扣积分")
 	var completionErr error
 	completedTask, fetchErr := c.repo.Task(task.ID)
 	if fetchErr != nil {
@@ -225,6 +262,54 @@ func (c *taskTerminalCoordinator) handleSuccess(task *model.Task) error {
 	}
 	_ = c.logger.log(task.UserID, task.ID, "info", "任务完成，结果已持久化", "")
 	return completionErr
+}
+
+func (c *taskTerminalCoordinator) settleBilling(task *model.Task, reason string) {
+	if c == nil || c.billing == nil || task == nil || strings.TrimSpace(task.BillingHoldID) == "" || task.BillingStatus == "settled" {
+		return
+	}
+	if err := c.billing.Settle(*task, "succeeded", reason); err != nil {
+		task.BillingStatus = "pending_reconcile"
+		c.updateTaskBilling(task)
+		_ = c.logger.log(task.UserID, task.ID, "error", "积分结算失败，等待对账", err.Error())
+		return
+	}
+	task.BillingStatus = "settled"
+	c.updateTaskBilling(task)
+}
+
+func (c *taskTerminalCoordinator) releaseBilling(task *model.Task, reason string) {
+	if c == nil || c.billing == nil || task == nil || strings.TrimSpace(task.BillingHoldID) == "" || task.BillingStatus == "refunded" {
+		return
+	}
+	if err := c.billing.Settle(*task, "failed", reason); err != nil {
+		task.BillingStatus = "refund_pending"
+		c.updateTaskBilling(task)
+		_ = c.logger.log(task.UserID, task.ID, "error", "积分退款失败，等待对账", err.Error())
+		return
+	}
+	task.BillingStatus = "refunded"
+	c.updateTaskBilling(task)
+}
+
+func (c *taskTerminalCoordinator) markBillingPending(task *model.Task, reason string) {
+	if c == nil || task == nil || strings.TrimSpace(task.BillingHoldID) == "" {
+		return
+	}
+	task.BillingStatus = "pending_reconcile"
+	c.updateTaskBilling(task)
+	_ = c.logger.log(task.UserID, task.ID, "warn", reason, "")
+}
+
+func (c *taskTerminalCoordinator) updateTaskBilling(task *model.Task) {
+	if c == nil || task == nil {
+		return
+	}
+	if updater, ok := c.repo.(interface {
+		UpdateTaskBilling(userID, taskID, holdID, status string, points int) error
+	}); ok {
+		_ = updater.UpdateTaskBilling(task.UserID, task.ID, task.BillingHoldID, task.BillingStatus, task.BillingPoints)
+	}
 }
 
 func (c *taskTerminalCoordinator) markTerminalState(task *model.Task) error {

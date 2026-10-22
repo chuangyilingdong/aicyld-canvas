@@ -211,6 +211,14 @@ function ActiveTaskCard({
                                 {generationTaskStageLabel(task)}
                             </span>
                         </div>
+                        {task.billingPoints ? (
+                            <div className="mt-2 flex items-center justify-between gap-2">
+                                <span>积分</span>
+                                <span className="text-right" style={{ color: task.billingStatus === "refunded" ? theme.accent.danger : theme.node.text }}>
+                                    {task.billingStatus === "refunded" ? "已退回" : task.billingStatus === "settled" ? "已结算" : "已预扣"} {task.billingPoints} 积分
+                                </span>
+                            </div>
+                        ) : null}
                         {onCancelTask && (task.status === "queued" || task.status === "running") ? (
                             <button
                                 type="button"
