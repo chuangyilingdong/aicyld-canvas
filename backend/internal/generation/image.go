@@ -20,6 +20,9 @@ import (
 )
 
 func RunImageTask(ctx context.Context, input Input) (map[string]interface{}, error) {
+	// 图片链和 video/audio 一样，必须在无显式 registry 的生产执行上下文里
+	// 补齐官方声明式协议，否则 Midjourney 等内置协议会退化成 OpenAI Images。
+	ctx = EnsureOfficialProtocolAdapter(ctx, input.Config.InterfaceType)
 	if UpscaleMediaType(input.Config.Model) == "image" {
 		return RunMediaUpscaleTask(ctx, input, DeclarativeProtocolPollPolicy("image"))
 	}

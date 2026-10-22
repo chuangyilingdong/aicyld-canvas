@@ -265,6 +265,7 @@ func newAPIImageAdapter() Adapter {
 
 func midjourneyAdapter() Adapter {
 	info := metadata("midjourney", "Midjourney 异步图像", "Midjourney", CapabilityImage, "POST /v1/midjourney/generations/{action}", "GET /v1/midjourney/tasks/{task_id}", "application/json")
+	info.Execution = "declarative"
 	info.Parameters = []Parameter{
 		{Name: "model", Type: "string", Required: true, Mapping: "model"},
 		{Name: "prompt", Type: "string", Required: true, Mapping: "prompt"},

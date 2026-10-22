@@ -145,6 +145,15 @@ func LoadOfficialFallbackRegistry() *protocol.Registry {
 		return officialFallbackRegistry
 	}
 	load := func() {
+		// Keep host-backed Midjourney available even when no plugin package directory
+		// exists (for example in focused tests or a minimal deployment).
+		if hostOnly, err := protocol.NewRegistry(); err == nil {
+			if hostAdapter, ok := protocol.Builtins().Get("midjourney"); ok {
+				_ = hostOnly.Register(hostAdapter)
+			}
+			officialFallbackRegistry = hostOnly
+			officialFallbackRegistryLoaded = true
+		}
 		directory, err := OfficialPluginPackageDir()
 		if err != nil {
 			return
@@ -174,6 +183,13 @@ func LoadOfficialFallbackRegistry() *protocol.Registry {
 		}
 		registry, err := protocol.NewRegistry(adapters...)
 		if err == nil {
+			// Midjourney is host-backed rather than a shipped plugin package, but it still
+			// participates in the same declarative image dispatch fallback.
+			if _, exists := registry.Resolve("midjourney"); !exists {
+				if hostAdapter, ok := protocol.Builtins().Get("midjourney"); ok {
+					_ = registry.Register(hostAdapter)
+				}
+			}
 			officialFallbackRegistry = registry
 			officialFallbackRegistryLoaded = true
 		}
