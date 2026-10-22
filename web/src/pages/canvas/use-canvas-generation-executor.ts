@@ -2,7 +2,8 @@ import { isCanvasNodeGenerating } from "@/lib/canvas/canvas-node-task-state";
 import { useCallback, useRef, type Dispatch, type SetStateAction } from "react";
 import { App } from "antd";
 
-import { buildNodeGenerationContext, hydrateNodeGenerationContext } from "@/components/canvas/canvas-node-generation";
+import { buildNodeGenerationContext, hydrateNodeGenerationContext, type NodeGenerationContext } from "@/components/canvas/canvas-node-generation";
+import { confirmCanvasBillingQuote } from "@/components/canvas/canvas-billing-confirmation";
 import type { CanvasNodeGenerationMode } from "@/components/canvas/canvas-node-prompt-panel";
 import { isGenerationCanceled } from "@/lib/canvas/canvas-project-generation";
 import { buildConfirmedGenerationConfig } from "./canvas-assistant-proposal-execution";
@@ -15,14 +16,17 @@ import { buildTextRewritePrompt } from "@/lib/prompts";
 import { resolveCanvasStyleExecution } from "@/lib/canvas/canvas-style-execution";
 import { generationErrorMessage } from "@/lib/generation-error";
 import { navigateToSettings } from "@/lib/settings-navigation";
-import { modelCompatibilityError, modelGroupReferenceLimits, modelPromptLengthError, modelRequestOptions, type ModelRequirements } from "@/lib/model-selection";
+import { mergedImageCapabilityConfig, modelCompatibilityError, modelGroupReferenceLimits, modelPromptLengthError, modelRequestOptions, type ModelRequirements } from "@/lib/model-selection";
 import type { Skill } from "@/services/api/skills";
 import { skillRuntime } from "@/services/skill-runtime";
-import type { GenerationTask } from "@/services/api/task-center";
+import { prepareBackendGenerationTask } from "@/services/api/generation-task";
+import { quoteGenerationTask, type CreateTaskInput, type GenerationTask } from "@/services/api/task-center";
 import { useConfigStore, useEffectiveConfig, resolveModelRequestConfig } from "@/stores/use-config-store";
 import { seedanceReferenceRatioWarning } from "@/lib/seedance-channel-warning";
 import type { Asset } from "@/stores/use-asset-store";
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData } from "@/types/canvas";
+import { getGenerationCount } from "@/lib/canvas/canvas-project-generation";
+import { isImageEditModel, withPlatformImageEditModel } from "@/lib/canvas/feature-models";
 
 import { executeImageGeneration } from "./canvas-image-generation-executor";
 import { executeAudioGeneration, executeVideoGeneration } from "./canvas-media-generation-executors";
@@ -65,6 +69,8 @@ export type CanvasNodeGenerationOptions = {
     retryContext?: { retryOf: string; attemptGroupId: string; clientOperationId: string };
     onTaskUpdate?: (task: GenerationTask) => void;
     skipDuplicateConfirmation?: boolean;
+    /** 助手提案等已有整批确认的入口，避免一次提案弹出多个报价框。 */
+    skipBillingConfirmation?: boolean;
 };
 
 export function useCanvasGenerationExecutor({
@@ -228,7 +234,7 @@ export function useCanvasGenerationExecutor({
                         message.error(promptLengthError);
                         return;
                     }
-                    const generationContext = { ...rawGenerationContext, prompt: effectivePrompt };
+                    let generationContext = { ...rawGenerationContext, prompt: effectivePrompt };
                     if (canvasGenerationRetryBlocked(sourceNode?.metadata, { ...generationContext, mode })) {
                         message.warning(sourceNode?.metadata?.errorDetails || "请先查看失败原因并调整输入，再重新生成");
                         return;
@@ -284,6 +290,67 @@ export function useCanvasGenerationExecutor({
                             modal.confirm({ ...ratioWarning, centered: true, onOk: () => resolve(true), onCancel: () => resolve(false), afterClose: () => resolve(false) });
                         });
                         if (!accepted || options?.controller?.signal.aborted) return;
+                    }
+
+                    if (mode !== "text" && !options?.skipBillingConfirmation) {
+                        let quoteConfig = generationConfig;
+                        if (mode === "image" && generationContext.referenceImages.length > 0 && !isImageEditModel(quoteConfig.model)) {
+                            quoteConfig = withPlatformImageEditModel(quoteConfig);
+                        }
+                        const quoteMessageKey = `canvas-billing-quote-${nodeId}`;
+                        let quoteMessageHidden = false;
+                        const hideQuoteMessage = () => {
+                            if (quoteMessageHidden) return;
+                            quoteMessageHidden = true;
+                            message.destroy(quoteMessageKey);
+                        };
+                        message.loading({ key: quoteMessageKey, content: "正在准备参考素材并计算积分", duration: 0 });
+                        try {
+                            const preparedInput = await prepareBackendGenerationTask({
+                                projectId,
+                                mode,
+                                prompt: effectivePrompt,
+                                config: quoteConfig,
+                                referenceImages: generationContext.referenceImages,
+                                referenceVideos: generationContext.referenceVideos,
+                                referenceAudios: generationContext.referenceAudios,
+                                signal: options?.controller?.signal,
+                                metadata: {
+                                    sourceNodeId: nodeId,
+                                    ...(sourceNode?.metadata?.videoEditOperation ? { videoEditOperation: sourceNode.metadata.videoEditOperation } : {}),
+                                    ...options?.context,
+                                },
+                            });
+                            let quoteInput = preparedInput;
+                            let quote = await quoteGenerationTask(quoteInput);
+                            const requestConfig = resolveModelRequestConfig(quoteConfig, quoteConfig.model);
+                            const nativeOutputCount = requestConfig.interfaceType === "midjourney"
+                                ? 4
+                                : mergedImageCapabilityConfig(quoteConfig, quoteConfig.model || quoteConfig.imageModel).fixedOutputs || 0;
+                            const taskCount = mode === "image" && !nativeOutputCount ? getGenerationCount(quoteConfig.count) : 1;
+                            if (mode === "image" && taskCount > 1 && String(quote.breakdown?.billingMode || "") === "per_request") {
+                                quoteInput = structuredClone(preparedInput);
+                                const inputConfig = quoteInput.input?.config as Record<string, unknown> | undefined;
+                                if (inputConfig) {
+                                    inputConfig.count = "1";
+                                }
+                                const singleQuote = await quoteGenerationTask(quoteInput);
+                                quote = {
+                                    ...singleQuote,
+                                    points: singleQuote.points * taskCount,
+                                    breakdown: { ...singleQuote.breakdown, taskCount, aggregate: "per_request_x_tasks" },
+                                };
+                            }
+                            hideQuoteMessage();
+                            if (!(await confirmCanvasBillingQuote(modal, quote))) return;
+                            generationContext = adoptPreparedGenerationReferences(generationContext, preparedInput);
+                        } catch (error) {
+                            if (options?.controller?.signal?.aborted || isGenerationCanceled(error)) return;
+                            message.error(generationErrorMessage(error) || "获取积分报价失败");
+                            return;
+                        } finally {
+                            hideQuoteMessage();
+                        }
                     }
 
                     setRunningNodeId(nodeId);
@@ -484,6 +551,15 @@ export function useCanvasGenerationExecutor({
     );
 }
 
+function adoptPreparedGenerationReferences(context: NodeGenerationContext, input: CreateTaskInput): NodeGenerationContext {
+    const payload = input.input && typeof input.input === "object" ? input.input as Record<string, unknown> : undefined;
+    return {
+        ...context,
+        referenceImages: Array.isArray(payload?.referenceImages) ? payload.referenceImages as NodeGenerationContext["referenceImages"] : context.referenceImages,
+        referenceVideos: Array.isArray(payload?.referenceVideos) ? payload.referenceVideos as NodeGenerationContext["referenceVideos"] : context.referenceVideos,
+        referenceAudios: Array.isArray(payload?.referenceAudios) ? payload.referenceAudios as NodeGenerationContext["referenceAudios"] : context.referenceAudios,
+    };
+}
 
 function generationModelRequirements(
     mode: CanvasNodeGenerationMode,

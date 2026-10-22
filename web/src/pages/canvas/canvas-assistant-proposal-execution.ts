@@ -95,6 +95,7 @@ export async function executeAssistantProposal({ proposal, nodes, claims, isHand
                 confirmedModelKey: modelKey,
                 confirmedInputs,
                 clientOperationId: `proposal:${proposal.proposalId}:${node.id}`,
+                skipBillingConfirmation: true,
                 onTaskUpdate: (task) => {
                     if (!task.id) return;
                     receivedTask = true;
