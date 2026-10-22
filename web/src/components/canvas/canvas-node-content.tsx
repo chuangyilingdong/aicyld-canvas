@@ -10,7 +10,7 @@ import { canvasNodeFailureExplanation, canRecoverOrRetryDepthCapture } from "@/l
 import { formatGenerationElapsed, generationProgressDisplay, generationTaskShowsProgress, isGenerationTaskSubmissionUncertain, trackGenerationProgressChange, type GenerationProgressRecord } from "@/lib/generation-task-display";
 import { canvasNodeOperation } from "@/lib/operation-progress";
 import { canvasRichTextHTML } from "@/lib/canvas/canvas-rich-text";
-import { fitNodeSize } from "@/lib/canvas/canvas-node-size";
+import { fitImageNodeToDecodedSize, fitNodeSize } from "@/lib/canvas/canvas-node-size";
 import { loadCanvasDrawingPreview } from "@/lib/canvas/canvas-drawing-storage";
 import { canvasNodeVideoPreviewUrl, inferVideoHasAudio } from "@/lib/canvas/canvas-media-preview";
 import { bindCanvasVideoHoverPreview } from "@/lib/canvas/canvas-video-hover-preview";
@@ -723,21 +723,7 @@ function ImageContent({ node, theme, scale = 1, isBatchRoot, batchCount, batchPr
         if (!naturalWidth || !naturalHeight) return;
         if (measuredSizeRef.current?.width === naturalWidth && measuredSizeRef.current.height === naturalHeight) return;
         measuredSizeRef.current = { width: naturalWidth, height: naturalHeight };
-        updateMediaNode?.(node.id, (current) => {
-            const metadata = current.metadata;
-            const needsMetadata = metadata?.naturalWidth !== naturalWidth || metadata?.naturalHeight !== naturalHeight;
-            if (current.metadata?.freeResize || current.metadata?.manualSize) {
-                return needsMetadata ? { ...current, metadata: { ...metadata, naturalWidth, naturalHeight } } : current;
-            }
-            const size = fitNodeSize(naturalWidth, naturalHeight);
-            const needsResize = Math.abs(size.width - current.width) >= 1 || Math.abs(size.height - current.height) >= 1;
-            if (!needsMetadata && !needsResize) return current;
-            return {
-                ...current,
-                ...(needsResize ? size : {}),
-                metadata: needsMetadata ? { ...metadata, naturalWidth, naturalHeight } : metadata,
-            };
-        });
+        updateMediaNode?.(node.id, (current) => fitImageNodeToDecodedSize(current, naturalWidth, naturalHeight));
     };
 
     return (

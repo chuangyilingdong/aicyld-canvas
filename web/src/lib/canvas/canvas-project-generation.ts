@@ -13,6 +13,7 @@ import { modelCapabilityConfigFor, workflowFieldCurrentValue, workflowFieldHasSt
 import { modelRequestOptions, resolveCompatibleModel, resolveModelGenerationDefaults, resolveVideoOperation, type ModelGenerationDefaults, type ModelRequirements } from "@/lib/model-selection";
 import { imageMetadata } from "@/lib/canvas/canvas-generation-task-sync";
 import { ensureMediaNodeMinimumSize } from "@/lib/canvas/canvas-node-size";
+import { repairOverlappingImageBatches } from "@/lib/canvas/canvas-generation-layout";
 import { interruptFileUpload } from "@/lib/canvas/canvas-file-upload";
 import { isDepthCaptureResultNode } from "@/lib/canvas/canvas-depth-capture";
 import { isCanvasWorkflowProvider, resolveCanvasWorkflowProvider } from "@/lib/canvas/canvas-workflow";
@@ -794,7 +795,7 @@ export function resetInterruptedGeneration(nodes: CanvasNodeData[]) {
         if (restoredNode !== node) changed = true;
         return restoredNode;
     });
-    return changed ? reset : nodes;
+    return repairOverlappingImageBatches(changed ? reset : nodes);
 }
 
 export function isGenerationCanceled(error: unknown) {

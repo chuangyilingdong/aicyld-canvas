@@ -14,6 +14,20 @@ export function fitNodeSize(width: number, height: number, maxWidth = 720, maxHe
     return { width: w * scale, height: h * scale };
 }
 
+export function fitImageNodeToDecodedSize(node: CanvasNodeData, naturalWidth: number, naturalHeight: number): CanvasNodeData {
+    const metadata = node.metadata;
+    const needsMetadata = metadata?.naturalWidth !== naturalWidth || metadata?.naturalHeight !== naturalHeight;
+    const keepGeometry = metadata?.freeResize || metadata?.manualSize || metadata?.locked;
+    // Batch spacing was calculated with these bounds. Image decoding must not
+    // silently enlarge every card after the grid has already been placed.
+    const size = metadata?.isBatchRoot || metadata?.batchRootId
+        ? fitNodeSize(naturalWidth, naturalHeight, node.width, node.height)
+        : fitNodeSize(naturalWidth, naturalHeight);
+    const needsResize = !keepGeometry && (Math.abs(size.width - node.width) >= 1 || Math.abs(size.height - node.height) >= 1);
+    if (!needsMetadata && !needsResize) return node;
+    return { ...node, ...(needsResize ? size : {}), metadata: needsMetadata ? { ...metadata, naturalWidth, naturalHeight } : metadata };
+}
+
 export function nodeSizeFromRatio(size: string, baseWidth: number, baseHeight: number) {
     const raw = String(size || "").trim();
     if (!raw || raw.toLowerCase() === "auto") return null;
