@@ -88,7 +88,14 @@ export function createDurableSessionStore({ sessionRoot, workspaceRoot, getModel
   }
   async function state(entry) { return await entry.harness.snapshot(STATE, CTX); }
   async function authorization(entry, turnId, allowClosed = false) {
-    const result = await authorizeTurn({ canvasId: entry.canvasId, turnId, sessionId: entry.sessionId });
+    let result;
+    try { result = await authorizeTurn({ canvasId: entry.canvasId, turnId, sessionId: entry.sessionId }); }
+    catch (error) {
+      // Preserve typed denials. A transport failure is not an interrupted turn
+      // and must not be reported as a missing or invalid skill.
+      if (error?.reason) throw error;
+      throw Object.assign(fail('turn_authorization_unavailable'), { cause: error });
+    }
     const mode=result?.permissionMode || 'canvas';
     if (!['read-only','canvas','full-access'].includes(mode)) throw fail('invalid_permission_mode');
     if (entry.input?.turnId===turnId && (entry.input.permissionMode || 'canvas')!==mode) throw fail('permission_mode_frozen');
