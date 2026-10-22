@@ -21,7 +21,7 @@ func TestRunImageTaskLoadsMidjourneyBuiltinWithoutRegistry(t *testing.T) {
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/midjourney/generations/imagine":
 			createPath = r.URL.Path
 			_ = json.NewDecoder(r.Body).Decode(&createBody)
-			_, _ = w.Write([]byte(`{"task_id":"mj-task-1","status":"pending"}`))
+			_, _ = w.Write([]byte(`{"code":200,"data":[{"task_id":"mj-task-1","status":"submitted"}]}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/midjourney/tasks/mj-task-1":
 			_, _ = w.Write([]byte(`{"task_id":"mj-task-1","status":"SUCCESS","grid_image_url":"` + serverURL + `/result.png"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/result.png":

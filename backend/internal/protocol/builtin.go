@@ -991,6 +991,18 @@ func parseAsyncCreate(payload map[string]any) (CreateResult, error) {
 	if data := object(payload["data"]); data != nil {
 		id = defaultValue(firstString(data, "id", "task_id", "taskId", "request_id"), id)
 		status = normalizeStatus(defaultValue(firstString(data, "status", "state"), string(status)))
+	} else if items, ok := payload["data"].([]any); ok {
+		for _, item := range items {
+			entry, _ := item.(map[string]any)
+			if entry == nil {
+				continue
+			}
+			id = defaultValue(firstString(entry, "id", "task_id", "taskId", "request_id"), id)
+			status = normalizeStatus(defaultValue(firstString(entry, "status", "state"), string(status)))
+			if id != "" {
+				break
+			}
+		}
 	}
 	if id == "" {
 		return CreateResult{}, fmt.Errorf("async response has no task id")

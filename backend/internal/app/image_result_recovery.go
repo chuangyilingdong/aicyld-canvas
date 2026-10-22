@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/url"
 	"strings"
 
@@ -102,11 +103,28 @@ func imageCreateReceiptURLs(payload map[string]any) []string {
 }
 
 func imageTaskIDFromPayload(payload map[string]any) string {
-	return firstNonEmpty(stringField(payload, "task_id"), stringField(payload, "taskId"), stringField(payload, "id"))
+	if id := firstNonEmpty(stringField(payload, "task_id"), stringField(payload, "taskId"), stringField(payload, "id")); id != "" {
+		return id
+	}
+	if items, ok := payload["data"].([]any); ok {
+		for _, item := range items {
+			entry, _ := item.(map[string]any)
+			if entry == nil {
+				continue
+			}
+			if id := firstNonEmpty(stringField(entry, "task_id"), stringField(entry, "taskId"), stringField(entry, "id")); id != "" {
+				return id
+			}
+		}
+	}
+	return ""
 }
 
 func isImageTaskCreatePath(path string) bool {
 	path = strings.TrimRight(strings.TrimSpace(path), "/")
+	if strings.Contains(path, "/midjourney/generations/") {
+		return true
+	}
 	for _, suffix := range []string{"/images/generations", "/images/edits", "/video/generations"} {
 		if strings.HasSuffix(path, suffix) {
 			return true
@@ -132,6 +150,32 @@ func (s *Service) queryAcceptedAsyncImage(task *model.Task, createPath string, t
 	recoveryCtx, cancel := providerTaskRecoveryContext(context.Background())
 	defer cancel()
 	queryCtx := withProviderAnalytics(recoveryCtx, s, *task)
+	if config.InterfaceType == "midjourney" {
+		queryCtx = ensureOfficialProtocolAdapter(queryCtx, config.InterfaceType)
+		adapter, ok := declarativeProtocolAdapterForContext(queryCtx, config.InterfaceType)
+		if !ok {
+			return nil, imageRecoveryError{errors.New("Midjourney 协议未注册")}
+		}
+		input.Config = config
+		result, providerStatus, queryErr := queryProtocolAdapterVideoTask(queryCtx, input, adapter, taskID)
+		if queryErr != nil {
+			return nil, imageRecoveryError{queryErr}
+		}
+		if result == nil {
+			return nil, imageRecoveryError{fmt.Errorf("原图片任务仍在上游处理中（%s），请稍后再次点击「继续取回」", defaultString(providerStatus, "pending"))}
+		}
+		items, _ := result["images"].([]any)
+		images := make([]map[string]any, 0, len(items))
+		for _, item := range items {
+			if image, ok := item.(map[string]any); ok {
+				images = append(images, image)
+			}
+		}
+		if len(images) == 0 {
+			return nil, imageRecoveryError{errors.New("上游图片任务成功但没有返回可用图片")}
+		}
+		return images, nil
+	}
 	pollPath := strings.TrimRight(createPath, "/") + "/" + url.PathEscape(taskID)
 	var state map[string]any
 	if err := imageRecoveryGetJSON(queryCtx, config, pollPath, &state); err != nil {

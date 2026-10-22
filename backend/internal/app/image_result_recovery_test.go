@@ -24,6 +24,15 @@ func imageRecoveryTestReceipt(task model.Task) model.ApiCallLog {
 	}
 }
 
+func TestMidjourneyReceiptRecoveryIdentifiesArrayTaskAndPollPath(t *testing.T) {
+	payload := map[string]any{"code": float64(200), "data": []any{map[string]any{"task_id": "task_mj", "status": "submitted"}}}
+	if got := imageTaskIDFromPayload(payload); got != "task_mj" {
+		t.Fatalf("task id = %q", got)
+	}
+	if !isImageTaskCreatePath("/v1/midjourney/generations/imagine") {
+		t.Fatal("midjourney create path was not recognized")
+	}
+}
 func TestRetryAcceptedImageUsesOriginalReceiptWithoutCreate(t *testing.T) {
 	s, db, _, _ := creationTestService(t)
 	task := imageRecoveryTestTask()
