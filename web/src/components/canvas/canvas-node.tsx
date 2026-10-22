@@ -596,7 +596,9 @@ function usesCustomNodeContentRenderer(node: CanvasNodeData) {
         node.type === CanvasNodeType.BatchTable ||
         node.type === CanvasNodeType.Director ||
         Boolean(node.metadata?.directorSceneId) ||
-        Boolean(node.metadata?.workflowKind)
+        Boolean(node.metadata?.workflowKind) ||
+        Boolean(node.metadata?.reusableWorkflow) ||
+        Boolean(node.metadata?.workflowSlot)
     );
 }
 
