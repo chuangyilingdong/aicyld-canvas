@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"infinite-canvas/backend/internal/beefapi"
 	"infinite-canvas/backend/internal/model"
 )
 
@@ -54,7 +53,7 @@ func RunAudioTask(ctx context.Context, input Input) (map[string]interface{}, err
 	if input.Config.InterfaceType == string(model.ChannelInterfaceAsyncAudio) {
 		return RunAsyncAudioTask(ctx, input, body, format)
 	}
-	if musicV3 && isBeefAPIHostFromURL(input.Config.BaseURL) {
+	if musicV3 {
 		body["stream_format"] = "sse"
 	}
 	data, mimeType, err := PostBinary(ctx, input.Config, "/audio/speech", body)
@@ -72,16 +71,6 @@ func RunAudioTask(ctx context.Context, input Input) (map[string]interface{}, err
 		return nil, err
 	}
 	return map[string]interface{}{"mode": "audio", "audio": map[string]interface{}{"dataUrl": DataURL(mimeType, data), "mimeType": mimeType, "format": format}}, nil
-}
-
-func isBeefAPIHostFromURL(raw string) bool {
-	if beefapi.IsEnterpriseBaseURL(raw) {
-		return true
-	}
-	// Use the existing explicit loopback enterprise override in desktop acceptance.
-	// CanonicalOrigin rejects non-loopback custom origins.
-	origin, err := beefapi.CanonicalOrigin("")
-	return err == nil && strings.TrimSuffix(strings.TrimRight(raw, "/"), "/v1") == origin
 }
 
 func RunAsyncAudioTask(ctx context.Context, input Input, body map[string]interface{}, format string) (map[string]interface{}, error) {

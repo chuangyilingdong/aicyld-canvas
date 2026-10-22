@@ -1,5 +1,4 @@
-import { audioMimeType, audioSpeechKind, buildAudioSpeechRequest, normalizeAudioFormatValue } from "@/lib/audio-generation";
-import { isBeefAPIEndpoint } from "@/lib/beefapi-video-contracts";
+import { audioMimeType, buildAudioSpeechRequest, isMinimaxMusicV3, normalizeAudioFormatValue } from "@/lib/audio-generation";
 import { parseSpeechAudioEvents } from "@/lib/audio-speech-events";
 import { assertChannelBlob, ChannelResponseError, createChannelTransport, isChannelCancellation } from "@/services/api/channel-transport";
 import { uploadMediaFile, type UploadedFile } from "@/services/file-storage";
@@ -27,7 +26,7 @@ export async function requestAudioGeneration(config: AiConfig, prompt: string, o
         if (requestConfig.interfaceType === "async-audio") {
             return await requestAsyncAudioGeneration(requestConfig, payload, format, options);
         }
-        const useSSE = audioSpeechKind(model) === "minimax-music" && isBeefAPIEndpoint(requestConfig.baseUrl);
+        const useSSE = isMinimaxMusicV3(model);
         if (useSSE) payload.stream_format = "sse";
         let blob = await audioTransport(requestConfig).postBlob(aiApiUrl(requestConfig, "/audio/speech"), payload, { signal: options?.signal, acceptEventStream: useSSE });
         if (useSSE && blob.type.startsWith("text/event-stream")) {

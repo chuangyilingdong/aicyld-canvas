@@ -329,9 +329,7 @@ func ProtocolRequestFromInput(input Input) protocol.GenerationRequest {
 		request.Extra["audioFormat"] = "mp3"
 		if strings.Contains(strings.ToLower(input.Config.Model), "minimax-music-v3") {
 			request.Extra["audioMetadata"] = map[string]any{"audio_setting": map[string]any{"sample_rate": 44100, "bitrate": 256000, "format": "mp3"}}
-			if isBeefAPIHostFromURL(input.Config.BaseURL) {
-				request.Extra["audioStreamFormat"] = "sse"
-			}
+			request.Extra["audioStreamFormat"] = "sse"
 		}
 	}
 	for _, message := range input.TextHistory {

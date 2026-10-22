@@ -42,7 +42,6 @@ func TestRunMusicNormalizesOldFormatAndSendsSSE(t *testing.T) {
 		w.Write([]byte(": PING\n\ndata: {\"type\":\"speech.audio.delta\",\"audio\":\"SUQzbXVzaWM=\"}\n\ndata: {\"type\":\"speech.audio.done\"}\n\n"))
 	}))
 	defer server.Close()
-	t.Setenv("BEEFTV_ENTERPRISE_TEST_ORIGIN", server.URL)
 	for _, withPlugin := range []bool{false, true} {
 		ctx := context.Background()
 		config := Config{Model: "minimax-music-v3.0", BaseURL: server.URL, AudioFormat: "flac"}
@@ -65,21 +64,16 @@ func TestRunMusicNormalizesOldFormatAndSendsSSE(t *testing.T) {
 	}
 }
 
-func TestMusicSSEEndpointUsesExactProductionOrExplicitLoopback(t *testing.T) {
-	t.Setenv("BEEFTV_ENTERPRISE_TEST_ORIGIN", "http://127.0.0.1:33419")
-	for _, endpoint := range []string{"https://beeftv.app", "https://enterprise.beefapi.com/v1", "http://127.0.0.1:33419/v1"} {
-		if !isBeefAPIHostFromURL(endpoint) {
-			t.Errorf("rejected endpoint %s", endpoint)
+func TestMusicV3UsesSSEWithoutHostedOrigin(t *testing.T) {
+	for _, model := range []string{"minimax-music-2.6", "minimax-music-v3.0"} {
+		request := ProtocolRequestFromInput(Input{Mode: "audio", Config: Config{Model: model, BaseURL: "https://self-hosted.example/v1"}})
+		_, stream := request.Extra["audioStreamFormat"]
+		if model == "minimax-music-v3.0" && (!stream || request.Extra["audioFormat"] != "mp3") {
+			t.Fatalf("v3 self-hosted request lost SSE/MP3: %#v", request.Extra)
 		}
-	}
-	for _, endpoint := range []string{"http://127.0.0.1:33418", "https://beeftv.app.attacker.example", "https://user@beeftv.app", "https://beeftv.app:444", "https://api.beefapi.com", "http://192.168.1.4:33419"} {
-		if isBeefAPIHostFromURL(endpoint) {
-			t.Errorf("accepted endpoint %s", endpoint)
+		if model == "minimax-music-2.6" && stream {
+			t.Fatalf("v2.6 async model received v3 SSE extension: %#v", request.Extra)
 		}
-	}
-	t.Setenv("BEEFTV_ENTERPRISE_TEST_ORIGIN", "https://attacker.example")
-	if isBeefAPIHostFromURL("https://attacker.example") {
-		t.Fatal("accepted invalid test origin")
 	}
 }
 
@@ -101,7 +95,7 @@ func TestMusicPluginRejectsIncompleteOrNonAudioResponses(t *testing.T) {
 				w.Write([]byte(tc.body))
 			}))
 			defer server.Close()
-			t.Setenv("BEEFTV_ENTERPRISE_TEST_ORIGIN", server.URL)
+			t.Setenv("CANVAS_ALLOWED_PRIVATE_UPSTREAM_HOSTS", "127.0.0.1")
 			_, err := RunAudioTask(WithProtocolRegistry(context.Background(), registry), Input{Mode: "audio", Config: Config{InterfaceType: "openai-audio", Model: "minimax-music-v3.0", BaseURL: server.URL, AudioFormat: "flac"}, Prompt: "piano"})
 			if err == nil {
 				t.Fatal("accepted invalid audio result")
@@ -110,24 +104,23 @@ func TestMusicPluginRejectsIncompleteOrNonAudioResponses(t *testing.T) {
 	}
 }
 
-func TestMusicChannelNameDoesNotEnableSSEForCustomOrigin(t *testing.T) {
-	t.Setenv("BEEFTV_ENTERPRISE_TEST_ORIGIN", "")
+func TestMusicV3UsesSSEOnSelfConnectedOrigin(t *testing.T) {
 	t.Setenv("CANVAS_ALLOWED_PRIVATE_UPSTREAM_HOSTS", "127.0.0.1")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]interface{}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Error(err)
 		}
-		if _, ok := body["stream_format"]; ok {
-			t.Errorf("custom origin received enterprise SSE extension: %v", body)
+		if body["stream_format"] != "sse" {
+			t.Errorf("self-connected v3 request lost SSE: %v", body)
 		}
-		w.Header().Set("Content-Type", "audio/mpeg")
-		_, _ = w.Write([]byte("ID3music"))
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"type\":\"speech.audio.delta\",\"audio\":\"SUQzbXVzaWM=\"}\n\ndata: {\"type\":\"speech.audio.done\"}\n\n"))
 	}))
 	defer server.Close()
 	for _, withPlugin := range []bool{false, true} {
 		ctx := context.Background()
-		config := Config{ChannelID: "beefapi", Model: "minimax-music-v3.0", BaseURL: server.URL}
+		config := Config{ChannelID: "self-hosted-audio", Model: "minimax-music-v3.0", BaseURL: server.URL}
 		if withPlugin {
 			config.InterfaceType = "openai-audio"
 			ctx = WithProtocolRegistry(ctx, LoadOfficialFallbackRegistry())
@@ -159,7 +152,6 @@ func TestMusicSignedResultDownloadsWithoutModelCredential(t *testing.T) {
 		_, _ = w.Write([]byte(done))
 	}))
 	defer provider.Close()
-	t.Setenv("BEEFTV_ENTERPRISE_TEST_ORIGIN", provider.URL)
 	for _, withPlugin := range []bool{false, true} {
 		ctx := context.Background()
 		config := Config{Model: "minimax-music-v3.0", BaseURL: provider.URL, APIKey: "model-key-fixture"}

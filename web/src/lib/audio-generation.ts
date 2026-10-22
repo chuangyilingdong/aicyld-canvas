@@ -108,7 +108,7 @@ export function audioModelId(model: string) {
     return (separator >= 0 ? trimmed.slice(separator + 2) : trimmed).toLowerCase();
 }
 
-function isMinimaxMusicV3(model: string) {
+export function isMinimaxMusicV3(model: string) {
     return audioModelId(model).startsWith("minimax-music-v3");
 }
 
