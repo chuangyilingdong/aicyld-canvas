@@ -95,7 +95,7 @@ func (s *Service) EnsureBuiltinSkills() error {
 			ID: id, OwnerID: ownerID, AuthorName: authorName, AuthorAvatarURL: authorAvatarURL,
 			Name: normalized.SkillName, Description: normalized.Description, Instruction: normalized.Instruction,
 			Status: skillStatusEnabled, Source: definition.Source, Tag: normalized.Tag, SortWeight: definition.SortWeight,
-			IsPrivate: false, MarkdownURL: normalized.MarkdownURL, ShowcaseMediaJSON: mediaJSON, ExtraInfo: normalized.ExtraInfo,
+			IsPrivate: false, ReviewStatus: skillReviewStatusPublished, MarkdownURL: normalized.MarkdownURL, ShowcaseMediaJSON: mediaJSON, ExtraInfo: normalized.ExtraInfo,
 			InitialLikeCount: definition.LikeCount, InitialAddedCount: definition.AddedCount,
 			CreatedAt: time.UnixMilli(definition.CreateTime), UpdatedAt: time.UnixMilli(definition.UpdateTime),
 		})

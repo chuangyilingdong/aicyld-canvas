@@ -2,7 +2,7 @@ import { CollectionToolbar } from "@/components/layout/collection-toolbar";
 import { App, Button, Dropdown, Input, Select } from "antd";
 import { Tooltip } from "@/components/ui/base/tooltip";
 
-import { Boxes, Check, Clapperboard, Heart, Library, LoaderCircle, Megaphone, MoreHorizontal, Palette, Plus, Puzzle, Search, ShoppingBag, Sparkles, UserRound } from "lucide-react";
+import { Boxes, Check, Clapperboard, Heart, Library, LoaderCircle, Megaphone, MoreHorizontal, Palette, Plus, Puzzle, Search, ShieldCheck, ShoppingBag, Sparkles, UserRound } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
@@ -13,7 +13,9 @@ import { fallbackSkillCategories, formatSkillCount, groupSkills, skillCategoryLa
 import { SkillDetailModal } from "@/pages/skills/skill-detail-drawer";
 import { SkillEditorDrawer } from "@/pages/skills/skill-editor-drawer";
 import { SkillInstallModal } from "@/pages/skills/skill-install-modal";
+import { SkillReviewPanel } from "@/pages/skills/skill-review-panel";
 import { addSkill, deleteSkill, getSkill, likeSkill, listSkills, removeSkill, syncSkill, unlikeSkill, type Skill, type SkillCategory, type SkillScope, type SkillSort } from "@/services/api/skills";
+import { useUserStore } from "@/stores/use-user-store";
 
 const scopeOptions = [
     { label: "技能广场", value: "public", icon: Sparkles },
@@ -69,7 +71,9 @@ export default function SkillsPage() {
     const [mutatingID, setMutatingID] = useState("");
     const [editorOpen, setEditorOpen] = useState(false);
     const [installOpen, setInstallOpen] = useState(false);
+    const [reviewOpen, setReviewOpen] = useState(false);
     const [editingSkill, setEditingSkill] = useState<Skill | null>(null);
+    const isAdmin = useUserStore((state) => state.user?.role === "admin");
 
     const reload = useCallback(() => setReloadKey((value) => value + 1), []);
 
@@ -206,7 +210,7 @@ export default function SkillsPage() {
     return (
         <>
             <WorkspacePage className="library-page skills-library-page" grid>
-                <PageHeader title="技能库" description="把提示词、角色设定和创作方法，变成随时可用的能力。" actions={<Button type="primary" icon={<Plus className="size-4" />} onClick={() => setInstallOpen(true)}>安装技能</Button>} />
+                <PageHeader title="技能库" description="把提示词、角色设定和创作方法，变成随时可用的能力。" actions={<div className="flex gap-2">{isAdmin ? <Button icon={<ShieldCheck className="size-4" />} onClick={() => setReviewOpen(true)}>审核台</Button> : null}<Button type="primary" icon={<Plus className="size-4" />} onClick={() => setInstallOpen(true)}>安装技能</Button></div>} />
 
                 <div className="skills-browse-bar">
                 <div className="skills-navigation">
@@ -290,6 +294,7 @@ export default function SkillsPage() {
             <SkillDetailModal skill={activeSkill} loading={detailLoading} mutating={Boolean(activeSkill && mutatingID === activeSkill.skillId)} categories={categories} onClose={() => setActiveSkill(null)} onAdd={(skill) => void toggleAdded(skill)} onLike={(skill) => void toggleLiked(skill)} onEdit={(skill) => void openEditor(skill)} onSync={(skill) => void synchronizeSkill(skill)} onChanged={(skill) => { setActiveSkill(skill); reload(); }} />
             <SkillInstallModal open={installOpen} onClose={() => setInstallOpen(false)} onInstalled={(skill) => { setInstallOpen(false); setActiveSkill(skill); reload(); }} onManualCreate={() => { setInstallOpen(false); void openEditor(); }} />
             <SkillEditorDrawer open={editorOpen} skill={editingSkill} onClose={() => setEditorOpen(false)} onSaved={(skill) => { setEditorOpen(false); setEditingSkill(null); setActiveSkill(skill); reload(); }} />
+            {isAdmin ? <SkillReviewPanel open={reviewOpen} onClose={() => setReviewOpen(false)} onReviewed={reload} /> : null}
         </>
     );
 }
@@ -330,7 +335,7 @@ function SkillCard({ skill, categories, loading, style, onOpen, onAdd, onLike, o
                 </button>
                 <span className="skill-card-author">{skill.effectiveUser.name || "未知用户"}</span>
                 <span className="skill-card-tag">{skillCategoryLabel(skill.tag, categories)}</span>
-                {skill.isPrivate ? <span className="skill-card-flag">仅自己</span> : null}
+                {skill.isPrivate ? <span className="skill-card-flag">{reviewFlag(skill.reviewStatus || "")}</span> : null}
             </div>
             {/* 加入是这个页面的主行为，给它完整的按钮 + 文案 + 已加入人数，不再藏在角落的加号里。 */}
             {skill.isOwner
@@ -349,4 +354,11 @@ function SkillCard({ skill, categories, loading, style, onOpen, onAdd, onLike, o
 
 function SkillSkeleton() {
     return <div className="library-grid skill-library-grid py-6">{Array.from({ length: 8 }, (_, index) => <div key={index} className="h-[260px] animate-pulse rounded-[var(--r-xl)] bg-foreground/[.035]" />)}</div>;
+}
+
+function reviewFlag(status: string) {
+    if (status === "in_review") return "审核中";
+    if (status === "rejected") return "已退回";
+    if (status === "pending") return "待投稿";
+    return "仅自己";
 }

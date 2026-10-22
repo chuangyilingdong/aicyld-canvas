@@ -1,7 +1,6 @@
 import { App, Button, Form, Input } from "antd";
 import { AppDrawer } from "@/components/ui/product/app-drawer";
 import { Select } from "@/components/ui/base/select";
-import { Switch } from "@/components/ui/base/switch";
 import { Minus, Plus, Save, Wand2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -11,7 +10,7 @@ import { navigateToSettings } from "@/lib/settings-navigation";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { createSkill, updateSkill, type Skill, type SkillMutationInput, type SkillShowcaseMedia } from "@/services/api/skills";
 
-type SkillFormValues = Omit<SkillMutationInput, "isPrivate"> & { is_public: boolean };
+type SkillFormValues = Omit<SkillMutationInput, "isPrivate">;
 
 export function SkillEditorDrawer({ open, skill, onClose, onSaved }: { open: boolean; skill: Skill | null; onClose: () => void; onSaved: (skill: Skill) => void }) {
     const { message, modal } = App.useApp();
@@ -30,7 +29,6 @@ export function SkillEditorDrawer({ open, skill, onClose, onSaved }: { open: boo
             description: skill?.description || "",
             instruction: skill?.instruction || "",
             tag: skill?.tag || "creative",
-            is_public: skill ? !skill.isPrivate : true,
             markdownUrl: skill?.markdownUrl || skill?.sourceUrl || "",
             showcaseMedia: skill?.showcaseMedia || [],
             extraInfo: skill?.extraInfo || "",
@@ -54,7 +52,7 @@ export function SkillEditorDrawer({ open, skill, onClose, onSaved }: { open: boo
                 description: values.description,
                 instruction: values.instruction || "",
                 tag: values.tag,
-                isPrivate: !values.is_public,
+                isPrivate: true,
                 markdownUrl: values.markdownUrl || "",
                 showcaseMedia: (values.showcaseMedia || []).map((item) => ({ ...item, showcaseUri: item.showcaseUri || "" })),
                 extraInfo: values.extraInfo || "",
@@ -139,14 +137,13 @@ export function SkillEditorDrawer({ open, skill, onClose, onSaved }: { open: boo
                     <Input.TextArea className="font-mono text-xs leading-5" autoSize={{ minRows: 14, maxRows: 28 }} maxLength={100000} showCount placeholder="使用 Markdown 编写角色、约束、流程、检查清单和输出格式" />
                 </Form.Item> : null}
 
-                <div className="grid gap-x-4 sm:grid-cols-[minmax(0,1fr)_180px]">
+                <div>
                     <Form.Item name="markdownUrl" label={isPackageSkill ? "来源地址" : "Markdown 地址"} rules={[{ type: "url", message: "请输入有效的 HTTP(S) 链接" }]}>
                         <Input type="url" inputMode="url" spellCheck={false} placeholder="https://example.com/SKILL.md" />
                     </Form.Item>
-                    <Form.Item name="is_public" label="公开状态" valuePropName="checked" extra="公开后其他用户可以加入使用。">
-                        <Switch checkedChildren="公开" unCheckedChildren="私有" />
-                    </Form.Item>
                 </div>
+
+                <p className="skill-editor-publish-note">保存后技能仍为私有；在详情页完成投稿并由审核员通过后，才会出现在技能广场。</p>
 
                 <Form.List name="showcaseMedia">
                     {(fields, { add, remove }) => (

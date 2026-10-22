@@ -137,6 +137,63 @@ func (s *Service) EnsureSkillPackages() error {
 }
 
 func (s *Service) InstallSkillUpload(userID string, sourceType string, header *multipart.FileHeader, req SkillInstallRequest) (*SkillItem, error) {
+	sourceType, archive, err := readSkillPackageUpload(sourceType, header, req.Name, req.Description)
+	if err != nil {
+		return nil, err
+	}
+	return s.createSkillFromArchive(userID, archive, req, sourceType, "", "", "", "", false)
+}
+
+// ReplaceSkillPackage creates a new immutable version from an owner-supplied
+// archive. It is intentionally unavailable while review evidence is pending.
+func (s *Service) ReplaceSkillPackage(userID string, skillID string, sourceType string, header *multipart.FileHeader, req SkillInstallRequest) (*SkillItem, error) {
+	skill, err := s.ownedSkill(userID, skillID)
+	if err != nil {
+		return nil, err
+	}
+	if skill.Source != skillSourceUser {
+		return nil, kernel.BadAuthRequest("内置技能不能替换文件包")
+	}
+	if skill.ReviewStatus == skillReviewStatusInReview {
+		return nil, kernel.NewAppError(409, "技能正在审核，审核完成前不能替换文件包")
+	}
+	sourceType, archive, err := readSkillPackageUpload(sourceType, header, req.Name, req.Description)
+	if err != nil {
+		return nil, err
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		name = strings.TrimSpace(archive.Metadata.Name)
+	}
+	if name == "" {
+		name = skill.Name
+	}
+	description := strings.TrimSpace(req.Description)
+	if description == "" {
+		description = strings.TrimSpace(archive.Metadata.Description)
+	}
+	if description == "" {
+		description = skill.Description
+	}
+	tag := strings.TrimSpace(req.Tag)
+	if _, ok := skillCategoryLabels[tag]; !ok {
+		tag = skill.Tag
+	}
+	if skill.ReviewStatus == skillReviewStatusPublished {
+		skill.ReviewStatus = skillReviewStatusPending
+		skill.IsPrivate = true
+	}
+	skill.Name = name
+	skill.Description = description
+	skill.Tag = tag
+	skill.Instruction = string(archive.Files["SKILL.md"])
+	if err := s.addSkillArchiveVersion(skill, archive, sourceType, skill.SourceURL, skill.SourceRef, skill.SourceSubdir, skill.SourceCommit, skill.AutoUpdate); err != nil {
+		return nil, err
+	}
+	return s.SkillDetail(userID, skill.ID)
+}
+
+func readSkillPackageUpload(sourceType string, header *multipart.FileHeader, name string, description string) (string, skillPackageArchive, error) {
 	sourceType = strings.ToLower(strings.TrimSpace(sourceType))
 	if sourceType == "" && header != nil {
 		switch strings.ToLower(path.Ext(header.Filename)) {
@@ -147,33 +204,33 @@ func (s *Service) InstallSkillUpload(userID string, sourceType string, header *m
 		}
 	}
 	if sourceType != "markdown" && sourceType != "zip" {
-		return nil, kernel.BadAuthRequest("技能文件仅支持 Markdown 或 ZIP")
+		return "", skillPackageArchive{}, kernel.BadAuthRequest("技能文件仅支持 Markdown 或 ZIP")
 	}
 	if header == nil || header.Size <= 0 || header.Size > maxSkillPackageBytes {
-		return nil, kernel.BadAuthRequest("技能文件大小必须在 1B-20MB 之间")
+		return "", skillPackageArchive{}, kernel.BadAuthRequest("技能文件大小必须在 1B-20MB 之间")
 	}
 	file, err := header.Open()
 	if err != nil {
-		return nil, err
+		return "", skillPackageArchive{}, err
 	}
 	defer file.Close()
 	data, err := io.ReadAll(io.LimitReader(file, maxSkillPackageBytes+1))
 	if err != nil {
-		return nil, err
+		return "", skillPackageArchive{}, err
 	}
 	if len(data) > maxSkillPackageBytes {
-		return nil, kernel.BadAuthRequest("技能文件不能超过 20MB")
+		return "", skillPackageArchive{}, kernel.BadAuthRequest("技能文件不能超过 20MB")
 	}
 	var archive skillPackageArchive
 	if sourceType == "markdown" {
-		archive, err = archiveFromMarkdown(data, req.Name, req.Description)
+		archive, err = archiveFromMarkdown(data, name, description)
 	} else {
 		archive, err = archiveFromZip(data, "")
 	}
 	if err != nil {
-		return nil, err
+		return "", skillPackageArchive{}, err
 	}
-	return s.createSkillFromArchive(userID, archive, req, sourceType, "", "", "", "", false)
+	return sourceType, archive, nil
 }
 
 func (s *Service) InstallGitHubSkill(userID string, req SkillGitHubInstallRequest) (*SkillItem, error) {
@@ -329,7 +386,7 @@ func (s *Service) createSkillFromArchive(userID string, archive skillPackageArch
 		CurrentVersionID: versionID, VersionLabel: versionLabel, ContentHash: archive.ContentHash, FileCount: len(archive.Files), TotalBytes: archive.TotalBytes,
 		SourceType: sourceType, SourceURL: sourceURL, SourceRef: sourceRef, SourceSubdir: sourceSubdir, SourceCommit: sourceCommit,
 		SyncStatus: "synced", AutoUpdate: autoUpdate, LastCheckedAt: &now, LastSyncedAt: &now,
-		Status: skillStatusEnabled, Source: skillSourceUser, Tag: tag, IsPrivate: req.IsPrivate, MarkdownURL: sourceURL, ShowcaseMediaJSON: "[]",
+		Status: skillStatusEnabled, Source: skillSourceUser, Tag: tag, IsPrivate: true, ReviewStatus: skillReviewStatusDraft, MarkdownURL: sourceURL, ShowcaseMediaJSON: "[]",
 	}
 	state := &model.UserSkillState{ID: kernel.NewID(), UserID: userID, SkillID: skillID, Added: true, InstalledVersionID: versionID, AutoUpdate: autoUpdate}
 	if err := s.repo.CreateSkillWithPackage(skill, version, files, state); err != nil {
@@ -340,6 +397,15 @@ func (s *Service) createSkillFromArchive(userID string, archive skillPackageArch
 }
 
 func (s *Service) addSkillArchiveVersion(skill *model.Skill, archive skillPackageArchive, sourceType string, sourceURL string, sourceRef string, sourceSubdir string, sourceCommit string, autoUpdate bool) error {
+	if skill.Source == skillSourceUser {
+		if skill.ReviewStatus == skillReviewStatusInReview {
+			return kernel.NewAppError(409, "技能正在审核，审核完成前不能更新文件")
+		}
+		if skill.ReviewStatus == skillReviewStatusPublished {
+			skill.ReviewStatus = skillReviewStatusPending
+			skill.IsPrivate = true
+		}
+	}
 	versionID := kernel.NewID()
 	packageKey, version, files, err := s.persistSkillArchive(skill.ID, versionID, archive, sourceCommit)
 	if err != nil {

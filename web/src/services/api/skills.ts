@@ -43,6 +43,7 @@ export type Skill = {
     tag: string;
     sortWeight: number;
     isPrivate: boolean;
+    reviewStatus?: "draft" | "pending" | "in_review" | "rejected" | "published" | string;
     likeCount: number;
     isLike: boolean;
     ownerUid: string;
@@ -56,6 +57,51 @@ export type Skill = {
     isEnabled: boolean;
     installedVersionId?: string;
     isOwner: boolean;
+    reviewSummary?: SkillReviewSummary;
+};
+
+export type SkillReviewTrial = {
+    scenario: string;
+    target: string;
+    runtimeVersion: string;
+    model: string;
+    conclusion: "passed" | "failed" | string;
+    testedAt: string;
+};
+
+export type SkillReviewSummary = {
+    reviewedAt: string;
+    revision: number;
+    contentHash: string;
+    trials: SkillReviewTrial[];
+};
+
+export type SkillSubmissionMetadata = {
+    skillName: string;
+    description: string;
+    tag: string;
+    versionLabel: string;
+    markdownUrl: string;
+    extraInfo: string;
+    showcaseMedia: SkillShowcaseMedia[];
+};
+
+export type SkillSubmission = {
+    submissionId: string;
+    skillId: string;
+    versionId: string;
+    authorId: string;
+    revision: number;
+    status: "draft" | "in_review" | "rejected" | "published" | "withdrawn" | string;
+    contentHash: string;
+    metadata: SkillSubmissionMetadata;
+    reviewReason?: string;
+    reviewSummary?: SkillReviewSummary;
+    submittedAt?: string;
+    reviewedAt?: string;
+    publishedAt?: string;
+    createdAt: string;
+    updatedAt: string;
 };
 
 export type SkillVersion = { id: string; versionLabel: string; contentHash: string; fileCount: number; totalBytes: number; createdAt: string };
@@ -195,6 +241,16 @@ export function installSkillUpload(input: InstallSkillUploadInput) {
     return http.post<{ skill: Skill }>("/skills/install", form).finally(invalidateAddedSkillsCache);
 }
 
+export function replaceSkillPackage(id: string, input: InstallSkillUploadInput) {
+    const form = new FormData();
+    form.append("file", input.file);
+    if (input.sourceType) form.append("sourceType", input.sourceType);
+    if (input.name) form.append("name", input.name);
+    if (input.description) form.append("description", input.description);
+    if (input.tag) form.append("tag", input.tag);
+    return http.post<{ skill: Skill }>(`/skills/${encodeURIComponent(id)}/package`, form).finally(invalidateAddedSkillsCache);
+}
+
 export function installGitHubSkill(input: InstallGitHubSkillInput) {
     return http.post<{ skill: Skill }>("/skills/install/github", input).finally(invalidateAddedSkillsCache);
 }
@@ -262,4 +318,36 @@ export function likeSkill(id: string) {
 
 export function unlikeSkill(id: string) {
     return http.delete<{ skill: Skill }>(`/skills/${encodeURIComponent(id)}/like`);
+}
+
+export function listSkillSubmissions(id: string) {
+    return http.get<{ items: SkillSubmission[] }>(`/skills/${encodeURIComponent(id)}/submissions`);
+}
+
+export function prepareSkillSubmission(id: string, versionId: string, contentHash: string) {
+    return http.post<{ submission: SkillSubmission }>(`/skills/${encodeURIComponent(id)}/submissions`, { versionId, contentHash, confirmed: true });
+}
+
+export function submitSkillSubmission(submissionId: string, versionId: string, contentHash: string) {
+    return http.post<{ submission: SkillSubmission }>(`/skills/submissions/${encodeURIComponent(submissionId)}/submit`, { versionId, contentHash, confirmed: true });
+}
+
+export function withdrawSkillSubmission(submissionId: string) {
+    return http.delete<{ submission: SkillSubmission }>(`/skills/submissions/${encodeURIComponent(submissionId)}`);
+}
+
+export function listSkillReviewQueue(status: "in_review" | "rejected" | "published" = "in_review") {
+    return http.get<{ items: SkillSubmission[] }>("/skills/review/submissions", { params: { status } });
+}
+
+export function listSkillReviewFiles(submissionId: string) {
+    return http.get<{ files: SkillPackageFile[] }>(`/skills/review/submissions/${encodeURIComponent(submissionId)}/files`);
+}
+
+export function getSkillReviewFile(submissionId: string, path: string) {
+    return http.get<{ file: SkillPackageFileContent }>(`/skills/review/submissions/${encodeURIComponent(submissionId)}/file`, { params: { path } });
+}
+
+export function reviewSkillSubmission(submissionId: string, input: { decision: "approve" | "reject"; reason?: string; summary?: { trials: SkillReviewTrial[] } }) {
+    return http.post<{ submission: SkillSubmission }>(`/skills/review/submissions/${encodeURIComponent(submissionId)}/review`, input);
 }

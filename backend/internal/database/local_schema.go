@@ -15,7 +15,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion int64 = 16
+const CurrentSchemaVersion int64 = 17
 
 type localSchemaMigration struct {
 	Version   int64 `gorm:"primaryKey;autoIncrement:false"`
@@ -49,7 +49,7 @@ func LocalModels() []any {
 		&model.ImageSubmission{},
 		&model.CloudAgentExecution{}, &model.CloudAgentCanvasMutation{}, &model.AgentProfile{}, &model.AgentLesson{}, &model.AgentMemorySetting{},
 		&model.PluginPlatformState{}, &model.UserPluginState{},
-		&model.Skill{}, &model.SkillVersion{}, &model.SkillFile{}, &model.UserSkillState{},
+		&model.Skill{}, &model.SkillVersion{}, &model.SkillFile{}, &model.UserSkillState{}, &model.SkillSubmission{},
 		&model.Resource{}, &model.ResourceDeletionJob{}, &model.UserDailyUploadUsage{}, &model.UserUploadReservation{}, &model.ArkPrivateAssetBinding{},
 		&model.Asset{}, &model.AssetFolder{}, &model.AssetVersion{}, &model.AssetRepresentation{},
 		&model.ProjectAssetLink{}, &model.ProjectAssetFolder{}, &model.ProjectAssetCandidate{},
@@ -90,7 +90,18 @@ func canonicalLocalMigrations() []localMigration {
 		{version: 14, name: "assistant-skill-version-pins", apply: migrateAssistantSkillPins},
 		{version: 15, name: "assistant-permission-and-canvas-snapshots", apply: migrateAssistantPermissions},
 		{version: 16, name: "assistant-durable-session-binding", apply: migrateAssistantSessions},
+		{version: 17, name: "skill-market-review-submissions", apply: migrateSkillMarketSubmissions},
 	}
+}
+
+// migrateSkillMarketSubmissions adds the explicit review gate for publishable
+// skills. Existing public rows are grandfathered as published so deployment
+// does not remove already-authorized marketplace entries.
+func migrateSkillMarketSubmissions(tx *gorm.DB) error {
+	if err := tx.AutoMigrate(&model.Skill{}, &model.SkillSubmission{}); err != nil {
+		return fmt.Errorf("迁移技能市场投稿表: %w", err)
+	}
+	return tx.Model(&model.Skill{}).Where("review_status = '' OR review_status IS NULL").Update("review_status", gorm.Expr("CASE WHEN is_private = ? THEN ? ELSE ? END", false, "draft", "published")).Error
 }
 
 func migrateLocalSchema(db *gorm.DB, beforeApply func(int64) error) error {

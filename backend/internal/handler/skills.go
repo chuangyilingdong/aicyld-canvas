@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"infinite-canvas/backend/internal/app"
+	"infinite-canvas/backend/internal/model"
 
 	"github.com/gin-gonic/gin"
 )
@@ -115,6 +116,136 @@ func registerSkillRoutes(r *gin.RouterGroup, svc *app.Service, includeRemote boo
 			return
 		}
 		ok(c, gin.H{"skills": skills})
+	})
+
+	r.GET("/skills/review/submissions", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		items, err := svc.SkillSubmissionReviewQueue(user.ID, user.Role == model.UserRoleAdmin, c.Query("status"))
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"items": items})
+	})
+
+	r.GET("/skills/review/submissions/:submissionId/files", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		files, err := svc.SkillSubmissionFiles(user.ID, user.Role == model.UserRoleAdmin, c.Param("submissionId"))
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"files": files})
+	})
+
+	r.GET("/skills/review/submissions/:submissionId/file", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		file, err := svc.SkillSubmissionFile(user.ID, user.Role == model.UserRoleAdmin, c.Param("submissionId"), c.Query("path"))
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"file": file})
+	})
+
+	r.POST("/skills/review/submissions/:submissionId/review", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 64<<10)
+		var req app.SkillReviewRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			failService(c, app.BadAuthRequest("审核数据格式无效"))
+			return
+		}
+		item, err := svc.ReviewSkillSubmission(user.ID, user.Role == model.UserRoleAdmin, c.Param("submissionId"), req)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"submission": item})
+	})
+
+	r.GET("/skills/:id/submissions", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		items, err := svc.SkillSubmissionHistory(user.ID, c.Param("id"))
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"items": items})
+	})
+
+	r.POST("/skills/:id/submissions", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 4<<10)
+		var req app.SkillSubmissionRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			failService(c, app.BadAuthRequest("投稿数据格式无效"))
+			return
+		}
+		item, err := svc.PrepareSkillSubmission(user.ID, c.Param("id"), req)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"submission": item})
+	})
+
+	r.POST("/skills/submissions/:submissionId/submit", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 4<<10)
+		var req app.SkillSubmissionRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			failService(c, app.BadAuthRequest("投稿数据格式无效"))
+			return
+		}
+		item, err := svc.SubmitSkillSubmission(user.ID, c.Param("submissionId"), req)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"submission": item})
+	})
+
+	r.DELETE("/skills/submissions/:submissionId", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		item, err := svc.WithdrawSkillSubmission(user.ID, c.Param("submissionId"))
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"submission": item})
 	})
 
 	r.GET("/skills/:id", func(c *gin.Context) {
@@ -241,6 +372,28 @@ func registerSkillRoutes(r *gin.RouterGroup, svc *app.Service, includeRemote boo
 		ok(c, gin.H{"skill": skill})
 	})
 
+	r.POST("/skills/:id/package", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, app.SkillPackageUploadMaxBytes)
+		file, err := c.FormFile("file")
+		if err != nil {
+			failService(c, app.BadAuthRequest("请选择 Markdown 或 ZIP 技能文件"))
+			return
+		}
+		skill, err := svc.ReplaceSkillPackage(user.ID, c.Param("id"), c.PostForm("sourceType"), file, app.SkillInstallRequest{
+			Name: c.PostForm("name"), Description: c.PostForm("description"), Tag: c.PostForm("tag"),
+		})
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"skill": skill})
+	})
+
 	r.PUT("/skills/:id", func(c *gin.Context) {
 		user, err := currentUser(c, svc)
 		if err != nil {
@@ -294,7 +447,9 @@ func registerSkillRoutes(r *gin.RouterGroup, svc *app.Service, includeRemote boo
 			failService(c, err)
 			return
 		}
-		var body struct { Enabled *bool `json:"enabled"` }
+		var body struct {
+			Enabled *bool `json:"enabled"`
+		}
 		if err := c.ShouldBindJSON(&body); err != nil || body.Enabled == nil {
 			fail(c, 400, err)
 			return
@@ -312,7 +467,9 @@ func registerSkillRoutes(r *gin.RouterGroup, svc *app.Service, includeRemote boo
 			failService(c, err)
 			return
 		}
-		var body struct { VersionID string `json:"versionId"` }
+		var body struct {
+			VersionID string `json:"versionId"`
+		}
 		if err := c.ShouldBindJSON(&body); err != nil || body.VersionID == "" {
 			fail(c, 400, err)
 			return

@@ -38,7 +38,7 @@ func agentSkillFixture(t *testing.T) (*Service, *gorm.DB) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.Skill{}, &model.SkillVersion{}, &model.SkillFile{}, &model.UserSkillState{}); err != nil {
+	if err := db.AutoMigrate(&model.Skill{}, &model.SkillVersion{}, &model.SkillFile{}, &model.UserSkillState{}, &model.SkillSubmission{}); err != nil {
 		t.Fatal(err)
 	}
 	raw, _ := db.DB()
@@ -47,6 +47,16 @@ func agentSkillFixture(t *testing.T) (*Service, *gorm.DB) {
 }
 
 func installAgentSkill(t *testing.T, s *Service, files map[string]string) Pin {
+	t.Helper()
+	header := skillUploadHeader(t, files)
+	installed, err := s.InstallSkillUpload("owner", "zip", header, SkillInstallRequest{IsPrivate: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return Pin{SkillID: installed.SkillID, VersionID: installed.VersionID, ContentHash: installed.ContentHash}
+}
+
+func skillUploadHeader(t *testing.T, files map[string]string) *multipart.FileHeader {
 	t.Helper()
 	var packageBytes bytes.Buffer
 	zw := zip.NewWriter(&packageBytes)
@@ -66,13 +76,8 @@ func installAgentSkill(t *testing.T, s *Service, files map[string]string) Pin {
 	request := httptest.NewRequest("POST", "/skills/install", &body)
 	request.Header.Set("Content-Type", form.FormDataContentType())
 	request.ParseMultipartForm(20 << 20)
-	defer request.MultipartForm.RemoveAll()
-	header := request.MultipartForm.File["file"][0]
-	installed, err := s.InstallSkillUpload("owner", "zip", header, SkillInstallRequest{IsPrivate: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return Pin{SkillID: installed.SkillID, VersionID: installed.VersionID, ContentHash: installed.ContentHash}
+	t.Cleanup(func() { _ = request.MultipartForm.RemoveAll() })
+	return request.MultipartForm.File["file"][0]
 }
 
 func TestInstalledUserSkillTasksUsePinnedBodyAndAuxiliaryFiles(t *testing.T) {
@@ -143,6 +148,7 @@ func TestSkillPinUpdateRestartUninstallAndCorruption(t *testing.T) {
 		t.Fatal("corrupt auxiliary accepted")
 	}
 	skill.IsPrivate = false
+	skill.ReviewStatus = skillReviewStatusPublished
 	if err := s.repo.SaveSkill(skill); err != nil {
 		t.Fatal(err)
 	}
