@@ -19,6 +19,7 @@ import (
 
 func RunAudioTask(ctx context.Context, input Input) (map[string]interface{}, error) {
 	music := strings.Contains(strings.ToLower(input.Config.Model), "minimax-music-")
+	musicV3 := strings.Contains(strings.ToLower(input.Config.Model), "minimax-music-v3")
 	if music {
 		input.Config.AudioFormat = "mp3"
 	}
@@ -47,13 +48,13 @@ func RunAudioTask(ctx context.Context, input Input) (map[string]interface{}, err
 	if input.Config.AudioInstructions != "" {
 		body["instructions"] = input.Config.AudioInstructions
 	}
-	if music {
+	if musicV3 {
 		body["metadata"] = map[string]interface{}{"audio_setting": map[string]interface{}{"sample_rate": 44100, "bitrate": 256000, "format": "mp3"}}
 	}
 	if input.Config.InterfaceType == string(model.ChannelInterfaceAsyncAudio) {
 		return RunAsyncAudioTask(ctx, input, body, format)
 	}
-	if music && isBeefAPIHostFromURL(input.Config.BaseURL) {
+	if musicV3 && isBeefAPIHostFromURL(input.Config.BaseURL) {
 		body["stream_format"] = "sse"
 	}
 	data, mimeType, err := PostBinary(ctx, input.Config, "/audio/speech", body)

@@ -56,6 +56,7 @@ describe("enterprise MiniMax speech settings", () => {
         expect(audioSpeechProfile("minimax-music-v3.0").formats.map((item) => item.value)).toEqual(["mp3"]);
         expect(normalizeAudioFormatValue("flac", "minimax-music-v3.0")).toBe("mp3");
         expect(audioSettingsSummary({ model: "minimax-music-v3.0", audioFormat: "flac" })).toBe("MP3 · 256 kbps");
+        expect(audioSettingsSummary({ model: "minimax-music-2.6", audioFormat: "flac" })).toBe("MP3");
         expect(audioSpeechProfile("gpt-4o-mini-tts").formats.map((item) => item.value)).toContain("opus");
         expect(normalizeAudioFormatValue("opus", "minimax-speech-2.8-hd")).toBe("mp3");
     });

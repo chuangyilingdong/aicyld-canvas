@@ -108,6 +108,10 @@ export function audioModelId(model: string) {
     return (separator >= 0 ? trimmed.slice(separator + 2) : trimmed).toLowerCase();
 }
 
+function isMinimaxMusicV3(model: string) {
+    return audioModelId(model).startsWith("minimax-music-v3");
+}
+
 export function audioSpeechKind(model: string): AudioSpeechKind {
     const id = audioModelId(model);
     if (id.includes("minimax-speech")) return "minimax-speech";
@@ -343,7 +347,7 @@ export function audioSettingsSummary(config: { model?: string; audioVoice?: stri
     const parts: string[] = [];
     if (profile.showVoice) parts.push(audioVoiceLabel(config.audioVoice || "", model));
     if (profile.formats.length) parts.push(audioFormatLabel(config.audioFormat || "", model));
-    if (profile.kind === "minimax-music") parts.push("256 kbps");
+    if (isMinimaxMusicV3(model)) parts.push("256 kbps");
     if (profile.showSampleRate) parts.push(audioSampleRateLabel(config.audioSampleRate || "", model));
     if (profile.showSpeed) parts.push(audioSpeedLabel(config.audioSpeed || "", model));
     if (profile.showPitch) parts.push(`音调${audioPitchLabel(config.audioPitch || "")}`);
@@ -372,7 +376,7 @@ export function buildAudioSpeechRequest(
     if (profile.showSampleRate && settings.audioSampleRate) payload.sample_rate = Number(settings.audioSampleRate);
     if (profile.showVoice) payload.voice = settings.audioVoice;
     if (profile.showSpeed) payload.speed = Number(settings.audioSpeed);
-    if (profile.kind === "minimax-music") {
+    if (isMinimaxMusicV3(model)) {
         payload.metadata = { audio_setting: { sample_rate: 44100, bitrate: 256000, format: "mp3" } };
     }
     const instructions = settings.audioInstructions.trim();
