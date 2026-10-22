@@ -158,6 +158,7 @@ func (c *taskTerminalCoordinator) handleExecutionFailure(task *model.Task, err e
 		if terminalErr := c.markTerminalState(task); terminalErr != nil {
 			return terminalErr
 		}
+		c.releaseBilling(task, "任务已取消，退还预扣积分")
 		c.finalizeReplay(task, model.TaskStatusCancelled, "文本回放草稿归并失败")
 		_ = c.logger.log(task.UserID, task.ID, "warn", "任务已取消", "")
 		return nil
@@ -265,7 +266,7 @@ func (c *taskTerminalCoordinator) handleSuccess(task *model.Task) error {
 }
 
 func (c *taskTerminalCoordinator) settleBilling(task *model.Task, reason string) {
-	if c == nil || c.billing == nil || task == nil || strings.TrimSpace(task.BillingHoldID) == "" || task.BillingStatus == "settled" {
+	if c == nil || c.billing == nil || task == nil || strings.TrimSpace(task.BillingHoldID) == "" || task.BillingStatus == "settled" || task.BillingStatus == "refunded" {
 		return
 	}
 	settlement, err := c.billing.Settle(*task, "succeeded", reason)
@@ -275,30 +276,61 @@ func (c *taskTerminalCoordinator) settleBilling(task *model.Task, reason string)
 		_ = c.logger.log(task.UserID, task.ID, "error", "积分结算失败，等待对账", err.Error())
 		return
 	}
-	if settlement != nil && (settlement.Pending || settlement.Status == "pending_reconcile") {
+	if settlement == nil {
+		task.BillingStatus = "pending_reconcile"
+		c.updateTaskBilling(task)
+		_ = c.logger.log(task.UserID, task.ID, "error", "积分结算缺少响应，等待对账", "")
+		return
+	}
+	if settlement.Pending || settlement.Status == "pending_reconcile" {
 		task.BillingStatus = "pending_reconcile"
 		c.updateTaskBilling(task)
 		_ = c.logger.log(task.UserID, task.ID, "warn", "实际用量超过预扣且余额不足，等待对账", "")
 		return
 	}
-	task.BillingStatus = "settled"
-	if settlement != nil && settlement.ChargedPoints > 0 {
-		task.BillingPoints = settlement.ChargedPoints
+	if settlement.Status == "refunded" {
+		task.BillingStatus = "refunded"
+		c.updateTaskBilling(task)
+		_ = c.logger.log(task.UserID, task.ID, "warn", "任务已由并发取消完成退款，保留退款状态", "")
+		return
 	}
+	if settlement.Status != "settled" {
+		task.BillingStatus = "pending_reconcile"
+		c.updateTaskBilling(task)
+		_ = c.logger.log(task.UserID, task.ID, "error", "积分结算返回未知状态，等待对账", settlement.Status)
+		return
+	}
+	task.BillingStatus = "settled"
+	task.BillingPoints = settlement.ChargedPoints
 	c.updateTaskBilling(task)
 }
 
 func (c *taskTerminalCoordinator) releaseBilling(task *model.Task, reason string) {
-	if c == nil || c.billing == nil || task == nil || strings.TrimSpace(task.BillingHoldID) == "" || task.BillingStatus == "refunded" {
+	if c == nil || c.billing == nil || task == nil || strings.TrimSpace(task.BillingHoldID) == "" || task.BillingStatus == "refunded" || task.BillingStatus == "settled" {
 		return
 	}
-	if _, err := c.billing.Settle(*task, "failed", reason); err != nil {
+	settlement, err := c.billing.Settle(*task, "failed", reason)
+	if err != nil {
 		task.BillingStatus = "refund_pending"
 		c.updateTaskBilling(task)
 		_ = c.logger.log(task.UserID, task.ID, "error", "积分退款失败，等待对账", err.Error())
 		return
 	}
-	task.BillingStatus = "refunded"
+	if settlement == nil {
+		task.BillingStatus = "refund_pending"
+		c.updateTaskBilling(task)
+		_ = c.logger.log(task.UserID, task.ID, "error", "积分退款缺少响应，等待对账", "")
+		return
+	}
+	switch settlement.Status {
+	case "settled":
+		task.BillingStatus = "settled"
+		task.BillingPoints = settlement.ChargedPoints
+	case "pending_reconcile":
+		task.BillingStatus = "pending_reconcile"
+	default:
+		task.BillingStatus = "refunded"
+	}
 	c.updateTaskBilling(task)
 }
 

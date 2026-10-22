@@ -360,6 +360,54 @@ func (b *inputCaptureBilling) Release(context.Context, *model.Task, string) (*mo
 	return &model.BillingSettlement{Status: "refunded"}, nil
 }
 
+type retryCaptureBilling struct {
+	releaseCalls int
+	releasedHold string
+}
+
+func (b *retryCaptureBilling) Quote(context.Context, string, *model.Task) (*model.BillingQuote, error) {
+	return &model.BillingQuote{Enabled: false}, nil
+}
+
+func (b *retryCaptureBilling) Reserve(_ context.Context, _ string, task *model.Task) (*model.BillingReservation, error) {
+	task.BillingHoldID = "hold-new"
+	task.BillingStatus = "reserved"
+	task.BillingPoints = 2
+	return &model.BillingReservation{Enabled: true, HoldID: "hold-new", Status: "reserved", Points: 2}, nil
+}
+
+func (b *retryCaptureBilling) Settle(context.Context, *model.Task, string, string) (*model.BillingSettlement, error) {
+	return &model.BillingSettlement{Status: "settled"}, nil
+}
+
+func (b *retryCaptureBilling) Release(_ context.Context, task *model.Task, _ string) (*model.BillingSettlement, error) {
+	b.releaseCalls++
+	if task != nil {
+		b.releasedHold = task.BillingHoldID
+	}
+	return &model.BillingSettlement{Status: "refunded"}, nil
+}
+
+type failingRetryStore struct {
+	*memStore
+	err       error
+	prepared  *model.Task
+	setQueued bool
+}
+
+func (s *failingRetryStore) Retry(_ string, prepared *model.Task, _ int) (*model.Task, error) {
+	copied := *prepared
+	s.prepared = &copied
+	if s.setQueued {
+		s.mu.Lock()
+		stored := s.tasks[prepared.ID]
+		stored.Status = model.TaskStatusQueued
+		s.tasks[prepared.ID] = stored
+		s.mu.Unlock()
+	}
+	return &model.Task{}, s.err
+}
+
 func TestAdmissionPreparesInputBeforeBillingReserve(t *testing.T) {
 	store := newMemStore()
 	billing := &inputCaptureBilling{}
@@ -377,6 +425,57 @@ func TestAdmissionPreparesInputBeforeBillingReserve(t *testing.T) {
 	config, _ := captured["config"].(map[string]any)
 	if config["quality"] != "1k" || config["model"] != "image-model" {
 		t.Fatalf("billing reserve input lost pricing dimensions: %#v", captured)
+	}
+}
+
+func TestRetryReleasesReservedBillingWhenStoreRejectsRetry(t *testing.T) {
+	store := newMemStore()
+	billing := &retryCaptureBilling{}
+	svc := domainService(store, func(deps *Dependencies) { deps.Billing = billing })
+	task, err := svc.CreateTask("user", imageReq("billing retry", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	stored := store.tasks[task.ID]
+	stored.Status = model.TaskStatusFailed
+	store.tasks[task.ID] = stored
+	store.mu.Unlock()
+
+	storeErr := errors.New("task store unavailable")
+	retryStore := &failingRetryStore{memStore: store, err: storeErr}
+	svc.store = retryStore
+	if _, err := svc.Retry("user", task.ID); !errors.Is(err, storeErr) {
+		t.Fatalf("Retry() error = %v, want %v", err, storeErr)
+	}
+	if billing.releaseCalls != 1 || billing.releasedHold != "hold-new" {
+		t.Fatalf("reserved hold was not released: calls=%d hold=%q", billing.releaseCalls, billing.releasedHold)
+	}
+	if retryStore.prepared == nil || retryStore.prepared.BillingHoldID != "hold-new" {
+		t.Fatalf("retry did not persist the new hold attempt: %+v", retryStore.prepared)
+	}
+}
+
+func TestConcurrentRetryLoserDoesNotReleaseWinningHold(t *testing.T) {
+	store := newMemStore()
+	billing := &retryCaptureBilling{}
+	svc := domainService(store, func(deps *Dependencies) { deps.Billing = billing })
+	task, err := svc.CreateTask("user", imageReq("concurrent billing retry", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	stored := store.tasks[task.ID]
+	stored.Status = model.TaskStatusFailed
+	store.tasks[task.ID] = stored
+	store.mu.Unlock()
+
+	svc.store = &failingRetryStore{memStore: store, err: repository.ErrTaskNotRetryable, setQueued: true}
+	if _, err := svc.Retry("user", task.ID); err == nil {
+		t.Fatal("concurrent retry loser unexpectedly succeeded")
+	}
+	if billing.releaseCalls != 0 {
+		t.Fatalf("losing retry released the winning hold: calls=%d hold=%q", billing.releaseCalls, billing.releasedHold)
 	}
 }
 

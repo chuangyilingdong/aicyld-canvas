@@ -60,9 +60,15 @@ func (r *taskTerminalRepositoryStub) UpdateTaskBilling(_ string, _ string, _ str
 type taskTerminalBillingStub struct {
 	settlement *model.BillingSettlement
 	err        error
+	calls      int
+	outcome    string
+	reason     string
 }
 
-func (b *taskTerminalBillingStub) Settle(model.Task, string, string) (*model.BillingSettlement, error) {
+func (b *taskTerminalBillingStub) Settle(_ model.Task, outcome string, reason string) (*model.BillingSettlement, error) {
+	b.calls++
+	b.outcome = outcome
+	b.reason = reason
 	return b.settlement, b.err
 }
 
@@ -140,10 +146,12 @@ func TestTaskTerminalPreservesImageAndVideoSubmissionUncertainty(t *testing.T) {
 }
 
 func TestTaskTerminalCoordinatorHandlesCancellation(t *testing.T) {
-	task := &model.Task{ID: "task-1", UserID: "user-1"}
+	task := &model.Task{ID: "task-1", UserID: "user-1", BillingHoldID: "hold-1", BillingStatus: "reserved"}
 	repo := &taskTerminalRepositoryStub{task: task}
 	replay, logger := &taskTerminalReplayStub{}, &taskTerminalLoggerStub{}
 	coordinator := newTaskTerminalCoordinatorForTest(repo, replay, logger, &taskTerminalOutputStub{})
+	billing := &taskTerminalBillingStub{settlement: &model.BillingSettlement{Status: "refunded"}}
+	coordinator.billing = billing
 	if err := coordinator.handleExecutionFailure(task, context.Canceled, false, false); err != nil {
 		t.Fatalf("handleExecutionFailure() error = %v", err)
 	}
@@ -152,6 +160,9 @@ func TestTaskTerminalCoordinatorHandlesCancellation(t *testing.T) {
 	}
 	if len(replay.statuses) != 1 || replay.statuses[0] != model.TaskStatusCancelled || len(logger.messages) != 1 || repo.terminalCalls != 1 {
 		t.Fatalf("expected cancellation side effects, replay=%v logs=%v terminalCalls=%d", replay.statuses, logger.messages, repo.terminalCalls)
+	}
+	if billing.calls != 1 || billing.outcome != "failed" || task.BillingStatus != "refunded" {
+		t.Fatalf("expected cancellation refund, billing=%+v task=%+v", billing, task)
 	}
 }
 
@@ -261,5 +272,27 @@ func TestTaskTerminalCoordinatorKeepsReservedPointsWhenSettlementNeedsReconcile(
 	}
 	if task.BillingStatus != "pending_reconcile" || task.BillingPoints != 2 {
 		t.Fatalf("pending settlement changed reserved display: %+v", task)
+	}
+}
+
+func TestTaskTerminalCoordinatorHonorsConcurrentSettlementWhenReleaseLosesRace(t *testing.T) {
+	task := &model.Task{ID: "task-1", UserID: "user-1", BillingHoldID: "hold-1", BillingPoints: 2, BillingStatus: "reserved"}
+	repo := &taskTerminalRepositoryStub{task: task}
+	coordinator := newTaskTerminalCoordinatorForTest(repo, &taskTerminalReplayStub{}, &taskTerminalLoggerStub{}, &taskTerminalOutputStub{})
+	coordinator.billing = &taskTerminalBillingStub{settlement: &model.BillingSettlement{Status: "settled", ChargedPoints: 4}}
+	coordinator.releaseBilling(task, "cancel raced with settlement")
+	if task.BillingStatus != "settled" || task.BillingPoints != 4 || repo.billingStatus != "settled" || repo.billingPoints != 4 {
+		t.Fatalf("release overwrote concurrent settlement: task=%+v repo=%+v", task, repo)
+	}
+}
+
+func TestTaskTerminalCoordinatorHonorsConcurrentRefundWhenSettleLosesRace(t *testing.T) {
+	task := &model.Task{ID: "task-1", UserID: "user-1", BillingHoldID: "hold-1", BillingPoints: 2, BillingStatus: "reserved"}
+	repo := &taskTerminalRepositoryStub{task: task}
+	coordinator := newTaskTerminalCoordinatorForTest(repo, &taskTerminalReplayStub{}, &taskTerminalLoggerStub{}, &taskTerminalOutputStub{})
+	coordinator.billing = &taskTerminalBillingStub{settlement: &model.BillingSettlement{Status: "refunded"}}
+	coordinator.settleBilling(task, "success raced with cancel")
+	if task.BillingStatus != "refunded" || repo.billingStatus != "refunded" {
+		t.Fatalf("settle overwrote concurrent refund: task=%+v repo=%+v", task, repo)
 	}
 }
