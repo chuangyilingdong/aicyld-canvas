@@ -169,6 +169,14 @@ func (s *Service) admit(userID string, req CreateRequest) (*model.Task, error) {
 		}
 		return &task, nil
 	}
+	if err := s.deps.Secrets.Protect(normalizedInput); err != nil {
+		return nil, err
+	}
+	inputJSON, err := encodeTaskInput(normalizedInput)
+	if err != nil {
+		return nil, err
+	}
+	task.InputJSON = inputJSON
 	if s.deps.Billing != nil {
 		reservation, reserveErr := s.deps.Billing.Reserve(context.Background(), userID, &task)
 		if reserveErr != nil {
@@ -186,16 +194,6 @@ func (s *Service) admit(userID string, req CreateRequest) (*model.Task, error) {
 			task.BillingStatus = "refunded"
 		}
 	}
-	if err := s.deps.Secrets.Protect(normalizedInput); err != nil {
-		releaseBilling("任务创建前保护密钥失败，释放预扣")
-		return nil, err
-	}
-	inputJSON, err := encodeTaskInput(normalizedInput)
-	if err != nil {
-		releaseBilling("任务序列化失败，释放预扣")
-		return nil, err
-	}
-	task.InputJSON = inputJSON
 	if s.deps.Persist == nil {
 		releaseBilling("任务持久化服务不可用，释放预扣")
 		return nil, localStorageFailed(errors.New("task persistence is required"))

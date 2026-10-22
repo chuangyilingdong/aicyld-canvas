@@ -340,6 +340,42 @@ func (identityPresent) Summaries(tasks []model.Task) []Summary {
 }
 func (identityPresent) Logs(logs []model.TaskLog) []model.TaskLog { return logs }
 
+type inputCaptureBilling struct {
+	reservedInput string
+}
+
+func (b *inputCaptureBilling) Quote(context.Context, string, *model.Task) (*model.BillingQuote, error) {
+	return &model.BillingQuote{Enabled: false}, nil
+}
+
+func (b *inputCaptureBilling) Reserve(_ context.Context, _ string, task *model.Task) (*model.BillingReservation, error) {
+	b.reservedInput = task.InputJSON
+	return &model.BillingReservation{Enabled: false, Status: "free"}, nil
+}
+
+func (b *inputCaptureBilling) Settle(context.Context, *model.Task, string, string) error { return nil }
+func (b *inputCaptureBilling) Release(context.Context, *model.Task, string) error        { return nil }
+
+func TestAdmissionPreparesInputBeforeBillingReserve(t *testing.T) {
+	store := newMemStore()
+	billing := &inputCaptureBilling{}
+	svc := domainService(store, func(deps *Dependencies) { deps.Billing = billing })
+	req := imageReq("price dimensions", "")
+	req.Input["config"] = map[string]any{"quality": "1k", "model": "image-model"}
+
+	if _, err := svc.CreateTask("user", req); err != nil {
+		t.Fatal(err)
+	}
+	var captured map[string]any
+	if err := json.Unmarshal([]byte(billing.reservedInput), &captured); err != nil {
+		t.Fatalf("billing reserve received invalid input: %v", err)
+	}
+	config, _ := captured["config"].(map[string]any)
+	if config["quality"] != "1k" || config["model"] != "image-model" {
+		t.Fatalf("billing reserve input lost pricing dimensions: %#v", captured)
+	}
+}
+
 func domainService(store *memStore, extra func(*Dependencies)) *Service {
 	runtime := &drainRuntime{}
 	deps := Dependencies{
