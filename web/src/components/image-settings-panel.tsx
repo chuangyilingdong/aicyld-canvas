@@ -1,7 +1,7 @@
 import { ImageSizePicker } from "./image-size-picker";
 import { imageResolutionUsesQuality } from "@/lib/image-size-presets";
 import { type ReactNode } from "react";
-import { ConfigProvider, Input, InputNumber, Select } from "antd";
+import { ConfigProvider, Input, InputNumber, Select, Slider } from "antd";
 import { Switch } from "@/components/ui/base/switch";
 
 import { type CanvasTheme } from "@/lib/canvas-theme";
@@ -244,40 +244,37 @@ function MidjourneyAdvancedPanel({
     const stringChange = (key: string) => (value: string) => onChange(key, value.trim() || undefined);
     return (
         <details className="rounded-xl border px-2.5 py-2" style={{ borderColor: theme.node.stroke }}>
-            <summary className="cursor-pointer select-none text-xs font-medium" style={{ color: theme.node.muted }}>高级参数</summary>
+            <summary className="cursor-pointer select-none text-xs font-medium" style={{ color: theme.node.muted }}>高级设置</summary>
             <div className="mt-3 space-y-3">
-                <div className="grid grid-cols-2 gap-2">
-                    <SmallField label="风格">
-                        <Select value={stringValue("style") || "default"} onChange={(value) => onChange("style", value === "default" ? undefined : value)} options={[{ value: "default", label: "默认" }, { value: "raw", label: "Raw" }]} />
-                    </SmallField>
-                    <SmallField label="种子">
-                        <InputNumber className="w-full" min={0} precision={0} value={numberValue("seed")} onChange={numberChange("seed")} placeholder="默认" />
-                    </SmallField>
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                    <SmallField label="风格化"><InputNumber className="w-full" min={0} max={1000} value={numberValue("stylize")} onChange={numberChange("stylize")} placeholder="0–1000" /></SmallField>
-                    <SmallField label="混乱"><InputNumber className="w-full" min={0} max={100} value={numberValue("chaos")} onChange={numberChange("chaos")} placeholder="0–100" /></SmallField>
-                    <SmallField label="怪异"><InputNumber className="w-full" min={0} max={3000} value={numberValue("weird")} onChange={numberChange("weird")} placeholder="0–3000" /></SmallField>
-                </div>
+                <SmallField label="风格">
+                    <Select size="small" value={stringValue("style") || "default"} onChange={(value) => onChange("style", value === "default" ? undefined : value)} options={[{ value: "default", label: "默认" }, { value: "raw", label: "Raw" }]} />
+                </SmallField>
+                <SliderField label="风格化程度" value={numberValue("stylize")} fallback={100} min={0} max={1000} step={25} onChange={(value) => onChange("stylize", value)} />
+                <SliderField label="怪异度" value={numberValue("weird")} fallback={0} min={0} max={3000} step={50} onChange={(value) => onChange("weird", value)} />
+                <SliderField label="多样性" value={numberValue("chaos")} fallback={0} min={0} max={100} step={1} onChange={(value) => onChange("chaos", value)} />
                 <SmallField label="负面提示词"><Input value={stringValue("negativePrompt")} onChange={(event) => stringChange("negativePrompt")(event.target.value)} placeholder="ugly, blurry" /></SmallField>
-                <div className="flex flex-wrap gap-x-4 gap-y-2">
-                    {version === "7" ? <ToggleField label="Niji" checked={booleanValue("niji")} theme={theme} onChange={(checked) => onChange("niji", checked)} /> : null}
-                    <ToggleField label="Tiled" checked={booleanValue("tile")} theme={theme} onChange={(checked) => onChange("tile", checked)} />
-                    <ToggleField label="Draft" checked={booleanValue("draft")} theme={theme} onChange={(checked) => onChange("draft", checked)} />
-                    {(version === "8.1" || version === "8.2") ? <ToggleField label="HD" checked={booleanValue("hd")} theme={theme} onChange={(checked) => onChange("hd", checked)} /> : null}
-                </div>
                 <div className="grid grid-cols-2 gap-2">
-                    <SmallField label="图片权重"><InputNumber className="w-full" min={0} max={3} step={0.1} value={numberValue("iw")} onChange={numberChange("iw")} placeholder="0–3" /></SmallField>
-                    <SmallField label="角色权重"><InputNumber className="w-full" min={0} max={100} value={numberValue("cw")} onChange={numberChange("cw")} placeholder="0–100" /></SmallField>
-                    <SmallField label="风格权重"><InputNumber className="w-full" min={0} max={1000} value={numberValue("sw")} onChange={numberChange("sw")} placeholder="0–1000" /></SmallField>
-                    <SmallField label="深度权重"><InputNumber className="w-full" min={0} max={100} value={numberValue("dw")} onChange={numberChange("dw")} placeholder="0–100" /></SmallField>
+                    {version === "7" ? <ToggleRow label="Niji" checked={booleanValue("niji")} theme={theme} onChange={(checked) => onChange("niji", checked)} /> : null}
+                    <ToggleRow label="Tiled" checked={booleanValue("tile")} theme={theme} onChange={(checked) => onChange("tile", checked)} />
+                    <ToggleRow label="Draft" checked={booleanValue("draft")} theme={theme} onChange={(checked) => onChange("draft", checked)} />
+                    {(version === "8.1" || version === "8.2") ? <ToggleRow label="HD" checked={booleanValue("hd")} theme={theme} onChange={(checked) => onChange("hd", checked)} /> : null}
                 </div>
-                <div className="grid grid-cols-3 gap-2">
-                    <SmallField label="角色参考"><Input value={stringValue("cref")} onChange={(event) => stringChange("cref")(event.target.value)} placeholder="URL" /></SmallField>
-                    <SmallField label="风格参考"><Input value={stringValue("sref")} onChange={(event) => stringChange("sref")(event.target.value)} placeholder="URL" /></SmallField>
-                    <SmallField label="深度参考"><Input value={stringValue("dref")} onChange={(event) => stringChange("dref")(event.target.value)} placeholder="URL" /></SmallField>
-                </div>
-                <SmallField label="额外参数"><Input value={stringValue("extra")} onChange={(event) => stringChange("extra")(event.target.value)} placeholder="--xxx" /></SmallField>
+                <details className="rounded-lg border px-2 py-1.5" style={{ borderColor: theme.node.stroke }}>
+                    <summary className="cursor-pointer select-none text-[11px]" style={{ color: theme.node.muted }}>更多参数</summary>
+                    <div className="mt-2 space-y-2">
+                        <div className="grid grid-cols-2 gap-2">
+                            <SmallField label="种子"><InputNumber className="w-full" min={0} precision={0} value={numberValue("seed")} onChange={numberChange("seed")} placeholder="默认" /></SmallField>
+                            <SmallField label="图片权重"><InputNumber className="w-full" min={0} max={3} step={0.1} value={numberValue("iw")} onChange={numberChange("iw")} placeholder="0–3" /></SmallField>
+                            <SmallField label="角色权重"><InputNumber className="w-full" min={0} max={100} value={numberValue("cw")} onChange={numberChange("cw")} placeholder="0–100" /></SmallField>
+                            <SmallField label="风格权重"><InputNumber className="w-full" min={0} max={1000} value={numberValue("sw")} onChange={numberChange("sw")} placeholder="0–1000" /></SmallField>
+                            <SmallField label="深度权重"><InputNumber className="w-full" min={0} max={100} value={numberValue("dw")} onChange={numberChange("dw")} placeholder="0–100" /></SmallField>
+                        </div>
+                        <SmallField label="角色参考"><Input value={stringValue("cref")} onChange={(event) => stringChange("cref")(event.target.value)} placeholder="URL" /></SmallField>
+                        <SmallField label="风格参考"><Input value={stringValue("sref")} onChange={(event) => stringChange("sref")(event.target.value)} placeholder="URL" /></SmallField>
+                        <SmallField label="深度参考"><Input value={stringValue("dref")} onChange={(event) => stringChange("dref")(event.target.value)} placeholder="URL" /></SmallField>
+                        <SmallField label="额外参数"><Input value={stringValue("extra")} onChange={(event) => stringChange("extra")(event.target.value)} placeholder="--xxx" /></SmallField>
+                    </div>
+                </details>
             </div>
         </details>
     );
@@ -287,6 +284,20 @@ function SmallField({ label, children }: { label: string; children: ReactNode })
     return <label className="block space-y-1"><span className="text-[11px]" style={{ color: "var(--muted-foreground)" }}>{label}</span>{children}</label>;
 }
 
-function ToggleField({ label, checked, theme, onChange }: { label: string; checked: boolean; theme: CanvasTheme; onChange: (checked: boolean) => void }) {
-    return <label className="inline-flex items-center gap-2 text-xs" style={{ color: theme.node.text }}><Switch size="sm" checked={checked} onChange={onChange} />{label}</label>;
+function SliderField({ label, value, fallback, min, max, step, onChange }: { label: string; value?: number; fallback: number; min: number; max: number; step: number; onChange: (value: number | undefined) => void }) {
+    return (
+        <div className="space-y-1">
+            <div className="flex items-center justify-between text-xs">
+                <span style={{ color: "var(--muted-foreground)" }}>{label}</span>
+                <button type="button" className="min-w-10 text-right tabular-nums" style={{ color: value === undefined ? "var(--muted-foreground)" : "var(--foreground)" }} title={value === undefined ? undefined : "恢复默认"} onClick={() => value !== undefined && onChange(undefined)} disabled={value === undefined}>
+                    {value ?? "默认"}
+                </button>
+            </div>
+            <Slider min={min} max={max} step={step} value={value ?? fallback} onChange={(next) => onChange(Number(next))} />
+        </div>
+    );
+}
+
+function ToggleRow({ label, checked, theme, onChange }: { label: string; checked: boolean; theme: CanvasTheme; onChange: (checked: boolean) => void }) {
+    return <label className="flex min-h-8 items-center justify-between gap-3 rounded-lg px-2 text-xs" style={{ background: theme.toolbar.itemHover, color: theme.node.text }}><span>{label}</span><Switch size="sm" checked={checked} onChange={onChange} /></label>;
 }
