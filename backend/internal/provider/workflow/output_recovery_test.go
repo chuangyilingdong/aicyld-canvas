@@ -104,10 +104,10 @@ func TestRunningHubPollRenewsOriginalOutputByID(t *testing.T) {
 			return data, "application/json", nil
 		case http.MethodGet:
 			switch req.URL {
-			case "https://media.example/old-a.mp4":
+			case "https://media.example/old-a.mp4", "https://media.example/old-b.mp4":
 				oldReads++
 				return nil, "", StatusError{StatusCode: http.StatusServiceUnavailable, Body: `{"error":{"code":"video_delivery_pending"}}`}
-			case "https://media.example/new-a.mp4":
+			case "https://media.example/new-a.mp4", "https://media.example/new-b.mp4":
 				newReads++
 				return []byte("\x00\x00\x00\x18ftypmp42fixture"), "video/mp4", nil
 			}
@@ -119,7 +119,7 @@ func TestRunningHubPollRenewsOriginalOutputByID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if queries != 2 || oldReads != 1 || newReads != 1 {
+	if queries != 3 || oldReads != 2 || newReads != 2 {
 		t.Fatalf("queries=%d old=%d new=%d", queries, oldReads, newReads)
 	}
 	if result["mode"] != "video" || result["video"] == nil {
