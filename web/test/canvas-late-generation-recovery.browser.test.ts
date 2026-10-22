@@ -150,6 +150,22 @@ test("an interrupted node without a task that arrives later becomes a clear erro
     expect(requests.filter((request) => request.startsWith("POST "))).toEqual([]);
 }, 15_000);
 
+test("a concurrent task receipt preserves another node's queued recovery update", async () => {
+    await page.evaluate(() => window.lateHarness!.refreshMerge([{ id: "node-recovered", type: "video", position: { x: 0, y: 0 }, width: 320, height: 180, metadata: { status: "success", storageKey: "resource:original", content: "/api/resources/original/file" } }]));
+    await page.evaluate(() => window.lateHarness!.queueRecoveryAndBind());
+    await waitUntil("receipt and recovery persisted", async () => {
+        const snap = await snapshot();
+        return nodeIn(snap, "node-cached")?.metadata?.taskId === "receipt-task" && snap.store["canvas-a"].find(node => node.id === "node-recovered")?.metadata?.taskStatus === "failed";
+    });
+    const snap = await snapshot();
+    const recovered = nodeIn(snap, "node-recovered");
+    expect(recovered?.metadata?.taskStatus).toBe("failed");
+    expect(recovered?.metadata?.errorDetails).toBe("恢复失败");
+    expect(nodeIn(snap, "node-cached")?.metadata?.taskStatus).toBe("running");
+    expect(snap.store["canvas-a"].find(node => node.id === "node-cached")?.metadata?.taskId).toBe("receipt-task");
+    expect(snap.store["canvas-a"].find(node => node.id === "node-cached")?.metadata?.taskStatus).toBe("running");
+}, 15_000);
+
 test("late nodes in every recoverable state are reconciled, not only loading ones", async () => {
     await page.evaluate((nodes) => window.lateHarness!.remoteLoad(nodes as never), [
         { id: "node-late-failed", type: "video", title: "failed", position: { x: 0, y: 0 }, width: 320, height: 180, metadata: { status: "error", taskId: "late-failed", taskStatus: "running", errorDetails: "旧的错误" } },
