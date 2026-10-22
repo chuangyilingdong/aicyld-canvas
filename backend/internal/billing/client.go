@@ -193,9 +193,11 @@ func Facts(task *model.Task) map[string]any {
 	} else if value, ok := config["videoGenerateAudio"].(bool); ok {
 		generateAudio = value
 	}
-	sourceDuration := firstFloat(metadata["sourceDurationSeconds"], metadata["sourceDurationMs"])
-	if value, ok := metadata["sourceDurationMs"].(float64); ok && value > 1000 {
-		sourceDuration = value / 1000
+	sourceDuration := firstFloat(metadata["sourceDurationSeconds"])
+	if raw, ok := metadata["sourceDurationMs"]; ok {
+		if milliseconds := firstFloat(raw); milliseconds > 0 {
+			sourceDuration = milliseconds / 1000
+		}
 	}
 	return map[string]any{
 		"billable":              Billable(task),

@@ -51,6 +51,16 @@ func TestFactsNormalizesNumericVideoResolution(t *testing.T) {
 	}
 }
 
+func TestFactsConvertsSourceDurationMillisecondsAsString(t *testing.T) {
+	raw, _ := json.Marshal(map[string]any{
+		"metadata": map[string]any{"sourceDurationMs": "5208"},
+	})
+	facts := Facts(&model.Task{Type: "canvas_video", Provider: "managed", Model: "Topaz-Upscale-LowPirce", InputJSON: string(raw)})
+	if facts["sourceDurationSeconds"] != 5.208 {
+		t.Fatalf("sourceDurationSeconds = %v, want 5.208", facts["sourceDurationSeconds"])
+	}
+}
+
 func TestMainUserIDRemovesWorkspacePrefix(t *testing.T) {
 	if got := mainUserID("sso_cmpz123"); got != "cmpz123" {
 		t.Fatalf("main user id = %q", got)
