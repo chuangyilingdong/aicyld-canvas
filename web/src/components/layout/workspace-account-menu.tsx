@@ -1,6 +1,6 @@
 import { Popover } from "antd";
 import { useState } from "react";
-import { UserRound } from "lucide-react";
+import { ChevronDown, UserRound } from "lucide-react";
 
 import { AppChangelogButton } from "@/components/layout/app-changelog-modal";
 import { WorkspaceAccountCard } from "./workspace-account-card";
@@ -8,7 +8,7 @@ import { UserAvatar } from "./user-avatar";
 import { useUserStore } from "@/stores/use-user-store";
 
 /** 顶部与侧栏复用同一账户卡片，并保留版本入口。 */
-export function WorkspaceAccountMenu() {
+export function WorkspaceAccountMenu({ showName = false }: { showName?: boolean } = {}) {
     const user = useUserStore((state) => state.user);
     const hydrated = useUserStore((state) => state.hydrated);
     const [menuOpen, setMenuOpen] = useState(false);
@@ -34,8 +34,9 @@ export function WorkspaceAccountMenu() {
                 </div>
             )}
         >
-            <button type="button" className="app-workspace-topbar-icon-button app-workspace-account-trigger" aria-label="账户菜单" title={user.displayName || user.username}>
-                <UserAvatar user={user} className="size-6" />
+            <button type="button" className={`app-workspace-topbar-icon-button app-workspace-account-trigger${showName ? " is-labeled" : ""}`} aria-label="账户菜单" title={user.displayName || user.username}>
+                <UserAvatar user={user} className={showName ? "size-7 rounded-full" : "size-6"} />
+                {showName ? <><span className="app-workspace-account-trigger-name">{user.displayName || user.username}</span><ChevronDown className="app-workspace-account-trigger-chevron" /></> : null}
             </button>
         </Popover></>
     ) : <span className="app-workspace-topbar-icon-button grid place-items-center" aria-label="本地工作区" title="本地工作区"><UserRound className="size-4 opacity-70" /></span>;

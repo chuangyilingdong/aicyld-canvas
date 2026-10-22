@@ -31,5 +31,5 @@ export default function HomePage() {
         })), [localProjects]);
     const projects = localMode ? localSummaries : query.data?.projects || [];
 
-    return <HomeDashboard projects={projects} loading={!sessionHydrated || !localHydrated || (!localMode && Boolean(userId) && query.isPending)} error={!localMode && query.isError} onRetry={() => void query.refetch()} />;
+    return <HomeDashboard projects={projects} loading={!sessionHydrated || !localHydrated || (!localMode && Boolean(userId) && query.isPending)} error={!localMode && query.isError} onRetry={() => void query.refetch()} billingEnabled={!localMode && sessionHydrated && Boolean(userId)} />;
 }

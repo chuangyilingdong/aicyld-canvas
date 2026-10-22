@@ -1,7 +1,9 @@
-import { ArrowRight, Plus, RefreshCw } from "lucide-react";
+import { ArrowRight, Coins, Plus, RefreshCw } from "lucide-react";
 import { Link, useNavigate } from "react-router";
 import type { CanvasLibrarySummary } from "@/services/api/workspace-data";
 import { ProjectPreview } from "@/components/canvas/canvas-project-card";
+import { WorkspaceAccountMenu } from "@/components/layout/workspace-account-menu";
+import { useCanvasBillingBalance } from "@/hooks/use-canvas-billing";
 import { beefTVCapabilityItems } from "./home-data";
 function formatDate(value: string) {
     const date = new Date(value);
@@ -9,10 +11,25 @@ function formatDate(value: string) {
     return new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" }).format(date).replaceAll("/", "-");
 }
 
-export function HomeDashboard({ projects, loading, error, onRetry }: { projects: CanvasLibrarySummary[]; loading: boolean; error: boolean; onRetry: () => void }) {
+export function HomeDashboard({ projects, loading, error, onRetry, billingEnabled }: { projects: CanvasLibrarySummary[]; loading: boolean; error: boolean; onRetry: () => void; billingEnabled: boolean }) {
     const navigate = useNavigate();
+    const balanceQuery = useCanvasBillingBalance({ enabled: billingEnabled });
+    const points = balanceQuery.data?.enabled ? balanceQuery.data.balance.toLocaleString("zh-CN") : "--";
     return (
         <main className="beeftv-home" aria-label="灵动TV 首页">
+            <header className="beeftv-home-account-bar" aria-label="账户与积分">
+                {billingEnabled ? <>
+                    <a className="beeftv-home-credit" href="https://aicyld.com.cn/points" target="_blank" rel="noopener noreferrer" aria-label={`查看积分，当前 ${points} 积分`} title="查看积分明细">
+                        <span className="beeftv-home-credit-icon"><Coins /></span>
+                        <span>积分</span>
+                        <strong>{points}</strong>
+                    </a>
+                    <a className="beeftv-home-recharge" href="https://aicyld.com.cn/subscription?tab=recharge" target="_blank" rel="noopener noreferrer" aria-label="充值积分" title="充值积分">
+                        <Plus />充值
+                    </a>
+                </> : null}
+                <WorkspaceAccountMenu showName />
+            </header>
             <section className="beeftv-home-hero" aria-label="新建画布">
                 <span className="beeftv-home-dot-base" aria-hidden />
                 <span className="beeftv-home-dot-flow" aria-hidden />

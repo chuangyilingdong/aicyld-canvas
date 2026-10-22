@@ -11,8 +11,21 @@ body .app-user-workspace .app-workspace-sidebar-nav { background: var(--user-pag
     --home-border: var(--user-border);
     --home-card: var(--user-surface);
     height: 100%; overflow: auto; color: var(--user-ink); background: var(--user-page-bg);
-    padding: 64px 40px 72px; scrollbar-color: var(--user-border-strong) transparent;
+    padding: 20px 40px 72px; scrollbar-color: var(--user-border-strong) transparent;
 }
+.beeftv-home-account-bar { display:flex; min-height:44px; align-items:center; justify-content:flex-end; gap:10px; margin-bottom:0; }
+.beeftv-home-credit,.beeftv-home-recharge { display:inline-flex; height:40px; align-items:center; gap:8px; border:1px solid var(--user-border); border-radius:12px; background:var(--user-surface); color:var(--user-ink-muted); font-size:13px; line-height:1; text-decoration:none; transition:transform .18s ease,border-color .18s ease,background .18s ease,color .18s ease; }
+.beeftv-home-credit { padding:0 13px 0 9px; }
+.beeftv-home-credit-icon { display:grid; width:24px; height:24px; place-items:center; border-radius:8px; background:color-mix(in srgb,#f59e0b 13%,transparent); color:#e99a16; }
+.beeftv-home-credit-icon svg { width:15px; height:15px; stroke-width:1.9; }
+.beeftv-home-credit strong { color:var(--user-ink); font-size:14px; font-weight:680; font-variant-numeric:tabular-nums; }
+.beeftv-home-recharge { padding:0 13px; border-color:color-mix(in srgb,var(--user-accent) 28%,var(--user-border)); color:var(--user-accent); font-weight:600; }
+.beeftv-home-recharge svg { width:15px; height:15px; stroke-width:1.9; }
+.beeftv-home-credit:hover,.beeftv-home-recharge:hover { transform:translateY(-1px); border-color:color-mix(in srgb,var(--user-accent) 45%,var(--user-border)); background:var(--user-surface-hover); color:var(--user-ink); }
+.beeftv-home .app-workspace-account-trigger.is-labeled { display:inline-flex; width:auto; height:40px; gap:8px; padding:0 10px 0 6px; border:1px solid var(--user-border); border-radius:12px; background:var(--user-surface); color:var(--user-ink-muted); }
+.beeftv-home .app-workspace-account-trigger.is-labeled:hover { border-color:var(--user-border-strong); background:var(--user-surface-hover); color:var(--user-ink); }
+.beeftv-home .app-workspace-account-trigger-name { max-width:132px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; font-weight:560; }
+.beeftv-home .app-workspace-account-trigger-chevron { width:14px !important; height:14px !important; opacity:.5; }
 .beeftv-home-hero { position: relative; min-height: 160px; display: grid; place-items: center; overflow: hidden; border: 1px solid var(--user-border-strong); border-radius: 12px; background: var(--user-surface-muted); }
 .beeftv-home-dot-base,.beeftv-home-dot-flow { position: absolute; inset: 8px 2px; pointer-events: none; background-size: 18px 18px; }
 .beeftv-home-dot-base { background-image: radial-gradient(circle,color-mix(in srgb,var(--user-ink) 12%,transparent) .3px,transparent 1.4px); }
@@ -61,5 +74,6 @@ body .app-user-workspace .app-workspace-sidebar-nav { background: var(--user-pag
 @keyframes beeftv-shimmer { to { background-position: -200% 0; } }
 @media (max-width: 1500px) { .beeftv-home{padding:64px 40px 60px}.beeftv-capabilities{gap:8px;margin-inline:0} }
 @media (max-width: 1100px) { .beeftv-recent-grid{grid-template-columns:repeat(2,minmax(0,1fr))} }
-@media (max-width: 900px) { .beeftv-home{padding:20px}.beeftv-home-hero{min-height:230px}.beeftv-capabilities{grid-template-columns:repeat(3,minmax(0,1fr));margin-block:34px 44px}.beeftv-home-create-icon{width:130px;height:78px}.beeftv-home-create-title{font-size:22px}.beeftv-recent-grid{grid-template-columns:1fr} }
+@media (max-width: 900px) { .beeftv-home{padding:20px}.beeftv-home-account-bar{flex-wrap:wrap}.beeftv-home .app-workspace-account-trigger-name{max-width:96px}.beeftv-home-hero{min-height:230px}.beeftv-capabilities{grid-template-columns:repeat(3,minmax(0,1fr));margin-block:34px 44px}.beeftv-home-create-icon{width:130px;height:78px}.beeftv-home-create-title{font-size:22px}.beeftv-recent-grid{grid-template-columns:1fr} }
+@media (max-width: 520px){.beeftv-home-credit>span:not(.beeftv-home-credit-icon){display:none}.beeftv-home-credit{padding-right:10px}.beeftv-home-recharge{padding-inline:11px}}
 @media (prefers-reduced-motion:reduce){.beeftv-home *{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}.beeftv-home-dot-flow{opacity:.24;transform:none}.beeftv-home :is(a,button):hover{transform:none!important}}

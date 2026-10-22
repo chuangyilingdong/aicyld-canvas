@@ -5,11 +5,12 @@ import { getCanvasBillingBalance } from "@/services/api/canvas-billing";
 
 export const CANVAS_BILLING_BALANCE_QUERY_KEY = ["canvas-billing-balance"] as const;
 
-export function useCanvasBillingBalance() {
+export function useCanvasBillingBalance(options: { enabled?: boolean } = {}) {
     const queryClient = useQueryClient();
     const query = useQuery({
         queryKey: CANVAS_BILLING_BALANCE_QUERY_KEY,
         queryFn: getCanvasBillingBalance,
+        enabled: options.enabled ?? true,
         staleTime: 5_000,
         refetchInterval: 10_000,
         refetchOnWindowFocus: true,
