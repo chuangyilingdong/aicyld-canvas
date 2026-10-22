@@ -283,6 +283,59 @@ func registerSkillRoutes(r *gin.RouterGroup, owners workspaceOwners, skillsDomai
 
 	r.POST("/skills/:id/add", setSkillAdded(owners, skillsDomain, true))
 	r.DELETE("/skills/:id/add", setSkillAdded(owners, skillsDomain, false))
+	r.GET("/skills/:id/versions", func(c *gin.Context) {
+		user, err := currentUser(c, owners)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		versions, err := skillsDomain.SkillVersions(user.ID, c.Param("id"))
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"versions": versions})
+	})
+	r.PATCH("/skills/:id/enabled", func(c *gin.Context) {
+		user, err := currentUser(c, owners)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		var body struct {
+			Enabled *bool `json:"enabled"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil || body.Enabled == nil {
+			fail(c, http.StatusBadRequest, kernel.BadAuthRequest("enabled 必须是布尔值"))
+			return
+		}
+		skill, err := skillsDomain.SetSkillEnabled(user.ID, c.Param("id"), *body.Enabled)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"skill": skill})
+	})
+	r.POST("/skills/:id/rollback", func(c *gin.Context) {
+		user, err := currentUser(c, owners)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		var body struct {
+			VersionID string `json:"versionId"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil || strings.TrimSpace(body.VersionID) == "" {
+			fail(c, http.StatusBadRequest, kernel.BadAuthRequest("versionId 不能为空"))
+			return
+		}
+		skill, err := skillsDomain.RollbackSkillVersion(user.ID, c.Param("id"), body.VersionID)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"skill": skill})
+	})
 	r.POST("/skills/:id/like", setSkillLiked(owners, skillsDomain, true))
 	r.DELETE("/skills/:id/like", setSkillLiked(owners, skillsDomain, false))
 }

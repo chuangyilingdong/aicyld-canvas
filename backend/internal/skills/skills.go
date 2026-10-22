@@ -44,45 +44,56 @@ type SkillEffectiveUser struct {
 }
 
 type SkillItem struct {
-	SkillID         string               `json:"skillId"`
-	SkillName       string               `json:"skillName"`
-	Description     string               `json:"description"`
-	Instruction     string               `json:"instruction,omitempty"`
-	VersionID       string               `json:"versionId"`
-	Version         string               `json:"version"`
-	ContentHash     string               `json:"contentHash"`
-	FileCount       int                  `json:"fileCount"`
-	TotalBytes      int64                `json:"totalBytes"`
-	SourceType      string               `json:"sourceType"`
-	SourceURL       string               `json:"sourceUrl"`
-	SourceRef       string               `json:"sourceRef"`
-	SourceSubdir    string               `json:"sourceSubdir"`
-	SourceCommit    string               `json:"sourceCommit"`
-	SyncStatus      string               `json:"syncStatus"`
-	SyncError       string               `json:"syncError,omitempty"`
-	AutoUpdate      bool                 `json:"autoUpdate"`
-	LastCheckedAt   *time.Time           `json:"lastCheckedAt,omitempty"`
-	LastSyncedAt    *time.Time           `json:"lastSyncedAt,omitempty"`
-	Status          int                  `json:"status"`
-	MarkdownURL     string               `json:"markdownUrl"`
-	CreatedAt       time.Time            `json:"createdAt"`
-	UpdatedAt       time.Time            `json:"updatedAt"`
-	Source          int                  `json:"source"`
-	Tag             string               `json:"tag"`
-	SortWeight      int                  `json:"sortWeight"`
-	IsPrivate       bool                 `json:"isPrivate"`
-	LikeCount       int64                `json:"likeCount"`
-	IsLike          bool                 `json:"isLike"`
-	OwnerUID        string               `json:"ownerUid"`
-	EffectiveUser   SkillEffectiveUser   `json:"effectiveUser"`
-	OriginalSkillID *string              `json:"originalSkillId"`
-	ShowcaseMedia   []SkillShowcaseMedia `json:"showcaseMedia"`
-	AddedCount      int64                `json:"addedCount"`
-	IsTest          bool                 `json:"isTest"`
-	ExtraInfo       string               `json:"extraInfo"`
-	IsAdded         bool                 `json:"isAdded"`
-	IsOwner         bool                 `json:"isOwner"`
-	MarketRelease   *skillhub.Release    `json:"marketRelease,omitempty"`
+	SkillID            string               `json:"skillId"`
+	SkillName          string               `json:"skillName"`
+	Description        string               `json:"description"`
+	Instruction        string               `json:"instruction,omitempty"`
+	VersionID          string               `json:"versionId"`
+	Version            string               `json:"version"`
+	ContentHash        string               `json:"contentHash"`
+	FileCount          int                  `json:"fileCount"`
+	TotalBytes         int64                `json:"totalBytes"`
+	SourceType         string               `json:"sourceType"`
+	SourceURL          string               `json:"sourceUrl"`
+	SourceRef          string               `json:"sourceRef"`
+	SourceSubdir       string               `json:"sourceSubdir"`
+	SourceCommit       string               `json:"sourceCommit"`
+	SyncStatus         string               `json:"syncStatus"`
+	SyncError          string               `json:"syncError,omitempty"`
+	AutoUpdate         bool                 `json:"autoUpdate"`
+	LastCheckedAt      *time.Time           `json:"lastCheckedAt,omitempty"`
+	LastSyncedAt       *time.Time           `json:"lastSyncedAt,omitempty"`
+	Status             int                  `json:"status"`
+	MarkdownURL        string               `json:"markdownUrl"`
+	CreatedAt          time.Time            `json:"createdAt"`
+	UpdatedAt          time.Time            `json:"updatedAt"`
+	Source             int                  `json:"source"`
+	Tag                string               `json:"tag"`
+	SortWeight         int                  `json:"sortWeight"`
+	IsPrivate          bool                 `json:"isPrivate"`
+	LikeCount          int64                `json:"likeCount"`
+	IsLike             bool                 `json:"isLike"`
+	OwnerUID           string               `json:"ownerUid"`
+	EffectiveUser      SkillEffectiveUser   `json:"effectiveUser"`
+	OriginalSkillID    *string              `json:"originalSkillId"`
+	ShowcaseMedia      []SkillShowcaseMedia `json:"showcaseMedia"`
+	AddedCount         int64                `json:"addedCount"`
+	IsTest             bool                 `json:"isTest"`
+	ExtraInfo          string               `json:"extraInfo"`
+	IsAdded            bool                 `json:"isAdded"`
+	IsEnabled          bool                 `json:"isEnabled"`
+	InstalledVersionID string               `json:"installedVersionId,omitempty"`
+	IsOwner            bool                 `json:"isOwner"`
+	MarketRelease      *skillhub.Release    `json:"marketRelease,omitempty"`
+}
+
+type SkillVersionItem struct {
+	ID           string    `json:"id"`
+	VersionLabel string    `json:"versionLabel"`
+	ContentHash  string    `json:"contentHash"`
+	FileCount    int       `json:"fileCount"`
+	TotalBytes   int64     `json:"totalBytes"`
+	CreatedAt    time.Time `json:"createdAt"`
 }
 
 type SkillCategory struct {
@@ -252,8 +263,76 @@ func (s *Service) SetSkillAdded(userID string, id string, added bool) (*SkillIte
 		return nil, err
 	}
 	state.Added = added
+	if added {
+		state.Enabled = true
+	}
 	state.InstalledVersionID = skill.CurrentVersionID
 	state.AutoUpdate = skill.AutoUpdate
+	if err := s.repo.SetUserSkillAdded(state); err != nil {
+		return nil, err
+	}
+	return s.SkillDetail(userID, id)
+}
+
+func (s *Service) SetSkillEnabled(userID, id string, enabled bool) (*SkillItem, error) {
+	skill, err := s.visibleSkill(userID, id)
+	if err != nil {
+		return nil, err
+	}
+	if skill.OwnerID == userID {
+		return nil, kernel.BadAuthRequest("作者技能始终可用，无需启停")
+	}
+	state, err := s.skillState(userID, id)
+	if err != nil {
+		return nil, err
+	}
+	if !state.Added || state.InstalledVersionID == "" {
+		return nil, kernel.BadAuthRequest("请先加入技能后再启停")
+	}
+	state.Enabled = enabled
+	if err := s.repo.SetUserSkillAdded(state); err != nil {
+		return nil, err
+	}
+	return s.SkillDetail(userID, id)
+}
+
+func (s *Service) SkillVersions(userID, id string) ([]SkillVersionItem, error) {
+	skill, err := s.visibleSkill(userID, id)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.repo.SkillVersions(skill.ID)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]SkillVersionItem, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, SkillVersionItem{ID: row.ID, VersionLabel: row.VersionLabel, ContentHash: row.ContentHash, FileCount: row.FileCount, TotalBytes: row.TotalBytes, CreatedAt: row.CreatedAt})
+	}
+	return items, nil
+}
+
+func (s *Service) RollbackSkillVersion(userID, id, versionID string) (*SkillItem, error) {
+	skill, err := s.visibleSkill(userID, id)
+	if err != nil {
+		return nil, err
+	}
+	if skill.OwnerID == userID {
+		return nil, kernel.BadAuthRequest("作者技能请通过编辑生成新版本")
+	}
+	version, err := s.repo.SkillVersion(strings.TrimSpace(versionID))
+	if err != nil || version.SkillID != skill.ID {
+		return nil, kernel.BadAuthRequest("指定版本不存在")
+	}
+	state, err := s.skillState(userID, id)
+	if err != nil {
+		return nil, err
+	}
+	if !state.Added {
+		return nil, kernel.BadAuthRequest("请先加入技能后再切换版本")
+	}
+	state.InstalledVersionID = version.ID
+	state.Enabled = true
 	if err := s.repo.SetUserSkillAdded(state); err != nil {
 		return nil, err
 	}
@@ -337,7 +416,8 @@ func (s *Service) skillItems(userID string, skills []model.Skill, includeInstruc
 			Source: skill.Source, Tag: skill.Tag, SortWeight: skill.SortWeight, IsPrivate: skill.IsPrivate,
 			LikeCount: metric.LikeCount, IsLike: state.Liked, OwnerUID: skill.OwnerID,
 			EffectiveUser: SkillEffectiveUser{Name: ownerName, AvatarURL: ownerAvatarURL, UID: skill.OwnerID}, ShowcaseMedia: showcaseMedia,
-			AddedCount: metric.AddedCount, ExtraInfo: skill.ExtraInfo, IsAdded: state.Added, IsOwner: skill.OwnerID == userID,
+			AddedCount: metric.AddedCount, ExtraInfo: skill.ExtraInfo, IsAdded: state.Added || skill.OwnerID == userID, IsOwner: skill.OwnerID == userID,
+			IsEnabled: state.Enabled || skill.OwnerID == userID, InstalledVersionID: state.InstalledVersionID,
 			MarketRelease: release,
 		})
 	}
