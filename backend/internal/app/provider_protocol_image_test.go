@@ -29,6 +29,38 @@ func TestProtocolRequestMapsOpenAICanvasRatioToPixelSize(t *testing.T) {
 	}
 }
 
+func TestMidjourneyImagineMapsCanvasSpeedAndGridResult(t *testing.T) {
+	adapter, ok := protocol.Builtins().Get("midjourney")
+	if !ok {
+		t.Fatal("Midjourney adapter missing")
+	}
+	profile := DefaultImageCapabilityConfig("midjourney", "midjourney-imagine")
+	request := protocolRequestFromInput(canvasGenerationInput{
+		Mode:            "image",
+		Prompt:          "a red fox in snow",
+		Config:          providerConfig{Model: "midjourney-imagine", InterfaceType: "midjourney", Size: "16:9", Quality: "fast"},
+		ImageCapability: profile,
+	})
+	if request.AspectRatio != "16:9" || request.Quality != "fast" {
+		t.Fatalf("Midjourney request = %#v", request)
+	}
+	spec, err := adapter.BuildCreate(context.Background(), protocol.RequestContext{Request: request})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spec.Path != "/v1/midjourney/generations/imagine" {
+		t.Fatalf("Midjourney path = %q", spec.Path)
+	}
+	body := marshalProtocolBody(t, spec.Body)
+	if body["model"] != "midjourney" || body["size"] != "16:9" || body["speed"] != "fast" {
+		t.Fatalf("Midjourney body = %#v", body)
+	}
+	poll, err := adapter.ParsePoll(context.Background(), protocol.PollContext{TaskID: "mj-task"}, []byte(`{"task_id":"mj-task","status":"SUCCESS","grid_image_url":"https://cdn.example.com/grid.png"}`))
+	if err != nil || poll.Result == nil || len(poll.Result.Images) != 1 || poll.Result.Images[0].URL != "https://cdn.example.com/grid.png" {
+		t.Fatalf("Midjourney poll = %#v, %v", poll, err)
+	}
+}
+
 func TestProtocolRequestKeepsSeedreamCanvasRatioWhenCapabilityUsesSize(t *testing.T) {
 	profile := DefaultImageCapabilityConfig("volcengine-ark-image", "doubao-seedream-5-0-260128")
 	if profile.Size.Parameter != "size" {
