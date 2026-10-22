@@ -5,7 +5,8 @@ import { parseChapterAssetBreakdown, type ChapterAssetBreakdown } from "@/lib/ca
 import { parseCharacterBreakdown } from "@/lib/canvas/canvas-character-reference";
 import { backendProviderConfig, parseBackendGenerationResult } from "@/services/api/generation-task";
 import type { CapturedUserScope } from "@/lib/user-scope-guard";
-import { createGenerationTaskWithConfirmation, waitForGenerationTask, type CreateTaskInput, type GenerationTask } from "@/services/api/task-center";
+import { createGenerationTaskWithConfirmation } from "@/services/api/task-billing";
+import { waitForGenerationTask, type CreateTaskInput, type GenerationTask } from "@/services/api/task-center";
 import type { Skill } from "@/services/api/skills";
 import { skillRuntime } from "@/services/skill-runtime";
 import { logicalModelIDForConfig, type AiConfig } from "@/stores/use-config-store";

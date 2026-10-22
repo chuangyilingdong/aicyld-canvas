@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { App, Button } from "antd";
 
 import { confirmCanvasBillingQuote } from "@/components/canvas/canvas-billing-confirmation";
-import type { GenerationBillingQuote } from "@/services/api/task-center";
+import type { GenerationBillingQuote } from "@/services/api/task-billing";
 
 function quote(): GenerationBillingQuote {
     const insufficient = new URLSearchParams(window.location.search).has("insufficient");

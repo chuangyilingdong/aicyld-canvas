@@ -44,8 +44,6 @@ export type GenerationTask = {
     operation?: string;
     provider?: string;
     model?: string;
-    billingStatus?: "reserved" | "settled" | "refunded" | "refund_pending" | "pending_reconcile" | string;
-    billingPoints?: number;
     providerRequestId?: string;
     providerCancelStatus?: ProviderCancelStatus;
     providerCancelError?: string;
@@ -142,38 +140,12 @@ export type CreateTaskInput = {
     input?: Record<string, unknown>;
 };
 
-export type GenerationBillingQuote = {
-    enabled: boolean;
-    points: number;
-    modelKey?: string;
-    displayName?: string;
-    ruleId?: string;
-    ruleVersion?: number;
-    balance?: number;
-    estimatedCostCny?: number;
-    breakdown?: Record<string, unknown>;
-};
-
-export function quoteGenerationTask(input: CreateTaskInput, config?: HttpRequestConfig) {
-    return http.post<GenerationBillingQuote>("/tasks/quote", input, config);
-}
-
 export function createGenerationTask(input: CreateTaskInput, config?: HttpRequestConfig) {
     return http.post<GenerationTask>("/tasks", input, config).then((task) => {
         recordDiagnosticEvent({ level: "info", category: "task", message: "任务已创建", taskId: task.id, projectId: task.projectId });
         notifyCanvasTaskCreated(task);
         return task;
     });
-}
-
-export async function createGenerationTaskWithConfirmation(
-    input: CreateTaskInput,
-    confirmTask?: (request: CreateTaskInput) => Promise<boolean>,
-    config?: HttpRequestConfig,
-) {
-    if (confirmTask && !(await confirmTask(input))) throw new DOMException("用户取消生成", "AbortError");
-    if (config?.signal?.aborted) throw new DOMException("用户取消生成", "AbortError");
-    return createGenerationTask(input, config);
 }
 
 export type GenerationTaskPageRequest = {

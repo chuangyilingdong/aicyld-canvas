@@ -1,6 +1,6 @@
 import type { AssistantGenerationProposal } from "@/services/api/agent-assistant";
 import { ApiError } from "@/services/api/request";
-import type { GenerationBillingQuote } from "@/services/api/task-center";
+import type { GenerationBillingQuote } from "@/services/api/task-billing";
 import type { CanvasNodeData } from "@/types/canvas";
 import type { CanvasNodeBillingPlan, CanvasNodeGenerationOptions } from "./use-canvas-generation-executor";
 import { buildGenerationConfig } from "@/lib/canvas/canvas-project-generation";

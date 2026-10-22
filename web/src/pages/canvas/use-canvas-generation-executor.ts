@@ -20,7 +20,8 @@ import { mergedImageCapabilityConfig, modelCompatibilityError, modelGroupReferen
 import type { Skill } from "@/services/api/skills";
 import { skillRuntime } from "@/services/skill-runtime";
 import { prepareBackendGenerationTask } from "@/services/api/generation-task";
-import { quoteGenerationTask, type CreateTaskInput, type GenerationBillingQuote, type GenerationTask } from "@/services/api/task-center";
+import { quoteGenerationTask, type GenerationBillingQuote } from "@/services/api/task-billing";
+import type { CreateTaskInput, GenerationTask } from "@/services/api/task-center";
 import { useConfigStore, useEffectiveConfig, resolveModelRequestConfig } from "@/stores/use-config-store";
 import { seedanceReferenceRatioWarning } from "@/lib/seedance-channel-warning";
 import type { Asset } from "@/stores/use-asset-store";

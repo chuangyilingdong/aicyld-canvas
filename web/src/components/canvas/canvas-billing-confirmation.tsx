@@ -1,7 +1,8 @@
 import { App } from "antd";
 import type { ReactNode } from "react";
 
-import { quoteGenerationTask, type CreateTaskInput, type GenerationBillingQuote } from "@/services/api/task-center";
+import type { CreateTaskInput } from "@/services/api/task-center";
+import { quoteGenerationTask, type GenerationBillingQuote } from "@/services/api/task-billing";
 
 type CanvasBillingConfirmationOptions = {
     title?: string;
