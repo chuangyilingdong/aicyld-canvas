@@ -155,6 +155,20 @@ func TestBindRejectsForeignAssetAndWrongNode(t *testing.T) {
 	}
 }
 
+func TestBindAllowsAdditionalOutputOnTaskBatchChild(t *testing.T) {
+	ports := &fakePorts{
+		task: testImageTask(),
+		outputs: []localtask.CanonicalOutput{
+			{OutputIndex: 1, MaterializedAssetID: "generation_abc", ResourceID: "res-1"},
+		},
+		resource: &model.Resource{ID: "res-1", UserID: "user-1", Status: model.ResourceStatusReady},
+		asset:    testAsset("generation_abc", "user-1", "res-1"),
+	}
+	if _, err := Bind(ports, "user-1", Request{CanvasID: "canvas-1", TaskID: "task-1", NodeID: "batch-child-2", OutputIndex: 1}); err != nil {
+		t.Fatalf("additional output = %v", err)
+	}
+}
+
 func TestBindRetriesRevisionConflictThenStops(t *testing.T) {
 	ports := &fakePorts{
 		task: testImageTask(),
