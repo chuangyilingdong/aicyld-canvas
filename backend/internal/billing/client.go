@@ -95,9 +95,9 @@ func (c *Client) Settle(ctx context.Context, task *model.Task, outcome string, r
 		return nil
 	}
 	body := map[string]any{
-		"holdId":  task.BillingHoldID,
-		"outcome": outcome,
-		"reason":  reason,
+		"holdId":      task.BillingHoldID,
+		"outcome":     outcome,
+		"reason":      reason,
 		"actualFacts": Facts(task),
 	}
 	return c.post(ctx, "/settle", body, nil)
@@ -176,7 +176,7 @@ func Facts(task *model.Task) map[string]any {
 	if duration == 1 && firstString(config["duration"], input["duration"], metadata["duration"]) == "-1" {
 		duration = maxDurationFor(modelKey)
 	}
-	resolution := strings.ToLower(firstString(config["vquality"], config["resolution"], metadata["resolution"], metadata["upscaleResolution"]))
+	resolution := normalizeResolution(firstString(config["vquality"], config["resolution"], metadata["resolution"], metadata["upscaleResolution"]))
 	quality := strings.ToLower(firstString(config["quality"], metadata["quality"], metadata["upscaleQuality"]))
 	speed := strings.ToLower(firstString(config["speed"], metadata["speed"]))
 	outputs := firstInt(config["count"], input["count"], config["n"], input["n"], config["outputCount"])
@@ -228,6 +228,17 @@ func categoryFor(task *model.Task) string {
 	default:
 		return "image"
 	}
+}
+
+func normalizeResolution(value string) string {
+	resolution := strings.ToLower(strings.TrimSpace(value))
+	if resolution == "" {
+		return ""
+	}
+	if _, err := strconv.Atoi(resolution); err == nil {
+		return resolution + "p"
+	}
+	return resolution
 }
 
 func defaultDuration(task *model.Task, modelKey string) int {

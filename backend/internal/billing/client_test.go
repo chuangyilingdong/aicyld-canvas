@@ -41,6 +41,16 @@ func TestBillableSkipsLocalExecutors(t *testing.T) {
 	}
 }
 
+func TestFactsNormalizesNumericVideoResolution(t *testing.T) {
+	raw, _ := json.Marshal(map[string]any{
+		"config": map[string]any{"providerModelKey": "MiniMax-H3", "vquality": "1080", "videoSeconds": "15"},
+	})
+	facts := Facts(&model.Task{Type: "canvas_video", Provider: "managed", Model: "MiniMax-H3", InputJSON: string(raw)})
+	if facts["resolution"] != "1080p" {
+		t.Fatalf("resolution = %v, want 1080p", facts["resolution"])
+	}
+}
+
 func TestMainUserIDRemovesWorkspacePrefix(t *testing.T) {
 	if got := mainUserID("sso_cmpz123"); got != "cmpz123" {
 		t.Fatalf("main user id = %q", got)

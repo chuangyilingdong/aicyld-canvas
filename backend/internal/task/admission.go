@@ -197,9 +197,11 @@ func (s *Service) admit(userID string, req CreateRequest) (*model.Task, error) {
 	}
 	task.InputJSON = inputJSON
 	if s.deps.Persist == nil {
+		releaseBilling("任务持久化服务不可用，释放预扣")
 		return nil, localStorageFailed(errors.New("task persistence is required"))
 	}
 	if s.deps.Present == nil {
+		releaseBilling("任务展示服务不可用，释放预扣")
 		return nil, unavailable()
 	}
 	err = s.deps.Persist.CreateAdmitted(&task, limit)
