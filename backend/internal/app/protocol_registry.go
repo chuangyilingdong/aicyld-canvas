@@ -9,9 +9,25 @@ import (
 
 func (s *Service) protocolRegistry() *protocol.Registry {
 	if registry := s.pluginDomain().Registry(); registry != nil {
+		ensureHostBuiltinProtocol(registry, "midjourney")
 		return registry
 	}
 	return loadOfficialFallbackRegistry()
+}
+
+// Host-backed protocols are normally mirrored by the shipped plugin catalog.
+// Midjourney is currently built into the host runtime, so make it visible to
+// model-admin validation without replacing the installed plugin registry.
+func ensureHostBuiltinProtocol(registry *protocol.Registry, id string) {
+	if registry == nil {
+		return
+	}
+	if _, ok := registry.Resolve(id); ok {
+		return
+	}
+	if adapter, ok := protocol.Builtins().Get(id); ok {
+		_ = registry.Register(adapter)
+	}
 }
 
 func (s *Service) protocolMetadata(id string) (protocol.Metadata, bool) {
