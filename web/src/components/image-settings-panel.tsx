@@ -15,6 +15,9 @@ const qualityOptions = [
     { value: "high", label: "高" },
     { value: "medium", label: "中" },
     { value: "low", label: "低" },
+    { value: "relax", label: "放松" },
+    { value: "fast", label: "快速" },
+    { value: "turbo", label: "极速" },
     { value: "1k", label: "1K" },
     { value: "2k", label: "2K" },
     { value: "4k", label: "4K" },
@@ -78,7 +81,7 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
             >
                 {showTitle ? <div className="text-base font-semibold">图像设置</div> : null}
                 {showQuality && profile.quality.supported && !imageResolutionUsesQuality(profile) ? <div className="space-y-2">
-                    <SettingTitle color={theme.node.muted}>{isGrokResolutionQuality(profile) ? "分辨率" : "质量"}</SettingTitle>
+                    <SettingTitle color={theme.node.muted}>{isMidjourneySpeedQuality(profile) ? "生成速度" : isGrokResolutionQuality(profile) ? "分辨率" : "质量"}</SettingTitle>
                     <div className={`grid gap-1.5 ${activeQualityOptions.length <= 2 ? "grid-cols-2" : "grid-cols-4"}`}>
 						{activeQualityOptions.map((item) => (
                             <OptionPill key={item.value} selected={quality === item.value} theme={theme} onClick={() => onConfigChange("quality", item.value)}>
@@ -140,12 +143,17 @@ export function ImageSettingsTheme({ theme, children }: { theme: CanvasTheme; ch
 }
 
 export function imageQualityLabel(value: string) {
-    return ({ auto: "自动", high: "高", medium: "中", low: "低", "1k": "1K", "2k": "2K", "4k": "4K" } as Record<string, string>)[value.toLowerCase()] || value || "默认";
+    return ({ auto: "自动", high: "高", medium: "中", low: "低", relax: "放松", fast: "快速", turbo: "极速", "1k": "1K", "2k": "2K", "4k": "4K" } as Record<string, string>)[value.toLowerCase()] || value || "默认";
 }
 
 function isGrokResolutionQuality(profile: ImageCapabilityConfig) {
     const values = profile.quality.values.map((item) => item.toLowerCase());
     return values.some((value) => ["1k", "2k", "4k"].includes(value));
+}
+
+function isMidjourneySpeedQuality(profile: ImageCapabilityConfig) {
+    const values = profile.quality.values.map((item) => item.toLowerCase());
+    return values.some((value) => ["relax", "fast", "turbo"].includes(value));
 }
 
 export function imageSizeLabel(size: string) {

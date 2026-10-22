@@ -405,6 +405,21 @@ export function defaultImageCapabilityConfig(protocol?: ModelProtocol, model = "
         image.responseFormat = { supported: true };
         image.outputFormat = { supported: false };
         image.maxOutputs = 1;
+    } else if (protocol === "midjourney") {
+        image.references.maskSupported = false;
+        image.size = {
+            parameter: "aspect_ratio",
+            values: ["16:9", "1:1", "9:16", "4:3", "3:4", "3:2", "2:3"],
+            default: "1:1",
+            allowCustom: false,
+        };
+        // 这里的 quality 是 Midjourney 的 relax/fast/turbo 速度档，不是图像清晰度。
+        image.quality = { supported: true, values: ["relax", "fast", "turbo"], default: "relax" };
+        image.transparentBackground = { supported: false, default: false };
+        image.responseFormat = { supported: false };
+        image.outputFormat = { supported: false };
+        // imagine 单次返回一张四宫格图，后续动作模型再单独接。
+        image.maxOutputs = 1;
     } else if (protocol === "volcengine-ark-image" || protocol === "volcengine-ark-agent-plan-image") {
         image.references.maskSupported = false;
         image.quality.supported = false;

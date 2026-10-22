@@ -35,6 +35,9 @@ func MediaHydrationPolicyFor(ctx context.Context, input Input) MediaHydrationPol
 		// 以前没列入这里 → 参考图以 data URL 发出 → 上游 400。
 		policy.RequireURL = true
 		policy.PreferURL = true
+	case string(model.ChannelInterfaceMidjourney):
+		policy.RequireURL = true
+		policy.PreferURL = true
 	}
 	if adapter, ok := ProtocolAdapterForContext(ctx, input.Config.InterfaceType); ok {
 		// 适配器/插件只能提高要求，不能把协议层已确定的「必须公网地址」降级：
@@ -62,7 +65,7 @@ func PrefersMediaURLs(interfaceType string, input Input) bool {
 	case string(model.ChannelInterfaceChatCompletion), string(model.ChannelInterfaceOpenAIResponse), string(model.ChannelInterfaceClaudeAPI),
 		string(model.ChannelInterfaceGrokImage), string(model.ChannelInterfaceVolcengineArkImage), string(model.ChannelInterfaceVolcengineArkAgentPlanImage),
 		string(model.ChannelInterfaceXAIVideo), string(model.ChannelInterfaceNovitaVideo),
-		string(model.ChannelInterfaceNewAPIImage),
+		string(model.ChannelInterfaceNewAPIImage), string(model.ChannelInterfaceMidjourney),
 		string(model.ChannelInterfaceMiniMaxVideo), string(model.ChannelInterfaceNewAPIVideo),
 		string(model.ChannelInterfaceNewAPIChannel1), string(model.ChannelInterfaceNewAPIChannel2),
 		string(model.ChannelInterfaceVolcengineArkVideo), string(model.ChannelInterfaceVolcengineArkAgentPlanVideo):

@@ -86,6 +86,15 @@ func DefaultImageCapabilityConfig(protocol string, modelName string) *ImageCapab
 		image.ResponseFormat = ParameterSupport{Supported: true}
 		image.OutputFormat = ParameterSupport{Supported: false}
 		image.MaxOutputs = 1
+	case model.ChannelInterfaceMidjourney:
+		// Midjourney 用 quality 表示 relax/fast/turbo 速度档；单次 imagine 返回一张四宫格。
+		image.References.MaskSupported = false
+		image.Size = ImageSizeConfig{Parameter: "aspect_ratio", Values: []string{"16:9", "1:1", "9:16", "4:3", "3:4", "3:2", "2:3"}, Default: "1:1", AllowCustom: false}
+		image.Quality = ImageQualityConfig{Supported: true, Values: []string{"relax", "fast", "turbo"}, Default: "relax"}
+		image.TransparentBackground = VideoBooleanConfig{Supported: false, Default: false}
+		image.ResponseFormat = ParameterSupport{Supported: false}
+		image.OutputFormat = ParameterSupport{Supported: false}
+		image.MaxOutputs = 1
 	case model.ChannelInterfaceVolcengineArkImage, model.ChannelInterfaceVolcengineArkAgentPlanImage:
 		image.References.MaskSupported = false
 		image.Quality.Supported = false

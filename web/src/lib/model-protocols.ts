@@ -28,6 +28,7 @@ const BUILTIN_PROTOCOL_CAPABILITIES: Record<ModelProtocol, ProtocolCapability> =
     "volcengine-jimeng-image": "image",
     newapi: "video",
     "newapi-image": "image",
+    midjourney: "image",
     "newapi-channel-1": "video",
     "newapi-channel-2": "video",
     "xai-video": "video",

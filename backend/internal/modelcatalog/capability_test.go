@@ -35,6 +35,16 @@ func TestNormalizeCustomImageModelWithoutGuessedLimits(t *testing.T) {
 	}
 }
 
+func TestMidjourneyImageCapabilityUsesSpeedTiersAndSingleGridOutput(t *testing.T) {
+	profile := DefaultImageCapabilityConfig("midjourney", "midjourney-imagine")
+	if profile.MaxOutputs != 1 || profile.References.MaskSupported || profile.Size.Parameter != "aspect_ratio" {
+		t.Fatalf("unexpected Midjourney profile: %#v", profile)
+	}
+	if !containsCapabilityString(profile.Quality.Values, "relax") || !containsCapabilityString(profile.Quality.Values, "fast") || !containsCapabilityString(profile.Quality.Values, "turbo") || profile.Quality.Default != "relax" {
+		t.Fatalf("Midjourney speed tiers = %#v", profile.Quality)
+	}
+}
+
 func TestDisabledAndUnavailableModelsAreNotPublic(t *testing.T) {
 	channels := []model.ModelChannel{
 		{ID: "sys", Name: "系统", Enabled: true, SortOrder: 1},

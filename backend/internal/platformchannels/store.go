@@ -291,6 +291,24 @@ const defaultImageCapabilityConfig = `{
   }
 }`
 
+const midjourneyImageCapabilityConfig = `{
+  "version": 1,
+  "image": {
+    "references": { "promptMaxChars": 32000, "maxImages": 16, "maxImageBytes": 31457280, "maskSupported": false },
+    "size": {
+      "parameter": "aspect_ratio",
+      "values": ["16:9", "1:1", "9:16", "4:3", "3:4", "3:2", "2:3"],
+      "default": "1:1",
+      "allowCustom": false
+    },
+    "quality": { "supported": true, "values": ["relax", "fast", "turbo"], "default": "relax" },
+    "transparentBackground": { "supported": false, "default": false },
+    "responseFormat": { "supported": false },
+    "outputFormat": { "supported": false },
+    "maxOutputs": 1
+  }
+}`
+
 const defaultVideoCapabilityConfig = `{
   "version": 1,
   "video": {
@@ -335,6 +353,9 @@ func CapabilityConfigFor(capability, model string) (json.RawMessage, bool) {
 		}
 		return json.RawMessage(defaultVideoCapabilityConfig), true
 	case "image":
+		if strings.Contains(strings.ToLower(strings.TrimSpace(model)), "midjourney") {
+			return json.RawMessage(midjourneyImageCapabilityConfig), true
+		}
 		return json.RawMessage(defaultImageCapabilityConfig), true
 	case "text":
 		return json.RawMessage(defaultTextCapabilityConfig), true
@@ -417,6 +438,7 @@ func Defaults() []Channel {
 		platformProfile("zhenzhen-image-nb-2.1-lowprice", "zhenzhen nb 2.1（特价）", "image", "newapi-image"),
 		platformProfile("zhenzhen-image-nb-pro-lowprice", "zhenzhen nb pro（特价）", "image", "newapi-image"),
 		platformProfile("zhenzhen-image-g-v2.5-lowprice", "zhenzhen g v2.5（特价）", "image", "newapi-image"),
+		platformProfile("midjourney-imagine", "Midjourney Imagine", "image", "midjourney"),
 		platformProfile("deepseek/deepseek-v4.1-flash", "DeepSeek V4.1 Flash", "text", "chat-completion"),
 		platformProfile("zhenzhen/g6-sol", "zhenzhen g6-sol", "text", "chat-completion"),
 		platformProfile("zhenzhen/g6-astra", "zhenzhen g6-astra", "text", "chat-completion"),

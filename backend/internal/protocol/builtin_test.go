@@ -12,7 +12,7 @@ func TestBuiltinCatalogContainsRequestedProtocols(t *testing.T) {
 	registry := Builtins()
 	expected := []string{
 		"chat-completion", "openai-response", "claude-api",
-		"newapi", "newapi-channel-2", "xai-video", "volcengine-ark-video", "volcengine-jimeng-video", "gemini-veo", "novita-video", "minimax-video", "agnes-video",
+		"midjourney", "newapi", "newapi-channel-2", "xai-video", "volcengine-ark-video", "volcengine-jimeng-video", "gemini-veo", "novita-video", "minimax-video", "agnes-video",
 	}
 	for _, id := range expected {
 		if _, ok := registry.Get(id); !ok {
@@ -55,6 +55,49 @@ func TestBuiltinCatalogContainsRequestedProtocols(t *testing.T) {
 	}
 	if _, ok := registry.Get("autodl-comfyui"); ok {
 		t.Fatal("AutoDL must be provided by the uploaded plugin package, not the host registry")
+	}
+}
+
+func TestMidjourneyImagineMapsRequestAndGridPoll(t *testing.T) {
+	adapter, ok := Builtins().Get("midjourney")
+	if !ok {
+		t.Fatal("Midjourney adapter missing")
+	}
+	spec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
+		Model: "midjourney-imagine", Prompt: "a red fox in snow", AspectRatio: "16:9", Quality: "fast",
+		Images: []MediaReference{{URL: "https://cdn.example.com/reference.png", Kind: "image"}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spec.Method != http.MethodPost || spec.Path != "/v1/midjourney/generations/imagine" {
+		t.Fatalf("create spec = %#v", spec)
+	}
+	body, _ := json.Marshal(spec.Body)
+	var got map[string]any
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["model"] != "midjourney" || got["prompt"] != "a red fox in snow" || got["size"] != "16:9" || got["speed"] != "fast" {
+		t.Fatalf("create body = %#v", got)
+	}
+	if images, _ := got["image_urls"].([]any); len(images) != 1 || images[0] != "https://cdn.example.com/reference.png" {
+		t.Fatalf("image_urls = %#v", got["image_urls"])
+	}
+
+	poll, err := adapter.BuildPoll(context.Background(), PollContext{TaskID: "mj-task-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if poll.Method != http.MethodGet || poll.Path != "/v1/midjourney/tasks/mj-task-1" {
+		t.Fatalf("poll spec = %#v", poll)
+	}
+	result, err := adapter.ParsePoll(context.Background(), PollContext{TaskID: "mj-task-1"}, []byte(`{"task_id":"mj-task-1","status":"SUCCESS","grid_image_url":"https://cdn.example.com/grid.png","image_urls":["https://cdn.example.com/a.png","https://cdn.example.com/b.png"]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != StatusSucceeded || result.Result == nil || len(result.Result.Images) != 1 || result.Result.Images[0].URL != "https://cdn.example.com/grid.png" {
+		t.Fatalf("poll result = %#v", result)
 	}
 }
 

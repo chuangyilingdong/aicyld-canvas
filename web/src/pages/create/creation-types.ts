@@ -64,6 +64,9 @@ export const qualityOptions = [
     { value: "low", label: "低", description: "更快生成" },
     { value: "medium", label: "中", description: "均衡模式" },
     { value: "high", label: "高", description: "优先细节" },
+    { value: "relax", label: "放松", description: "Midjourney 放松速度" },
+    { value: "fast", label: "快速", description: "Midjourney 快速档" },
+    { value: "turbo", label: "极速", description: "Midjourney 极速档" },
     // grok2api / xAI Imagine：quality 映射 resolution
     { value: "1k", label: "1K", description: "标准清晰度" },
     { value: "2k", label: "2K", description: "更高清晰度" },

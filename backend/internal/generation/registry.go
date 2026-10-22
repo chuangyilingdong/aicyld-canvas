@@ -95,6 +95,8 @@ func OfficialDeclarativeImageInterface(interfaceType string) (string, bool) {
 		return "火山方舟 Agent Plan 图片", true
 	case string(model.ChannelInterfaceVolcengineJiMengImage):
 		return "即梦图片", true
+	case string(model.ChannelInterfaceMidjourney):
+		return "Midjourney", true
 	default:
 		return "", false
 	}

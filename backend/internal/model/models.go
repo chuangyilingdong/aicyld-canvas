@@ -65,6 +65,7 @@ const (
 	ChannelInterfaceOpenAIAudio                 ChannelInterfaceType = "openai-audio"
 	ChannelInterfaceAsyncAudio                  ChannelInterfaceType = "async-audio"
 	ChannelInterfaceNewAPIImage                 ChannelInterfaceType = "newapi-image"
+	ChannelInterfaceMidjourney                  ChannelInterfaceType = "midjourney"
 	ChannelInterfaceNewAPIVideo                 ChannelInterfaceType = "newapi"
 	ChannelInterfaceNewAPIChannel1              ChannelInterfaceType = "newapi-channel-1"
 	ChannelInterfaceNewAPIChannel2              ChannelInterfaceType = "newapi-channel-2"

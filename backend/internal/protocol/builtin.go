@@ -73,7 +73,7 @@ func Builtins() *Registry {
 	}
 	registry, err := NewRegistry(
 		openAIChatAdapter(), openAIResponsesAdapter(), claudeAdapter(),
-		openAIVideosAdapter(), newAPIChannel1Adapter(), newAPIVideosAdapter(), newAPIImageAdapter(), xAIVideosAdapter(), arkVideosAdapter(), jimengVideosAdapter(), geminiVeoAdapter(), novitaVideosAdapter(), miniMaxVideosAdapter(),
+		openAIVideosAdapter(), newAPIChannel1Adapter(), newAPIVideosAdapter(), newAPIImageAdapter(), midjourneyAdapter(), xAIVideosAdapter(), arkVideosAdapter(), jimengVideosAdapter(), geminiVeoAdapter(), novitaVideosAdapter(), miniMaxVideosAdapter(),
 		agnesAdapter(),
 	)
 	if err != nil {
@@ -261,6 +261,52 @@ func newAPIImageAdapter() Adapter {
 		return jsonSpec(http.MethodPost, "/v1/image/generations", body), nil
 	})
 }
+
+func midjourneyAdapter() Adapter {
+	info := metadata("midjourney", "Midjourney 异步图像", "Midjourney", CapabilityImage, "POST /v1/midjourney/generations/{action}", "GET /v1/midjourney/tasks/{task_id}", "application/json")
+	info.Parameters = []Parameter{
+		{Name: "model", Type: "string", Required: true, Mapping: "model"},
+		{Name: "prompt", Type: "string", Required: true, Mapping: "prompt"},
+		{Name: "images", Type: "media[]", Mapping: "provider-specific"},
+		{Name: "aspectRatio", Type: "string", Mapping: "provider-specific"},
+		{Name: "quality", Type: "string", Mapping: "provider-specific"},
+	}
+	info.RequiresPublicMediaURLs = true
+	return builtinAdapter{
+		info: info,
+		create: func(r GenerationRequest) (RequestSpec, error) {
+			model := strings.ToLower(strings.TrimSpace(r.Model))
+			action := strings.TrimPrefix(model, "midjourney-")
+			if model == "midjourney" {
+				action = ""
+			}
+			path := "/v1/midjourney/generations"
+			if action != "" {
+				path += "/" + url.PathEscape(action)
+			}
+			body := map[string]any{"model": "midjourney"}
+			if prompt := strings.TrimSpace(r.Prompt); prompt != "" {
+				body["prompt"] = prompt
+			}
+			if ratio := strings.TrimSpace(r.AspectRatio); ratio != "" {
+				body["size"] = ratio
+			}
+			if speed := strings.ToLower(strings.TrimSpace(r.Quality)); speed == "relax" || speed == "fast" || speed == "turbo" {
+				body["speed"] = speed
+			}
+			if images := mediaValues(r.Images); len(images) > 0 {
+				body["image_urls"] = images
+			}
+			return jsonSpec(http.MethodPost, path, body), nil
+		},
+		parseCreate: parseAsyncCreate,
+		poll: func(c PollContext) (RequestSpec, error) {
+			return RequestSpec{Method: http.MethodGet, Path: "/v1/midjourney/tasks/" + url.PathEscape(c.TaskID)}, nil
+		},
+		parsePoll: parseMidjourneyPoll,
+	}
+}
+
 func newAPIChannel1Adapter() Adapter {
 	info := metadata("newapi-channel-1", "NewAPI 媒体任务", "NewAPI", CapabilityVideo, "POST /v1/videos", "GET /v1/videos/{task_id}", "application/json")
 	info.Parameters = videoParams()
@@ -966,6 +1012,50 @@ func parseAsyncMediaPoll(c PollContext, payload map[string]any, capability Capab
 		result = nil
 	}
 	return PollResult{TaskID: defaultValue(firstString(payload, "id", "task_id", "taskId"), c.TaskID), Status: status, Result: result, Message: firstString(payload, "message", "error", "fail_reason")}, nil
+}
+
+func parseMidjourneyPoll(c PollContext, payload map[string]any) (PollResult, error) {
+	status := normalizeStatus(firstString(payload, "status", "state", "task_status"))
+	if task := object(payload["task"]); task != nil {
+		payload = mergeMaps(task, payload)
+		status = normalizeStatus(defaultValue(firstString(task, "status", "state", "task_status"), string(status)))
+	}
+	if data := object(payload["data"]); data != nil {
+		payload = mergeMaps(data, payload)
+		status = normalizeStatus(defaultValue(firstString(data, "status", "state", "task_status"), string(status)))
+	}
+	if status == "" {
+		status = StatusProcessing
+	}
+	taskID := defaultValue(firstString(payload, "task_id", "taskId", "id"), c.TaskID)
+	message := firstString(payload, "fail_reason", "message", "description")
+	if failure := object(payload["error"]); failure != nil {
+		message = defaultValue(firstString(failure, "message", "detail", "code"), message)
+	}
+	if status == StatusFailed || status == StatusCancelled {
+		return PollResult{TaskID: taskID, Status: status, Message: defaultValue(message, "Midjourney 生成失败")}, nil
+	}
+	if status != StatusSucceeded {
+		return PollResult{TaskID: taskID, Status: status, Message: message}, nil
+	}
+	images := make([]MediaReference, 0, 4)
+	if grid := firstString(payload, "grid_image_url", "gridImageUrl"); grid != "" {
+		images = append(images, MediaReference{URL: grid, Kind: "image"})
+	} else {
+		images = append(images, mediaFromArray(payload["image_urls"], CapabilityImage)...)
+		if len(images) == 0 {
+			images = append(images, mediaFromArray(payload["images"], CapabilityImage)...)
+		}
+		if len(images) == 0 {
+			if value := firstString(payload, "image_url", "imageUrl", "url"); value != "" {
+				images = append(images, MediaReference{URL: value, Kind: "image"})
+			}
+		}
+	}
+	if len(images) == 0 {
+		return PollResult{}, fmt.Errorf("Midjourney 完成响应没有返回图片")
+	}
+	return PollResult{TaskID: taskID, Status: status, Result: &Result{Images: images, Usage: object(payload["usage"])}, Message: message}, nil
 }
 
 func parseAudioResponse(payload map[string]any) (CreateResult, error) {
