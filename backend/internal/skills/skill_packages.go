@@ -27,6 +27,7 @@ import (
 	"infinite-canvas/backend/internal/kernel"
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/outbound"
+	"infinite-canvas/backend/internal/skillhub"
 
 	"gorm.io/gorm"
 )
@@ -76,13 +77,14 @@ type SkillPackageBundleFile struct {
 }
 
 type SkillPackageBundle struct {
-	SkillID     string                   `json:"skillId"`
-	Name        string                   `json:"name"`
-	Description string                   `json:"description"`
-	VersionID   string                   `json:"versionId"`
-	Version     string                   `json:"version"`
-	ContentHash string                   `json:"contentHash"`
-	Files       []SkillPackageBundleFile `json:"files"`
+	SkillID       string                   `json:"skillId"`
+	Name          string                   `json:"name"`
+	Description   string                   `json:"description"`
+	VersionID     string                   `json:"versionId"`
+	Version       string                   `json:"version"`
+	ContentHash   string                   `json:"contentHash"`
+	Files         []SkillPackageBundleFile `json:"files"`
+	MarketRelease *skillhub.Release        `json:"marketRelease,omitempty"`
 }
 
 type SkillFileSearchResult struct {
@@ -92,9 +94,10 @@ type SkillFileSearchResult struct {
 }
 
 type skillPackageMetadata struct {
-	Name        string
-	Description string
-	Version     string
+	Name          string
+	Description   string
+	Version       string
+	MarketRelease *skillhub.Release
 }
 
 type skillPackageArchive struct {
@@ -137,15 +140,45 @@ func (s *Service) EnsureSkillPackages() error {
 }
 
 func (s *Service) InstallSkillUpload(userID string, sourceType string, header *multipart.FileHeader, req SkillInstallRequest) (*SkillItem, error) {
-	sourceType, archive, err := readSkillPackageUpload(sourceType, header, req.Name, req.Description)
+	sourceType = strings.ToLower(strings.TrimSpace(sourceType))
+	if sourceType == "" && header != nil {
+		switch strings.ToLower(path.Ext(header.Filename)) {
+		case ".md", ".markdown":
+			sourceType = "markdown"
+		case ".zip":
+			sourceType = "zip"
+		}
+	}
+	if sourceType != "markdown" && sourceType != "zip" {
+		return nil, kernel.BadAuthRequest("技能文件仅支持 Markdown 或 ZIP")
+	}
+	if header == nil || header.Size <= 0 || header.Size > maxSkillPackageBytes {
+		return nil, kernel.BadAuthRequest("技能文件大小必须在 1B-20MB 之间")
+	}
+	file, err := header.Open()
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, maxSkillPackageBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxSkillPackageBytes {
+		return nil, kernel.BadAuthRequest("技能文件不能超过 20MB")
+	}
+	var archive skillPackageArchive
+	if sourceType == "markdown" {
+		archive, err = archiveFromMarkdown(data, req.Name, req.Description)
+	} else {
+		archive, err = archiveFromZip(data, "")
+	}
 	if err != nil {
 		return nil, err
 	}
 	return s.createSkillFromArchive(userID, archive, req, sourceType, "", "", "", "", false)
 }
 
-// ReplaceSkillPackage creates a new immutable version from an owner-supplied
-// archive. It is intentionally unavailable while review evidence is pending.
 func (s *Service) ReplaceSkillPackage(userID string, skillID string, sourceType string, header *multipart.FileHeader, req SkillInstallRequest) (*SkillItem, error) {
 	skill, err := s.ownedSkill(userID, skillID)
 	if err != nil {
@@ -227,10 +260,7 @@ func readSkillPackageUpload(sourceType string, header *multipart.FileHeader, nam
 	} else {
 		archive, err = archiveFromZip(data, "")
 	}
-	if err != nil {
-		return "", skillPackageArchive{}, err
-	}
-	return sourceType, archive, nil
+	return sourceType, archive, err
 }
 
 func (s *Service) InstallGitHubSkill(userID string, req SkillGitHubInstallRequest) (*SkillItem, error) {
@@ -343,6 +373,28 @@ func (s *Service) updateSingleMarkdownSkill(skill *model.Skill, req SkillMutatio
 	if err != nil {
 		return err
 	}
+	// Editing a private fork keeps its references and license alongside SKILL.md.
+	if skill.CurrentVersionID != "" {
+		bundle, e := s.SkillPackageBundle(skill.OwnerID, skill.ID)
+		if e != nil {
+			return e
+		}
+		for _, f := range bundle.Files {
+			if f.Path == "SKILL.md" {
+				continue
+			}
+			b, e := base64.StdEncoding.DecodeString(f.ContentBase64)
+			if e != nil {
+				return e
+			}
+			archive.Files[f.Path] = b
+		}
+		archive.Metadata.MarketRelease = bundle.MarketRelease
+		archive, err = finalizeSkillArchive(archive.Files, archive.Metadata)
+		if err != nil {
+			return err
+		}
+	}
 	skill.Instruction = req.Instruction
 	return s.addSkillArchiveVersion(skill, archive, "markdown", req.MarkdownURL, "", "", "", false)
 }
@@ -386,7 +438,7 @@ func (s *Service) createSkillFromArchive(userID string, archive skillPackageArch
 		CurrentVersionID: versionID, VersionLabel: versionLabel, ContentHash: archive.ContentHash, FileCount: len(archive.Files), TotalBytes: archive.TotalBytes,
 		SourceType: sourceType, SourceURL: sourceURL, SourceRef: sourceRef, SourceSubdir: sourceSubdir, SourceCommit: sourceCommit,
 		SyncStatus: "synced", AutoUpdate: autoUpdate, LastCheckedAt: &now, LastSyncedAt: &now,
-		Status: skillStatusEnabled, Source: skillSourceUser, Tag: tag, IsPrivate: true, ReviewStatus: skillReviewStatusDraft, MarkdownURL: sourceURL, ShowcaseMediaJSON: "[]",
+		Status: skillStatusEnabled, Source: skillSourceUser, Tag: tag, IsPrivate: req.IsPrivate, MarkdownURL: sourceURL, ShowcaseMediaJSON: "[]",
 	}
 	state := &model.UserSkillState{ID: kernel.NewID(), UserID: userID, SkillID: skillID, Added: true, InstalledVersionID: versionID, AutoUpdate: autoUpdate}
 	if err := s.repo.CreateSkillWithPackage(skill, version, files, state); err != nil {
@@ -397,15 +449,6 @@ func (s *Service) createSkillFromArchive(userID string, archive skillPackageArch
 }
 
 func (s *Service) addSkillArchiveVersion(skill *model.Skill, archive skillPackageArchive, sourceType string, sourceURL string, sourceRef string, sourceSubdir string, sourceCommit string, autoUpdate bool) error {
-	if skill.Source == skillSourceUser {
-		if skill.ReviewStatus == skillReviewStatusInReview {
-			return kernel.NewAppError(409, "技能正在审核，审核完成前不能更新文件")
-		}
-		if skill.ReviewStatus == skillReviewStatusPublished {
-			skill.ReviewStatus = skillReviewStatusPending
-			skill.IsPrivate = true
-		}
-	}
 	versionID := kernel.NewID()
 	packageKey, version, files, err := s.persistSkillArchive(skill.ID, versionID, archive, sourceCommit)
 	if err != nil {
@@ -437,7 +480,13 @@ func (s *Service) addSkillArchiveVersion(skill *model.Skill, archive skillPackag
 	skill.AutoUpdate = autoUpdate
 	skill.LastCheckedAt = &now
 	skill.LastSyncedAt = &now
-	if err := s.repo.AddSkillVersion(skill, version, files); err != nil {
+	var saveErr error
+	if sourceType == "market" {
+		saveErr = s.repo.AddMarketSkillVersion(skill, version, files)
+	} else {
+		saveErr = s.repo.AddSkillVersion(skill, version, files)
+	}
+	if err := saveErr; err != nil {
 		_ = os.Remove(filepath.Join(s.dataDir, "skill-packages", filepath.FromSlash(packageKey)))
 		return err
 	}
@@ -445,6 +494,14 @@ func (s *Service) addSkillArchiveVersion(skill *model.Skill, archive skillPackag
 }
 
 func (s *Service) persistSkillArchive(skillID string, versionID string, archive skillPackageArchive, sourceCommit string) (string, *model.SkillVersion, []model.SkillFile, error) {
+	marketReleaseJSON := ""
+	if archive.Metadata.MarketRelease != nil {
+		data, err := json.Marshal(archive.Metadata.MarketRelease)
+		if err != nil {
+			return "", nil, nil, err
+		}
+		marketReleaseJSON = string(data)
+	}
 	packageKey := path.Join(skillID, versionID+".zip")
 	absolute := filepath.Join(s.dataDir, "skill-packages", filepath.FromSlash(packageKey))
 	if err := os.MkdirAll(filepath.Dir(absolute), 0o750); err != nil {
@@ -474,7 +531,7 @@ func (s *Service) persistSkillArchive(skillID string, versionID string, archive 
 	if err := os.Rename(temporaryPath, absolute); err != nil {
 		return "", nil, nil, err
 	}
-	version := &model.SkillVersion{ID: versionID, SkillID: skillID, ContentHash: archive.ContentHash, EntryPath: "SKILL.md", PackageKey: packageKey, FileCount: len(archive.Files), TotalBytes: archive.TotalBytes, SourceCommit: sourceCommit}
+	version := &model.SkillVersion{ID: versionID, SkillID: skillID, ContentHash: archive.ContentHash, EntryPath: "SKILL.md", PackageKey: packageKey, FileCount: len(archive.Files), TotalBytes: archive.TotalBytes, SourceCommit: sourceCommit, MarketReleaseJSON: marketReleaseJSON}
 	paths := sortedSkillPaths(archive.Files)
 	files := make([]model.SkillFile, 0, len(paths))
 	for _, filePath := range paths {
@@ -540,6 +597,10 @@ func (s *Service) SkillPackageBundle(userID string, skillID string) (*SkillPacka
 		return nil, err
 	}
 	bundle := &SkillPackageBundle{SkillID: skill.ID, Name: skill.Name, Description: skill.Description, VersionID: version.ID, Version: version.VersionLabel, ContentHash: version.ContentHash, Files: make([]SkillPackageBundleFile, 0, len(files))}
+	bundle.MarketRelease, err = marketReleaseMetadata(version.MarketReleaseJSON)
+	if err != nil {
+		return nil, err
+	}
 	for _, file := range files {
 		content, err := s.readSkillArchiveEntry(version, file.Path)
 		if err != nil {
@@ -548,46 +609,6 @@ func (s *Service) SkillPackageBundle(userID string, skillID string) (*SkillPacka
 		bundle.Files = append(bundle.Files, SkillPackageBundleFile{Path: file.Path, MimeType: file.MimeType, ContentBase64: base64.StdEncoding.EncodeToString(content)})
 	}
 	return bundle, nil
-}
-
-func (s *Service) CreatePrivateRewrite(userID, skillID string) (*SkillItem, error) {
-	skill, err := s.visibleSkill(userID, skillID)
-	if err != nil {
-		return nil, err
-	}
-	if skill.OwnerID == userID {
-		return nil, kernel.BadAuthRequest("这是你自己的技能，可直接编辑")
-	}
-	bundle, err := s.SkillPackageBundle(userID, skillID)
-	if err != nil {
-		return nil, err
-	}
-	var archiveBytes bytes.Buffer
-	writer := zip.NewWriter(&archiveBytes)
-	for _, file := range bundle.Files {
-		data, err := base64.StdEncoding.DecodeString(file.ContentBase64)
-		if err != nil {
-			return nil, err
-		}
-		header := &zip.FileHeader{Name: file.Path, Method: zip.Deflate}
-		part, err := writer.CreateHeader(header)
-		if err != nil {
-			return nil, err
-		}
-		if _, err := part.Write(data); err != nil {
-			return nil, err
-		}
-	}
-	if err := writer.Close(); err != nil {
-		return nil, err
-	}
-	archive, err := archiveFromZip(archiveBytes.Bytes(), "")
-	if err != nil {
-		return nil, err
-	}
-	return s.createSkillFromArchive(userID, archive, SkillInstallRequest{
-		Name: skill.Name + "（我的改写）", Description: skill.Description, Tag: skill.Tag, IsPrivate: true,
-	}, "zip", "", "", "", "", false)
 }
 
 func (s *Service) SearchSkillPackage(userID string, skillID string, query string) ([]SkillFileSearchResult, error) {

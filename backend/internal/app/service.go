@@ -41,6 +41,8 @@ type Service struct {
 	storageMu                sync.Mutex
 	workerRuntimeMu          sync.Mutex
 	characterTaskMu          sync.Mutex
+	canvasWorkflowMu         sync.Mutex
+	canvasWorkflowLoop       bool
 	activeCancels            map[string]context.CancelFunc
 	pendingStorage           map[string]int64
 	coordinator              *platform.Coordinator
@@ -73,6 +75,7 @@ type Service struct {
 	projects                *localproject.Service
 	canvas                  *canvas.Service
 	assistantTurns          *assistantturns.Service
+	continuationBackground  assistantContinuationBackground
 	assets                  *localasset.Service
 	assetsOnce              sync.Once
 	appearance              *appearance.Service

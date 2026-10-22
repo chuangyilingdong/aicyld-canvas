@@ -50,6 +50,12 @@ func SafeRouteRejection(err error) bool {
 		// created, even when the gateway reports it as HTTP 503. Generic 5xx
 		// responses and transport failures still cannot prove non-submission.
 		fields := extractProviderFields(upstream.Body)
+		if _, echoed := persistedReferencePreparationFailure(upstream.Body); echoed {
+			return false
+		}
+		if _, echoed := persistedReferencePreparationFailure(fields.Message); echoed {
+			return false
+		}
 		if upstream.StatusCode >= 400 && fields.Code == "model_not_found" && fields.TaskID == "" {
 			return true
 		}
@@ -84,5 +90,7 @@ func UncertainVideoSubmission(ctx context.Context, err error) error {
 	if retry, _ := RetryableVideoPollError(context.Background(), err); retry {
 		return SubmissionUnknownError{Cause: err}
 	}
-	return err
+	// Once the create request has been attempted, only typed/safe route
+	// rejections above can prove that no upstream task was created.
+	return SubmissionUnknownError{Cause: err}
 }

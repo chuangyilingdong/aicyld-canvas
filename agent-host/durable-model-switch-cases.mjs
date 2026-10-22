@@ -4,7 +4,16 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { modelFixture } from './test-support/durable-model-switch-probe.mjs';
+
+function readJSONAfterExit(file) {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    try { return JSON.parse(fs.readFileSync(file, 'utf8')); }
+    catch (error) { if (error.code !== 'ENOENT' || attempt === 19) throw error; }
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+  }
+}
 
 test('official persisted idle sessions follow trusted new model; history retained; client ref ignored', { timeout: 30000 }, async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'beeftv-model-switch-'));
@@ -39,12 +48,12 @@ test('SIGKILL recovery never switches active turn; unavailable frozen model reje
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'beeftv-model-resume-'));
   let fixture;
   try {
-    const child = spawn(process.execPath, [new URL('./test-support/durable-model-switch-probe.mjs', import.meta.url).pathname, 'crash', directory], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, [fileURLToPath(new URL('./test-support/durable-model-switch-probe.mjs', import.meta.url)), 'crash', directory], { stdio: ['ignore', 'pipe', 'pipe'] });
     let stderr = ''; child.stderr.on('data', chunk => stderr += chunk);
     const exit = await new Promise(resolve => child.on('exit', (code, signal) => resolve({ code, signal })));
-    assert.equal(JSON.parse(fs.readFileSync(path.join(directory, 'checkpoint.json'))).actualModel, 'astra', stderr);
+    assert.equal(readJSONAfterExit(path.join(directory, 'checkpoint.json')).actualModel, 'astra', stderr);
     assert(process.platform === 'win32' ? exit.code === 1 : exit.signal === 'SIGKILL', stderr);
-    const { sessionId } = JSON.parse(fs.readFileSync(path.join(directory, 'session.json')));
+    const { sessionId } = readJSONAfterExit(path.join(directory, 'session.json'));
     fixture = await modelFixture(directory, 'gemini', ['gemini']);
     let entry = await fixture.store.ensureSession('canvas', sessionId);
     await assert.rejects(fixture.store.recover(entry), /model_unavailable_for_resume/);
@@ -57,5 +66,5 @@ test('SIGKILL recovery never switches active turn; unavailable frozen model reje
     assert.equal(result.reply, 'Actual astra reply'); assert.equal(result.error, null);
     assert.deepEqual(fixture.requests, ['astra']); assert.deepEqual(fixture.completed, ['interrupted']);
     assert(fixture.payloads[0].messages.some(message => message.role === 'user' && JSON.stringify(message.content).includes('Original frozen request')));
-  } finally { await fixture?.close(); fs.rmSync(directory, { recursive: true, force: true }); }
+  } finally { await fixture?.close(); fs.rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); }
 });

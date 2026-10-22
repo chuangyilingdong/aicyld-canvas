@@ -11,6 +11,17 @@ import (
 
 type MediaUpscaleRequest = mediaupscale.Request
 
+func (s *Service) upscaleConfig(name string) (generation.Config, error) {
+	apiKey, baseURL, _, _, err := s.lookupBeefAPICredential()
+	if err != nil {
+		return generation.Config{}, err
+	}
+	if strings.TrimSpace(apiKey) == "" || strings.TrimSpace(baseURL) == "" {
+		return generation.Config{}, BadAuthRequest("请先连接官方算力账号")
+	}
+	return generation.Config{BaseURL: baseURL, APIFormat: "openai", InterfaceType: "newapi-channel-2", APIKey: apiKey, Model: name}, nil
+}
+
 func (s *Service) MediaUpscaleCapabilities() map[string]any {
 	return mediaupscale.Capabilities()
 }

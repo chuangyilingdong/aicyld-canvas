@@ -31,14 +31,14 @@ func (r *Repository) Skills(filter SkillListFilter) ([]model.Skill, int64, error
 	switch filter.Scope {
 	case "mine":
 		query = query.Joins("LEFT JOIN user_skill_states ON user_skill_states.skill_id = skills.id AND user_skill_states.user_id = ?", filter.UserID).
-			Where("skills.owner_id = ? OR (user_skill_states.added = ? AND skills.is_private = ? AND skills.review_status = ?)", filter.UserID, true, false, "published")
+			Where("skills.owner_id = ? OR (user_skill_states.added = ? AND skills.is_private = ?)", filter.UserID, true, false)
 	case "created":
 		query = query.Where("skills.owner_id = ?", filter.UserID)
 	case "favorites":
 		query = query.Joins("JOIN user_skill_states ON user_skill_states.skill_id = skills.id AND user_skill_states.user_id = ? AND user_skill_states.liked = ?", filter.UserID, true).
-			Where("skills.owner_id = ? OR (skills.is_private = ? AND skills.review_status = ?)", filter.UserID, false, "published")
+			Where("skills.owner_id = ? OR skills.is_private = ?", filter.UserID, false)
 	default:
-		query = query.Where("skills.is_private = ? AND skills.review_status = ?", false, "published")
+		query = query.Where("skills.is_private = ?", false)
 	}
 	if filter.Search != "" {
 		pattern := "%" + strings.ToLower(filter.Search) + "%"
@@ -73,7 +73,7 @@ func (r *Repository) UpsertBuiltinSkills(skills []model.Skill) error {
 		Columns: []clause.Column{{Name: "id"}},
 		DoUpdates: clause.AssignmentColumns([]string{
 			"owner_id", "author_name", "author_avatar_url", "name", "description", "instruction", "status", "source", "tag", "sort_weight", "is_private",
-			"markdown_url", "review_status", "showcase_media_json", "extra_info", "initial_like_count", "initial_added_count", "created_at", "updated_at",
+			"markdown_url", "showcase_media_json", "extra_info", "initial_like_count", "initial_added_count", "created_at", "updated_at",
 		}),
 	}).Create(&skills).Error
 }
@@ -143,7 +143,7 @@ func (r *Repository) UserSkillStatesBySkillIDs(userID string, skillIDs []string)
 func (r *Repository) SetUserSkillAdded(state *model.UserSkillState) error {
 	return r.db.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "user_id"}, {Name: "skill_id"}},
-		DoUpdates: clause.AssignmentColumns([]string{"added", "enabled", "installed_version_id", "auto_update", "updated_at"}),
+		DoUpdates: clause.AssignmentColumns([]string{"added", "installed_version_id", "auto_update", "updated_at"}),
 	}).Create(state).Error
 }
 

@@ -222,10 +222,20 @@ export function midjourneyTaskMetadata(task: GenerationTask): Partial<CanvasNode
     if (action === "inpaint") {
         metadata.midjourneyStage = "inpaint";
         metadata.midjourneyNextAction = "modal";
+        metadata.midjourneyModalStartedAt = task.createdAt;
     } else if (action === "modal") {
         metadata.midjourneyStage = "modal";
     }
     return metadata;
+}
+
+export const MIDJOURNEY_MODAL_TIMEOUT_MS = 30 * 60 * 1000;
+
+export function midjourneyModalDeadline(node: Pick<CanvasNodeData, "metadata"> | null | undefined, now = Date.now()) {
+    const raw = node?.metadata?.midjourneyModalStartedAt || node?.metadata?.taskCreatedAt || "";
+    const startedAt = Date.parse(raw);
+    if (!Number.isFinite(startedAt)) return undefined;
+    return { startedAt, deadline: startedAt + MIDJOURNEY_MODAL_TIMEOUT_MS, remainingMs: Math.max(0, startedAt + MIDJOURNEY_MODAL_TIMEOUT_MS - now) };
 }
 
 export function midjourneyTaskButtons(task: GenerationTask): MidjourneyButton[] {

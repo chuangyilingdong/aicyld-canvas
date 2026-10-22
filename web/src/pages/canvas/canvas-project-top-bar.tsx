@@ -17,6 +17,8 @@ type CanvasTopBarProps = {
     syncStatus?: ReactNode;
     versionsOpen: boolean;
     onToggleVersions: () => void;
+    onOpenWorkflows?: () => void;
+    workflowsOpen?: boolean;
     assistantOpen?: boolean;
     onToggleAssistant?: () => void;
     title: string;
@@ -63,6 +65,8 @@ export function CanvasTopBar({
     syncStatus,
     versionsOpen,
     onToggleVersions,
+    onOpenWorkflows,
+    workflowsOpen = false,
     assistantOpen = false,
     onToggleAssistant,
     title,
@@ -341,6 +345,7 @@ export function CanvasTopBar({
                 ) : null}
 
                 <div className="canvas-topbar-cluster canvas-topbar-local-cluster pointer-events-auto hidden items-center gap-1 lg:flex" style={dockStyle}>
+                    {onOpenWorkflows ? <Button type="text" className="canvas-topbar-action !h-9 !rounded-xl !px-2.5" style={{ color: theme.node.text, background: workflowsOpen ? theme.toolbar.activeBg : undefined }} aria-pressed={workflowsOpen} icon={<Workflow className="size-4" />} onClick={onOpenWorkflows}>工作流</Button> : null}
                     {onToggleAssistant ? (
                         <CanvasTopBarTooltip label="Agent（Ctrl/Cmd + J）">
                             <Button

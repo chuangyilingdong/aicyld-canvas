@@ -8,6 +8,7 @@ import {
     midjourneyHdUpscaleUnavailableReason,
     midjourneyIndexForNode,
     midjourneyImagineRequestOptions,
+    midjourneyModalDeadline,
     MIDJOURNEY_VERSIONS,
     midjourneyResultMode,
     midjourneyTaskButtons,
@@ -171,5 +172,13 @@ describe("Midjourney canvas contract", () => {
         expect(midjourneyHdUpscaleUnavailableReason(parent, 2, "8.1")).toBe("");
         expect(midjourneyHdUpscaleCustomId(parent, 2, "hd-subtle", "8.2")).toBe("");
         expect(midjourneyHdUpscaleUnavailableReason(parent, 2, "8.2")).toContain("v8.2");
+    });
+
+    test("MODAL countdown uses the persisted inpaint task start and expires after 30 minutes", () => {
+        const started = Date.parse("2026-10-22T10:00:00.000Z");
+        const active = midjourneyModalDeadline(node({ midjourneyModalStartedAt: "2026-10-22T10:00:00.000Z" }), started + 29 * 60 * 1000);
+        expect(active?.remainingMs).toBe(60_000);
+        const expired = midjourneyModalDeadline(node({ midjourneyModalStartedAt: "2026-10-22T10:00:00.000Z" }), started + 30 * 60 * 1000);
+        expect(expired?.remainingMs).toBe(0);
     });
 });

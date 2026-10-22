@@ -1,4 +1,5 @@
 import type { CanvasColorGrade } from "@/lib/canvas/canvas-color-grade";
+import type { WorkflowDefinition, WorkflowMediaType, WorkflowNodeRole, WorkflowRun, WorkflowValue } from "@/services/api/canvas-workflows";
 import type { MediaConversionNodeState } from "@/lib/media-conversion/contracts";
 import type { AssetCategory } from "@/lib/asset-category";
 import type { PortraitTextureSettings } from "@/lib/canvas/canvas-portrait-texture";
@@ -28,6 +29,8 @@ export enum CanvasNodeType {
     Video = "video",
     Audio = "audio",
     Frame = "frame",
+    Workflow = "reusable-workflow",
+    WorkflowControl = "workflow-control",
     Markdown = "markdown",
     Svg = "svg",
     Html = "html",
@@ -191,6 +194,20 @@ export type MidjourneyButton = {
 };
 
 export type CanvasNodeMetadata = {
+    /** Deterministic canvas processing recipe, without runtime state or credentials. */
+    workflowOperation?: { id: string; version: number; config: Record<string, string | number | boolean>; inputs: Array<{ nodeId: string; port: string; order?: number }> };
+    reusableWorkflow?: {
+        layoutVersion?: number;
+        templateId: string;
+        templateRevision?: number;
+        definition: WorkflowDefinition;
+        run?: WorkflowRun;
+        intent?: { clientOperationId: string; inputs: Record<string, WorkflowValue> };
+        error?: string;
+        inputsChanged?: boolean;
+        runApplied?: boolean;
+    };
+    workflowSlot?: { instanceId: string; nodeId: string; role: WorkflowNodeRole; mediaType: WorkflowMediaType; status?: string; error?: string };
     /** Media interaction role. `generator` owns generation controls; `result` is an inspect/process object. */
     nodeRole?: CanvasMediaNodeRole;
     /** How a media result entered the canvas. Only meaningful when nodeRole is `result`. */
@@ -289,6 +306,8 @@ export type CanvasNodeMetadata = {
     isBatchRoot?: boolean;
     batchRootId?: string;
     batchChildIds?: string[];
+    /** Original output targets for this generation; independent of the editable batch layout. */
+    generationOutputNodeIds?: string[];
     batchFailedCount?: number;
     batchUsesReferenceImages?: boolean;
     primaryImageId?: string;
@@ -377,6 +396,7 @@ export type CanvasNodeMetadata = {
     midjourneyButtons?: MidjourneyButton[];
     midjourneyMaskSourceNodeId?: string;
     midjourneyModalSubmittedTaskId?: string;
+    midjourneyModalStartedAt?: string;
     /** Zero-based output position used to derive Midjourney's one-based index. */
     taskOutputIndex?: number;
     taskOfficialStatus?: "pending" | "processing" | "completed" | "failed" | "cancelled";
@@ -402,6 +422,10 @@ export type CanvasNodeMetadata = {
     videoCameraMovePrompt?: string;
     videoStartFrameNodeId?: string;
     videoEndFrameNodeId?: string;
+    videoMiddleFrameNodeId?: string;
+    videoMiddleFrameTime?: number;
+    videoH3Options?: import("@/lib/h3-video").H3VideoOptions;
+    videoReferenceOrder?: string[];
     videoFrameSourceNodeId?: string;
     videoFrameTimeMs?: number;
     /** Traceability for media operations created from an existing video node. */

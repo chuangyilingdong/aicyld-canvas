@@ -9,9 +9,9 @@ test("Skill marketplace is reachable from the workspace", async () => {
         source("../src/router.tsx"),
         source("../src/components/layout/workspace-sidebar-nav.tsx"),
     ]);
-    expect(router).toContain('{ path: "/skill", element: <Navigate to="/" replace /> }');
+    expect(router).toContain('{ path: "/skill", element: <Navigate to="/skills" replace /> }');
     expect(router).not.toContain("SkillsReferencePage");
-    expect(router).toContain("const SkillsPage = lazy(loadSkillsPage);");
+    expect(router).toContain('const SkillsPage = lazy(() => import("@/pages/skills/marketplace"));');
     expect(router).toContain('{ path: "/skills", element: deferred(<SkillsPage />) }');
     expect(sidebar).toContain('toolItem("skills", "/skills")');
 });

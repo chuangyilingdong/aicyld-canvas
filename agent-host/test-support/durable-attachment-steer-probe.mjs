@@ -6,6 +6,7 @@ import path from 'node:path';
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
+import { serveEmptySkillContext } from './skill-context-fixture.mjs';
 const root = path.resolve(process.argv[2] || '.');
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'beeftv-durable-http-steer-'));
 const hostToken = 'fixture-http-steer';
@@ -18,11 +19,13 @@ const closed = new Set();
 const ops = createServer(async (req, res) => {
   assert.equal(req.headers['x-beeftv-agent-token'], hostToken);
   res.setHeader('content-type', 'application/json');
+  if(serveEmptySkillContext(req,res))return;
   const turn = req.url.match(/\/assistant\/runtime\/turns\/([^/]+)(\/complete)?$/);
   if (turn) { if (turn[2]) closed.add(turn[1]); res.end(JSON.stringify({ code: 0, data: { turnId: turn[1], canvasId: 'canvas', open: !closed.has(turn[1]), revision: 1 } })); return; }
   if (req.url === '/api/ops') { res.end(JSON.stringify({ code: 0, data: { ops: [{ id: 'canvas.node.update', summary: 'update', assistantModes: ['canvas', 'full-access'], replay: 'safe', readOnly: false, params: { type: 'object', properties: { nodeId: { type: 'string' }, expectedRevision: { type: 'integer' }, patch: { type: 'object' } } } }] } })); return; }
   const body = await read(req);
   if(req.url.endsWith('/bind-session')) {assert.match(body.sessionId,/^durable:/);res.end(JSON.stringify({code:0,data:{bound:true}}));return;}
+  if (req.url === '/api/ops/skill.catalog') { res.end(JSON.stringify({ code: 0, data: { result: { skills: [], total: 0 } } })); return; }
   if (req.url === '/api/ops/media.overview') { res.end(JSON.stringify({ code: 0, data: { result: { source: { version: 'owned-fixture-version' } } } })); return; }
   if (req.url === '/api/ops/media.inspect') {
     assert.equal(body.params.expectedVersion, 'owned-fixture-version');

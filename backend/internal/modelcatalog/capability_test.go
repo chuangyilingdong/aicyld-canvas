@@ -35,9 +35,9 @@ func TestNormalizeCustomImageModelWithoutGuessedLimits(t *testing.T) {
 	}
 }
 
-func TestMidjourneyImageCapabilityUsesSpeedTiersAndSingleGridOutput(t *testing.T) {
+func TestMidjourneyImageCapabilityUsesSpeedTiersAndFourOutputs(t *testing.T) {
 	profile := DefaultImageCapabilityConfig("midjourney", "midjourney-imagine")
-	if profile.MaxOutputs != 1 || profile.References.MaskSupported || profile.Size.Parameter != "aspect_ratio" {
+	if profile.MaxOutputs != 4 || profile.FixedOutputs != 4 || profile.References.MaskSupported || profile.Size.Parameter != "aspect_ratio" {
 		t.Fatalf("unexpected Midjourney profile: %#v", profile)
 	}
 	if !containsCapabilityString(profile.Quality.Values, "relax") || !containsCapabilityString(profile.Quality.Values, "fast") || !containsCapabilityString(profile.Quality.Values, "turbo") || profile.Quality.Default != "relax" {

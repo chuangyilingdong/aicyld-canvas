@@ -364,6 +364,35 @@ func (s *Service) History(userID, canvasID, turnID string) (*HistoryState, error
 	return &HistoryState{Change: change, Undone: rec.Undone, PermissionMode: Mode(rec.PermissionMode)}, nil
 }
 
+// CheckProposalRunnable is the server gate before a generation the round
+// suggested is started. Undo and a changed intent both invalidate unstarted
+// proposals, even when automatic continuation is disabled.
+func (s *Service) CheckProposalRunnable(userID, canvasID, turnID string) error {
+	if err := requireActor(userID, canvasID); err != nil {
+		return err
+	}
+	if NormalizeTurnID(turnID) == "" {
+		return errNotFound()
+	}
+	rec, err := s.load(nil, turnID)
+	if err != nil {
+		if isMissing(err) {
+			return errNotFound()
+		}
+		return err
+	}
+	if rec.UserID != userID || rec.CanvasID != canvasID {
+		return errNotFound()
+	}
+	if rec.Undone {
+		return &Error{Reason: ReasonUndone, Message: "这一轮已撤销，不会生成。"}
+	}
+	if rec.ContinuationInvalidated {
+		return continuationError("intent_changed")
+	}
+	return nil
+}
+
 // Undone reports whether the owner-scoped round carries a durable undo marker.
 func (s *Service) Undone(userID, canvasID, turnID string) bool {
 	if err := requireActor(userID, canvasID); err != nil {

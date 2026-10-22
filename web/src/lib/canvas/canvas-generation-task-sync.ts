@@ -159,7 +159,8 @@ export async function buildGenerationTaskNodeResult(node: CanvasNodeData, task: 
     const result = parseBackendGenerationResult(task);
 
     if (mode === "image") {
-        const image = result.images?.[0];
+        const outputIndex = Math.max(0, Math.floor(Number(node.metadata?.taskOutputIndex) || 0));
+        const image = result.images?.[outputIndex] || result.images?.[0];
         const imageSource = image?.dataUrl || image?.url || "";
         const reuseImageKey = reuseGeneratedMediaStorageKey(image?.storageKey, imageSource);
         if (!imageSource && !reuseImageKey) throw new Error("后端任务没有返回图片");
@@ -193,7 +194,7 @@ export async function buildGenerationTaskNodeResult(node: CanvasNodeData, task: 
             width: imageSize.width,
             height: imageSize.height,
             position: { x: node.position.x + node.width / 2 - imageSize.width / 2, y: node.position.y + node.height / 2 - imageSize.height / 2 },
-            metadata: applyGeneratedMediaResultMetadata(node, imageMetadata(normalizedImage), { prompt, ...completedTaskMetadata(task) }),
+            metadata: applyGeneratedMediaResultMetadata(node, imageMetadata(normalizedImage), { prompt, ...completedTaskMetadata(task, outputIndex) }),
         };
     }
 
@@ -347,11 +348,11 @@ function findGenerationTaskNode(nodes: CanvasNodeData[], task: GenerationTask, t
     return nodes.find((node) => node.id === nodeId || node.metadata?.taskId === task.id);
 }
 
-function completedTaskMetadata(task: GenerationTask): CanvasNodeMetadata {
+function completedTaskMetadata(task: GenerationTask, outputIndex?: number): CanvasNodeMetadata {
     const midjourney = midjourneyTaskMetadata(task);
     return {
         ...midjourney,
-        ...(midjourney.midjourneyAction ? { taskOutputIndex: 0 } : {}),
+        ...(midjourney.midjourneyAction ? { taskOutputIndex: outputIndex ?? 0 } : {}),
         taskFailureDiagnostics: task.failureDiagnostics,
         taskProviderRequestId: task.providerRequestId,
         taskId: task.id,

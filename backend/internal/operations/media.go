@@ -103,10 +103,21 @@ func registerMediaOps(r *Registry) {
 		"media.inspect":  "实际读取指定区间，每次最多 15 秒：frames 看静态截图，video 看连续原生视频，audio 听原生音频；按问题选择，不把抽帧当作完整影音审查。",
 		"media.check":    "客观测量指定区间的黑屏、音量与静音停顿（固定 -35 dB、最少 120 ms，返回原素材坐标）；音量与停顿不能判断声音内容。停顿仅是候选切点，随后用 media.inspect audio 裁剪并实际听取确认，不能当作词时间戳或语义切点，不能替代实际查看和听取。",
 	}
+	properties := map[string]any{
+		"canvasId": map[string]any{"type": "string"}, "nodeId": map[string]any{"type": "string"}, "assetId": map[string]any{"type": "string"}, "resourceId": map[string]any{"type": "string"},
+		"expectedVersion": map[string]any{"type": "string", "minLength": 1, "description": "先调用 media.overview，使用返回的 version；inspect 和 check 必填，不猜版本。"},
+		"startMs":         map[string]any{"type": "integer", "minimum": 0}, "endMs": map[string]any{"type": "integer", "minimum": 0},
+		"mode": map[string]any{"type": "string", "description": "frames：离散静态截图，用于构图与画面内容，不能判断连续运动或声音；video：连续原生视频片段，用于运镜、动作、转场与音画关系，保留可用音轨；audio：原生音频片段，用于说话、对白、音乐和声音内容。按检查目标选择；inspect 每次最多 15 秒。", "enum": []string{"frames", "video", "audio"}},
+	}
 	for _, id := range []string{"media.overview", "media.inspect", "media.check"} {
 		operation := id
+		required := []string{"canvasId"}
+		if operation != "media.overview" {
+			required = append(required, "expectedVersion")
+		}
+		params, _ := json.Marshal(map[string]any{"type": "object", "additionalProperties": false, "properties": properties, "required": required})
 		r.Register(Op{AssistantCanvas: true, ID: operation, Summary: summaries[operation], ReadOnly: true, Scope: ScopeCanvas,
-			Params:  json.RawMessage(`{"type":"object","properties":{"canvasId":{"type":"string"},"nodeId":{"type":"string"},"assetId":{"type":"string"},"resourceId":{"type":"string"},"expectedVersion":{"type":"string"},"startMs":{"type":"integer","minimum":0},"endMs":{"type":"integer","minimum":0},"mode":{"type":"string","description":"frames：离散静态截图，用于构图与画面内容，不能判断连续运动或声音；video：连续原生视频片段，用于运镜、动作、转场与音画关系，保留可用音轨；audio：原生音频片段，用于说话、对白、音乐和声音内容。按检查目标选择；inspect 每次最多 15 秒。","enum":["frames","video","audio"]}},"required":["canvasId"]}`),
+			Params:  params,
 			Handler: func(ctx *Context, raw json.RawMessage) (any, error) { return runMedia(ctx, operation, raw) }})
 	}
 }

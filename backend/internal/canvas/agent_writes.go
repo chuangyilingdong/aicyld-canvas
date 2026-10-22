@@ -24,6 +24,73 @@ type NodeDraft struct {
 	Prompt string
 }
 
+func createCanvasNodes(doc map[string]any, drafts []NodeDraft) ([]CreatedNode, error) {
+	nodes := canvasDocNodes(doc)
+	existingTitles := map[string]bool{}
+	cursorX := 120.0
+	for _, rawNode := range nodes {
+		if node, ok := rawNode.(map[string]any); ok {
+			if title, _ := node["title"].(string); title != "" {
+				existingTitles[normalizeNodeTitle(title)] = true
+			}
+			position, _ := node["position"].(map[string]any)
+			x, _ := position["x"].(float64)
+			width, _ := node["width"].(float64)
+			if width <= 0 {
+				width = 320
+				if descriptor, ok := canvasCapabilityRegistry.Resolve(canvasNodeType(node)); ok && descriptor.DefaultWidth > 0 {
+					width = descriptor.DefaultWidth
+				}
+			}
+			if right := x + width + nodePlacementGap; right > cursorX {
+				cursorX = right
+			}
+		}
+	}
+	seen := map[string]bool{}
+	for _, draft := range drafts {
+		title := normalizeNodeTitle(draft.Title)
+		if title == "" {
+			return nil, kernel.NewAppError(http.StatusBadRequest, "每个节点都需要标题")
+		}
+		if seen[title] {
+			return nil, kernel.NewAppError(http.StatusBadRequest, "同一批次内标题重复: "+title)
+		}
+		seen[title] = true
+		if existingTitles[title] {
+			return nil, kernel.NewAppError(http.StatusConflict, "标题已存在: "+title)
+		}
+		if _, ok := canvasCapabilityRegistry.Resolve(draft.Type); !ok {
+			return nil, kernel.NewAppError(http.StatusBadRequest, "不支持的节点类型: "+draft.Type)
+		}
+	}
+	created := make([]CreatedNode, 0, len(drafts))
+	for _, draft := range drafts {
+		descriptor, _ := canvasCapabilityRegistry.Resolve(draft.Type)
+		width, height := descriptor.DefaultWidth, descriptor.DefaultHeight
+		if width <= 0 {
+			width = 320
+		}
+		if height <= 0 {
+			height = 220
+		}
+		metadata := descriptor.Metadata(draft.Prompt)
+		if strings.TrimSpace(draft.Prompt) != "" {
+			metadata["prompt"] = draft.Prompt
+		}
+		nodeID := newCanvasNodeID()
+		nodes = append(nodes, map[string]any{
+			"id": nodeID, "type": draft.Type, "title": draft.Title,
+			"position": map[string]any{"x": cursorX, "y": 160},
+			"width":    width, "height": height, "metadata": metadata,
+		})
+		created = append(created, CreatedNode{ID: nodeID, Title: draft.Title, Type: draft.Type})
+		cursorX += width + nodePlacementGap
+	}
+	doc["nodes"] = nodes
+	return created, nil
+}
+
 // CreatedNode 是创建成功后由领域返回的节点身份。
 // 调用方必须用它继续工作（连线、后续修改、变更摘要）：标题是用户内容，不是身份，
 // 用标题回找会在标题带空白/重名/被并发改写时丢结果。

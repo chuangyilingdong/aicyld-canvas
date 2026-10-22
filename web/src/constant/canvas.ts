@@ -22,6 +22,8 @@ export const NODE_DEFAULT_SIZE = {
     // shallow waveform strip; this keeps the empty-state affordance visible.
     [CanvasNodeType.Audio]: { width: 320, height: 320, title: "音频" },
     [CanvasNodeType.Frame]: { width: 760, height: 520, title: "未命名背板" },
+    [CanvasNodeType.Workflow]: { width: 1180, height: 1030, title: "工作流" },
+    [CanvasNodeType.WorkflowControl]: { width: 1100, height: 180, title: "工作流进度" },
     [CanvasNodeType.Markdown]: { width: 420, height: 320, title: "Markdown" },
     [CanvasNodeType.Svg]: { width: 420, height: 320, title: "SVG" },
     [CanvasNodeType.Html]: { width: 520, height: 380, title: "HTML" },
@@ -80,6 +82,8 @@ export const NODE_SPECS = {
         ...NODE_DEFAULT_SIZE[CanvasNodeType.Frame],
         metadata: { frame: { collapsed: false, expandedWidth: NODE_DEFAULT_SIZE[CanvasNodeType.Frame].width, expandedHeight: NODE_DEFAULT_SIZE[CanvasNodeType.Frame].height } },
     },
+    [CanvasNodeType.Workflow]: { ...NODE_DEFAULT_SIZE[CanvasNodeType.Workflow], metadata: undefined },
+    [CanvasNodeType.WorkflowControl]: { ...NODE_DEFAULT_SIZE[CanvasNodeType.WorkflowControl], metadata: undefined },
     [CanvasNodeType.Markdown]: {
         ...NODE_DEFAULT_SIZE[CanvasNodeType.Markdown],
         metadata: { content: "", status: "idle" },

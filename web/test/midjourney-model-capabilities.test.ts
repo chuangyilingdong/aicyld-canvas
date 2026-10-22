@@ -9,8 +9,9 @@ test("Midjourney imagine 只暴露比例与速度档，并把 fast 原值送入�
     const profile = defaultImageCapabilityConfig("midjourney", "midjourney-imagine");
     expect(profile.size).toMatchObject({ parameter: "aspect_ratio", allowCustom: false, default: "1:1" });
     expect(profile.quality).toEqual({ supported: true, values: ["relax", "fast", "turbo"], default: "relax" });
-    expect(profile.maxOutputs).toBe(1);
-    expect(normalizeImageValue(profile, { size: "16:9", quality: "fast", count: "4" })).toMatchObject({ size: "16:9", quality: "fast", count: "1" });
+    expect(profile.maxOutputs).toBe(4);
+    expect(profile.fixedOutputs).toBe(4);
+    expect(normalizeImageValue(profile, { size: "16:9", quality: "fast", count: "4" })).toMatchObject({ size: "16:9", quality: "fast", count: "4" });
 
     const channel = createModelChannel({
         id: "platform", name: "Platform", baseUrl: "https://api.seedance.nz", apiKey: "system", interfaceType: "openai",

@@ -22,7 +22,7 @@ type UseCanvasSelectionControllerOptions = {
     onNodeInteractionStart: (selectionModifier: boolean) => void;
     onNodeBringToFront?: (nodeId: string) => void;
     onNodeClick: (node: CanvasNodeData) => void;
-    onNodeDragEnd?: (nodeId: string) => void;
+    onNodeDragEnd?: (nodeId: string, point: Position) => void;
     onBatchConnectionTarget?: (event: ReactMouseEvent | ReactPointerEvent, nodeId: string) => boolean;
     onLinkedFolderDrop?: (folder: CanvasNodeData, nodes: CanvasNodeData[]) => void;
     onDeselect: () => void;
@@ -258,9 +258,17 @@ export function useCanvasSelectionController({
             const target = targetId ? positioned.find((node) => node.id === targetId) : undefined;
             const linkedFolder = target?.metadata?.folder?.assetFolderId ? target : undefined;
             // 素材库文件夹只建立归档关系，不把画布节点变成其本地子节点。
-            setNodes(linkedFolder ? positioned : applyFrameDrop(positioned, draggedNodeIds, targetId));
+            const nextNodes = linkedFolder ? positioned : applyFrameDrop(positioned, draggedNodeIds, targetId);
+            nodesRef.current = nextNodes;
+            setNodes(nextNodes);
             if (linkedFolder) onLinkedFolderDrop?.(linkedFolder, positioned.filter((node) => draggedNodeIds.has(node.id)));
-            if (clickedNodeId) onNodeDragEnd?.(clickedNodeId);
+            if (clickedNodeId) {
+                const dragged = nextNodes.find((node) => node.id === clickedNodeId);
+                const point = clientX != null && clientY != null
+                    ? screenToCanvas(clientX, clientY)
+                    : { x: (dragged?.position.x || 0) + (dragged?.width || 0) / 2, y: (dragged?.position.y || 0) + (dragged?.height || 0) / 2 };
+                onNodeDragEnd?.(clickedNodeId, point);
+            }
         }
         setFrameDropTargetId(null);
         alignmentContextRef.current = null;
@@ -270,7 +278,7 @@ export function useCanvasSelectionController({
             const clickedNode = nodesRef.current.find((node) => node.id === clickedNodeId);
             if (clickedNode) onNodeClick(clickedNode);
         }
-    }, [historyPausedRef, nodesRef, onLinkedFolderDrop, onNodeClick, onNodeDragEnd, setNodes, snapToGrid, viewportRef]);
+    }, [historyPausedRef, nodesRef, onLinkedFolderDrop, onNodeClick, onNodeDragEnd, screenToCanvas, setNodes, snapToGrid, viewportRef]);
 
     const handleNodeDragMove = useCallback((event: MouseEvent | PointerEvent) => {
         if (!dragRef.current.isDraggingNode) return;

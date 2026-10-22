@@ -22,12 +22,12 @@ func TestBeefAPIH3FamilyBodyKeepsModelAndRoles(t *testing.T) {
 }
 
 func TestBeefAPIH3BaseReferencesStayMultimodal(t *testing.T) {
-	input := Input{Prompt: "Image 1 walks like Video 1. Audio 1 supplies the voice.", Config: Config{Model: "minimax-h3", VideoSeconds: "5", VQuality: "2k", Size: "16:9"}, ReferenceImages: []Media{{ID: "ref", DataURL: "data:image/png;base64,dGVzdA=="}}, ReferenceVideos: []Media{{DataURL: "data:video/mp4;base64,dGVzdA=="}}, ReferenceAudios: []Media{{DataURL: "data:audio/wav;base64,dGVzdA=="}}}
+	input := Input{Prompt: "Image 1 walks like Video 1. Audio 1 supplies the voice.", Config: Config{Model: "minimax-h3", VideoSeconds: "5", VQuality: "1080p", Size: "16:9"}, ReferenceImages: []Media{{ID: "ref", DataURL: "data:image/png;base64,dGVzdA=="}}, ReferenceVideos: []Media{{DataURL: "data:video/mp4;base64,dGVzdA=="}}, ReferenceAudios: []Media{{DataURL: "data:audio/wav;base64,dGVzdA=="}}}
 	body, err := BeefAPIVideoRequestBody(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if body["operation"] != "reference_to_video" || body["resolution"] != "2k" || body["target_audio_url"] != nil {
+	if body["operation"] != "reference_to_video" || body["resolution"] != "1080p" || body["target_audio_url"] != nil {
 		t.Fatalf("wrong reference mode: %#v", body)
 	}
 	for key, want := range map[string][]string{"reference_image_urls": {"data:image/png;base64,dGVzdA=="}, "reference_video_urls": {"data:video/mp4;base64,dGVzdA=="}, "reference_audio_urls": {"data:audio/wav;base64,dGVzdA=="}} {
@@ -51,9 +51,9 @@ func TestBeefAPIH3VariantDurationAndResolution(t *testing.T) {
 		model, seconds, resolution string
 		ok                         bool
 	}{
-		{"minimax-h3", "5", "2k", true}, {"minimax-h3", "5", "1440", true}, {"minimax-h3", "15", "4k", true},
-		{"minimax-h3", "3", "768", false}, {"minimax-h3", "5", "1080p", false},
-		{"minimax-h3-max", "3", "768p", true}, {"minimax-h3-max", "5", "2k", false},
+		{"minimax-h3", "5", "768", true}, {"minimax-h3", "5", "1080p", true}, {"minimax-h3", "4", "480", true},
+		{"minimax-h3", "3", "768", false}, {"minimax-h3", "5", "2k", false},
+		{"minimax-h3-max", "5", "768p", true}, {"minimax-h3-max", "3", "768p", false}, {"minimax-h3-max", "5", "2k", false},
 	} {
 		_, err := BeefAPIVideoRequestBody(Input{Prompt: "test", Config: Config{Model: tc.model, VideoSeconds: tc.seconds, VQuality: tc.resolution}})
 		if (err == nil) != tc.ok {

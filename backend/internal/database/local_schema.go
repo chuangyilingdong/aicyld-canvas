@@ -15,7 +15,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion int64 = 17
+const CurrentSchemaVersion int64 = 22
 
 type localSchemaMigration struct {
 	Version   int64 `gorm:"primaryKey;autoIncrement:false"`
@@ -57,8 +57,10 @@ func LocalModels() []any {
 		&model.Project{}, &model.ProjectFolder{}, &model.StyleProfile{}, &model.ProjectUnit{}, &model.CanvasUnitLink{},
 		&model.Shot{}, &model.ShotRevision{}, &model.ShotArtifact{}, &model.ShotAssetReference{},
 		&model.WorkflowTemplateVersion{}, &model.WorkflowInstance{}, &model.WorkflowStepInstance{}, &model.WorkflowStepTask{}, &model.ProductionTaskLink{},
+		&model.CanvasWorkflow{}, &model.CanvasWorkflowRun{}, &model.CanvasWorkflowResource{}, &model.CanvasWorkflowRevision{},
 		&model.CanvasProject{}, &model.CanvasSnapshot{}, &model.CanvasSnapshotResource{}, &model.AgentOpRecord{},
 		&model.AssistantTurn{},
+		&model.AssistantContinuation{}, &model.AssistantSkillContext{}, &model.AssistantSkillContextMutation{},
 		&model.CreationConversation{},
 		&model.CanvasLibraryFolder{}, &model.CanvasDrawing{},
 		&model.PromptTemplate{}, &model.UserPromptCustomization{},
@@ -91,7 +93,31 @@ func canonicalLocalMigrations() []localMigration {
 		{version: 15, name: "assistant-permission-and-canvas-snapshots", apply: migrateAssistantPermissions},
 		{version: 16, name: "assistant-durable-session-binding", apply: migrateAssistantSessions},
 		{version: 17, name: "skill-market-review-submissions", apply: migrateSkillMarketSubmissions},
+		{version: 18, name: "canvas-reusable-workflows", apply: migrateCanvasReusableWorkflows},
+		{version: 19, name: "assistant-active-skill-context", apply: migrateAssistantSkillContexts},
+		{version: 20, name: "assistant-generation-continuations", apply: migrateAssistantContinuations},
+		{version: 21, name: "assistant-continuation-intent-and-production", apply: func(tx *gorm.DB) error {
+			if err := migrateAssistantContinuationIntentFence(tx); err != nil {
+				return err
+			}
+			return migrateAssistantProductionAuthorization(tx)
+		}},
+		{version: 22, name: "assistant-market-release-metadata", apply: migrateSkillMarketReleaseColumn},
 	}
+}
+
+func migrateSkillMarketReleaseColumn(tx *gorm.DB) error {
+	return ensureSQLiteColumn(tx, "skill_versions", "market_release_json", "TEXT")
+}
+
+func migrateCanvasReusableWorkflows(tx *gorm.DB) error {
+	if err := tx.AutoMigrate(&model.CanvasWorkflow{}, &model.CanvasWorkflowRun{}, &model.CanvasWorkflowResource{}, &model.CanvasWorkflowRevision{}); err != nil {
+		return err
+	}
+	if err := ensureSQLiteColumn(tx, "tasks", "workflow_source_cipher", "TEXT"); err != nil {
+		return err
+	}
+	return tx.Exec("INSERT OR IGNORE INTO canvas_workflow_revisions (template_id, revision, user_id, name, description, definition_json, recipe_cipher) SELECT id, 1, user_id, name, description, definition_json, recipe_cipher FROM canvas_workflows").Error
 }
 
 // migrateSkillMarketSubmissions adds the explicit review gate for publishable
@@ -493,7 +519,86 @@ func requireReconciledSchema(db *gorm.DB) error {
 		}
 	}
 	if version >= 16 {
-		return requireAssistantSessions(db)
+		if err := requireAssistantSessions(db); err != nil {
+			return err
+		}
+	}
+	if version >= 18 {
+		for _, item := range []struct {
+			value any
+			label string
+		}{
+			{&model.CanvasWorkflow{}, "画布工作流"},
+			{&model.CanvasWorkflowRun{}, "画布工作流运行"},
+			{&model.CanvasWorkflowResource{}, "画布工作流资源"},
+			{&model.CanvasWorkflowRevision{}, "画布工作流版本"},
+		} {
+			if err := requireLocalModelTable(db, item.value, item.label); err != nil {
+				return err
+			}
+		}
+		has, err := sqliteHasColumn(db, "tasks", "workflow_source_cipher")
+		if err != nil {
+			return err
+		}
+		if !has {
+			return fmt.Errorf("本地任务结构缺失列 workflow_source_cipher")
+		}
+	}
+	if version >= 19 {
+		if err := requireLocalModelTable(db, &model.AssistantSkillContext{}, "助手技能上下文"); err != nil {
+			return err
+		}
+		if err := requireLocalModelTable(db, &model.AssistantSkillContextMutation{}, "助手技能上下文回执"); err != nil {
+			return err
+		}
+	}
+	if version >= 20 {
+		if err := requireAssistantContinuations(db); err != nil {
+			return err
+		}
+	}
+	if version >= 21 {
+		if err := requireAssistantContinuationIntentFence(db); err != nil {
+			return err
+		}
+		if err := requireAssistantProductionAuthorization(db); err != nil {
+			return err
+		}
+	}
+	if version >= 22 {
+		has, err := sqliteHasColumn(db, "skill_versions", "market_release_json")
+		if err != nil {
+			return err
+		}
+		if !has {
+			return fmt.Errorf("技能版本结构缺失列 market_release_json")
+		}
+	}
+	return nil
+}
+
+func requireLocalModelTable(db *gorm.DB, value any, label string) error {
+	stmt := &gorm.Statement{DB: db}
+	if err := stmt.Parse(value); err != nil {
+		return fmt.Errorf("解析%s结构: %w", label, err)
+	}
+	if !db.Migrator().HasTable(stmt.Schema.Table) {
+		return fmt.Errorf("本地%s表 %s 缺失，请启用自动迁移", label, stmt.Schema.Table)
+	}
+	for _, column := range stmt.Schema.DBNames {
+		has, err := sqliteHasColumn(db, stmt.Schema.Table, column)
+		if err != nil {
+			return err
+		}
+		if !has {
+			return fmt.Errorf("本地%s表 %s 缺失列 %s", label, stmt.Schema.Table, column)
+		}
+	}
+	if len(stmt.Schema.PrimaryFieldDBNames) > 0 {
+		if err := requireSQLitePrimaryKey(db, stmt.Schema.Table, stmt.Schema.PrimaryFieldDBNames); err != nil {
+			return err
+		}
 	}
 	return nil
 }

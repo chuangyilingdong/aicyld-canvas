@@ -92,6 +92,7 @@ export async function runMidjourneyCanvasAction(options: RunMidjourneyActionOpti
             midjourneyVersion: options.payload.version || parentMetadata.midjourneyVersion,
             midjourneyStage: action === "inpaint" ? "inpaint" : undefined,
             midjourneyNextAction: action === "inpaint" ? "modal" : undefined,
+            midjourneyModalStartedAt: action === "inpaint" ? new Date().toISOString() : undefined,
             midjourneyParameters: midjourney,
             midjourneyMaskSourceNodeId: action === "inpaint" ? parent.id : undefined,
             taskOutputIndex: 0,

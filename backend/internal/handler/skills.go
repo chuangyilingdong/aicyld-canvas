@@ -14,12 +14,14 @@ import (
 )
 
 func RegisterSkillRoutes(r *gin.RouterGroup, svc *app.Service) {
+	registerSkillMarketRoutes(r, svc)
 	registerSkillRoutes(r, svc, true)
 }
 
 // RegisterDesktopSkillRoutes keeps local skill files available while removing
 // GitHub-backed installation and synchronization from the desktop API.
 func RegisterDesktopSkillRoutes(r *gin.RouterGroup, svc *app.Service) {
+	registerSkillMarketRoutes(r, svc)
 	registerSkillRoutes(r, svc, false)
 }
 

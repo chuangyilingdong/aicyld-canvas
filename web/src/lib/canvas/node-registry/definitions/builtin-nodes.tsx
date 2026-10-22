@@ -105,6 +105,8 @@ const BUILTIN_NODE_TRAITS = {
         showInCreateMenu: true,
         // 背板只是视觉容器，既不是素材也不参与计数。
     },
+    [CanvasNodeType.Workflow]: { label: "工作流", icon: <PanelTop />, minSize: { width: 720, height: 400 }, showInCreateMenu: false, showOutputConnection: false },
+    [CanvasNodeType.WorkflowControl]: { label: "工作流进度", icon: <Settings2 />, minSize: { width: 300, height: 160 }, showInCreateMenu: false, showOutputConnection: false },
     [CanvasNodeType.Markdown]: {
         label: "Markdown",
         icon: <FileText />,

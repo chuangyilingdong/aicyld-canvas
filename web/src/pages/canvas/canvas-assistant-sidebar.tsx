@@ -1,3 +1,4 @@
+import { createClientId } from "@/lib/client-id";
 import { Button, Dropdown, Tooltip } from "antd";
 import { History, MessageSquarePlus, X, ArrowUpRight } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
@@ -6,17 +7,19 @@ import { AppDrawer } from "@/components/ui/product/app-drawer";
 import { assetLibraryQueryKey, assetPickerQueryKey } from "@/components/assets/asset-view-session";
 import { appQueryClient } from "@/lib/query-client";
 import { referencedAssetIdsInPrompt, type CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
-import type { AssistantAttachment, AssistantGenerationProposal, AssistantSkillSelection } from "@/services/api/agent-assistant";
+import type { AssistantAttachment, AssistantGenerationProposal, AssistantSkillSelection, AssistantPlan } from "@/services/api/agent-assistant";
+import type { CanvasNodeData } from "@/types/canvas";
 import { listAddedSkills, type Skill } from "@/services/api/skills";
 import { SkillInstallModal } from "@/pages/skills/skill-install-modal";
+import { AssistantPublicationEntry } from "@/pages/skills/assistant-publication-entry";
+import { Link } from "react-router";
 import { captureUserScope, userScopeMatches } from "@/lib/user-scope-guard";
 import { getActiveUserScope, getActiveUserScopeEpoch, subscribeUserScope } from "@/lib/user-scope";
-import { attachmentFromCanvasReference, attachmentRangeError, readAssistantInputDraft, saveAssistantInputDraft, uploadAssistantAttachment } from "@/services/assistant-attachments";
+import { attachmentFromCanvasReference, attachmentRangeError, readAssistantInputDraft, saveAssistantInputDraft, uploadAssistantAttachment, type AssistantInputDraft } from "@/services/assistant-attachments";
 import { CanvasAssistantAttachments } from "./canvas-assistant-attachments";
-import { ASSISTANT_CONTINUE_PROMPT, ASSISTANT_STARTER_PROMPTS, assistantStatusNotice, assistantVisibleReply } from "./canvas-assistant-copy";
+import { ASSISTANT_CONTINUE_PROMPT, ASSISTANT_CHECK_RESULTS_PROMPT, ASSISTANT_STARTER_PROMPTS, appendAssistantDraft, assistantSkillLabel, assistantStatusNotice, assistantVisibleReply } from "./canvas-assistant-copy";
 import { CanvasAssistantComposer } from "./canvas-assistant-composer";
 import { CanvasAssistantReply, CanvasAssistantTurnView, CanvasAssistantUserMessage } from "./canvas-assistant-turn";
-import { workspaceCapabilities } from "@/services/workspace-mode";
 import { ASSISTANT_MAX_WIDTH, ASSISTANT_MIN_WIDTH, type CanvasAssistantController } from "./use-canvas-assistant";
 import "./canvas-assistant-sidebar.css";
 
@@ -28,11 +31,27 @@ type Props = {
     selectedNodeIds: string[];
     references: CanvasResourceReference[];
     onLocateNodes: (nodeIds: string[]) => void;
-    onRunProposal: (proposal: AssistantGenerationProposal) => void;
+    onRunProposal: (proposal: AssistantGenerationProposal, turnId: string) => void;
     onOpenModelSettings: () => void;
     proposalFeedback?: Record<string, string>;
     runningProposalIds?: ReadonlySet<string>;
+    nodes?: CanvasNodeData[];
+    continuation?: { pending: boolean; notice: string; stop: () => Promise<void>; refresh: () => void };
 };
+
+const PLAN_STATUS_TEXT: Record<AssistantPlan["items"][number]["status"], string> = { todo: "待做", doing: "进行中", done: "已完成", needs_user: "等待确认", blocked: "需要处理" };
+
+export function CanvasAssistantPlan({ plan }: { plan: AssistantPlan | null | undefined }) {
+    if (!plan?.items.length) return null;
+    return <details className="canvas-assistant-card canvas-assistant-plan" open aria-label="当前制作计划">
+        <summary>步骤进度 · {plan.items.filter(item => item.status === "done").length}/{plan.items.length}</summary>
+        {plan.goal ? <p>{plan.goal}</p> : null}
+        <ol>{plan.items.map(item => <li key={item.id}>
+            <span>{item.title}</span><span className="canvas-assistant-meta">{PLAN_STATUS_TEXT[item.status]}</span>
+            {item.note ? <span className="canvas-assistant-meta canvas-assistant-plan-note">{item.note}</span> : null}
+        </li>)}</ol>
+    </details>;
+}
 
 export function CanvasAssistantSidebar(props: Props) {
     const { assistant, dockable, readOnly, selectedNodeIds, references, onLocateNodes, onRunProposal, onOpenModelSettings } = props;
@@ -59,6 +78,8 @@ export function CanvasAssistantSidebar(props: Props) {
     const accountEpoch = useSyncExternalStore(subscribeUserScope, () => `${getActiveUserScope()}:${getActiveUserScopeEpoch()}`, () => "");
     const draftIdentity = JSON.stringify([assistant.canvasId, accountEpoch]);
     const [selectionAttached, setSelectionAttached] = useState(true);
+    const [resultSelection, setResultSelection] = useState<AssistantInputDraft["resultSelection"]>(null);
+    const resultNodeIds = assistant.sessionId && resultSelection?.sessionId === assistant.sessionId ? resultSelection.nodeIds : [];
     const logRef = useRef<HTMLDivElement | null>(null);
     const sidebarRef = useRef<HTMLDivElement | null>(null);
     const followLatestRef = useRef(true);
@@ -66,10 +87,10 @@ export function CanvasAssistantSidebar(props: Props) {
 
     useEffect(() => {
         const generation = ++inputGeneration.current, expected = captureUserScope(); inputScope.current = expected;
-        setDraftLoaded(false); setLoadedDraftIdentity(null); setDraft(""); setAttachments([]); setSelectedSkills([]); setUploads([]); setInputError(""); setAvailableSkills([]); setSkillsOpen(false); setSkillInstallOpen(false); setReferencePickerOpen(false);
+        setDraftLoaded(false); setLoadedDraftIdentity(null); setDraft(""); setAttachments([]); setSelectedSkills([]); setResultSelection(null); setUploads([]); setInputError(""); setAvailableSkills([]); setSkillsOpen(false); setSkillInstallOpen(false); setReferencePickerOpen(false);
         void readAssistantInputDraft(assistant.canvasId, expected).then(saved => {
             if (generation !== inputGeneration.current || !userScopeMatches(expected)) return;
-            if (saved) { setDraft(saved.text || ""); setAttachments(saved.attachments || []); setSelectedSkills(saved.skills || []); }
+            if (saved) { setDraft(saved.text || ""); setAttachments(saved.attachments || []); setSelectedSkills(saved.skills || []); setResultSelection(saved.resultSelection ?? null); }
             setDraftLoaded(true);
             setLoadedDraftIdentity(draftIdentity);
         }).catch(() => { if (generation === inputGeneration.current) { setInputError("暂时无法读取未发送的素材，请重新添加。"); setDraftLoaded(true); } });
@@ -79,9 +100,9 @@ export function CanvasAssistantSidebar(props: Props) {
         if (!draftLoaded || loadedDraftIdentity !== draftIdentity) return;
         const generation = inputGeneration.current;
         const version = ++draftWriteVersion.current;
-        void saveAssistantInputDraft(assistant.canvasId, { text: draft, attachments, skills: selectedSkills }, inputScope.current)
+        void saveAssistantInputDraft(assistant.canvasId, { text: draft, attachments, skills: selectedSkills, resultSelection }, inputScope.current)
             .catch(() => { if (generation === inputGeneration.current && version === draftWriteVersion.current) setInputError("未发送内容暂时无法保存，请保持窗口打开。"); });
-    }, [assistant.canvasId, attachments, draft, draftIdentity, draftLoaded, loadedDraftIdentity, selectedSkills]);
+    }, [assistant.canvasId, attachments, draft, draftIdentity, draftLoaded, loadedDraftIdentity, selectedSkills, resultSelection]);
 
     const upload = useCallback(async (id: string, file: File) => {
         const generation = inputGeneration.current, expected = inputScope.current;
@@ -103,7 +124,7 @@ export function CanvasAssistantSidebar(props: Props) {
         if (attachmentCount.current + files.length > 8) { setInputError("一次最多添加 8 份参考素材"); return; }
         setInputError("");
         attachmentCount.current += files.length;
-        const entries = files.map(file => ({ id: crypto.randomUUID(), file, busy: true }));
+        const entries = files.map(file => ({ id: createClientId(), file, busy: true }));
         setUploads(items => [...items, ...entries]);
         entries.forEach(item => void upload(item.id, item.file));
     }, [attachments.length, draftIdentity, draftLoaded, loadedDraftIdentity, readOnly, upload, uploads.length]);
@@ -127,19 +148,23 @@ export function CanvasAssistantSidebar(props: Props) {
         if (node && followLatestRef.current) node.scrollTop = node.scrollHeight;
     }, [turnCount, assistant.streamed, assistant.pendingUserText, assistant.lifecycleNotice, props.proposalFeedback]);
 
-    const notice = assistant.status && !assistant.status.available && assistant.status.reason !== "host_starting"
-        ? assistantStatusNotice(assistant.status.reason, { hosted: !workspaceCapabilities().local })
-        : null;
+    const notice = assistant.status && !assistant.status.available && assistant.status.reason !== "host_starting" ? assistantStatusNotice(assistant.status.reason) : null;
     const inputReady = draftLoaded && loadedDraftIdentity === draftIdentity;
     const composerDisabled = readOnly || !inputReady;
     const composerReason = readOnly ? "这个画布是只读的，不能让助手改动。" : !draftLoaded ? "正在读取未发送内容…" : loadedDraftIdentity !== draftIdentity ? "未能读取草稿，请重新读取后继续。" : undefined;
-    const attachedIds = selectionAttached ? selectedNodeIds : [];
+    const attachedIds = [...new Set([...(selectionAttached ? selectedNodeIds : []), ...resultNodeIds])];
+    const prepareResultCheck = useCallback((nodeIds: string[]) => {
+        if (!inputReady || readOnly || assistant.streaming || assistant.sessionBusy || !assistant.sessionId) return;
+        setDraft(current => appendAssistantDraft(current, ASSISTANT_CHECK_RESULTS_PROMPT));
+        setResultSelection(current => ({ sessionId: assistant.sessionId!, nodeIds: [...new Set([...(current?.sessionId === assistant.sessionId ? current.nodeIds : []), ...nodeIds])] }));
+    }, [assistant.sessionId, assistant.sessionBusy, assistant.streaming, inputReady, readOnly]);
 
     const send = useCallback(() => {
         const text = draft;
         if ((!text.trim() && !attachments.length) || readOnly || !draftLoaded || loadedDraftIdentity !== draftIdentity || !userScopeMatches(inputScope.current) || uploads.length || attachments.some(item => attachmentRangeError(item)) || assistant.awaitingReceipt || assistant.sessionBusy || assistant.supplementBusy || (assistant.streaming && !assistant.canSupplement)) return;
         followLatestRef.current = true;
         setDraft("");
+        setResultSelection(null);
         setAttachments([]); setSelectedSkills([]);
         // @ 引用到的素材库素材由界面按用户原文推导后交给后端校验归属：
         // 模型不能自己声明要读哪些素材。
@@ -172,7 +197,8 @@ export function CanvasAssistantSidebar(props: Props) {
     const content = (
         <div className="canvas-assistant-panel" data-canvas-no-zoom>
             <header className="canvas-assistant-header">
-                <div className="canvas-assistant-heading"><h2>灵动TV Agent</h2></div>
+                <div className="canvas-assistant-heading"><h2>BeefTV Agent</h2></div>
+                <Link to="/skills" className="canvas-assistant-meta" aria-label="打开技能市场和我的投稿">技能</Link>
                 <Tooltip title="新对话">
                     <Button type="text" size="small" aria-label="新对话" disabled={assistant.streaming || assistant.sessionBusy} icon={<MessageSquarePlus className="size-4" />} onClick={() => void assistant.startNewSession()} />
                 </Tooltip>
@@ -212,24 +238,39 @@ export function CanvasAssistantSidebar(props: Props) {
                     <CanvasAssistantTurnView
                         key={turn.turnId}
                         turn={turn}
+                        canvasId={assistant.canvasId}
+                        sessionId={assistant.sessionId}
                         status={assistant.turnStatus[turn.turnId]}
                         handledProposals={assistant.handledProposals}
                         proposalFeedback={props.proposalFeedback}
                         runningProposalIds={props.runningProposalIds}
+                        generationDisabled={assistant.streaming || assistant.sessionBusy || assistant.awaitingReceipt || !assistant.historyLoaded || Boolean(assistant.historyError)}
                         onLocate={onLocateNodes}
                         onUndo={(turnId) => void assistant.undoTurn(turnId)}
                         onRunProposal={onRunProposal}
                         onDismissProposal={assistant.markProposalDismissed}
-                        onContinue={!readOnly && !assistant.streaming && !assistant.sessionBusy && turn.turnId === assistant.turns.at(-1)?.turnId ? () => setDraft(ASSISTANT_CONTINUE_PROMPT) : undefined}
+                        nodes={props.nodes}
+                        onCheckResults={!readOnly && inputReady && !assistant.streaming && !assistant.sessionBusy ? prepareResultCheck : undefined}
+                        onContinue={!readOnly && inputReady && !assistant.streaming && !assistant.sessionBusy && turn.turnId === assistant.turns.at(-1)?.turnId ? () => setDraft(current => appendAssistantDraft(current, ASSISTANT_CONTINUE_PROMPT)) : undefined}
                     />
                 ))}
 
+                <CanvasAssistantPlan plan={assistant.plan} />
+                <AssistantPublicationEntry canvasId={assistant.canvasId} turnCount={assistant.turns.length} running={assistant.streaming} />
+                {props.continuation?.notice ? <div className="canvas-assistant-card" aria-label="自动继续状态">
+                    <span role="status">{props.continuation.notice}</span>
+                    <div className="canvas-assistant-card-actions">
+                        {props.continuation.pending ? <Button size="small" onClick={() => void props.continuation?.stop()}>停止自动继续</Button> : null}
+                        <Button size="small" onClick={props.continuation.refresh}>重新读取</Button>
+                    </div>
+                </div> : assistant.plan?.items.some(item => item.status !== "done") ? <p className="canvas-assistant-meta">确认过的素材会自动制作并继续原计划；需要新增素材时，会先向你确认。</p> : null}
+
                 {assistant.pendingUserText || assistant.pendingAttachments.length ? (
                     <div className="canvas-assistant-turn">
-                        <CanvasAssistantUserMessage text={assistant.pendingUserText || ""} selectedCount={assistant.pendingSelectedNodeIds.length} />
+                        <CanvasAssistantUserMessage text={assistant.pendingUserText || ""} selectedCount={assistant.pendingSelectedNodeIds.length} continuationId={assistant.pendingContinuationId} />
                         <CanvasAssistantAttachments attachments={assistant.pendingAttachments} />
                         {assistant.awaitingReceipt ? <p className="canvas-assistant-meta" role="status">正在读取这次处理的最终结果，已有内容仍然保留。</p> : null}
-                        {assistant.pendingSkills.map(skill => <span className="canvas-assistant-chip" key={skill.skillId}>技能：{skill.skillName || skill.skillId} · {skill.version || skill.versionId}</span>)}
+                        {assistant.pendingSkills.map(skill => <span className="canvas-assistant-chip" key={skill.skillId}>{assistantSkillLabel(skill)}</span>)}
                         {assistant.supplements.map((item, index) => <div key={index}>
                             <CanvasAssistantUserMessage text={item.text} selectedCount={0} />
                             <CanvasAssistantAttachments attachments={item.attachments || []} />
@@ -271,9 +312,9 @@ export function CanvasAssistantSidebar(props: Props) {
                 disabled={composerDisabled}
                 disabledReason={composerReason}
                 references={references}
-                selectedCount={selectedNodeIds.length}
-                selectionAttached={selectionAttached}
-                onDetachSelection={() => setSelectionAttached(false)}
+                selectedCount={attachedIds.length}
+                selectionAttached={attachedIds.length > 0}
+                onDetachSelection={() => { setSelectionAttached(false); setResultSelection(null); }}
                 modelBusy={assistant.modelBusy}
                 canSupplement={assistant.canSupplement}
                 supplementBusy={assistant.supplementBusy}
@@ -318,7 +359,7 @@ export function CanvasAssistantSidebar(props: Props) {
                 closable={false}
                 onClose={() => assistant.setOpen(false)}
                 size="min(380px, 92vw)"
-                aria-label="灵动TV Agent"
+                aria-label="BeefTV Agent"
             >
                 {content}
             </AppDrawer>
@@ -326,7 +367,7 @@ export function CanvasAssistantSidebar(props: Props) {
     }
 
     return (
-        <aside ref={sidebarRef} className="canvas-assistant-sidebar" aria-label="灵动TV Agent" style={{ width: assistant.width, flexBasis: assistant.width }}>
+        <aside ref={sidebarRef} className="canvas-assistant-sidebar" aria-label="BeefTV Agent" style={{ width: assistant.width, flexBasis: assistant.width }}>
             <button
                 type="button"
                 className="canvas-assistant-resize"

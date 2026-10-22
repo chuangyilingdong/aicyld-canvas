@@ -30,6 +30,10 @@ Wails / local dev
 | 任务域 | `backend/internal/task` | 本地任务命令、列表读模型、生命周期，以及本机 ffmpeg/转写/深度捕捉的准入 |
 | 生成结果交付 | `backend/internal/taskdelivery` | 第一段把生成 dataURL/字节写入本地资源并改写 ResultJSON；第二段在任务成功后物化素材。不发起新的上游生成。远端产物经 `outbound.DownloadResumable` 断点续传下载：无总超时，只有头部与空闲超时，半成品在 `<data>/cache/artifact-downloads` 下按身份复用 |
 | 生成域 | `backend/internal/generation` | 统一生成输入、引用、能力、registry 协议调度和失败归类 |
+| 可复用工作流 | `backend/internal/canvasworkflow`, `backend/internal/app/canvas_workflow*.go` | 工作流定义、不可变版本、输入端口、运行状态、取消/恢复和结果选择；执行仍复用统一生成与资源权限 |
+| 助手生产链 | `backend/internal/assistantturns`, `backend/internal/assistantruntime`, `backend/internal/app/assistant_*.go` | 回合、计划、固定技能上下文、制作授权、自动继续和结果检查；模型不能自报权限或跳过付费确认 |
+| 跨启动诊断 | `backend/internal/supporttrace`, `backend/internal/diagnostics`, `backend/cmd/beeftv/diagnostics.go` | 有界事件记录、脱敏诊断包和离线分析；不上传用户诊断内容 |
+| 技能市场 | `backend/internal/skills`, `backend/internal/handler/skills_market.go` | 固定版本、投稿审核、公开快照、安装/启停/回退和权限校验 |
 | 供应商适配 | `backend/internal/provider`, `protocol`, `outbound` | 外部模型 API、自定义渠道和插件协议 |
 | 模型目录 | `backend/internal/modelcatalog` | 能力合同、渠道目录校验/解析/合并与 BeefAPI/WhatsToken overlay；出站 HTTP 仍走 outbound |
 | 协议插件 | `backend/internal/plugins` | registry、安装/启用和渠道设置用的 provider 能力目录；live 快照按 Runtime 隔离 |
@@ -40,6 +44,7 @@ Wails / local dev
 | HTTP | `backend/internal/handler` | 本地 `/api` 合同、输入限制和响应封装 |
 | 企业连接 | `backend/internal/beefapi` | 设备授权、本机密钥和连接状态 |
 | 本机 MCP | `backend/cmd/beeftv` | `beeftv mcp serve` 使用官方 MCP SDK，经 `/api/ops` 访问本机工作区 |
+| 助手宿主 | `agent-host/` | 官方 pi 1.2.0 Durable 会话、计划/技能恢复、流式事件、制作工具和零模型启动检查；不恢复旧 JSONL 执行入口 |
 | 桌面更新发布 | `backend/cmd/update-release` | 生成更新密钥、打包 zip、签署 `desktop-update.json` |
 | 前端 | `web/src` | React 画布、项目、素材、模型配置与插件 UI |
 

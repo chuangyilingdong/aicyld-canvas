@@ -48,10 +48,11 @@ type Props = Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "onChange" | "val
     activeDropReferenceId?: string | null;
     onReferenceFilesDrop?: (reference: CanvasResourceReference, files: File[]) => void;
     autoLinkEnabled?: boolean;
+    nodeSectionLabel?: string;
 };
 
 export const CanvasResourceMentionTextarea = forwardRef<HTMLTextAreaElement, Props>(function CanvasResourceMentionTextarea(
-    { value, references, onSelectReference, onChange, onSubmit, onKeyDown, className, containerClassName, style, highlightLabels = true, mentionMenuWidth = 320, sendOnEnter = true, onContentSizeChange, includeAssetLibrary = false, activeDropReferenceId, onReferenceFilesDrop, autoLinkEnabled = false, ...props },
+    { value, references, onSelectReference, onChange, onSubmit, onKeyDown, className, containerClassName, style, highlightLabels = true, mentionMenuWidth = 320, sendOnEnter = true, onContentSizeChange, includeAssetLibrary = false, activeDropReferenceId, onReferenceFilesDrop, autoLinkEnabled = false, nodeSectionLabel = "画布节点", ...props },
     forwardedRef,
 ) {
     const rawTheme = useActiveTheme();
@@ -371,6 +372,7 @@ export const CanvasResourceMentionTextarea = forwardRef<HTMLTextAreaElement, Pro
     };
     const menu = mention && availableReferences.length && menuAnchor ? (
         <MentionMenu
+            nodeSectionLabel={nodeSectionLabel}
             anchor={menuAnchor}
             connectedReferences={activeCanvasReferences}
             assetReferences={assetReferences}
@@ -776,7 +778,8 @@ function syncInlineMentionPreviews(editor: HTMLElement, references: CanvasResour
     });
 }
 
-function MentionMenu({ anchor, connectedReferences, assetReferences, filteredReferences, query, cursorOffset, activeReferenceId, preferredWidth, onQueryChange, onClose, onSelect, onNavigate }: {
+function MentionMenu({ nodeSectionLabel, anchor, connectedReferences, assetReferences, filteredReferences, query, cursorOffset, activeReferenceId, preferredWidth, onQueryChange, onClose, onSelect, onNavigate }: {
+    nodeSectionLabel: string;
     anchor: HTMLElement;
     connectedReferences: CanvasResourceReference[];
     assetReferences: CanvasResourceReference[];
@@ -932,7 +935,7 @@ function MentionMenu({ anchor, connectedReferences, assetReferences, filteredRef
                     <>
                         {connectedNodes.length ? (
                             <section className="canvas-resource-mention-section">
-                                <h4><span>画布节点</span><small>{connectedNodes.length}</small></h4>
+                                <h4><span>{nodeSectionLabel}</span><small>{connectedNodes.length}</small></h4>
                                 <MentionReferenceList references={connectedNodes} activeReferenceId={activeReferenceId} onSelect={selectReference} />
                             </section>
                         ) : null}

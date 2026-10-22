@@ -1,7 +1,19 @@
 import { expect, test } from "bun:test";
 import type { AxiosProgressEvent } from "axios";
 import { apiClient } from "../src/services/api/request";
-import { uploadResourceFile } from "../src/services/api/resources";
+import { stableUploadHash, uploadResourceFile } from "../src/services/api/resources";
+
+test("分片续传指纹采样文件内容，不因同名同大小同类型误复用", async () => {
+    const first = new Uint8Array(256 * 1024);
+    const second = new Uint8Array(256 * 1024);
+    first[100] = 1;
+    second[100] = 2;
+    const left = await stableUploadHash(new Blob([first], { type: "video/mp4" }), "clip.mp4");
+    const right = await stableUploadHash(new Blob([second], { type: "video/mp4" }), "clip.mp4");
+    const same = await stableUploadHash(new Blob([first], { type: "video/mp4" }), "clip.mp4");
+    expect(left).not.toBe(right);
+    expect(left).toBe(same);
+});
 
 test("普通 multipart 将传输进度换算为文件字节，总量未知不伪造百分比", async () => {
     const adapter = apiClient.defaults.adapter;

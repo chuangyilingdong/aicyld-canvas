@@ -3,7 +3,7 @@ import { Navigate, Outlet, useLocation, useParams } from "react-router";
 
 import { createWorkspaceRouter } from "@/lib/app-routing";
 import { FullScreenLoader, WorkspaceRouteLoader } from "@/components/ui/aceternity/full-screen-loader";
-import { loadAgentsPage, loadAssetsPage, loadCanvasPage, loadCanvasProjectPage, loadCreatePage, loadHomePage, loadProjectDetailPage, loadSkillsPage } from "@/lib/workspace-route-modules";
+import { loadAgentsPage, loadAssetsPage, loadCanvasPage, loadCanvasProjectPage, loadCreatePage, loadHomePage, loadProjectDetailPage } from "@/lib/workspace-route-modules";
 import { CanvasRefreshShell } from "@/pages/canvas/canvas-refresh-shell";
 import RouteErrorPage from "@/pages/route-error";
 import { isLocalWorkspaceMode } from "@/services/workspace-mode";
@@ -19,7 +19,7 @@ const PluginsPage = lazy(() => import("@/pages/plugins"));
 const EagleLibraryPage = lazy(() => import("@/pages/plugins/eagle"));
 const ProjectDetailPage = lazy(loadProjectDetailPage);
 const SettingsPage = lazy(() => import("@/pages/settings"));
-const SkillsPage = lazy(loadSkillsPage);
+const SkillsPage = lazy(() => import("@/pages/skills/marketplace"));
 const TestVoiceRecording = lazy(() => import("@/pages/test-voice-recording"));
 const UserLayout = lazy(() => import("@/layouts/user-layout"));
 const RequireFeature = lazy(() => import("@/components/workspace/require-feature").then((module) => ({ default: module.RequireFeature })));
@@ -85,7 +85,7 @@ export const router = createWorkspaceRouter([
             },
             { path: "/assets", element: deferred(<AssetsPage />) },
             { path: "/skills", element: deferred(<SkillsPage />) },
-            { path: "/skill", element: <Navigate to="/" replace /> },
+            { path: "/skill", element: <Navigate to="/skills" replace /> },
             { path: "/skills/reference", element: <Navigate to="/" replace /> },
             {
                 path: "/plugins",

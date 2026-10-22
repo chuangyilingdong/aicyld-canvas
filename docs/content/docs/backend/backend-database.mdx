@@ -17,13 +17,17 @@ description: BeefTV后端核心持久化表与状态边界
 
 旧版本不能读取这个加密封装。降级前须停止所有工作区写入者，恢复升级前的完整工作区备份；不能只替换可执行文件后继续写入新配置。自动更新器的二进制回滚与工作区数据恢复是不同操作。
 
-当前本地候选的结构版本为 v16。正式 v1.6.21 的结构版本为 v3，历史 Agent 候选曾使用 v3–v6，另有图片恢复预览分支使用 v3 或 v7；这些预览编号不能当作正式版本已发布的证据。
+当前网页生产结构版本为 v22。历史 v1.6.21 的结构版本为 v3，历史 Agent 候选曾使用 v3–v6，另有图片恢复预览分支使用 v3 或 v7；这些预览编号不能当作正式版本已发布的证据。
 
 v14 `assistant-skill-version-pins` 为 `assistant_turns` 追加文本列 `skill_pins_json`。保存用户明确选定的技能、版本和内容摘要；旧回合留空。迁移保留未知字段、旧历史和回合快照。恢复时重新校验安装授权与包文件校验和，不自动切换新版。
 
 v15 `assistant-permission-and-canvas-snapshots` 追加文本列 `permission_mode` 和 `canvas_snapshots_json`，不改写已应用的 v14 ledger。权限字段保存只读、当前画布或完全访问；旧空值按当前画布处理。快照按目标画布保存其首次写入前的 revision 与完整文档，供跨画布整组撤销使用；快照、实际写入和操作回执在同一事务提交。缺列会阻止 Ready，未知列、旧回合与历史内容保留。
 
 v16 `assistant-durable-session-binding` 追加 `durable_session_id` 与 `durable_native_sources` 文本列。由内置宿主按官方持久会话绑定原回合，绑定后不可转移；精确记录历史原生素材的资源与版本，不把历史读取资格并入本轮工具权限。恢复原生历史仍验证同用户、同会话、当前回合未结束以及资源归属、可用状态和文件摘要；旧历史仅凭官方提交与宿主日志的明确关联迁移，无法证明时提示新对话重新添加。
+
+v17 `skill-market-review-submissions` 增加技能投稿与审核快照；历史公开技能一次性迁移为 `published`，避免部署后从市场消失。v18 `canvas-reusable-workflows` 增加 `canvas_workflows`、运行、资源和不可变版本表，并为任务增加 `workflow_source_cipher`。v19 `assistant-active-skill-context` 增加按用户、画布和持久会话固定的活动技能上下文及变更回执。v20 `assistant-generation-continuations` 增加一次性自动继续授权与唯一回合绑定。v21 增加继续意图失效标记和助手制作授权 JSON。v22 为技能版本补充 `market_release_json`，保证从 v17 升级时公开快照元数据不会缺列。
+
+Schema Ready 校验不仅看版本号，还逐项核对工作流四张表、活动技能上下文、续跑回执、`tasks.workflow_source_cipher`、`assistant_turns.continuation_invalidated`、`assistant_turns.generation_authorization_json` 和 `skill_versions.market_release_json`。缺表或缺列时阻止启动，不用运行时猜测修补。
 
 
 v13 `upload-reservation-witness` 追加 `user_upload_reservations`，以 `(user_id, identity)` 唯一索引记录未完成上传预留的日期和字节数。日额仍由 `user_daily_upload_usages` 记账，预留索引与日额增加在同一事务内完成。资源进入 READY 时与状态保存在同一事务清除索引并保留日额；进入 FAILED 或放弃时与状态保存在同一事务按索引金额和日期释放。FAILED 准入只把状态改成 PENDING，不退日额。未结算资源写成 READY 前必须持有见证，缺见证时再预留；残留 FAILED 若仍持有原见证则沿用，不二次扣额。已结算 READY 丢失物理文件时，恢复不重新预留；物理写入或最终保存失败保留原 READY 状态并返回错误，下一次恢复仍复用原资源身份及已消费额度。启动恢复：无对应资源则释放一次；PENDING 保留索引；FAILED 释放；READY 清索引且保留日额。删除 READY 资源只清索引，不把已计入日额当成孤儿退还。重复清理不再扣减其他上传的日额。分片会话文件不是配额账；查询失败时保留恢复证据并记录恢复错误。同一身份的进行中重复预留映射为上传进行中。
@@ -79,7 +83,7 @@ $env:CANVAS_DESKTOP_DATA_DIR = 'D:\BeefTV-tests\candidate-workspace'
 
 `failure_diagnostics` 的请求记录可包含 `transportPhase` 和 `transportRoute`，分别保存脱敏的连接阶段与直连/代理类型；这两个可选 JSON 字段不需要数据库迁移。旧记录缺失这些字段时，不据此推断请求未发送，也不自动解锁提交状态未知的任务。
 
-本地 SQLite 使用 `local_schema_migrations` 记录版本。本地候选目前为 v16，正式 v1.6.21 为 v3；历史图片恢复预览曾使用 v7。正式 v3 为 `tasks` 新增可空文本列 `failure_diagnostics`，存储有界、脱敏的执行证据和失败摘要；旧任务保留空值。失败诊断与任务终态在同一次带租约校验的更新中保存，成功任务也保留执行证据，主动重试时清除上一轮诊断。任务列表和详情均读取该列，字段说明见 [HTTP API](./http-api)。整合 v8 同时补齐历史分支可能缺失的产品与 Agent 结构，v9 修复已标 v8 的已知结构缺损并强化完整性检查，v10 追加助手业务回合表，v11 追加创作对话表，v12 追加画布文件夹与画板，v13 追加上传预留恢复索引，v14 追加固定技能版本，v15 追加内置权限和跨画布快照，v16 追加助手持久会话绑定，保留原迁移记录、Agent 表和任务扩展列。
+本地 SQLite 使用 `local_schema_migrations` 记录版本。当前网页生产为 v22；历史 v1.6.21 为 v3，图片恢复预览曾使用 v7。正式 v3 为 `tasks` 新增可空文本列 `failure_diagnostics`，存储有界、脱敏的执行证据和失败摘要；旧任务保留空值。失败诊断与任务终态在同一次带租约校验的更新中保存，成功任务也保留执行证据，主动重试时清除上一轮诊断。任务列表和详情均读取该列，字段说明见 [HTTP API](./http-api)。v8–v16 依次补齐产品/Agent 结构、创作对话、画布文件夹与画板、上传预留见证、固定技能版本、助手权限快照和持久会话绑定；v17–v22 再追加技能市场、工作流、活动技能上下文、自动继续、制作授权与公开快照元数据。所有迁移保留原 ledger、未知列和历史业务行，缺结构时拒绝 Ready。
 
 部分预览版曾将 v3–v6 用于其他迁移。启动时还会按实际表结构检查并补齐 `failure_diagnostics`，不覆盖迁移记录、不删除预览版字段或旧任务；就绪检查同时要求最低版本和该字段存在。任务入库失败返回 HTTP 500、`reason=local_storage_failed`，界面明确显示本地保存失败、尚未提交生成。内部错误链保留数据库原因，HTTP 响应不包含 SQL 原文；handler 日志记录错误类型。
 
@@ -256,6 +260,24 @@ $env:CANVAS_DESKTOP_DATA_DIR = 'D:\BeefTV-tests\candidate-workspace'
 | `user_plugin_states` | 保存用户对官方应用插件的个人启用状态 | `(user_id, plugin_id)` 唯一；系统协议和管理员上传插件不得写入用户级状态 |
 
 有效状态由服务端计算为 `platform_available AND user_enabled`。官方应用插件没有平台状态记录时默认可用；用户没有个人记录时默认停用，历史上全局启用的工作流插件在用户首次保存个人选择前沿用旧状态。管理员上传包的来源和作用域由宿主覆盖，不能通过 Manifest 提权。
+
+## v2.0.1 持久化表
+
+| 表 | 用途 | 关键边界 |
+| --- | --- | --- |
+| `canvas_workflows` | 工作流当前定义与执行配方 | 按用户归属；公开定义与加密执行配方分列保存 |
+| `canvas_workflow_revisions` | 不可变模板版本 | `(template_id, revision)` 主键；运行实例记录启动时 revision，升级必须显式确认 |
+| `canvas_workflow_runs` | 工作流实例运行状态 | `(user_id, client_operation_id)` 唯一；状态 JSON 可恢复，取消和重试沿用原运行身份 |
+| `canvas_workflow_resources` | 工作流运行资源所有权 | `(owner_id, resource_id)` 主键，防止跨用户读取运行产物 |
+| `assistant_continuations` | 一次性自动继续授权 | `turn_id` 唯一；状态迁移和请求 ID 持久化，取消只命中指定请求 |
+| `assistant_skill_contexts` | 活动技能上下文 | 以用户、画布、持久会话和 scope 固定 revision；只存版本身份，不复制技能正文 |
+| `assistant_skill_context_mutations` | 技能上下文变更回执 | `request_id` 幂等，重放不能把更新版技能当作旧固定版本 |
+| `assistant_turns.continuation_invalidated` | 用户新意图使旧继续失效 | 布尔标记与回合同事务更新 |
+| `assistant_turns.generation_authorization_json` | 制作授权快照 | 只接受 Go 验证后的付费生成授权，模型不能自报 |
+| `tasks.workflow_source_cipher` | 工作流成功命令的私有恢复配方 | 加密保存，不进入普通任务列表或公开响应 |
+| `skill_versions.market_release_json` | 技能公开快照与发布元数据 | 仅审核发布版本进入市场；安装固定版本后不自动漂移 |
+
+分片上传会话文件位于数据目录的临时上传区，不是配额账；`received[]` 由已完整落盘的分片索引计算。合并成功后才创建 `resources` 记录并消耗容量。浏览器指纹只是减少错误复用，最终资源归属、大小、MIME 和用户范围仍由后端校验。
 
 ## 资源存储
 

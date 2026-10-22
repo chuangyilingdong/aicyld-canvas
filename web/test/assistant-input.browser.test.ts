@@ -40,7 +40,7 @@ beforeAll(async () => {
     wav = readFileSync(scratch + "/beat.wav"); video = readFileSync(scratch + "/motion.mp4");
     longWav = readFileSync(scratch + "/long-beat.wav");
     const build = await Bun.build({ entrypoints: [import.meta.dir + "/fixtures/assistant-input-harness.tsx"], target: "browser", define: {
-        "import.meta.env.DEV": "false", "import.meta.env.PROD": "true", "import.meta.env.MODE": '"production"', "import.meta.env.VITE_CANVAS_LOCAL_MODE": '"true"',
+        "import.meta.env.DEV": "false", "import.meta.env.PROD": "true", "import.meta.env.MODE": '"production"', "import.meta.env.VITE_CANVAS_LOCAL_MODE": '"true"', "import.meta.env.VITE_CANVAS_HOSTED": '"false"',
         "import.meta.env.VITE_CANVAS_BACKEND_URL": '"/api"', "process.env.NODE_ENV": '"production"',
     }, plugins: [{ name: "test-source", setup(builder) {
         builder.onResolve({ filter: /^@\/components\/model-logo$/ }, () => ({ path: "model-logo", namespace: "test-icons" }));
@@ -354,7 +354,7 @@ test("external Agent connection has no permission chooser and submits only the c
     await page.goto(server.url.toString().replace("localhost", "127.0.0.1"));
     await page.getByRole("button", { name: "连接外部 Agent", exact: true }).click();
     const panel = page.locator(".agent-connect-panel");
-    await panel.getByText("连接后可使用 BeefTV 的全部创作工具。每次操作的审批由 Codex 负责。", { exact: true }).waitFor();
+    await panel.getByText("连接后可使用 灵动TV 的全部创作工具。每次操作的审批由 Codex 负责。", { exact: true }).waitFor();
     expect(await panel.getByRole("radio").count()).toBe(0);
     const connected = page.waitForResponse(response => response.url().endsWith("/agent-clients"));
     await panel.getByRole("button", { name: "生成连接配置", exact: true }).click(); await connected;

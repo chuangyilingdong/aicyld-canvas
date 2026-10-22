@@ -329,6 +329,12 @@ func run(args []string) error {
 		usage()
 		return nil
 	}
+	if args[0] == "skills" {
+		return runSkills(args[1:])
+	}
+	if args[0] == "diagnostics" {
+		return runDiagnostics(args[1:])
+	}
 	c, err := newClient()
 	if err != nil {
 		return err
@@ -380,6 +386,8 @@ func run(args []string) error {
 func usage() {
 	fmt.Fprint(os.Stderr, `beeftv — BeefTV 业务操作命令行（连接正在运行的本地工作区）
 
+  beeftv skills help  （远程技能市场，无需运行桌面应用）
+  beeftv diagnostics analyze --file <diagnostics.zip>  （离线分析，无需运行桌面应用）
   beeftv ops [--read-only] [--json]
   beeftv ops call <operation> --params '<json>' [--operation-id <id>] [--json]
   beeftv business discover

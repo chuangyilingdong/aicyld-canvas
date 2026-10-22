@@ -1136,17 +1136,20 @@ func parseMidjourneyPoll(c PollContext, payload map[string]any) (PollResult, err
 		return PollResult{TaskID: taskID, Status: status, Result: &Result{Text: text, Usage: object(payload["usage"]), ProviderMetadata: providerMetadata}, Message: message}, nil
 	}
 	images := make([]MediaReference, 0, 4)
-	if grid := firstString(payload, "grid_image_url", "gridImageUrl"); grid != "" {
-		images = append(images, MediaReference{URL: grid, Kind: "image"})
-	} else {
-		images = append(images, mediaFromArray(payload["image_urls"], CapabilityImage)...)
-		if len(images) == 0 {
-			images = append(images, mediaFromArray(payload["images"], CapabilityImage)...)
+	// The API returns four independent images plus a grid. Persist the four
+	// outputs independently so each can be rebound and used by follow-up actions.
+	images = append(images, mediaFromArray(payload["image_urls"], CapabilityImage)...)
+	if len(images) == 0 {
+		images = append(images, mediaFromArray(payload["images"], CapabilityImage)...)
+	}
+	if len(images) == 0 {
+		if grid := firstString(payload, "grid_image_url", "gridImageUrl"); grid != "" {
+			images = append(images, MediaReference{URL: grid, Kind: "image"})
 		}
-		if len(images) == 0 {
-			if value := firstString(payload, "image_url", "imageUrl", "url"); value != "" {
-				images = append(images, MediaReference{URL: value, Kind: "image"})
-			}
+	}
+	if len(images) == 0 {
+		if value := firstString(payload, "image_url", "imageUrl", "url"); value != "" {
+			images = append(images, MediaReference{URL: value, Kind: "image"})
 		}
 	}
 	action, _ := midjourneyActionOptions(c.Request)

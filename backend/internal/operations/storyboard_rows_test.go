@@ -30,10 +30,10 @@ func (p *storyboardProbe) AppendUserCanvasStoryboardRows(_ string, _ string, _ s
 	return canvas.UserDataSummary{Revision: 6}, created, nil
 }
 
-func (p *storyboardProbe) UpdateUserCanvasStoryboardRows(_ string, _ string, _ string, patches []canvas.StoryboardRowPatch, _ int64) (canvas.UserDataSummary, []canvas.StoryboardRowIdentity, error) {
+func (p *storyboardProbe) UpdateUserCanvasStoryboardRows(_ string, _ string, _ string, patches []canvas.StoryboardRowPatch, _ int64) (canvas.UserDataSummary, canvas.StoryboardRowUpdate, error) {
 	p.updated = patches
 	p.revision = 7
-	return canvas.UserDataSummary{Revision: 7}, []canvas.StoryboardRowIdentity{{ID: "shot-1", ShotNumber: 1}}, nil
+	return canvas.UserDataSummary{Revision: 7}, canvas.StoryboardRowUpdate{Updated: []canvas.StoryboardRowIdentity{{ID: "shot-1", ShotNumber: 1}}}, nil
 }
 
 func (p *storyboardProbe) RemoveUserCanvasStoryboardRows(_ string, _ string, _ string, rowIDs []string, _ int64) (canvas.UserDataSummary, int, error) {

@@ -24,15 +24,30 @@ func TestDefaultsIncludeMidjourneyImagineProfile(t *testing.T) {
 				Values  []string `json:"values"`
 				Default string   `json:"default"`
 			} `json:"quality"`
-			MaxOutputs int `json:"maxOutputs"`
+			MaxOutputs   int `json:"maxOutputs"`
+			FixedOutputs int `json:"fixedOutputs"`
 		} `json:"image"`
 	}
 	if err := json.Unmarshal(found.CapabilityConfig, &config); err != nil {
 		t.Fatal(err)
 	}
-	if config.Image.MaxOutputs != 1 || config.Image.Quality.Default != "relax" || len(config.Image.Quality.Values) != 3 {
+	if config.Image.MaxOutputs != 4 || config.Image.FixedOutputs != 4 || config.Image.Quality.Default != "relax" || len(config.Image.Quality.Values) != 3 {
 		t.Fatalf("Midjourney capability = %#v", config.Image)
 	}
+}
+
+func TestDefaultsIncludeVerifiedMultimodalReviewProfile(t *testing.T) {
+	for _, channel := range Defaults() {
+		for _, profile := range channel.ModelProfiles {
+			if profile.Model == "qwen/qwen3.8-omni-flash" {
+				if profile.Capability != "text" || profile.Protocol != "chat-completion" {
+					t.Fatalf("Qwen Omni profile = %#v", profile)
+				}
+				return
+			}
+		}
+	}
+	t.Fatal("default platform profiles are missing qwen/qwen3.8-omni-flash")
 }
 
 func TestSeedance25ProfileAllowsThirtySeconds(t *testing.T) {

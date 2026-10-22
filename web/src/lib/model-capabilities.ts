@@ -57,6 +57,7 @@ export type ImageCapabilityConfig = {
     responseFormat: { supported: boolean };
     outputFormat: { supported: boolean };
     maxOutputs: number;
+    fixedOutputs?: number;
 };
 
 export type VideoCapabilityConfig = {
@@ -418,8 +419,9 @@ export function defaultImageCapabilityConfig(protocol?: ModelProtocol, model = "
         image.transparentBackground = { supported: false, default: false };
         image.responseFormat = { supported: false };
         image.outputFormat = { supported: false };
-        // imagine 单次返回一张四宫格图；后续动作通过 metadata.midjourney 合同执行。
-        image.maxOutputs = 1;
+        // Imagine 固定一次返回四张结果；每张独立绑定到画布节点。
+        image.maxOutputs = 4;
+        image.fixedOutputs = 4;
     } else if (protocol === "volcengine-ark-image" || protocol === "volcengine-ark-agent-plan-image") {
         image.references.maskSupported = false;
         image.quality.supported = false;

@@ -42,6 +42,7 @@ function stubController(open: boolean, setOpen: (next: boolean) => void, width: 
     const noop = () => {};
     const asyncNoop = async () => {};
     return {
+        plan: null,
         canvasId: "lab",
         open,
         setOpen,
@@ -61,6 +62,7 @@ function stubController(open: boolean, setOpen: (next: boolean) => void, width: 
         sessionBusy: false,
         reloadHistory: async () => true,
         pendingUserText: null,
+        pendingContinuationId: null,
         pendingSelectedNodeIds: [],
         pendingAttachments: [],
         pendingSkills: [],
@@ -112,7 +114,7 @@ export default function AssistantPanelLab() {
               ? { available: false, reason: "host_starting" }
               : state === "no-model"
                 ? { available: false, reason: "model_not_configured" }
-                : { available: true, model: { id: "deepseek-v3", channelId: "beefapi", channelName: "灵动TV" } };
+                : { available: true, model: { id: "deepseek-v3", channelId: "beefapi", channelName: "BeefAPI" } };
 
     const assistant = stubController(open, setOpen, width, setWidth, status);
     if (state === "interrupted") {

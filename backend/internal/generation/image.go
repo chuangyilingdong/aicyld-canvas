@@ -20,6 +20,10 @@ import (
 )
 
 func RunImageTask(ctx context.Context, input Input) (map[string]interface{}, error) {
+	outputCount := 1
+	if input.ImageCapability != nil && input.ImageCapability.FixedOutputs > 0 {
+		outputCount = input.ImageCapability.FixedOutputs
+	}
 	// 图片链和 video/audio 一样，必须在无显式 registry 的生产执行上下文里
 	// 补齐官方声明式协议，否则 Midjourney 等内置协议会退化成 OpenAI Images。
 	ctx = EnsureOfficialProtocolAdapter(ctx, input.Config.InterfaceType)
@@ -61,7 +65,7 @@ func RunImageTask(ctx context.Context, input Input) (map[string]interface{}, err
 		writer := multipart.NewWriter(body)
 		writeField(writer, "model", input.Config.Model)
 		writeField(writer, "prompt", WithSystemPrompt(input.Config, input.Prompt))
-		writeField(writer, "n", "1")
+		writeField(writer, "n", strconv.Itoa(outputCount))
 		if ImageParameterSupported(input.ImageCapability, "response_format") {
 			writeField(writer, "response_format", "b64_json")
 		}
@@ -97,7 +101,7 @@ func RunImageTask(ctx context.Context, input Input) (map[string]interface{}, err
 		body := map[string]interface{}{
 			"model":  input.Config.Model,
 			"prompt": WithSystemPrompt(input.Config, input.Prompt),
-			"n":      1,
+			"n":      outputCount,
 		}
 		if ImageParameterSupported(input.ImageCapability, "response_format") {
 			body["response_format"] = "b64_json"

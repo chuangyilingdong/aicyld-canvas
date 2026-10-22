@@ -31,6 +31,7 @@ export type GenerationTaskDeliveryProgress = {
 export type GenerationTask = {
     failureDiagnostics?: import("@/lib/generation-error").GenerationFailureDiagnostics;
     id: string;
+    traceId?: string;
     clientOperationId?: string;
     retryOf?: string;
     attemptGroupId?: string;

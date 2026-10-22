@@ -60,7 +60,7 @@ func TestV13WorkspaceSkillPinMigrationPreservesRounds(t *testing.T) {
 	}
 	var after []localSchemaMigration
 	db.Order("version").Find(&after)
-	if len(after) != len(before)+4 || after[len(after)-4].Name != "assistant-skill-version-pins" || after[len(after)-3].Name != "assistant-permission-and-canvas-snapshots" || after[len(after)-2].Name != "assistant-durable-session-binding" || after[len(after)-1].Name != "skill-market-review-submissions" {
+	if len(after) != len(before)+9 || after[len(after)-9].Name != "assistant-skill-version-pins" || after[len(after)-8].Name != "assistant-permission-and-canvas-snapshots" || after[len(after)-7].Name != "assistant-durable-session-binding" || after[len(after)-6].Name != "skill-market-review-submissions" || after[len(after)-1].Name != "assistant-market-release-metadata" {
 		t.Fatalf("ledger=%+v", after)
 	}
 	for i, row := range before {

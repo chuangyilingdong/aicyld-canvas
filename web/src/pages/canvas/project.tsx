@@ -79,6 +79,7 @@ import { CanvasLeaferGraphicsLayer } from "@/components/canvas/canvas-leafer-gra
 import { CanvasFreeformEmptyState, CanvasLinkedProjectEmptyState, CanvasShortDramaEmptyState, CanvasShortDramaGuide, CanvasStoryInputNodeContent, CanvasStylePlaceholderNodeContent } from "@/components/canvas/canvas-short-drama-entry";
 import { resolveCanvasEmptyStateKind } from "@/lib/canvas/canvas-starter";
 import { createCanvasNode, getInputSummary } from "@/lib/canvas/canvas-project-domain";
+import { resolveCanvasGenerationModel } from "@/lib/canvas/canvas-project-generation";
 import { connectDirectorReferenceNodes } from "@/lib/canvas/director/director-reference-assets";
 import { canvasWorkspaceProjectId, listCanvasWorkspaceProjectCanvases } from "@/lib/canvas/canvas-workspace-project";
 import { deleteWorkspaceCanvasProjects } from "@/services/workspace-project-repository";
@@ -95,6 +96,9 @@ import { CanvasFocusModeBar } from "@/components/canvas/canvas-focus-mode-bar";
 import { CanvasProjectContextMenu } from "./canvas-project-context-menu";
 import { CanvasProjectEditorDialogs } from "./canvas-project-editor-dialogs";
 import { CanvasProjectSelectionToolbar } from "./canvas-project-selection-toolbar";
+import { CanvasWorkflowWorkspace, type CanvasWorkflowsHandle } from "./canvas-workflow-workspace";
+import { useCanvasWorkflowInstances } from "./use-canvas-workflow-instances";
+import { ReusableWorkflowNode } from "@/components/canvas/nodes/reusable-workflow-node";
 import { CanvasProjectWorldLayers } from "./canvas-project-world-layers";
 import { CanvasNodeActionContext, type CanvasNodeActionContextValue } from "@/components/canvas/canvas-node-action-context";
 import { bringCanvasNodeToFront, type CanvasNodeStackOrder } from "@/lib/canvas/canvas-node-stack-order";
@@ -268,6 +272,8 @@ function InfiniteCanvasPage() {
     const [viewport, setViewport] = useState<ViewportTransform>({ x: 0, y: 0, k: 1 });
     const [size, setSize] = useState({ width: 1200, height: 720 });
     const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set());
+    const workflowsRef = useRef<CanvasWorkflowsHandle>(null);
+    const [workflowLibraryOpen, setWorkflowLibraryOpen] = useState(false);
     const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(null);
     // 选中项保存的是节点 id，切到另一个画布后这些 id 并不属于新画布：
     // 不清空会同时污染选中高亮和创作助手请求的归属校验（后端按画布校验选中对象）。
@@ -908,6 +914,24 @@ function InfiniteCanvasPage() {
         setToolbarNodeId,
     });
 
+    const workflowInstances = useCanvasWorkflowInstances({
+        canvasId: projectId,
+        domainProjectId: currentProject?.projectId,
+        readOnly,
+        nodes,
+        nodesRef,
+        setNodes,
+        connectionsRef,
+        setConnections,
+        getCanvasCenter,
+        persist: () => saveCanvasProject({ requireRemote: false }),
+        focusNode: (node) => {
+            focusCanvasNode(node.id);
+            setShowConnections(true);
+        },
+        onError: (error) => { void message.error(error); },
+    });
+
     // Pan only the viewport (never the node) when a newly connected target
     // crosses the visible canvas safe area, including under the Agent dock.
     const keepConnectedNodeVisible = useCanvasConnectedNodeVisibility({
@@ -1546,7 +1570,10 @@ function InfiniteCanvasPage() {
         onNodeInteractionStart: handleNodeInteractionStart,
         onNodeBringToFront: handleNodeBringToFront,
         onNodeClick: handleSelectedNodeClick,
-        onNodeDragEnd: handleNodeDragEnd,
+        onNodeDragEnd: (nodeId, point) => {
+            handleNodeDragEnd(nodeId);
+            workflowInstances.drop([nodeId], point);
+        },
         onBatchConnectionTarget: handleBatchConnectionTargetClick,
         onLinkedFolderDrop: archiveNodesToLinkedFolder,
         onDeselect: handleCanvasDeselect,
@@ -2169,6 +2196,8 @@ function InfiniteCanvasPage() {
                     inputs={configInputsById.get(panelNode.id) || []}
                     skillReferences={skillMentionReferences}
                     generationMode={panelNode.metadata?.generationMode}
+                    model={resolveCanvasGenerationModel(effectiveConfig, panelNode.metadata?.model, panelNode.metadata?.generationMode || "video") || effectiveConfig.model}
+                    videoDuration={effectiveConfig.videoSeconds}
                     metadata={panelNode.metadata}
                     workspaceMode={workspaceMode}
                     onChange={(composerContent) => handleConfigNodeChange(panelNode.id, { composerContent })}
@@ -2244,6 +2273,9 @@ function InfiniteCanvasPage() {
             }
             if (contentNode.metadata?.workflowKind === "story_input") {
                 return <CanvasStoryInputNodeContent node={contentNode} onEdit={() => openStoryInput(contentNode.id)} />;
+            }
+            if (contentNode.metadata?.reusableWorkflow || contentNode.metadata?.workflowSlot) {
+                return <ReusableWorkflowNode node={contentNode} nodes={nodesRef.current} readOnly={readOnly} onResultDrag={handleNodeMouseDown} onUpdate={workflowInstances.update} onAction={workflowInstances.action} onValue={workflowInstances.setValue} onUploadBusy={workflowInstances.uploadBusy} onError={(error) => { void message.error(error); }} />;
             }
             if (contentNode.type === CanvasNodeType.BatchTable) {
                 return (
@@ -2641,6 +2673,8 @@ function InfiniteCanvasPage() {
                                 onDuplicateProject={duplicateCurrentProject}
                                 versionsOpen={versions.open}
                                 onToggleVersions={toggleVersions}
+                                workflowsOpen={workflowLibraryOpen}
+                                onOpenWorkflows={() => workflowsRef.current?.toggleLibrary()}
                                 assistantOpen={rightPanel === "assistant"}
                                 onToggleAssistant={toggleAssistant}
                                 // LibTV 的画布工作区使用“未命名工作区”作为首屏默认标题；
@@ -3006,6 +3040,7 @@ function InfiniteCanvasPage() {
                                 onBatchConnect={() => beginBatchConnectionMode(Array.from(selectedNodeIds))}
                                 onMergeVideos={() => void mergeSelectedVideos()}
                                 onAskAssistant={openAssistant}
+                                onSaveWorkflow={readOnly ? undefined : () => workflowsRef.current?.saveSelection()}
                             />
                         ) : null}
 
@@ -3455,6 +3490,24 @@ function InfiniteCanvasPage() {
                     />
                 ) : null}
                 <CanvasVersionHistory history={versions} />
+                <CanvasWorkflowWorkspace
+                    key={`${canvasCapturedScope.userScope}:${projectId}`}
+                    ref={workflowsRef}
+                    nodes={nodes}
+                    connections={connections}
+                    selection={selectedNodeIds}
+                    readOnly={readOnly}
+                    dockable={assistantDockable}
+                    visible={!focusMode && !versions.preview}
+                    onOpenChange={(open) => {
+                        setWorkflowLibraryOpen(open);
+                        if (open) {
+                            assistant.setOpen(false);
+                            versions.close();
+                        }
+                    }}
+                    onInstantiate={workflowInstances.add}
+                />
             </main>
         </>
     );

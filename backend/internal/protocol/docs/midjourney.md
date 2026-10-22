@@ -45,8 +45,8 @@
 - `midjourney-imagine`：文生图或图片引导生成；请求支持 `prompt`、`image_urls`、`size`、`quality`、`version` 和 `speed`。
 - `size` 取值为 `16:9`、`1:1`、`9:16`、`4:3`、`3:4`、`3:2`、`2:3`，最终由网关转换为 Midjourney 比例参数。
 - `speed` 取值为 `relax`、`fast`、`turbo`，分别对应上游放松、快速和极速生成档位；默认 `relax`。
-- 一次 `imagine` 请求对应一个付费任务。当前宿主把返回的 `grid_image_url` 作为单个四宫格结果保存；
-  若网关不返回四宫格但返回 `image_urls`，则退回使用图片数组。
+- 一次 `imagine` 请求对应一个付费任务。上游返回四个独立 `image_urls` 和一张四宫格时，宿主优先把四个独立结果按
+  `outputIndex` 0–3 保存并绑定到画布节点；只有独立数组缺失时才回退 `grid_image_url`，不会把四宫格误当成四张可继续操作的单图。
 - 不支持的透明背景、输出格式和批量张数不会伪造发送，避免上游静默忽略或重复扣费。
 
 ## 参数

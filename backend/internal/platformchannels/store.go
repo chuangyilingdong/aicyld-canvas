@@ -318,7 +318,8 @@ const midjourneyImageCapabilityConfig = `{
     "transparentBackground": { "supported": false, "default": false },
     "responseFormat": { "supported": false },
     "outputFormat": { "supported": false },
-    "maxOutputs": 1
+    "maxOutputs": 4,
+    "fixedOutputs": 4
   }
 }`
 
@@ -458,6 +459,7 @@ func Defaults() []Channel {
 		platformProfile("zhenzhen-image-g-v2.5-lowprice", "zhenzhen g v2.5（特价）", "image", "newapi-image"),
 		platformProfile("midjourney-imagine", "Midjourney Imagine", "image", "midjourney"),
 		platformProfile("deepseek/deepseek-v4.1-flash", "DeepSeek V4.1 Flash", "text", "chat-completion"),
+		platformProfile("qwen/qwen3.8-omni-flash", "Qwen 3.8 Omni Flash（多模态审核）", "text", "chat-completion"),
 		platformProfile("zhenzhen/g6-sol", "zhenzhen g6-sol", "text", "chat-completion"),
 		platformProfile("zhenzhen/g6-astra", "zhenzhen g6-astra", "text", "chat-completion"),
 		platformProfile("glm/glm-5.3-flash", "GLM 5.3 Flash", "text", "chat-completion"),

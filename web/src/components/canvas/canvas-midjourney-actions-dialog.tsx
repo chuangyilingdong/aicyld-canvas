@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Alert, Button, Input, InputNumber, Modal, Select, Tag } from "antd";
+import { Alert, Button, Checkbox, Input, InputNumber, Modal, Select, Tag } from "antd";
 import { ChevronRight, LoaderCircle, Play, WandSparkles } from "lucide-react";
 
 import { CanvasImageMaskEditor } from "@/components/canvas/canvas-node-mask-edit-dialog";
@@ -11,6 +11,7 @@ import {
     midjourneyHdUpscaleCustomId,
     midjourneyHdUpscaleUnavailableReason,
     midjourneyIndexForNode,
+    midjourneyModalDeadline,
     midjourneyUpstreamTaskId,
     midjourneyVideoIndexForNode,
     type MidjourneyAction,
@@ -47,13 +48,15 @@ export function CanvasMidjourneyActionsDialog({ open, node, nodes, config, onClo
     const [animateMode, setAnimateMode] = useState<"auto" | "manual">("manual");
     const [motion, setMotion] = useState<"low" | "high">("high");
     const [videoType, setVideoType] = useState("");
-    const batchSize = 1 as const;
+    const [batchSize, setBatchSize] = useState<1 | 2 | 4>(1);
+    const [batchCostConfirmed, setBatchCostConfirmed] = useState(false);
     const [videoIndex, setVideoIndex] = useState(0);
     const [endUrl, setEndUrl] = useState("");
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState("");
     const [refreshingButtons, setRefreshingButtons] = useState(false);
     const [buttonRefreshError, setButtonRefreshError] = useState("");
+    const [clock, setClock] = useState(() => Date.now());
 
     useEffect(() => {
         if (!open || !node) return;
@@ -74,9 +77,18 @@ export function CanvasMidjourneyActionsDialog({ open, node, nodes, config, onClo
         setMotion("high");
         setVideoType("");
         setEndUrl("");
+        setBatchSize(1);
+        setBatchCostConfirmed(false);
         setSubmitting(false);
         setError("");
     }, [node?.id, open]);
+
+    useEffect(() => {
+        if (!open || action !== "modal") return;
+        setClock(Date.now());
+        const timer = window.setInterval(() => setClock(Date.now()), 1000);
+        return () => window.clearInterval(timer);
+    }, [action, open]);
 
     useEffect(() => {
         if (!open || !node?.metadata?.taskId || node.metadata.midjourneyButtons?.length) return;
@@ -110,6 +122,9 @@ export function CanvasMidjourneyActionsDialog({ open, node, nodes, config, onClo
     const upstreamTaskId = node ? midjourneyUpstreamTaskId(node) : "";
     const canAutoVideo = parentAction === "imagine" && Boolean(upstreamTaskId);
     const modalStage = action === "modal";
+    const modalClock = modalStage ? midjourneyModalDeadline(node, clock) : undefined;
+    const modalExpired = Boolean(modalClock && modalClock.remainingMs <= 0);
+    const modalRemaining = modalClock ? `${Math.floor(modalClock.remainingMs / 60000)}:${String(Math.floor(modalClock.remainingMs % 60000 / 1000)).padStart(2, "0")}` : "未知";
     const hdUpscaleUnavailableReason = action === "upscale" ? midjourneyHdUpscaleUnavailableReason(node!, index) : "";
 
     const submit = async (maskDataUrl?: string, promptOverride?: string) => {
@@ -127,6 +142,10 @@ export function CanvasMidjourneyActionsDialog({ open, node, nodes, config, onClo
             setError("请先在图片上涂抹蒙版");
             return;
         }
+        if (action === "modal" && modalExpired) {
+            setError("MODAL 补图窗口已结束，请关闭后重新发起 inpaint");
+            return;
+        }
         const hdCustomId = action === "upscale" && upscaleMode !== "normal"
             ? midjourneyHdUpscaleCustomId(node, index, upscaleMode)
             : "";
@@ -136,6 +155,10 @@ export function CanvasMidjourneyActionsDialog({ open, node, nodes, config, onClo
         }
         if (action === "video" && animateMode === "auto" && !canAutoVideo) {
             setError("自动动画需要 Midjourney 上游 task_id");
+            return;
+        }
+        if (action === "video" && batchSize > 1 && !batchCostConfirmed) {
+            setError("请先确认视频批量请求的计费倍率");
             return;
         }
         setSubmitting(true);
@@ -219,7 +242,12 @@ export function CanvasMidjourneyActionsDialog({ open, node, nodes, config, onClo
                     ) : current?.enabled ? (
                         modalStage ? (
                             <div className="space-y-3">
-                                <Alert type="warning" showIcon message="第二阶段：30 分钟内补蒙版和提示词" description="涂抹区域会作为透明蒙版上传，保留区域为白色；没有蒙版不会提交付费请求。上游进入 MODAL 后超过 30 分钟会自动取消并退款。" />
+                                <Alert
+                                    type={modalExpired ? "error" : "warning"}
+                                    showIcon
+                                    message={modalExpired ? "MODAL 补图窗口已结束" : `第二阶段：剩余 ${modalRemaining} 补蒙版和提示词`}
+                                    description={modalExpired ? "请关闭后重新发起 inpaint，不能再使用已过期任务提交付费请求。" : "按 inpaint 任务创建时间计时，截止前可提交一次 MODAL。涂抹区域会作为透明蒙版上传，保留区域为白色；没有蒙版不会提交付费请求。"}
+                                />
                                 <div className="overflow-visible rounded-2xl border border-black/10 bg-neutral-950 p-4 pt-20 dark:border-white/10" style={{ minHeight: maskDisplay.height + 150 }}>
                                     <div className="relative mx-auto overflow-hidden rounded-xl bg-black" style={{ width: maskDisplay.width, height: maskDisplay.height }}>
                                         {maskSourceNode?.metadata?.content ? <img src={maskSourceNode.metadata.content} alt="局部重绘源图" className="absolute inset-0 size-full object-contain" draggable={false} /> : null}
@@ -262,6 +290,9 @@ export function CanvasMidjourneyActionsDialog({ open, node, nodes, config, onClo
                                 videoType={videoType}
                                 onVideoTypeChange={setVideoType}
                                 batchSize={batchSize}
+                                onBatchSizeChange={(value) => { setBatchSize(value); setBatchCostConfirmed(false); setError(""); }}
+                                batchCostConfirmed={batchCostConfirmed}
+                                onBatchCostConfirmedChange={setBatchCostConfirmed}
                                 videoIndex={videoIndex}
                                 onVideoIndexChange={setVideoIndex}
                                 endUrl={endUrl}
@@ -316,6 +347,9 @@ type ActionFormProps = {
     videoType: string;
     onVideoTypeChange: (value: string) => void;
     batchSize: 1 | 2 | 4;
+    onBatchSizeChange: (value: 1 | 2 | 4) => void;
+    batchCostConfirmed: boolean;
+    onBatchCostConfirmedChange: (value: boolean) => void;
     videoIndex: number;
     onVideoIndexChange: (value: number) => void;
     endUrl: string;
@@ -433,8 +467,20 @@ function ActionForm(props: ActionFormProps) {
                         ]} />
                     </Field>
                     <Field label="batch_size">
-                        <Input value={String(props.batchSize)} disabled suffix={<span className="text-[11px]">固定 1</span>} />
+                        <Select value={props.batchSize} onChange={props.onBatchSizeChange} options={[
+                            { value: 1, label: "1（默认）" },
+                            { value: 2, label: "2（费用 ×2）" },
+                            { value: 4, label: "4（费用 ×4）" },
+                        ]} />
                     </Field>
+                    {props.batchSize > 1 ? (
+                        <div className="md:col-span-2">
+                            <Alert type="warning" showIcon message={`本次视频请求会按 ${props.batchSize} 倍计费`} description="上游按 batch_size 倍率扣费。默认保持 1；请确认余额和实际需求后再提交。" />
+                            <Checkbox className="mt-2" checked={props.batchCostConfirmed} onChange={(event) => props.onBatchCostConfirmedChange(event.target.checked)}>
+                                我确认本次请求按 {props.batchSize} 倍计费
+                            </Checkbox>
+                        </div>
+                    ) : null}
                     <div className="md:col-span-2">
                         <Field label="尾帧 end_url（可选）">
                             <Input value={props.endUrl} onChange={(event) => props.onEndUrlChange(event.target.value)} placeholder="https://…" />

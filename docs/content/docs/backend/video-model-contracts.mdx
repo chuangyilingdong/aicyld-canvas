@@ -45,3 +45,19 @@ Seedance 专用调度与声明式视频插件共用该下载合同，包括直�
 4. 实际提交最小样例，验证任务终态、结果可读取和保存；接单成功不能替代生成成功。
 
 新增模型仍需要协议核验与实际验收；共用流程减少重复实现，不代替供应商能力确认。
+
+## 已核验的网页模型合同
+
+以下约束来自 2026-10 的 `api.seedance.nz/docs` 与 `/api/pricing`，新增能力必须重新核对上游，不能只凭模型名称推断。
+
+| 模型/能力 | 创建入口 | 实际限制 |
+| --- | --- | --- |
+| `MiniMax-H3` | `POST /v2/video_generation` | 480P / 768P / 1080P；普通 4–15 秒整数，含 `drive_audio` 可 4–60 秒；最多 9 图、3 视频、3 音频，另有 1 条独立驱动音频 |
+| `hailuo-h3-max-t2v` / `hailuo-h3-max-i2v` | `POST /v1/videos` | 480P / 768P、5–15 秒；t2v 使用 `metadata.ratio`，i2v 使用 1–2 张首尾帧且不接受比例 |
+| `hailuo-h3-max-turbo-t2v` / `hailuo-h3-max-turbo-i2v` | `POST /v1/videos` | 480p / 768p、5–15 秒；字段层级与 Max 相同，分辨率使用小写档位 |
+| `midjourney-imagine` | `POST /v1/midjourney/generations/imagine` | 一次任务返回四个独立 `image_urls` 和一张四宫格；画布只创建一个上游付费任务，四个结果按 `outputIndex` 独立绑定 |
+| `qwen/qwen3.8-omni-flash` | `POST /v1/chat/completions` | 同步/流式文本输出，支持文本、图片、音频、视频输入；仅用于多模态审核，不作为主助手协议兜底 |
+
+Midjourney 后续动作始终使用原上游任务 ID、结果索引和按钮快照。`repeat`、隐式批量倍增和未声明的视频 batch 不开放，避免一次点击产生不可见的多次扣费。MODAL 截止、任务过期和无按钮快照都必须明确失败，不能伪造 customId。
+
+H3 的中间帧是网关扩展，只在同时具备首帧、尾帧和片内时间且使用 480P/768P 时提交；缺任一项直接拒绝。普通首尾帧模式不混用多素材参考。页面上的时长和分辨率来自服务端能力配置，不使用写死的 fallback 覆盖。

@@ -20,11 +20,13 @@ type CompactMenuItem = {
 };
 
 type CanvasVideoPromptToolsProps = {
+    model?: string;
     metadata?: CanvasNodeMetadata;
     frameOptions: VideoFrameOption[];
     onMetadataChange: (patch: Partial<CanvasNodeMetadata>) => void;
     referenceMode?: "frames" | "all";
     referenceSummary?: { imageCount: number; videoCount: number; audioCount: number };
+    durationSeconds?: string;
 };
 
 const EMPTY_FRAME_VALUE = "__none__";
@@ -33,10 +35,13 @@ const MENU_MARGIN = 8;
 const MENU_ITEM_HEIGHT = 28;
 const CONTROL_TEXT_STYLE: CSSProperties = { fontFamily: "inherit", fontSize: 11, fontWeight: 400, letterSpacing: 0, lineHeight: 1 };
 
-export function CanvasVideoPromptTools({ metadata, frameOptions, onMetadataChange, referenceMode = "frames", referenceSummary }: CanvasVideoPromptToolsProps) {
+export function CanvasVideoPromptTools({ model = "", metadata, frameOptions, onMetadataChange, referenceMode = "frames", referenceSummary, durationSeconds }: CanvasVideoPromptToolsProps) {
     const theme = canvasThemes[useActiveTheme()];
     const startFrame = metadata?.videoStartFrameNodeId || EMPTY_FRAME_VALUE;
     const endFrame = metadata?.videoEndFrameNodeId || EMPTY_FRAME_VALUE;
+    const middleFrame = metadata?.videoMiddleFrameNodeId || EMPTY_FRAME_VALUE;
+    const modelName = (model.split("::").at(-1) || "").trim().toLowerCase();
+    const supportsMiddleFrame = modelName === "minimax-h3-max";
 
     const setFrame = (key: "videoStartFrameNodeId" | "videoEndFrameNodeId", value: string) => {
         const next = value === EMPTY_FRAME_VALUE ? undefined : value;
@@ -78,6 +83,12 @@ export function CanvasVideoPromptTools({ metadata, frameOptions, onMetadataChang
         >
             <FrameMenu label="首帧" value={startFrame} options={frameOptions} theme={theme} onChange={(value) => setFrame("videoStartFrameNodeId", value)} />
             <FrameMenu label="尾帧" value={endFrame} options={frameOptions} theme={theme} onChange={(value) => setFrame("videoEndFrameNodeId", value)} />
+            {supportsMiddleFrame ? <FrameMenu label="中间帧" value={middleFrame} options={frameOptions} theme={theme} onChange={(value) => {
+                const selected = value !== EMPTY_FRAME_VALUE;
+                const total = Number(durationSeconds || 5);
+                const midpoint = Number.isFinite(total) && total > 0.2 ? Math.round((total / 2) * 10) / 10 : undefined;
+                onMetadataChange({ videoMiddleFrameNodeId: selected ? value : undefined, videoMiddleFrameTime: selected ? metadata?.videoMiddleFrameTime ?? midpoint : undefined });
+            }} /> : null}
         </div>
     );
 }

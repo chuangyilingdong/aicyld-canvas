@@ -1,5 +1,5 @@
 /** 托管构建（hb.aicyld.com.cn）：默认即托管模式，bootstrap 载荷再确认一次。 */
-const HOSTED_BUILD = import.meta.env.VITE_CANVAS_HOSTED === "1";
+const HOSTED_BUILD = import.meta.env?.VITE_CANVAS_HOSTED === "1";
 
 export type WorkspaceProfile = "local" | "hosted";
 

@@ -18,6 +18,8 @@ import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { resolveModelRequestConfig } from "@/stores/use-config-store";
 import { captureUserScope, isUserScopeAbandonedError, userScopeMatches } from "@/lib/user-scope-guard";
 import { CanvasGenerationTargetSaveError } from "@/services/canvas-generation-errors";
+import { mergedImageCapabilityConfig } from "@/lib/model-selection";
+import type { GenerationTask } from "@/services/api/task-center";
 
 import type { CanvasGenerationExecution } from "./canvas-generation-executor-types";
 import { canvasGenerationFailureMetadata, canvasImageGenerationHasPendingResult, canvasImagePendingResultMessage, isKeptGenerationResultCode } from "./canvas-generation-failure";
@@ -73,7 +75,10 @@ export async function executeImageGeneration({
         showError(referenceLimitError);
         return;
     }
-    const count = getGenerationCount(generationConfig.count);
+    const nativeOutputCount = resolveModelRequestConfig(generationConfig, generationConfig.model).interfaceType === "midjourney"
+        ? 4
+        : mergedImageCapabilityConfig(generationConfig, generationConfig.model || generationConfig.imageModel).fixedOutputs || 0;
+    const count = nativeOutputCount || getGenerationCount(generationConfig.count);
     const isConfigNode = sourceNode?.type === CanvasNodeType.Config;
     const isImageNode = sourceNode?.type === CanvasNodeType.Image;
     const isExistingImageNode = isImageNode && Boolean(sourceNode?.metadata?.content || sourceNode?.metadata?.storageKey);
@@ -140,6 +145,7 @@ export async function executeImageGeneration({
             ...skillMetadata,
             imageBatchExpanded: count > 1 ? true : undefined,
             generationErrorCode: undefined,
+            taskOutputIndex: undefined,
             resourceReloadAvailable: undefined,
             failedPromptFingerprint: undefined,
             failedInputFingerprint: undefined,
@@ -159,6 +165,7 @@ export async function executeImageGeneration({
             size: generationConfig.size,
             batchRootId: rootId,
             ...generationMetadata,
+            taskOutputIndex: nativeOutputCount ? index : undefined,
             ...styleMetadata,
             ...skillMetadata,
             generationErrorCode: undefined,
@@ -213,44 +220,89 @@ export async function executeImageGeneration({
     let representativeFailure: GenerationFailureMetadata | undefined;
     let abandoned = false;
     let saveFailureMessage: string | undefined;
+    let nativeTask: Promise<GenerationTask> | undefined;
+    let nativeBindTail = Promise.resolve();
     await Promise.all(
         targetIds.map(async (targetId, index) => {
             try {
                 const operationId = clientOperationId
-                    ? (count > 1 ? `${clientOperationId}:${index}` : clientOperationId)
+                    ? (count > 1 && !nativeOutputCount ? `${clientOperationId}:${index}` : clientOperationId)
                     : retryContext?.clientOperationId;
-                await runCanvasGenerationTaskToConsumer(
-                    {
-                        projectId,
-                        nodeId: targetId,
-                        expectedScope,
-                        ...retryContext,
-                        ...(operationId ? { clientOperationId: operationId } : {}),
-                        mode: "image",
-                        resolveReferenceLinks,
-                        // 带参考图 = 图改图：上游要求提示词有最小长度，短指令补保真约束后再提交。
-                        prompt: providerSafeImageEditPrompt(effectivePrompt, { hasReference: referenceImages.length > 0 }),
-                        config: { ...generationConfig, count: "1" },
-                        referenceImages,
-                        signal: controller.signal,
-                        metadata: {
-                            sourceNodeId: nodeId,
-                            ...(midjourney ? { midjourney } : {}),
-                            ...taskContext,
-                            resolvedCharacterVersions: generationContext.resolvedCharacterVersions,
-                            promptTemplateOperation: sourceNode?.metadata?.promptTemplateOperation,
-                            promptTemplateVariables: sourceNode?.metadata?.promptTemplateVariables,
-                            ...styleMetadata,
-                            ...skillMetadata,
+                if (nativeOutputCount) {
+                    nativeTask ??= (async () => {
+                        let completed: GenerationTask | undefined;
+                        await runCanvasGenerationTaskToConsumer(
+                            {
+                                projectId,
+                                nodeId: targetIds[0],
+                                expectedScope,
+                                ...retryContext,
+                                ...(operationId ? { clientOperationId: operationId } : {}),
+                                mode: "image",
+                                resolveReferenceLinks,
+                                prompt: providerSafeImageEditPrompt(effectivePrompt, { hasReference: referenceImages.length > 0 }),
+                                config: { ...generationConfig, count: String(nativeOutputCount) },
+                                referenceImages,
+                                signal: controller.signal,
+                                metadata: {
+                                    sourceNodeId: nodeId,
+                                    ...(midjourney ? { midjourney } : {}),
+                                    ...taskContext,
+                                    resolvedCharacterVersions: generationContext.resolvedCharacterVersions,
+                                    promptTemplateOperation: sourceNode?.metadata?.promptTemplateOperation,
+                                    promptTemplateVariables: sourceNode?.metadata?.promptTemplateVariables,
+                                    ...styleMetadata,
+                                    ...skillMetadata,
+                                },
+                            },
+                            {
+                                bindTask: (task) => targetIds.forEach((id) => bindGenerationTask(id, task)),
+                                consumeTask: async (task) => { completed = task; },
+                                onSubmission: (metadata) => projectCanvasGenerationSubmission(nodesRef, setNodes, targetIds, metadata),
+                                targetSnapshot: () => ({ nodes: nodesRef.current }),
+                            },
+                        );
+                        if (!completed) throw new Error("生成任务缺少成功终态");
+                        return completed;
+                    })();
+                    const completed = await nativeTask;
+                    const binding = nativeBindTail.then(() => applyGenerationTaskResult(targetId, completed));
+                    nativeBindTail = binding.catch(() => {});
+                    await binding;
+                } else {
+                    await runCanvasGenerationTaskToConsumer(
+                        {
+                            projectId,
+                            nodeId: targetId,
+                            expectedScope,
+                            ...retryContext,
+                            ...(operationId ? { clientOperationId: operationId } : {}),
+                            mode: "image",
+                            resolveReferenceLinks,
+                            // 带参考图 = 图改图：上游要求提示词有最小长度，短指令补保真约束后再提交。
+                            prompt: providerSafeImageEditPrompt(effectivePrompt, { hasReference: referenceImages.length > 0 }),
+                            config: { ...generationConfig, count: "1" },
+                            referenceImages,
+                            signal: controller.signal,
+                            metadata: {
+                                sourceNodeId: nodeId,
+                                ...(midjourney ? { midjourney } : {}),
+                                ...taskContext,
+                                resolvedCharacterVersions: generationContext.resolvedCharacterVersions,
+                                promptTemplateOperation: sourceNode?.metadata?.promptTemplateOperation,
+                                promptTemplateVariables: sourceNode?.metadata?.promptTemplateVariables,
+                                ...styleMetadata,
+                                ...skillMetadata,
+                            },
                         },
-                    },
-                    {
-                        bindTask: (task) => bindGenerationTask(targetId, task),
-                        consumeTask: (task) => applyGenerationTaskResult(targetId, task),
-                        onSubmission: (metadata) => projectCanvasGenerationSubmission(nodesRef, setNodes, [targetId], metadata),
-                        targetSnapshot: () => ({ nodes: nodesRef.current }),
-                    },
-                );
+                        {
+                            bindTask: (task) => bindGenerationTask(targetId, task),
+                            consumeTask: (task) => applyGenerationTaskResult(targetId, task),
+                            onSubmission: (metadata) => projectCanvasGenerationSubmission(nodesRef, setNodes, [targetId], metadata),
+                            targetSnapshot: () => ({ nodes: nodesRef.current }),
+                        },
+                    );
+                }
                 if (!isCurrent()) return false;
                 if (targetId !== rootId) {
                     setNodes((current) => {

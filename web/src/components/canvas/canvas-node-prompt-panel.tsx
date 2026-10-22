@@ -707,7 +707,7 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                     </button>
                     {paramsExpanded ? (
                         <div className="pt-1">
-                            <CanvasVideoPromptTools metadata={node.metadata} frameOptions={videoFrameOptions} onMetadataChange={(patch) => onConfigChange(node.id, patch)} />
+                            <CanvasVideoPromptTools model={config.model} durationSeconds={config.videoSeconds} metadata={node.metadata} frameOptions={videoFrameOptions} onMetadataChange={(patch) => onConfigChange(node.id, patch)} />
                         </div>
                     ) : null}
                 </div>
@@ -740,7 +740,7 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                         {renderPromptEditor(true, Boolean(expandedModalSize))}
                         {hasVideoPromptTools ? (
                             <div className="canvas-node-composer-parameters shrink-0">
-                                <CanvasVideoPromptTools metadata={node.metadata} frameOptions={videoFrameOptions} onMetadataChange={(patch) => onConfigChange(node.id, patch)} />
+                                <CanvasVideoPromptTools model={config.model} durationSeconds={config.videoSeconds} metadata={node.metadata} frameOptions={videoFrameOptions} onMetadataChange={(patch) => onConfigChange(node.id, patch)} />
                             </div>
                         ) : null}
                         {renderModelCapabilityWarning()}

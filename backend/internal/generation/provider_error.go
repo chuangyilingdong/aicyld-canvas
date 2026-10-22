@@ -450,6 +450,13 @@ func ClassifyError(err error) Failure {
 	}
 	var preparation RequestPreparationError
 	if errors.As(err, &preparation) {
+		if failure, ok := typedReferencePreparationFailure(preparation.Cause); ok {
+			normalized := normalizeFailure(failure)
+			// Preparation is safe for a deliberate manual retry, but the
+			// automatic submission loop must not resend it by itself.
+			normalized.Retryable = false
+			return normalized
+		}
 		return normalizeFailure(Failure{Category: CategoryInputInaccessible, Reason: "本次请求在准备时失败，未发送到模型服务", Action: "请检查参考素材和生成参数后重试"})
 	}
 	if errors.Is(err, context.DeadlineExceeded) {

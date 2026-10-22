@@ -20,11 +20,16 @@ func RegisterDefaultOps(r *Registry) {
 	registerCanvasNodeBindAsset(r)
 	registerModelCatalogOp(r)
 	registerMediaOps(r)
+	registerMediaReview(r)
 	registerSkillOps(r)
+	registerSkillMarketOps(r)
+	registerSkillPublishingOps(r)
 	registerProjectSearchOps(r)
 	registerCanvasTimelineOps(r)
 	registerCanvasRenderOps(r)
 	registerCanvasNodeConfigureOps(r)
+	registerStoryboardPreparation(r)
+	registerGenerationSubmit(r)
 	r.Register(Op{AssistantCanvas: true, ID: "canvas.get", Summary: "读取指定画布的完整内容（节点与连线）", ReadOnly: true, Scope: ScopeCanvas,
 		Params:  json.RawMessage(`{"type":"object","properties":{"canvasId":{"type":"string"}},"required":["canvasId"]}`),
 		Handler: opCanvasGet})

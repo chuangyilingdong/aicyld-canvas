@@ -4,6 +4,7 @@ import { Brush, Camera, Copy, FileText, Globe2, Grid2x2, Lock, LockOpen, Maximiz
 import type { CanvasNodeData } from "@/types/canvas";
 import type { NodeToolbarGroup } from "@/lib/canvas/tool-registry";
 import { isMidjourneyNode } from "@/lib/canvas/canvas-midjourney";
+import type { CanvasWorkflowContribution } from "@/lib/canvas/workflow-capability";
 
 type ImageNodeActionToolId = "copyPrompt" | "reversePrompt" | "replace" | "resize" | "annotation" | "maskEdit" | "midjourney" | "emotion" | "portraitTexture" | "crop" | "split" | "upscale" | "superResolve" | "angle" | "lighting" | "panorama" | "view";
 
@@ -27,6 +28,7 @@ type ImageToolHandlers = {
 };
 
 type ImageToolDefinition = {
+    workflow?: CanvasWorkflowContribution;
     id: ImageNodeActionToolId;
     label: string | ((node: CanvasNodeData) => string);
     icon: (node: CanvasNodeData) => ReactNode;
@@ -208,6 +210,14 @@ export function buildImageToolbarTools(node: CanvasNodeData, handlers: ImageTool
         active: tool.active?.(node),
         onClick: () => tool.run(node, handlers),
     }));
+}
+
+export function listImageWorkflowTools(_node?: CanvasNodeData) {
+    return [
+        { id: "image.reversePrompt", label: "反推提示词", workflow: { operationId: "image.describe", outputType: "text", mode: "recipe" } },
+        { id: "image.annotation", label: "标注", workflow: { mode: "manual", reason: "标注需要手绘，请在画布完成后作为固定参考输入" } },
+        { id: "image.crop", label: "裁切", workflow: { operationId: "image.crop", outputType: "image", mode: "recipe" } },
+    ] satisfies Array<{ id: string; label: string; workflow: CanvasWorkflowContribution }>;
 }
 
 function resolveToolText(value: string | ((node: CanvasNodeData) => string), node: CanvasNodeData) {

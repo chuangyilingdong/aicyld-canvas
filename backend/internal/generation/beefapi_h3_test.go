@@ -53,6 +53,8 @@ func TestBeefAPIH3BodyKeepsKeyframeRolesAndResolution(t *testing.T) {
 func TestBeefAPIH3RejectsUnsupportedInputs(t *testing.T) {
 	for _, input := range []Input{
 		{Config: Config{Model: "minimax-h3-max-turbo", VideoSeconds: "2.5"}},
+		{Config: Config{Model: "minimax-h3-max-turbo", VideoSeconds: "4"}},
+		{Config: Config{Model: "minimax-h3-max", VideoSeconds: "5.5"}},
 		{Config: Config{Model: "minimax-h3-max-turbo", VQuality: "720"}},
 		{Config: Config{Model: "minimax-h3-max-turbo"}, ReferenceVideos: []Media{{URL: "https://example.com/v.mp4"}}},
 		{Config: Config{Model: "minimax-h3-max-turbo"}, ReferenceImages: []Media{{ID: "a", URL: "https://example.com/a.png"}}, Metadata: map[string]interface{}{"videoEndFrameNodeId": "missing"}},
@@ -60,6 +62,49 @@ func TestBeefAPIH3RejectsUnsupportedInputs(t *testing.T) {
 		if _, err := BeefAPIVideoRequestBody(input); err == nil {
 			t.Fatalf("accepted invalid input: %#v", input)
 		}
+	}
+}
+
+func TestBeefAPIH3DurationMatchesUpstreamRanges(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		model   string
+		seconds string
+		wantErr bool
+	}{
+		{name: "base minimum", model: "minimax-h3", seconds: "4"},
+		{name: "base decimal rejected", model: "minimax-h3", seconds: "4.5", wantErr: true},
+		{name: "max minimum", model: "minimax-h3-max", seconds: "5"},
+		{name: "max below minimum", model: "minimax-h3-max", seconds: "4", wantErr: true},
+		{name: "turbo maximum", model: "minimax-h3-max-turbo", seconds: "15"},
+		{name: "turbo above maximum", model: "minimax-h3-max-turbo", seconds: "16", wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := BeefAPIVideoRequestBody(Input{Prompt: "test", Config: Config{Model: tc.model, VideoSeconds: tc.seconds, VQuality: "768", Size: "16:9"}})
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("duration %s error=%v wantErr=%v", tc.seconds, err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestBeefAPIH3MiddleFrameRequiresTiming(t *testing.T) {
+	images := []Media{
+		{ID: "first", URL: "https://example.com/first.png"},
+		{ID: "middle", URL: "https://example.com/middle.png"},
+		{ID: "last", URL: "https://example.com/last.png"},
+	}
+	metadata := map[string]interface{}{"videoStartFrameNodeId": "first", "videoMiddleFrameNodeId": "middle", "videoEndFrameNodeId": "last", "videoMiddleFrameTime": 2.5}
+	body, err := BeefAPIVideoRequestBody(Input{Prompt: "test", Config: Config{Model: "minimax-h3-max", VideoSeconds: "5", VQuality: "480", Size: "16:9"}, ReferenceImages: images, Metadata: metadata})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body["middle_image_url"] != "https://example.com/middle.png" || body["middle_frame_time"] != 2.5 {
+		t.Fatalf("middle frame missing: %#v", body)
+	}
+	delete(metadata, "videoMiddleFrameTime")
+	if _, err := BeefAPIVideoRequestBody(Input{Prompt: "test", Config: Config{Model: "minimax-h3-max", VideoSeconds: "5", VQuality: "480", Size: "16:9"}, ReferenceImages: images, Metadata: metadata}); err == nil {
+		t.Fatal("middle frame without time was accepted")
 	}
 }
 func TestBeefAPIH3DesktopTaskDownloadsGatewayVideo(t *testing.T) {

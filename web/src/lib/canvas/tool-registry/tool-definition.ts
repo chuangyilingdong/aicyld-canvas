@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import type { MouseEvent } from "react";
 
+import type { CanvasWorkflowContribution } from "@/lib/canvas/workflow-capability";
 import type { CanvasAlignmentMode } from "@/lib/canvas/canvas-layout";
 import type { CanvasBackgroundMode } from "@/lib/canvas-theme";
 import type { CanvasNodeData, CanvasNodeMetadata, CanvasNodeTypeId, CanvasToolMode, CanvasWorkspaceMode } from "@/types/canvas";
@@ -72,6 +73,7 @@ export type ToolbarHandlers = {
     onMergeVideos: () => void;
     /** 只有画布页的多选工具栏提供这个入口；主工具栏不装配它。 */
     onAskAssistant?: () => void;
+    onSaveWorkflow?: () => void;
     // 节点悬停工具栏——节点操作（均接收当前节点）
     onNodeInfo: (node: CanvasNodeData) => void;
     onNodeDelete: (node: CanvasNodeData) => void;
@@ -163,6 +165,7 @@ export type AddNodeMenuContext = {
 
 /** 工具定义——注册表的基本单元 */
 export type ToolDefinition = {
+    workflow?: CanvasWorkflowContribution;
     id: string;
     toolbar: ToolbarId;
     category: ToolCategory;

@@ -9,6 +9,9 @@ import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import { generationInputMentionLabel, normalizeGenerationNodeMentionTokens, type NodeGenerationInput } from "./canvas-node-generation";
 import { CanvasVideoPromptTools } from "./canvas-video-prompt-tools";
+import { CanvasH3Controls } from "./canvas-h3-controls";
+import { CanvasH3ReferenceOrder } from "./canvas-h3-reference-order";
+import { isH3Model } from "@/lib/h3-video";
 import { CanvasPresetPicker, type CanvasPromptPreset } from "./canvas-preset-picker";
 import type { CanvasGenerationMode, CanvasNodeMetadata, CanvasWorkspaceMode } from "@/types/canvas";
 
@@ -17,6 +20,8 @@ type CanvasConfigComposerProps = {
     inputs: NodeGenerationInput[];
     skillReferences?: CanvasResourceReference[];
     generationMode?: CanvasGenerationMode;
+    model?: string;
+    videoDuration?: string;
     metadata?: CanvasNodeMetadata;
     onChange: (value: string) => void;
     onMetadataChange?: (patch: Partial<CanvasNodeMetadata>) => void;
@@ -44,7 +49,7 @@ type ComposerCandidate =
 
 export const CONFIG_REFERENCE_PATTERN = /@\[node:([^\]]+)\]|@(图片|视频|音频|文本|角色|绘图)(\d+)/g;
 
-export function CanvasConfigComposer({ value, inputs, skillReferences = [], generationMode, metadata, onChange, onMetadataChange, onClose, workspaceMode = "professional" }: CanvasConfigComposerProps) {
+export function CanvasConfigComposer({ value, inputs, skillReferences = [], generationMode, model = "", videoDuration, metadata, onChange, onMetadataChange, onClose, workspaceMode = "professional" }: CanvasConfigComposerProps) {
     const theme = canvasThemes[useActiveTheme()];
     const editorRef = useRef<HTMLDivElement>(null);
     const composingRef = useRef(false);
@@ -184,6 +189,7 @@ export function CanvasConfigComposer({ value, inputs, skillReferences = [], gene
             {generationMode === "video" && onMetadataChange && !simpleMode ? (
                 <div className="mb-3 rounded-lg px-2 py-2" style={{ background: theme.node.fill }}>
                     <CanvasVideoPromptTools
+                        model={model}
                         metadata={metadata}
                         frameOptions={videoFrameOptions}
                         referenceMode={workflowVideoReferenceMode ? "all" : "frames"}
@@ -192,8 +198,11 @@ export function CanvasConfigComposer({ value, inputs, skillReferences = [], gene
                             videoCount: inputs.filter((input) => input.type === "video").length,
                             audioCount: inputs.filter((input) => input.type === "audio").length,
                         }}
+                        durationSeconds={videoDuration}
                         onMetadataChange={onMetadataChange}
                     />
+                    {isH3Model(model) ? <CanvasH3Controls model={model} value={metadata?.videoH3Options} onChange={(videoH3Options) => onMetadataChange({ videoH3Options })} duration={videoDuration} metadata={metadata} onMetadataChange={onMetadataChange} /> : null}
+                    {isH3Model(model) ? <CanvasH3ReferenceOrder model={model} inputs={inputs} metadata={metadata} onChange={onMetadataChange} /> : null}
                 </div>
             ) : null}
             <div className="canvas-config-composer-editor relative rounded-lg" style={{ background: theme.node.fill }}>

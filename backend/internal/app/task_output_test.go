@@ -6,7 +6,30 @@ import (
 	"testing"
 
 	"infinite-canvas/backend/internal/model"
+	localtask "infinite-canvas/backend/internal/task"
 )
+
+func TestMidjourneyFourOutputsBindIndependently(t *testing.T) {
+	outputs := localtask.CanonicalOutputs(`{"images":[{"url":"https://cdn.example/a.png"},{"url":"https://cdn.example/b.png"},{"url":"https://cdn.example/c.png"},{"url":"https://cdn.example/d.png"}]}`, "canvas_image")
+	if len(outputs) != 4 {
+		t.Fatalf("Midjourney outputs = %d, want 4", len(outputs))
+	}
+	for index := range outputs {
+		outputs[index] = localtask.BindOutput(outputs[index], "mj-task", localtask.TargetBinding{NodeID: "node-" + string(rune('a'+index))})
+	}
+	intents := localtask.CanvasBindingIntents("mj-task", outputs)
+	if len(intents) != 4 {
+		t.Fatalf("binding intents = %d, want 4", len(intents))
+	}
+	for index, intent := range intents {
+		if intent.OutputIndex != index || intent.TargetBinding == nil || intent.TargetBinding.NodeID != "node-"+string(rune('a'+index)) {
+			t.Fatalf("intent %d = %#v", index, intent)
+		}
+		if intent.MaterializeEffectKey == "" || intent.AttachNodeEffectKey == "" {
+			t.Fatalf("intent %d is missing an independent effect key: %#v", index, intent)
+		}
+	}
+}
 
 func TestTaskForOutputRedactsRoutingAndSecrets(t *testing.T) {
 	task := model.Task{

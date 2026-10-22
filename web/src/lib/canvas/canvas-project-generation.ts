@@ -338,6 +338,7 @@ export function resetGenerationTaskMetadata(metadata: CanvasNodeMetadata | undef
     delete next.midjourneyParameters;
     delete next.midjourneyMaskSourceNodeId;
     delete next.midjourneyModalSubmittedTaskId;
+    delete next.midjourneyModalStartedAt;
     delete next.taskOutputIndex;
     delete next.taskOfficialStatus;
     delete next.taskReceiptRecorded;
@@ -512,6 +513,7 @@ export function buildVideoGenerationMetadata(
     const workflowVideo = node?.type === CanvasNodeType.Config && (config?.taskWorkflowProvider === "runninghub" || isCanvasWorkflowProvider(metadata));
     const startFrame = workflowVideo ? undefined : requireConnectedVideoFrame(metadata?.videoStartFrameNodeId, "首帧", referenceImageIds);
     const endFrame = workflowVideo ? undefined : requireConnectedVideoFrame(metadata?.videoEndFrameNodeId, "尾帧", referenceImageIds);
+    const middleFrame = workflowVideo ? undefined : requireConnectedVideoFrame(metadata?.videoMiddleFrameNodeId, "中间帧", referenceImageIds);
     return {
         ...(config ? generationWorkflowMetadata(config) : {}),
         videoEditOperation: resolveVideoEditOperation(node, context),
@@ -519,6 +521,10 @@ export function buildVideoGenerationMetadata(
         videoCameraMovePrompt: metadata?.videoCameraMovePrompt,
         videoStartFrameNodeId: startFrame,
         videoEndFrameNodeId: endFrame,
+        videoMiddleFrameNodeId: middleFrame,
+        videoMiddleFrameTime: middleFrame ? metadata?.videoMiddleFrameTime : undefined,
+        videoH3Options: metadata?.videoH3Options,
+        videoReferenceOrder: metadata?.videoReferenceOrder,
     };
 }
 
