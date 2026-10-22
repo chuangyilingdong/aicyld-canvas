@@ -15,7 +15,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion int64 = 22
+const CurrentSchemaVersion int64 = 23
 
 type localSchemaMigration struct {
 	Version   int64 `gorm:"primaryKey;autoIncrement:false"`
@@ -103,11 +103,19 @@ func canonicalLocalMigrations() []localMigration {
 			return migrateAssistantProductionAuthorization(tx)
 		}},
 		{version: 22, name: "assistant-market-release-metadata", apply: migrateSkillMarketReleaseColumn},
+		{version: 23, name: "user-skill-state-enabled", apply: migrateUserSkillStateEnabled},
 	}
 }
 
 func migrateSkillMarketReleaseColumn(tx *gorm.DB) error {
 	return ensureSQLiteColumn(tx, "skill_versions", "market_release_json", "TEXT")
+}
+
+func migrateUserSkillStateEnabled(tx *gorm.DB) error {
+	if err := ensureSQLiteColumn(tx, "user_skill_states", "enabled", "INTEGER NOT NULL DEFAULT 1"); err != nil {
+		return err
+	}
+	return tx.Exec("CREATE INDEX IF NOT EXISTS idx_user_skill_states_enabled ON user_skill_states(enabled)").Error
 }
 
 func migrateCanvasReusableWorkflows(tx *gorm.DB) error {
