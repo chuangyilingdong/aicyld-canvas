@@ -246,16 +246,28 @@ func validateRunningHubQueryTaskID(response map[string]any, taskID string) error
 func matchRunningHubOutput(original runningHubOutput, fresh []runningHubOutput) (runningHubOutput, error) {
 	matched := make([]runningHubOutput, 0, 1)
 	owners := map[string]bool{}
-	for _, output := range fresh {
-		if original.ID != "" {
+	if original.ID != "" {
+		byID := make([]runningHubOutput, 0, 2)
+		for _, output := range fresh {
 			if output.ID == original.ID {
+				byID = append(byID, output)
 				owners[output.Owner] = true
 			}
-			if output.ID == original.ID && output.Field == original.Field {
+		}
+		if len(byID) == 1 {
+			matched = append(matched, byID[0])
+		} else {
+			for _, output := range byID {
+				if output.Field == original.Field {
+					matched = append(matched, output)
+				}
+			}
+		}
+	} else {
+		for _, output := range fresh {
+			if output.URL == original.URL && output.Field == original.Field {
 				matched = append(matched, output)
 			}
-		} else if output.URL == original.URL && output.Field == original.Field {
-			matched = append(matched, output)
 		}
 	}
 	if original.ID == "" && len(matched) == 0 {
