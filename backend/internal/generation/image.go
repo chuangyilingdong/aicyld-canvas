@@ -20,6 +20,9 @@ import (
 )
 
 func RunImageTask(ctx context.Context, input Input) (map[string]interface{}, error) {
+	if UpscaleMediaType(input.Config.Model) == "image" {
+		return RunMediaUpscaleTask(ctx, input, DeclarativeProtocolPollPolicy("image"))
+	}
 	if providerpreset.IsBeefAPIEndpoint(input.Config.BaseURL) {
 		if contract, ok := providerpreset.BeefAPIImageContract(input.Config.Model); ok {
 			return runBeefAPIImageTask(ctx, input, contract)

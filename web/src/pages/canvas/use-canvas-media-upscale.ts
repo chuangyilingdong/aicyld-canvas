@@ -1,19 +1,20 @@
 import { useCallback, useEffect, useRef, type Dispatch, type SetStateAction } from "react";
 
 import { captureUserScope } from "@/lib/user-scope-guard";
-import { createVideoUpscaleTask, type VideoUpscaleQuality, type VideoUpscaleResolution } from "@/services/api/media-upscale";
+import { createUpscaleTask, type UpscaleQuality, type UpscaleResolution } from "@/services/api/media-upscale";
 import { queryGenerationTask, waitForGenerationTask, type GenerationTask } from "@/services/api/task-center";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 
-type VideoUpscaleRequest = {
+type MediaUpscaleRequest = {
     nodeId: string;
     sourceNodeId: string;
     resourceId: string;
-    resolution: VideoUpscaleResolution;
-    quality: VideoUpscaleQuality;
+    model: string;
+    resolution?: UpscaleResolution;
+    quality?: UpscaleQuality;
 };
 
-type UseCanvasVideoUpscaleOptions = {
+type UseCanvasMediaUpscaleOptions = {
     projectId: string;
     nodesRef: { current: CanvasNodeData[] };
     setNodes: Dispatch<SetStateAction<CanvasNodeData[]>>;
@@ -21,7 +22,7 @@ type UseCanvasVideoUpscaleOptions = {
     applyGenerationTaskResult: (nodeId: string, task: GenerationTask) => Promise<void>;
 };
 
-export function useCanvasVideoUpscale({ projectId, nodesRef, setNodes, bindGenerationTask, applyGenerationTaskResult }: UseCanvasVideoUpscaleOptions) {
+export function useCanvasMediaUpscale({ projectId, nodesRef, setNodes, bindGenerationTask, applyGenerationTaskResult }: UseCanvasMediaUpscaleOptions) {
     const controllersRef = useRef(new Map<string, AbortController>());
     const activeRef = useRef(new Set<string>());
 
@@ -31,7 +32,7 @@ export function useCanvasVideoUpscale({ projectId, nodesRef, setNodes, bindGener
         activeRef.current.clear();
     }, [projectId]);
 
-    return useCallback(async ({ nodeId, sourceNodeId, resourceId, resolution, quality }: VideoUpscaleRequest) => {
+    return useCallback(async ({ nodeId, sourceNodeId, resourceId, model, resolution, quality }: MediaUpscaleRequest) => {
         const target = nodesRef.current.find((node) => node.id === nodeId && node.type === CanvasNodeType.Upscale);
         if (!target || activeRef.current.has(nodeId)) return;
         activeRef.current.add(nodeId);
@@ -46,12 +47,13 @@ export function useCanvasVideoUpscale({ projectId, nodesRef, setNodes, bindGener
                 metadata: {
                     ...node.metadata,
                     status: "loading" as const,
-                    processingLabel: "正在提交 Topaz 视频超分",
+                    processingLabel: "正在提交媒体超分",
                     errorDetails: undefined,
                     generationSubmissionState: "submitting" as const,
                     taskClientOperationId: clientOperationId,
-                    videoUpscale: {
-                        ...node.metadata?.videoUpscale,
+                    mediaUpscale: {
+                        ...node.metadata?.mediaUpscale,
+                        model,
                         resolution,
                         quality,
                         sourceNodeId,
@@ -63,7 +65,8 @@ export function useCanvasVideoUpscale({ projectId, nodesRef, setNodes, bindGener
             return next;
         });
         try {
-            task = await createVideoUpscaleTask({
+            task = await createUpscaleTask({
+                model,
                 resourceId,
                 resolution,
                 quality,

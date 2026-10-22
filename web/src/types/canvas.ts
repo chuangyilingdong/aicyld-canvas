@@ -447,10 +447,11 @@ export type CanvasNodeMetadata = {
     /** 调色节点的参数；缺省视为未调色。 */
     colorGrade?: CanvasColorGrade;
     mediaConversion?: MediaConversionNodeState;
-    /** Dedicated server-side upscale settings and last confirmed quote. */
-    videoUpscale?: {
-        resolution: "720p" | "1080p" | "2K" | "4K";
-        quality: "Low" | "Medium" | "High" | "Max" | "Ultra";
+    /** Dedicated server-side media upscale settings and last confirmed quote. */
+    mediaUpscale?: {
+        model: string;
+        resolution?: "720p" | "1080p" | "2K" | "4K";
+        quality?: "Low" | "Medium" | "High" | "Max" | "Ultra";
         sourceNodeId?: string;
         sourceResourceId?: string;
         reservationCny?: number;

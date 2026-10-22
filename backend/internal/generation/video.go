@@ -38,8 +38,8 @@ func RunVideoTask(ctx context.Context, input Input) (map[string]interface{}, err
 func RunVideoTaskWithPolicy(ctx context.Context, input Input, pollPolicy VideoPollPolicy) (map[string]interface{}, error) {
 	pollPolicy = videoPollPolicyForConfig(ctx, input.Config, pollPolicy)
 	logVideoRequestPlan(ctx, input)
-	if IsTopazVideoUpscaleModel(input.Config.Model) {
-		return RunTopazVideoUpscaleTask(ctx, input, pollPolicy)
+	if UpscaleMediaType(input.Config.Model) == "video" {
+		return RunMediaUpscaleTask(ctx, input, pollPolicy)
 	}
 	// BeefAPI exposes its flat /v1/videos contract. Route it before
 	// protocol adapters so stale persisted channel metadata cannot select an

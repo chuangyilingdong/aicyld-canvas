@@ -159,14 +159,17 @@ const BUILTIN_NODE_TRAITS = {
     [CanvasNodeType.Director]: { label: "导演台", icon: <Clapperboard />, minSize: { width: 320, height: 320 }, showInCreateMenu: true, resourceKind: () => null },
     [CanvasNodeType.MediaConversion]: { label: "转换", icon: <WandSparkles />, minSize: { width: 400, height: 360 }, showInCreateMenu: true, resourceKind: (node: CanvasNodeData) => { const c = node.metadata?.mediaConversion; return c?.status === "completed" && c.resultStorageKey ? (c.outputKind === "video" ? "video" : "image") : null; }, acceptsInputKind: ["image", "video"], maxInputCount: 1, inputKind: "image" },
     [CanvasNodeType.Upscale]: {
-        label: "视频超分",
+        label: "AI 超分",
         icon: <ScanLine />,
         minSize: { width: 400, height: 360 },
         showInCreateMenu: true,
-        resourceKind: (node: CanvasNodeData) => (node.metadata?.content || node.metadata?.storageKey ? "video" : null),
-        acceptsInputKind: "video",
+        resourceKind: (node: CanvasNodeData) => {
+            if (!node.metadata?.content && !node.metadata?.storageKey) return null;
+            return node.metadata?.mimeType?.startsWith("image/") ? "image" : "video";
+        },
+        acceptsInputKind: ["image", "video"],
         maxInputCount: 1,
-        inputKind: "video",
+        inputKind: "image",
     },
     [CanvasNodeType.ColorGrade]: {
         label: "调色",
