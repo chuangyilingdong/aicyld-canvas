@@ -275,6 +275,55 @@ func registerSkillRoutes(r *gin.RouterGroup, svc *app.Service, includeRemote boo
 
 	r.POST("/skills/:id/add", setSkillAdded(svc, true))
 	r.DELETE("/skills/:id/add", setSkillAdded(svc, false))
+	r.GET("/skills/:id/versions", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		versions, err := svc.SkillVersions(user.ID, c.Param("id"))
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"versions": versions})
+	})
+	r.PATCH("/skills/:id/enabled", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		var body struct { Enabled *bool `json:"enabled"` }
+		if err := c.ShouldBindJSON(&body); err != nil || body.Enabled == nil {
+			fail(c, 400, err)
+			return
+		}
+		skill, err := svc.SetSkillEnabled(user.ID, c.Param("id"), *body.Enabled)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"skill": skill})
+	})
+	r.POST("/skills/:id/rollback", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		var body struct { VersionID string `json:"versionId"` }
+		if err := c.ShouldBindJSON(&body); err != nil || body.VersionID == "" {
+			fail(c, 400, err)
+			return
+		}
+		skill, err := svc.RollbackSkillVersion(user.ID, c.Param("id"), body.VersionID)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"skill": skill})
+	})
 	r.POST("/skills/:id/like", setSkillLiked(svc, true))
 	r.DELETE("/skills/:id/like", setSkillLiked(svc, false))
 }

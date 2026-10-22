@@ -1,21 +1,22 @@
-import { Button, Input, Skeleton, Tree } from "antd";
+import { App, Button, Dropdown, Input, Skeleton, Tree } from "antd";
 import { AppModal } from "@/components/ui/product/app-modal";
 import { Tooltip } from "@/components/ui/base/tooltip";
 
 import { SegmentedControl } from "@/components/ui/base/segmented-control";
 import type { DataNode } from "antd/es/tree";
-import { Check, ChevronRight, Code2, ExternalLink, File, FileArchive, FileCode2, FileImage, FileText, Folder, FolderOpen, Heart, Pencil, Plus, RefreshCw, Users } from "lucide-react";
+import { Check, ChevronRight, Code2, ExternalLink, File, FileArchive, FileCode2, FileImage, FileText, Folder, FolderOpen, Heart, History, Pencil, Plus, Power, RefreshCw, Users } from "lucide-react";
 import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { formatSkillCount, formatSkillDate, skillCategoryLabel } from "@/pages/skills/skill-catalog";
 import { isLocalRuntimeMode } from "@/lib/runtime-mode";
-import { getSkillFile, listSkillFiles, skillFileRawURL, type Skill, type SkillCategory, type SkillPackageFile, type SkillPackageFileContent } from "@/services/api/skills";
+import { getSkillFile, listSkillFiles, listSkillVersions, rollbackSkillVersion, setSkillEnabled, skillFileRawURL, type Skill, type SkillCategory, type SkillPackageFile, type SkillPackageFileContent, type SkillVersion } from "@/services/api/skills";
 
 type PreviewMode = "preview" | "source";
 
-export function SkillDetailModal({ skill, loading, mutating, categories, onClose, onAdd, onLike, onEdit, onSync }: { skill: Skill | null; loading: boolean; mutating: boolean; categories: SkillCategory[]; onClose: () => void; onAdd: (skill: Skill) => void; onLike: (skill: Skill) => void; onEdit: (skill: Skill) => void; onSync: (skill: Skill) => void }) {
+export function SkillDetailModal({ skill, loading, mutating, categories, onClose, onAdd, onLike, onEdit, onSync, onChanged }: { skill: Skill | null; loading: boolean; mutating: boolean; categories: SkillCategory[]; onClose: () => void; onAdd: (skill: Skill) => void; onLike: (skill: Skill) => void; onEdit: (skill: Skill) => void; onSync: (skill: Skill) => void; onChanged: (skill: Skill) => void }) {
+    const { message } = App.useApp();
     const [files, setFiles] = useState<SkillPackageFile[]>([]);
     const [filesLoading, setFilesLoading] = useState(false);
     const [filesError, setFilesError] = useState("");
@@ -25,6 +26,7 @@ export function SkillDetailModal({ skill, loading, mutating, categories, onClose
     const [contentError, setContentError] = useState("");
     const [previewMode, setPreviewMode] = useState<PreviewMode>("preview");
     const [pathFilter, setPathFilter] = useState("");
+    const [versions, setVersions] = useState<SkillVersion[]>([]);
     const localRuntime = isLocalRuntimeMode();
 
     useEffect(() => {
@@ -52,6 +54,11 @@ export function SkillDetailModal({ skill, loading, mutating, categories, onClose
             .finally(() => {
                 if (!cancelled) setFilesLoading(false);
             });
+        if (skill.isAdded && !skill.isOwner) {
+            void listSkillVersions(skill.skillId).then((result) => { if (!cancelled) setVersions(result.versions); }).catch(() => { if (!cancelled) setVersions([]); });
+        } else {
+            setVersions([]);
+        }
         return () => { cancelled = true; };
     }, [skill?.skillId, skill?.versionId]);
 
@@ -108,6 +115,8 @@ export function SkillDetailModal({ skill, loading, mutating, categories, onClose
                             <p className="mt-1 line-clamp-2 max-w-4xl text-sm leading-5 text-foreground/58">{skill.description}</p>
                         </div>
                         <div className="skill-package-actions">
+                            {skill.isAdded && !skill.isOwner ? <Button loading={mutating} icon={<Power className="size-4" />} onClick={() => void setSkillEnabled(skill.skillId, !skill.isEnabled).then(({ skill: next }) => { onChanged(next); message.success(next.isEnabled ? "技能已启用" : "技能已停用"); }).catch((error) => message.error(error instanceof Error ? error.message : "启停失败"))}>{skill.isEnabled ? "停用" : "启用"}</Button> : null}
+                            {skill.isAdded && !skill.isOwner && versions.length > 1 ? <Dropdown trigger={["click"]} menu={{ items: versions.map((version) => ({ key: version.id, label: `${version.versionLabel}${version.id === skill.installedVersionId ? "（当前）" : ""}`, disabled: version.id === skill.installedVersionId, onClick: () => void rollbackSkillVersion(skill.skillId, version.id).then(({ skill: next }) => { onChanged(next); message.success(`已切换到 ${version.versionLabel}`); }).catch((error) => message.error(error instanceof Error ? error.message : "版本切换失败")) })) }}><Button icon={<History className="size-4" />}>版本</Button></Dropdown> : null}
                             {!localRuntime && skill.sourceType === "github" && skill.isOwner ? <Tooltip title={skill.syncError || "从 GitHub 检查并同步最新提交"}><Button loading={mutating} icon={<RefreshCw className="size-4" />} onClick={() => onSync(skill)}>同步</Button></Tooltip> : null}
                             {skill.isOwner ? <Button icon={<Pencil className="size-4" />} onClick={() => onEdit(skill)}>编辑</Button> : null}
                             <Button loading={mutating} icon={<Heart className={`size-4 ${skill.isLike ? "fill-current text-rose-500" : ""}`} />} onClick={() => onLike(skill)}>{skill.isLike ? "已收藏" : "收藏"}</Button>

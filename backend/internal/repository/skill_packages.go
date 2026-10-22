@@ -51,6 +51,12 @@ func (r *Repository) SkillFiles(versionID string) ([]model.SkillFile, error) {
 	return files, err
 }
 
+func (r *Repository) SkillVersions(skillID string) ([]model.SkillVersion, error) {
+	var versions []model.SkillVersion
+	err := r.db.Where("skill_id = ?", skillID).Order("created_at desc").Find(&versions).Error
+	return versions, err
+}
+
 func (r *Repository) SkillsForPackageEnsure(userSource int) ([]model.Skill, error) {
 	var skills []model.Skill
 	err := r.db.Where("status = ? AND (current_version_id = '' OR source <> ?)", 1, userSource).Find(&skills).Error

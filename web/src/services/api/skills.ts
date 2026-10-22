@@ -53,8 +53,12 @@ export type Skill = {
     isTest: boolean;
     extraInfo: string;
     isAdded: boolean;
+    isEnabled: boolean;
+    installedVersionId?: string;
     isOwner: boolean;
 };
+
+export type SkillVersion = { id: string; versionLabel: string; contentHash: string; fileCount: number; totalBytes: number; createdAt: string };
 
 export type SkillCategory = { value: string; label: string };
 
@@ -234,6 +238,18 @@ export function addSkill(id: string) {
 
 export function removeSkill(id: string) {
     return http.delete<{ skill: Skill }>(`/skills/${encodeURIComponent(id)}/add`).finally(invalidateAddedSkillsCache);
+}
+
+export function setSkillEnabled(id: string, enabled: boolean) {
+    return http.patch<{ skill: Skill }>(`/skills/${encodeURIComponent(id)}/enabled`, { enabled }).finally(invalidateAddedSkillsCache);
+}
+
+export function listSkillVersions(id: string) {
+    return http.get<{ versions: SkillVersion[] }>(`/skills/${encodeURIComponent(id)}/versions`);
+}
+
+export function rollbackSkillVersion(id: string, versionId: string) {
+    return http.post<{ skill: Skill }>(`/skills/${encodeURIComponent(id)}/rollback`, { versionId }).finally(invalidateAddedSkillsCache);
 }
 
 export function likeSkill(id: string) {

@@ -143,7 +143,7 @@ func (r *Repository) UserSkillStatesBySkillIDs(userID string, skillIDs []string)
 func (r *Repository) SetUserSkillAdded(state *model.UserSkillState) error {
 	return r.db.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "user_id"}, {Name: "skill_id"}},
-		DoUpdates: clause.AssignmentColumns([]string{"added", "installed_version_id", "auto_update", "updated_at"}),
+		DoUpdates: clause.AssignmentColumns([]string{"added", "enabled", "installed_version_id", "auto_update", "updated_at"}),
 	}).Create(state).Error
 }
 

@@ -140,6 +140,7 @@ type UserSkillState struct {
 	InstalledVersionID string    `json:"installedVersionId" gorm:"size:36;index"`
 	AutoUpdate         bool      `json:"autoUpdate"`
 	Added              bool      `json:"added" gorm:"index"`
+	Enabled            bool      `json:"enabled" gorm:"default:true;index"`
 	Liked              bool      `json:"liked" gorm:"index"`
 	CreatedAt          time.Time `json:"createdAt"`
 	UpdatedAt          time.Time `json:"updatedAt"`

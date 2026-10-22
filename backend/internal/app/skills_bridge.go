@@ -24,6 +24,7 @@ type (
 	SkillPackageBundleFile    = skills.SkillPackageBundleFile
 	SkillPackageBundle        = skills.SkillPackageBundle
 	SkillFileSearchResult     = skills.SkillFileSearchResult
+	SkillVersionItem          = skills.SkillVersionItem
 )
 
 func (s *Service) skillDomain() *skills.Service {
@@ -66,6 +67,18 @@ func (s *Service) SetSkillAdded(userID string, id string, added bool) (*SkillIte
 
 func (s *Service) SetSkillLiked(userID string, id string, liked bool) (*SkillItem, error) {
 	return s.skillDomain().SetSkillLiked(userID, id, liked)
+}
+
+func (s *Service) SetSkillEnabled(userID string, id string, enabled bool) (*SkillItem, error) {
+	return s.skillDomain().SetSkillEnabled(userID, id, enabled)
+}
+
+func (s *Service) SkillVersions(userID string, id string) ([]SkillVersionItem, error) {
+	return s.skillDomain().SkillVersions(userID, id)
+}
+
+func (s *Service) RollbackSkillVersion(userID string, id string, versionID string) (*SkillItem, error) {
+	return s.skillDomain().RollbackSkillVersion(userID, id, versionID)
 }
 
 func (s *Service) EnsureBuiltinSkills() error {
