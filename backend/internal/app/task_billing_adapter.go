@@ -41,16 +41,16 @@ func (a taskBillingAdapter) Reserve(ctx context.Context, userID string, task *mo
 	return nil, err
 }
 
-func (a taskBillingAdapter) Settle(ctx context.Context, task *model.Task, outcome string, reason string) error {
+func (a taskBillingAdapter) Settle(ctx context.Context, task *model.Task, outcome string, reason string) (*model.BillingSettlement, error) {
 	if a.s == nil || a.s.billing == nil {
-		return nil
+		return &model.BillingSettlement{Status: "free"}, nil
 	}
 	return a.s.billing.Settle(ctx, task, outcome, reason)
 }
 
-func (a taskBillingAdapter) Release(ctx context.Context, task *model.Task, reason string) error {
+func (a taskBillingAdapter) Release(ctx context.Context, task *model.Task, reason string) (*model.BillingSettlement, error) {
 	if a.s == nil || a.s.billing == nil {
-		return nil
+		return &model.BillingSettlement{Status: "free"}, nil
 	}
 	return a.s.billing.Release(ctx, task, reason)
 }

@@ -353,8 +353,12 @@ func (b *inputCaptureBilling) Reserve(_ context.Context, _ string, task *model.T
 	return &model.BillingReservation{Enabled: false, Status: "free"}, nil
 }
 
-func (b *inputCaptureBilling) Settle(context.Context, *model.Task, string, string) error { return nil }
-func (b *inputCaptureBilling) Release(context.Context, *model.Task, string) error        { return nil }
+func (b *inputCaptureBilling) Settle(context.Context, *model.Task, string, string) (*model.BillingSettlement, error) {
+	return &model.BillingSettlement{Status: "settled"}, nil
+}
+func (b *inputCaptureBilling) Release(context.Context, *model.Task, string) (*model.BillingSettlement, error) {
+	return &model.BillingSettlement{Status: "refunded"}, nil
+}
 
 func TestAdmissionPreparesInputBeforeBillingReserve(t *testing.T) {
 	store := newMemStore()

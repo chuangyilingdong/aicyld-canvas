@@ -90,9 +90,9 @@ func mainUserID(canvasUserID string) string {
 	return strings.TrimPrefix(strings.TrimSpace(canvasUserID), "sso_")
 }
 
-func (c *Client) Settle(ctx context.Context, task *model.Task, outcome string, reason string) error {
+func (c *Client) Settle(ctx context.Context, task *model.Task, outcome string, reason string) (*model.BillingSettlement, error) {
 	if !c.Enabled() || task == nil || strings.TrimSpace(task.BillingHoldID) == "" {
-		return nil
+		return &model.BillingSettlement{Status: "free"}, nil
 	}
 	body := map[string]any{
 		"holdId":      task.BillingHoldID,
@@ -100,10 +100,14 @@ func (c *Client) Settle(ctx context.Context, task *model.Task, outcome string, r
 		"reason":      reason,
 		"actualFacts": Facts(task),
 	}
-	return c.post(ctx, "/settle", body, nil)
+	var settlement model.BillingSettlement
+	if err := c.post(ctx, "/settle", body, &settlement); err != nil {
+		return nil, err
+	}
+	return &settlement, nil
 }
 
-func (c *Client) Release(ctx context.Context, task *model.Task, reason string) error {
+func (c *Client) Release(ctx context.Context, task *model.Task, reason string) (*model.BillingSettlement, error) {
 	return c.Settle(ctx, task, "failed", reason)
 }
 

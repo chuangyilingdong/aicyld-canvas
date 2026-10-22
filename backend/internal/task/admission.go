@@ -190,7 +190,7 @@ func (s *Service) admit(userID string, req CreateRequest) (*model.Task, error) {
 	}
 	releaseBilling := func(reason string) {
 		if s.deps.Billing != nil && task.BillingHoldID != "" {
-			_ = s.deps.Billing.Release(context.Background(), &task, reason)
+			_, _ = s.deps.Billing.Release(context.Background(), &task, reason)
 			task.BillingStatus = "refunded"
 		}
 	}

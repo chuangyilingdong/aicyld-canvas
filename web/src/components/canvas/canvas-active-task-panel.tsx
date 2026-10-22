@@ -215,7 +215,7 @@ function ActiveTaskCard({
                             <div className="mt-2 flex items-center justify-between gap-2">
                                 <span>积分</span>
                                 <span className="text-right" style={{ color: task.billingStatus === "refunded" ? theme.accent.danger : theme.node.text }}>
-                                    {task.billingStatus === "refunded" ? "已退回" : task.billingStatus === "settled" ? "已结算" : "已预扣"} {task.billingPoints} 积分
+                                    {taskBillingStatusLabel(task.billingStatus)} {task.billingPoints} 积分
                                 </span>
                             </div>
                         ) : null}
@@ -245,6 +245,14 @@ function parseTime(value?: string) {
     if (!value) return Date.now();
     const time = new Date(value).getTime();
     return Number.isFinite(time) ? time : Date.now();
+}
+
+function taskBillingStatusLabel(status?: string) {
+    if (status === "refunded") return "已退回";
+    if (status === "settled") return "已结算";
+    if (status === "refund_pending") return "退款处理中";
+    if (status === "pending_reconcile") return "待对账";
+    return "已预扣";
 }
 
 function formatDuration(value: number) {

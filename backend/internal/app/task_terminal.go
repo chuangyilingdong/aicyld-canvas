@@ -44,7 +44,7 @@ type taskOutputLifecycle interface {
 }
 
 type taskBillingLifecycle interface {
-	Settle(task model.Task, outcome string, reason string) error
+	Settle(task model.Task, outcome string, reason string) (*model.BillingSettlement, error)
 }
 
 type taskTerminalServiceAdapter struct {
@@ -52,7 +52,7 @@ type taskTerminalServiceAdapter struct {
 	writeLog       func(string, string, string, string, string) error
 	deliver        func(model.Task) error
 	registerOutput func(model.Task) error
-	settleBilling  func(model.Task, string, string) error
+	settleBilling  func(model.Task, string, string) (*model.BillingSettlement, error)
 }
 
 func (a taskTerminalServiceAdapter) finalizeTaskTextReplay(taskID string, status model.TaskStatus) error {
@@ -74,9 +74,9 @@ func (a taskTerminalServiceAdapter) RegisterTaskOutputFromTask(task model.Task) 
 	return a.registerOutput(task)
 }
 
-func (a taskTerminalServiceAdapter) Settle(task model.Task, outcome string, reason string) error {
+func (a taskTerminalServiceAdapter) Settle(task model.Task, outcome string, reason string) (*model.BillingSettlement, error) {
 	if a.settleBilling == nil {
-		return nil
+		return &model.BillingSettlement{Status: "free"}, nil
 	}
 	return a.settleBilling(task, outcome, reason)
 }
@@ -100,9 +100,9 @@ func newTaskTerminalCoordinator(s *Service) *taskTerminalCoordinator {
 	}
 }
 
-func (s *Service) settleTaskBilling(task model.Task, outcome string, reason string) error {
+func (s *Service) settleTaskBilling(task model.Task, outcome string, reason string) (*model.BillingSettlement, error) {
 	if s == nil || s.billing == nil || strings.TrimSpace(task.BillingHoldID) == "" {
-		return nil
+		return &model.BillingSettlement{Status: "free"}, nil
 	}
 	return s.billing.Settle(context.Background(), &task, outcome, reason)
 }
@@ -268,13 +268,23 @@ func (c *taskTerminalCoordinator) settleBilling(task *model.Task, reason string)
 	if c == nil || c.billing == nil || task == nil || strings.TrimSpace(task.BillingHoldID) == "" || task.BillingStatus == "settled" {
 		return
 	}
-	if err := c.billing.Settle(*task, "succeeded", reason); err != nil {
+	settlement, err := c.billing.Settle(*task, "succeeded", reason)
+	if err != nil {
 		task.BillingStatus = "pending_reconcile"
 		c.updateTaskBilling(task)
 		_ = c.logger.log(task.UserID, task.ID, "error", "积分结算失败，等待对账", err.Error())
 		return
 	}
+	if settlement != nil && (settlement.Pending || settlement.Status == "pending_reconcile") {
+		task.BillingStatus = "pending_reconcile"
+		c.updateTaskBilling(task)
+		_ = c.logger.log(task.UserID, task.ID, "warn", "实际用量超过预扣且余额不足，等待对账", "")
+		return
+	}
 	task.BillingStatus = "settled"
+	if settlement != nil && settlement.ChargedPoints > 0 {
+		task.BillingPoints = settlement.ChargedPoints
+	}
 	c.updateTaskBilling(task)
 }
 
@@ -282,7 +292,7 @@ func (c *taskTerminalCoordinator) releaseBilling(task *model.Task, reason string
 	if c == nil || c.billing == nil || task == nil || strings.TrimSpace(task.BillingHoldID) == "" || task.BillingStatus == "refunded" {
 		return
 	}
-	if err := c.billing.Settle(*task, "failed", reason); err != nil {
+	if _, err := c.billing.Settle(*task, "failed", reason); err != nil {
 		task.BillingStatus = "refund_pending"
 		c.updateTaskBilling(task)
 		_ = c.logger.log(task.UserID, task.ID, "error", "积分退款失败，等待对账", err.Error())

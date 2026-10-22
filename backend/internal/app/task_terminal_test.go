@@ -17,6 +17,8 @@ type taskTerminalRepositoryStub struct {
 	terminalCalls    int
 	terminalError    error
 	terminalConflict bool
+	billingStatus    string
+	billingPoints    int
 }
 
 func (r *taskTerminalRepositoryStub) Task(string) (*model.Task, error) {
@@ -45,6 +47,23 @@ func (r *taskTerminalRepositoryStub) UpdateTaskTerminalState(_ string, _ string,
 		r.task.Status, r.task.Stage, r.task.Error, r.task.CompletedAt = status, stage, errorText, &completedAt
 	}
 	return true, nil
+}
+
+func (r *taskTerminalRepositoryStub) UpdateTaskBilling(_ string, _ string, _ string, status string, points int) error {
+	r.billingStatus, r.billingPoints = status, points
+	if r.task != nil {
+		r.task.BillingStatus, r.task.BillingPoints = status, points
+	}
+	return nil
+}
+
+type taskTerminalBillingStub struct {
+	settlement *model.BillingSettlement
+	err        error
+}
+
+func (b *taskTerminalBillingStub) Settle(model.Task, string, string) (*model.BillingSettlement, error) {
+	return b.settlement, b.err
 }
 
 type taskTerminalReplayStub struct{ statuses []model.TaskStatus }
@@ -216,5 +235,31 @@ func TestTaskTerminalCoordinatorReturnsTaskReadErrorAfterSuccess(t *testing.T) {
 	coordinator := newTaskTerminalCoordinatorForTest(&taskTerminalRepositoryStub{taskError: taskError}, &taskTerminalReplayStub{}, &taskTerminalLoggerStub{}, &taskTerminalOutputStub{})
 	if err := coordinator.handleSuccess(task); !errors.Is(err, taskError) {
 		t.Fatalf("handleSuccess() error = %v, want %v", err, taskError)
+	}
+}
+
+func TestTaskTerminalCoordinatorShowsActualSettledPoints(t *testing.T) {
+	task := &model.Task{ID: "task-1", UserID: "user-1", BillingHoldID: "hold-1", BillingPoints: 1, BillingStatus: "reserved"}
+	repo := &taskTerminalRepositoryStub{task: task}
+	coordinator := newTaskTerminalCoordinatorForTest(repo, &taskTerminalReplayStub{}, &taskTerminalLoggerStub{}, &taskTerminalOutputStub{})
+	coordinator.billing = &taskTerminalBillingStub{settlement: &model.BillingSettlement{Status: "settled", ChargedPoints: 3}}
+	if err := coordinator.handleSuccess(task); err != nil {
+		t.Fatal(err)
+	}
+	if task.BillingStatus != "settled" || task.BillingPoints != 3 || repo.billingStatus != "settled" || repo.billingPoints != 3 {
+		t.Fatalf("settled display not updated: task=%+v repo=%+v", task, repo)
+	}
+}
+
+func TestTaskTerminalCoordinatorKeepsReservedPointsWhenSettlementNeedsReconcile(t *testing.T) {
+	task := &model.Task{ID: "task-1", UserID: "user-1", BillingHoldID: "hold-1", BillingPoints: 2, BillingStatus: "reserved"}
+	repo := &taskTerminalRepositoryStub{task: task}
+	coordinator := newTaskTerminalCoordinatorForTest(repo, &taskTerminalReplayStub{}, &taskTerminalLoggerStub{}, &taskTerminalOutputStub{})
+	coordinator.billing = &taskTerminalBillingStub{settlement: &model.BillingSettlement{Status: "pending_reconcile", ChargedPoints: 2, Pending: true}}
+	if err := coordinator.handleSuccess(task); err != nil {
+		t.Fatal(err)
+	}
+	if task.BillingStatus != "pending_reconcile" || task.BillingPoints != 2 {
+		t.Fatalf("pending settlement changed reserved display: %+v", task)
 	}
 }

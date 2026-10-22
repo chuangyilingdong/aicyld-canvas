@@ -101,7 +101,7 @@ func (s *Service) Retry(userID, id string) (*model.Task, error) {
 	}
 	task, err = s.store.Retry(userID, task, limit)
 	if err != nil && billingReserved {
-		_ = s.deps.Billing.Release(context.Background(), task, "任务重试未进入队列，释放预扣")
+		_, _ = s.deps.Billing.Release(context.Background(), task, "任务重试未进入队列，释放预扣")
 	}
 	if errors.Is(err, repository.ErrActiveTaskLimit) {
 		return nil, activeLimitError(limit)
@@ -165,7 +165,7 @@ func (s *Service) Cancel(ctx context.Context, userID, id string) (*model.Task, e
 	s.deps.Runtime.StopLocalWait(task.ID)
 
 	if s.deps.Billing != nil && strings.TrimSpace(task.BillingHoldID) != "" {
-		if billingErr := s.deps.Billing.Release(context.Background(), task, "用户取消任务，释放预扣"); billingErr != nil {
+		if _, billingErr := s.deps.Billing.Release(context.Background(), task, "用户取消任务，释放预扣"); billingErr != nil {
 			task.BillingStatus = "refund_pending"
 			s.log(task.UserID, task.ID, "error", "取消任务后退还积分失败", billingErr.Error())
 		} else {

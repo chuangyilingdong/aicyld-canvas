@@ -135,8 +135,8 @@ type ProviderControl interface {
 type Billing interface {
 	Quote(ctx context.Context, userID string, task *model.Task) (*model.BillingQuote, error)
 	Reserve(ctx context.Context, userID string, task *model.Task) (*model.BillingReservation, error)
-	Settle(ctx context.Context, task *model.Task, outcome string, reason string) error
-	Release(ctx context.Context, task *model.Task, reason string) error
+	Settle(ctx context.Context, task *model.Task, outcome string, reason string) (*model.BillingSettlement, error)
+	Release(ctx context.Context, task *model.Task, reason string) (*model.BillingSettlement, error)
 }
 
 // Presenter projects durable rows onto the public read model.

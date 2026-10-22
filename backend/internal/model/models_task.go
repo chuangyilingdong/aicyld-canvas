@@ -10,25 +10,25 @@ type Task struct {
 	RequestID            string  `json:"-" gorm:"index;size:96"`
 	ProjectID            string  `json:"projectId" gorm:"index;size:80;index:idx_tasks_user_project_created,priority:2"`
 	// ClientOperationID 是一次用户确认的稳定身份。空值不参与去重；同一个用户重复提交同一确认时回读原任务。
-	ClientOperationID      *string    `json:"clientOperationId,omitempty" gorm:"size:128;uniqueIndex:idx_tasks_user_client_op,priority:2"`
-	ClientOperationHash    string     `json:"-" gorm:"size:64"`
-	Type                   string     `json:"type" gorm:"index;size:64"`
-	Status                 TaskStatus `json:"status" gorm:"index;size:24;index:idx_tasks_status_created,priority:1;index:idx_tasks_claim,priority:1;index:idx_tasks_provider_cancel,priority:1"`
-	Stage                  string     `json:"stage" gorm:"size:80"`
-	Progress               int        `json:"progress"`
-	Prompt                 string     `json:"prompt"`
-	Operation              string     `json:"operation" gorm:"size:64"`
-	Provider               string     `json:"provider" gorm:"size:64"`
-	Model                  string     `json:"model" gorm:"size:120"`
+	ClientOperationID   *string    `json:"clientOperationId,omitempty" gorm:"size:128;uniqueIndex:idx_tasks_user_client_op,priority:2"`
+	ClientOperationHash string     `json:"-" gorm:"size:64"`
+	Type                string     `json:"type" gorm:"index;size:64"`
+	Status              TaskStatus `json:"status" gorm:"index;size:24;index:idx_tasks_status_created,priority:1;index:idx_tasks_claim,priority:1;index:idx_tasks_provider_cancel,priority:1"`
+	Stage               string     `json:"stage" gorm:"size:80"`
+	Progress            int        `json:"progress"`
+	Prompt              string     `json:"prompt"`
+	Operation           string     `json:"operation" gorm:"size:64"`
+	Provider            string     `json:"provider" gorm:"size:64"`
+	Model               string     `json:"model" gorm:"size:120"`
 	// 画布积分预扣。HoldID 只用于内部对账；BillingPoints 用于任务卡片展示。
 	BillingHoldID          string        `json:"-" gorm:"size:64;index"`
 	BillingStatus          string        `json:"billingStatus,omitempty" gorm:"size:32"`
 	BillingPoints          int           `json:"billingPoints,omitempty"`
 	BillingQuote           *BillingQuote `json:"billingQuote,omitempty" gorm:"-"`
-	LogicalModelID         string     `json:"logicalModelId,omitempty" gorm:"size:36;index"`
-	LogicalModelRevisionID string     `json:"logicalModelRevisionId,omitempty" gorm:"size:36;index"`
-	RouteID                string     `json:"routeId,omitempty" gorm:"size:36;index"`
-	ChannelModelID         string     `json:"channelModelId,omitempty" gorm:"size:36;index"`
+	LogicalModelID         string        `json:"logicalModelId,omitempty" gorm:"size:36;index"`
+	LogicalModelRevisionID string        `json:"logicalModelRevisionId,omitempty" gorm:"size:36;index"`
+	RouteID                string        `json:"routeId,omitempty" gorm:"size:36;index"`
+	ChannelModelID         string        `json:"channelModelId,omitempty" gorm:"size:36;index"`
 	// RouteRun 只在用户主动重试时递增；worker 租约恢复不应创建新的路由选择世代。
 	RouteRun                  int                     `json:"-" gorm:"index"`
 	ProviderRequestID         string                  `json:"providerRequestId,omitempty" gorm:"index;size:160"`
@@ -81,6 +81,13 @@ type BillingReservation struct {
 	Points  int    `json:"points"`
 	Balance int    `json:"balance,omitempty"`
 	Status  string `json:"status,omitempty"`
+}
+
+type BillingSettlement struct {
+	Status         string `json:"status,omitempty"`
+	ChargedPoints  int    `json:"chargedPoints"`
+	RefundedPoints int    `json:"refundedPoints"`
+	Pending        bool   `json:"pending,omitempty"`
 }
 
 // TaskFailureDiagnostics contains bounded, redacted evidence, never request bodies.
