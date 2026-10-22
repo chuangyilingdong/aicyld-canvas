@@ -25,7 +25,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type Keyboard
 import { ArrowLeftRight, ArrowUp, AtSign, Boxes, Camera, ChevronDown, FileText, GripVertical, ImageIcon, ImagePlus, Link2, LoaderCircle, Maximize2, Music2, Pencil, SlidersHorizontal, UserRound, Video, WandSparkles, X } from "lucide-react";
 
 import { ModelPicker } from "@/components/model-picker";
-import { defaultConfig, modelOptionName, resolveModelChannel, selectableModelsByCapability, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
+import { defaultConfig, modelOptionName, resolveModelChannel, resolveModelRequestConfig, selectableModelsByCapability, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { resolveAudioSpeechSettings } from "@/lib/audio-generation";
 import { resolveCanvasGenerationModel } from "@/lib/canvas/canvas-project-generation";
 import { canvasAudioPurposeModel, canvasFeatureModelForMode, classifyAudioModelPurpose, functionOnlyModelValues, hasAudioPurposeModel } from "@/lib/canvas/feature-models";
@@ -161,6 +161,13 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
         }, mode),
     };
     const config = buildNodeConfig(globalConfig, node, mode, requirements);
+    const isMidjourneyImage = mode === "image" && resolveModelRequestConfig(config, config.model).interfaceType === "midjourney";
+    const updateMidjourneyParameter = (key: string, value: string | number | boolean | undefined) => {
+        const next = { ...(node.metadata?.midjourneyParameters || {}) };
+        if (value === undefined || value === "") delete next[key];
+        else next[key] = value;
+        onConfigChange(node.id, { midjourneyParameters: Object.keys(next).length ? next : undefined });
+    };
     const availableModels = selectableModelsByCapability(config, mode);
     // 音频节点：模型按「用途」分组，只列当前用途可用的那几档（配音 / 音乐 / 音效）。
     const audioPurpose = node.metadata?.audioPurpose === "music" ? "music" : node.metadata?.audioPurpose === "sfx" ? "sfx" : "voice";
@@ -526,6 +533,8 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                             />
                             <CanvasImageSettingsPopover
                                 config={config}
+                                midjourneyParameters={isMidjourneyImage ? node.metadata?.midjourneyParameters : undefined}
+                                onMidjourneyParameterChange={isMidjourneyImage ? updateMidjourneyParameter : undefined}
                                 placement={expanded ? "topRight" : "topLeft"}
                                 buttonClassName="canvas-node-composer-settings-trigger [&>span]:min-w-0 [&_.lucide]:!size-3"
                                 onConfigChange={(key, value) => onConfigChange(node.id, key === "count" ? { count: Number(value) || 1 } : { [key]: value })}

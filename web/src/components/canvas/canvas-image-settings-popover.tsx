@@ -12,6 +12,8 @@ import type { AiConfig } from "@/stores/use-config-store";
 type CanvasImageSettingsPopoverProps = {
     config: AiConfig;
     onConfigChange: (key: keyof AiConfig, value: string) => void;
+    midjourneyParameters?: Record<string, unknown>;
+    onMidjourneyParameterChange?: (key: string, value: string | number | boolean | undefined) => void;
     onMissingConfig?: () => void;
     onOpenChange?: (open: boolean) => void;
     buttonClassName?: string;
@@ -22,7 +24,7 @@ type CanvasImageSettingsPopoverProps = {
     summaryOverride?: string;
 };
 
-export function CanvasImageSettingsPopover({ config, onConfigChange, onOpenChange, buttonClassName, placement = "topLeft", showCount = true, summaryOverride }: CanvasImageSettingsPopoverProps) {
+export function CanvasImageSettingsPopover({ config, onConfigChange, midjourneyParameters, onMidjourneyParameterChange, onOpenChange, buttonClassName, placement = "topLeft", showCount = true, summaryOverride }: CanvasImageSettingsPopoverProps) {
     const theme = canvasThemes[useActiveTheme()];
     const buttonRef = useRef<HTMLSpanElement>(null);
     const panelRef = useRef<HTMLDivElement>(null);
@@ -30,9 +32,13 @@ export function CanvasImageSettingsPopover({ config, onConfigChange, onOpenChang
     const [buttonRect, setButtonRect] = useState<DOMRect | null>(null);
     const profile = modelCapabilityConfigFor(config, config.model || config.imageModel).image!;
     const normalized = normalizeImageValue(profile, config);
+    const midjourneyQuality = typeof midjourneyParameters?.quality === "string" ? midjourneyParameters.quality : "";
+    const midjourneyVersion = typeof midjourneyParameters?.version === "string" ? midjourneyParameters.version : "";
     const summaryParts = [
         ...(profile.size.parameter !== "none" ? [imageSizeLabel(normalized.size)] : []),
         ...(profile.quality.supported ? [imageQualityLabel(normalized.quality)] : []),
+        ...(midjourneyQuality ? [`细节 ${midjourneyQuality}`] : []),
+        ...(midjourneyVersion ? [`v${midjourneyVersion.replace(/^v/i, "")}`] : []),
         ...(showCount && profile.maxOutputs > 1 ? [`${normalized.count} 张`] : []),
         ...(profile.transparentBackground.supported && normalized.transparentBackground === "true" ? ["透明"] : []),
     ];
@@ -66,7 +72,7 @@ export function CanvasImageSettingsPopover({ config, onConfigChange, onOpenChang
         };
     }, [onOpenChange, open]);
 
-    const panel = open && buttonRect ? <ImageSettingsPortal buttonRect={buttonRect} panelRef={panelRef} placement={placement} theme={theme} config={config} showCount={showCount} onConfigChange={onConfigChange} /> : null;
+    const panel = open && buttonRect ? <ImageSettingsPortal buttonRect={buttonRect} panelRef={panelRef} placement={placement} theme={theme} config={config} showCount={showCount} midjourneyParameters={midjourneyParameters} onMidjourneyParameterChange={onMidjourneyParameterChange} onConfigChange={onConfigChange} /> : null;
 
     if (!hasSettings) return null;
 
@@ -89,6 +95,8 @@ function ImageSettingsPortal({
     theme,
     config,
     showCount,
+    midjourneyParameters,
+    onMidjourneyParameterChange,
     onConfigChange,
 }: {
     buttonRect: DOMRect;
@@ -97,6 +105,8 @@ function ImageSettingsPortal({
     theme: (typeof canvasThemes)[keyof typeof canvasThemes];
     config: AiConfig;
     showCount: boolean;
+    midjourneyParameters?: Record<string, unknown>;
+    onMidjourneyParameterChange?: (key: string, value: string | number | boolean | undefined) => void;
     onConfigChange: (key: keyof AiConfig, value: string) => void;
 }) {
     const gap = 8;
@@ -130,7 +140,7 @@ function ImageSettingsPortal({
             onMouseDown={(event) => event.stopPropagation()}
             onClick={(event) => event.stopPropagation()}
         >
-            <ImageSettingsPanel config={config} onConfigChange={(key, value) => onConfigChange(key, value)} theme={theme} showCount={showCount} quickCount={3} className="space-y-3" />
+            <ImageSettingsPanel config={config} onConfigChange={(key, value) => onConfigChange(key, value)} midjourneyParameters={midjourneyParameters} onMidjourneyParameterChange={onMidjourneyParameterChange} theme={theme} showCount={showCount} quickCount={3} className="space-y-3" />
         </div>,
         document.body,
     );

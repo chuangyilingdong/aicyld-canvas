@@ -315,6 +315,9 @@ func midjourneyAdapter() Adapter {
 			copyMidjourneyOption(body, options, "motion", "motion")
 			copyMidjourneyOption(body, options, "endUrl", "end_url")
 			copyMidjourneyOption(body, options, "version", "version")
+			if action == "imagine" || action == "edits" {
+				copyMidjourneyOption(body, options, "quality", "quality")
+			}
 			if value := midjourneyInt(options, "index"); value > 0 {
 				body["index"] = value
 			} else if action == "video" {

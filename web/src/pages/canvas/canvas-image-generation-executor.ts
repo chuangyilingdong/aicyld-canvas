@@ -10,10 +10,12 @@ import { imageGenerationReferenceConnections } from "@/lib/canvas/canvas-resourc
 import { canvasGenerationPromptMetadata } from "@/lib/canvas/canvas-generation-submission";
 import { projectCanvasGenerationSubmission } from "@/lib/canvas/canvas-generation-live-target";
 import { isImageEditModel, withPlatformImageEditModel } from "@/lib/canvas/feature-models";
+import { midjourneyImagineRequestOptions } from "@/lib/canvas/canvas-midjourney";
 import { mediaResultMetadata } from "@/lib/canvas/canvas-node-semantics";
 import { CONTENT_MODERATION_ERROR_CODE, type GenerationFailureMetadata } from "@/lib/generation-error";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
+import { resolveModelRequestConfig } from "@/stores/use-config-store";
 import { captureUserScope, isUserScopeAbandonedError, userScopeMatches } from "@/lib/user-scope-guard";
 import { CanvasGenerationTargetSaveError } from "@/services/canvas-generation-errors";
 
@@ -83,6 +85,9 @@ export async function executeImageGeneration({
     const referenceImages = generationContext.referenceImages;
     const generationType = referenceImages.length ? ("edit" as const) : ("generation" as const);
     const generationMetadata = buildImageGenerationMetadata(generationType, generationConfig, count, referenceImages);
+    const midjourney = resolveModelRequestConfig(generationConfig, generationConfig.model).interfaceType === "midjourney"
+        ? midjourneyImagineRequestOptions(sourceNode?.metadata?.midjourneyParameters)
+        : undefined;
     const parentConfig = NODE_DEFAULT_SIZE[isConfigNode ? CanvasNodeType.Config : isImageNode ? CanvasNodeType.Image : CanvasNodeType.Text];
     const imageDefaults = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
     // 生成中占位框按设置比例显示，避免 16:9 任务显示成默认 340x240。
@@ -230,6 +235,7 @@ export async function executeImageGeneration({
                         signal: controller.signal,
                         metadata: {
                             sourceNodeId: nodeId,
+                            ...(midjourney ? { midjourney } : {}),
                             ...taskContext,
                             resolvedCharacterVersions: generationContext.resolvedCharacterVersions,
                             promptTemplateOperation: sourceNode?.metadata?.promptTemplateOperation,

@@ -66,6 +66,7 @@ func TestMidjourneyImagineMapsRequestAndGridPoll(t *testing.T) {
 	spec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
 		Model: "midjourney-imagine", Prompt: "a red fox in snow", AspectRatio: "16:9", Quality: "fast",
 		Images: []MediaReference{{URL: "https://cdn.example.com/reference.png", Kind: "image"}},
+		Extra:  map[string]any{"midjourney": map[string]any{"action": "imagine", "quality": "1", "version": "8.1"}},
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -78,7 +79,7 @@ func TestMidjourneyImagineMapsRequestAndGridPoll(t *testing.T) {
 	if err := json.Unmarshal(body, &got); err != nil {
 		t.Fatal(err)
 	}
-	if got["model"] != "midjourney" || got["prompt"] != "a red fox in snow" || got["size"] != "16:9" || got["speed"] != "fast" {
+	if got["model"] != "midjourney" || got["prompt"] != "a red fox in snow" || got["size"] != "16:9" || got["speed"] != "fast" || got["quality"] != "1" || got["version"] != "8.1" {
 		t.Fatalf("create body = %#v", got)
 	}
 	if images, _ := got["image_urls"].([]any); len(images) != 1 || images[0] != "https://cdn.example.com/reference.png" {

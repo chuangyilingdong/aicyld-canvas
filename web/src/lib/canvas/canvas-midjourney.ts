@@ -59,6 +59,40 @@ export type MidjourneyActionSubmission = {
     maskDataUrl?: string;
 };
 
+export const MIDJOURNEY_IMAGINE_QUALITIES = ["0.25", "0.5", "1", "2"] as const;
+export const MIDJOURNEY_VERSIONS = ["8.2", "8.1", "7", "6.1", "5.2", "5.1"] as const;
+
+/**
+ * Build the upstream option bag for an Imagine request. `quality` here is MJ's
+ * --q detail level; the top-level image quality remains the relax/fast/turbo
+ * speed tier. `repeat` is intentionally omitted so a UI setting cannot
+ * silently multiply the number of paid requests.
+ */
+export function midjourneyImagineRequestOptions(parameters?: Record<string, unknown>) {
+    const options: Record<string, unknown> = { action: "imagine" };
+    if (!parameters) return options;
+
+    const quality = stringOption(parameters.quality);
+    if ((MIDJOURNEY_IMAGINE_QUALITIES as readonly string[]).includes(quality)) options.quality = quality;
+    const version = stringOption(parameters.version).replace(/^v/i, "");
+    if ((MIDJOURNEY_VERSIONS as readonly string[]).includes(version)) options.version = version;
+    const style = stringOption(parameters.style).toLowerCase();
+    if (style === "raw") options.style = style;
+
+    for (const key of ["negativePrompt", "cref", "sref", "dref", "extra"] as const) {
+        const value = stringOption(parameters[key]);
+        if (value) options[key] = value;
+    }
+    for (const key of ["seed", "stylize", "chaos", "weird", "cw", "sw", "iw", "dw", "stop"] as const) {
+        const value = Number(parameters[key]);
+        if (Number.isFinite(value)) options[key] = value;
+    }
+    for (const key of ["tile", "niji", "raw", "draft", "hd"] as const) {
+        if (typeof parameters[key] === "boolean") options[key] = parameters[key];
+    }
+    return options;
+}
+
 export type MidjourneyActionCapability = {
     action: MidjourneyAction;
     enabled: boolean;
@@ -195,7 +229,7 @@ export function midjourneyActionCapabilities(node: Pick<CanvasNodeData, "metadat
             add("low-variation", parentActionCapability("low-variation"));
             if (parentAction === "upscale" && !isV8) {
                 add("zoom", parentActionCapability("zoom"));
-                add("pan", parentActionCapability("pan"));
+                add("pan", { ...parentActionCapability("pan"), enabled: false, reason: "上游当前不支持 Pan（包括 HD upscale）" });
                 add("inpaint", parentActionCapability("inpaint"));
             }
             if (!version || isV8) {

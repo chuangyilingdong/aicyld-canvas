@@ -5,6 +5,7 @@ import {
     midjourneyActionFromNode,
     midjourneyActionFromTask,
     midjourneyIndexForNode,
+    midjourneyImagineRequestOptions,
     midjourneyResultMode,
     midjourneyTaskMetadata,
     midjourneyUpstreamTaskId,
@@ -33,6 +34,15 @@ function task(action: string, extra: Record<string, unknown> = {}): GenerationTa
 }
 
 describe("Midjourney canvas contract", () => {
+    test("maps Imagine quality and version without turning quality into a speed tier", () => {
+        expect(midjourneyImagineRequestOptions({ quality: "1", version: "v8.1", repeat: 8, tile: false })).toEqual({
+            action: "imagine",
+            quality: "1",
+            version: "8.1",
+            tile: false,
+        });
+    });
+
     test("uses only providerRequestId as the upstream parent", () => {
         expect(midjourneyUpstreamTaskId(node({ taskId: "local-task-id", taskProviderRequestId: "upstream-task-id" }))).toBe("upstream-task-id");
         expect(midjourneyUpstreamTaskId(node({ taskId: "local-task-id" }))).toBe("");
@@ -81,6 +91,7 @@ describe("Midjourney canvas contract", () => {
         const upscale = midjourneyActionCapabilities(node({ midjourneyAction: "upscale", taskProviderRequestId: "upstream-single" }));
         expect(upscale.find((item) => item.action === "inpaint")?.enabled).toBe(true);
         expect(upscale.find((item) => item.action === "zoom")?.enabled).toBe(true);
+        expect(upscale.find((item) => item.action === "pan")?.enabled).toBe(false);
         expect(upscale.find((item) => item.action === "high-variation")?.enabled).toBe(true);
 
         const v8 = midjourneyActionCapabilities(node({ midjourneyAction: "imagine", midjourneyVersion: "8.1", taskProviderRequestId: "upstream-v8" }));

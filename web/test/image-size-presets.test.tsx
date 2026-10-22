@@ -5,12 +5,27 @@ import { applyImageSizeSelection } from "../src/components/image-settings-panel"
 import { ImageSizePresetsEditor } from "../src/components/image-size-presets-editor";
 import { ModelCapabilityEditor } from "../src/components/model-capability-editor";
 import { defaultImageCapabilityConfig, normalizeImageValue, normalizeModelCapabilityConfig } from "../src/lib/model-capabilities";
-import { IMAGE_RATIOS, IMAGE_RESOLUTIONS, imagePresetForRatio, imagePresetValue, imageQualityForSelection, imageQualityForTier, imageSizeConfigWithPresets, imageSizePresets, imageTierAvailable } from "../src/lib/image-size-presets";
+import { IMAGE_RATIOS, IMAGE_RESOLUTIONS, imagePresetForRatio, imagePresetValue, imageQualityForSelection, imageQualityForTier, imageSizeConfigWithPresets, imageSizePresets, imageTierAvailable, imageUsesRatioOnlyPresets } from "../src/lib/image-size-presets";
 import { buildImageResolutionOptions } from "../src/lib/image-resolution-tiers";
 import { resolveImageRequestSize, validateImageSize } from "../src/services/api/image-validation";
 import { buildGeminiImageGenerationConfig } from "../src/lib/gemini-image";
 
 describe("统一图片分辨率与宽高比", () => {
+    test("Midjourney 只显示比例按钮，不伪造清晰度档或覆盖速度档", () => {
+        const profile = defaultImageCapabilityConfig("midjourney", "midjourney-imagine");
+        expect(imageUsesRatioOnlyPresets(profile)).toBe(true);
+        expect(imageSizePresets(profile).map((preset) => preset.ratio)).toEqual(profile.size.values);
+        expect(imageTierAvailable(profile, "1k")).toBe(true);
+        expect(imageQualityForSelection(profile, "1k")).toBeUndefined();
+        expect(normalizeImageValue(profile, { size: "16:9", quality: "fast" }).quality).toBe("fast");
+        const picker = renderToStaticMarkup(<ImageSizePicker profile={profile} size="16:9" quality="fast" onChange={() => {}} />);
+        expect(picker).toContain("宽高比");
+        expect(picker).toContain("16:9");
+        expect(picker).not.toContain('class="image-size-tiers"');
+        expect(picker).toContain("尺寸由模型版本决定");
+        expect(picker).toContain("细节质量（--q）");
+    });
+
     test("默认 Gemini 质量枚举不能把未启用的 1K 显示出来", () => {
         const profile = defaultImageCapabilityConfig("gemini-image", "nano-banana-pro-4k");
         profile.size = imageSizeConfigWithPresets(profile, IMAGE_RATIOS.map((ratio) => imagePresetForRatio("4k", ratio)));

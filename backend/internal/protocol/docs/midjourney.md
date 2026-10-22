@@ -20,12 +20,15 @@
 - `metadata.midjourney` 使用 camelCase 参数：`taskId`、`customId`、`index`、`direction`、
   `zoomRatio`、`dimensions`、`videoType`、`animateMode`、`motion`、`batchSize`、`endUrl`、
   `version`。宿主在发往上游时转换为对应 snake_case 字段。
+- Imagine / Edits 的 `quality` 对应 Midjourney `--q`，取值为 `0.25`、`0.5`、`1`、`2`。
+  它控制细节量，不是像素尺寸；像素比例仍由 `size`（`--ar`）决定，更高分辨率使用 upscale 动作。
 - `taskId` 必须是 Midjourney 上游任务 ID，即任务记录里的 `providerRequestId`；不得使用 Canvas 的本地任务 ID。
 - 图片选择的 `index` 从 `taskOutputIndex + 1` 自动推导为 1–4，也允许用户显式选择宫格位置；Video 的 `index` 是 0–3。
 - `upscale`、`variation`、`high-variation`、`low-variation`、`inpaint`、`remix-strong`、
   `remix-subtle` 需要父任务与 `index`（或 `customId`）。`zoom`、`pan`、`inpaint` 只能接 upscale 单图；
   `reroll` 只能接 imagine/reroll；`remix-strong/subtle` 仅支持 v8.1/v8.2 父任务；v8 操作面板不再提供 upscale。
 - `reroll`、`zoom`、`pan` 需要父任务；`pan` 还要求 `direction` 为 left/right/up/down。
+- 上游当前会拒绝 Pan，即使父图来自 HD upscale；画布不把它作为可用动作，避免无效付费请求。
 - `blend` 需要 2–4 张图片；`describe`、`edits` 需要至少一张图片。
 - `video` 必须二选一：使用图片首帧，或使用 imagine 上游 `taskId`；`animateMode=auto` 时必须同时提供父任务与 0–3 的 `index`。
 - 局部重绘为两阶段：先提交 `inpaint` 获得中间任务，再用该上游任务 ID 提交 `modal`，并提供透明区的
@@ -36,7 +39,7 @@
 
 ## 模型
 
-- `midjourney-imagine`：文生图或图片引导生成；请求支持 `prompt`、`image_urls`、`size` 和 `speed`。
+- `midjourney-imagine`：文生图或图片引导生成；请求支持 `prompt`、`image_urls`、`size`、`quality`、`version` 和 `speed`。
 - `size` 取值为 `16:9`、`1:1`、`9:16`、`4:3`、`3:4`、`3:2`、`2:3`，最终由网关转换为 Midjourney 比例参数。
 - `speed` 取值为 `relax`、`fast`、`turbo`，分别对应上游放松、快速和极速生成档位；默认 `relax`。
 - 一次 `imagine` 请求对应一个付费任务。当前宿主把返回的 `grid_image_url` 作为单个四宫格结果保存；

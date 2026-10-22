@@ -182,7 +182,7 @@ export function CanvasMidjourneyActionsDialog({ open, node, nodes, config, onClo
                     ) : current?.enabled ? (
                         modalStage ? (
                             <div className="space-y-3">
-                                <Alert type="info" showIcon message="第二阶段：补蒙版和提示词" description="涂抹区域会作为透明蒙版上传；保留区域为白色。没有蒙版不会提交付费请求。" />
+                                <Alert type="warning" showIcon message="第二阶段：30 分钟内补蒙版和提示词" description="涂抹区域会作为透明蒙版上传，保留区域为白色；没有蒙版不会提交付费请求。上游进入 MODAL 后超过 30 分钟会自动取消并退款。" />
                                 <div className="overflow-visible rounded-2xl border border-black/10 bg-neutral-950 p-4 pt-20 dark:border-white/10" style={{ minHeight: maskDisplay.height + 150 }}>
                                     <div className="relative mx-auto overflow-hidden rounded-xl bg-black" style={{ width: maskDisplay.width, height: maskDisplay.height }}>
                                         {maskSourceNode?.metadata?.content ? <img src={maskSourceNode.metadata.content} alt="局部重绘源图" className="absolute inset-0 size-full object-contain" draggable={false} /> : null}
@@ -372,8 +372,12 @@ function ActionForm(props: ActionFormProps) {
                     <Field label="首帧宫格位置">
                         <Select value={props.videoIndex} onChange={props.onVideoIndexChange} disabled={props.animateMode !== "auto"} options={[0, 1, 2, 3].map((value) => ({ value, label: `第 ${value + 1} 张` }))} />
                     </Field>
-                    <Field label="video_type（可选）">
-                        <Input value={props.videoType} onChange={(event) => props.onVideoTypeChange(event.target.value)} placeholder="vid_1.1_i2v_720" />
+                    <Field label="视频清晰度">
+                        <Select value={props.videoType || "default"} onChange={(value) => props.onVideoTypeChange(value === "default" ? "" : value)} options={[
+                            { value: "default", label: "默认 480p" },
+                            { value: "vid_1.1_i2v_480", label: "480p" },
+                            { value: "vid_1.1_i2v_720", label: "720p" },
+                        ]} />
                     </Field>
                     <Field label="batch_size">
                         <Input value={String(props.batchSize)} disabled suffix={<span className="text-[11px]">固定 1</span>} />
@@ -389,6 +393,8 @@ function ActionForm(props: ActionFormProps) {
             <Field label="Midjourney 版本（可选）">
                 <Select value={normalizeVersionForSubmit(props.version) || "default"} onChange={(value) => props.onVersionChange(value === "default" ? "" : value)} options={[
                     { value: "default", label: "沿用父任务 / 上游默认" },
+                    { value: "8.2", label: "v8.2" },
+                    { value: "8.1", label: "v8.1" },
                     { value: "7", label: "v7" },
                     { value: "6.1", label: "v6.1" },
                     { value: "6", label: "v6" },

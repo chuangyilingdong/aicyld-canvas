@@ -60,9 +60,15 @@ export function imageResolutionUsesQuality(profile: ImageCapabilityConfig) {
     return profile.size.parameter === "aspect_ratio" && IMAGE_RESOLUTIONS.some((tier) => imageQualityForTier(profile, tier));
 }
 
+export function imageUsesRatioOnlyPresets(profile: ImageCapabilityConfig) {
+    return profile.size.parameter === "aspect_ratio" && !imageResolutionUsesQuality(profile) && !profile.size.presets?.length;
+}
+
 export function imageTierAvailable(profile: ImageCapabilityConfig, tier: ImageResolutionTier) {
     // 质量参数能映射档位时按上游质量裁剪；管理员尺寸预设存在时再取交集，避免默认 low/medium/high 把未启用的 1K 显示出来。
     if (profile.size.parameter !== "aspect_ratio") return profile.size.parameter !== "none";
+    // 只接受比例的协议没有清晰度档；使用一个内部占位档承载比例按钮，但 UI 不展示 1K/2K/4K。
+    if (imageUsesRatioOnlyPresets(profile)) return tier === "1k";
     const configuredTiers = new Set(profile.size.presets?.map((preset) => preset.tier));
     if (imageResolutionUsesQuality(profile)) {
         if (!imageQualityForTier(profile, tier)) return false;
@@ -75,12 +81,23 @@ export function imageTierAvailable(profile: ImageCapabilityConfig, tier: ImageRe
 }
 
 export function imageQualityForSelection(profile: ImageCapabilityConfig, tier: ImageResolutionTier) {
+    if (imageUsesRatioOnlyPresets(profile)) return undefined;
     return imageQualityForTier(profile, tier) || (!imageResolutionUsesQuality(profile) && imageTierAvailable(profile, tier) ? tier : undefined);
 }
 
 export function imageSizePresets(profile: ImageCapabilityConfig): ImageResolutionOption[] {
     if (profile.size.parameter === "none") return [];
     if (profile.size.presets) return profile.size.presets;
+    if (imageUsesRatioOnlyPresets(profile)) {
+        return profile.size.values.flatMap((ratio) => {
+            if (ratio.trim().toLowerCase() === "auto") return [];
+            try {
+                return [imagePresetForRatio("1k", ratio)];
+            } catch {
+                return [];
+            }
+        });
+    }
     const pixels = buildImageResolutionOptions(profile.size.values);
     const tiers = profile.size.parameter === "aspect_ratio" ? IMAGE_RESOLUTIONS.filter((tier) => imageQualityForTier(profile, tier)) : [];
     const ratios = tiers.flatMap((tier) =>

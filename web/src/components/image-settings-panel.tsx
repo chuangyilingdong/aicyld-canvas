@@ -47,6 +47,8 @@ const aspectOptions: AspectOption[] = [
 type ImageSettingsPanelProps = {
     config: AiConfig;
     onConfigChange: (key: "quality" | "size" | "transparentBackground" | "count", value: string) => void;
+    midjourneyParameters?: Record<string, unknown>;
+    onMidjourneyParameterChange?: (key: string, value: string | number | boolean | undefined) => void;
     theme: CanvasTheme;
     showTitle?: boolean;
     showQuality?: boolean;
@@ -58,7 +60,7 @@ type ImageSettingsPanelProps = {
     quickCount?: number;
 };
 
-export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = true, showQuality = true, showTransparent = true, showSize = true, showCount = true, className = "w-[304px] space-y-3 rounded-2xl px-1 py-0.5", maxCount = 15, quickCount = 3 }: ImageSettingsPanelProps) {
+export function ImageSettingsPanel({ config, onConfigChange, midjourneyParameters, onMidjourneyParameterChange, theme, showTitle = true, showQuality = true, showTransparent = true, showSize = true, showCount = true, className = "w-[304px] space-y-3 rounded-2xl px-1 py-0.5", maxCount = 15, quickCount = 3 }: ImageSettingsPanelProps) {
     const profile = mergedImageCapabilityConfig(config, config.model || config.imageModel);
     const normalized = normalizeImageValue(profile, config);
     const quality = normalized.quality;
@@ -67,6 +69,9 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
     const count = Math.max(1, Math.min(effectiveMaxCount, Number(normalized.count)));
     const activeSize = normalized.size;
     const activeQualityOptions = profile.quality.values.map((value) => qualityOptions.find((item) => item.value === value) || { value, label: value });
+    const isMidjourney = isMidjourneySpeedQuality(profile);
+    const midjourneyQuality = typeof midjourneyParameters?.quality === "string" ? midjourneyParameters.quality : "";
+    const midjourneyVersion = typeof midjourneyParameters?.version === "string" ? midjourneyParameters.version : "";
 
     return (
         <ImageSettingsTheme theme={theme}>
@@ -86,6 +91,27 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
 						{activeQualityOptions.map((item) => (
                             <OptionPill key={item.value} selected={quality === item.value} theme={theme} onClick={() => onConfigChange("quality", item.value)}>
                                 {item.label}
+                            </OptionPill>
+                        ))}
+                    </div>
+                </div> : null}
+                {showQuality && isMidjourney && onMidjourneyParameterChange ? <div className="space-y-2">
+                    <SettingTitle color={theme.node.muted}>细节质量（--q）</SettingTitle>
+                    <div className="grid grid-cols-5 gap-1.5">
+                        {["default", "0.25", "0.5", "1", "2"].map((value) => (
+                            <OptionPill key={value} selected={(midjourneyQuality || "default") === value} theme={theme} onClick={() => onMidjourneyParameterChange("quality", value === "default" ? undefined : value)}>
+                                {value === "default" ? "默认" : value}
+                            </OptionPill>
+                        ))}
+                    </div>
+                    <div className="text-[var(--fs-label)]" style={{ color: theme.node.muted }}>
+                        控制画面细节量，不等于像素尺寸；更高分辨率请使用“MJ 动作 → 放大”。
+                    </div>
+                    <SettingTitle color={theme.node.muted}>Midjourney 版本</SettingTitle>
+                    <div className="grid grid-cols-4 gap-1.5">
+                        {["default", "8.2", "8.1", "7", "6.1", "5.2", "5.1"].map((value) => (
+                            <OptionPill key={value} selected={(midjourneyVersion || "default") === value} theme={theme} onClick={() => onMidjourneyParameterChange("version", value === "default" ? undefined : value)}>
+                                {value === "default" ? "默认" : `v${value}`}
                             </OptionPill>
                         ))}
                     </div>
