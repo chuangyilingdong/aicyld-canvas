@@ -3080,6 +3080,9 @@ function InfiniteCanvasPage() {
                                 setMidjourneyActionDismissedNodeId(null);
                                 setMidjourneyActionNodeId(createdNodeId);
                             })}
+                            onButtonsLoaded={(nodeId, buttons) => setNodes((current) => current.map((item) => item.id === nodeId
+                                ? { ...item, metadata: { ...item.metadata, midjourneyButtons: buttons } }
+                                : item))}
                         />
 {isMiniMapOpen && !focusMode ? <Minimap nodes={nodes} viewport={viewport} viewportSize={size} canvasContainerRef={containerRef} onViewportPreviewChange={previewViewport} onViewportChange={handleViewportChange} /> : null}
 

@@ -215,6 +215,30 @@ func QueryProtocolAdapterVideoTask(ctx context.Context, input Input, adapter pro
 	}
 }
 
+// QueryProtocolAdapterProviderMetadata reads provider metadata without
+// materializing media or mutating task state. It is used for zero-cost
+// follow-up metadata such as Midjourney button snapshots.
+func QueryProtocolAdapterProviderMetadata(ctx context.Context, input Input, adapter protocol.Adapter, taskID string) (map[string]any, string, error) {
+	request := ProtocolRequestFromInput(input)
+	pollContext := protocol.PollContext{BaseURL: input.Config.BaseURL, Model: request.Model, Request: request, TaskID: taskID}
+	spec, err := adapter.BuildPoll(ctx, pollContext)
+	if err != nil {
+		return nil, "", err
+	}
+	body, err := ExecuteProtocolRequest(WithRequestKind(ctx, "poll"), input.Config, spec)
+	if err != nil {
+		return nil, "", err
+	}
+	state, err := adapter.ParsePoll(ctx, pollContext, body)
+	if err != nil {
+		return nil, "", err
+	}
+	if state.Result == nil || len(state.Result.ProviderMetadata) == 0 {
+		return nil, string(state.Status), nil
+	}
+	return state.Result.ProviderMetadata, string(state.Status), nil
+}
+
 // tryStreamingDeclarativeTextCreate 让已知文本线协议在 Resolve 后的 StreamText 真正到达 OnTextDelta。
 // 其它声明式插件仍走 JSON 创建；上游忽略 stream 并返回 JSON 时回退 ParseCreate。
 func tryStreamingDeclarativeTextCreate(ctx context.Context, input Input, adapter protocol.Adapter, request protocol.GenerationRequest, spec protocol.RequestSpec, policy VideoPollPolicy) (map[string]interface{}, bool, error) {

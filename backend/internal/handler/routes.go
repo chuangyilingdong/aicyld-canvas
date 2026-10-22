@@ -239,6 +239,19 @@ func RegisterTaskRoutes(r *gin.RouterGroup, svc *app.Service, hostedProfile ...b
 		}
 		ok(c, result)
 	})
+	r.POST("/tasks/:id/midjourney/buttons", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		result, err := svc.RefreshMidjourneyButtons(c.Request.Context(), user.ID, c.Param("id"))
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, result)
+	})
 	r.POST("/tasks/:id/cancel", func(c *gin.Context) {
 		user, err := currentUser(c, svc)
 		if err != nil {

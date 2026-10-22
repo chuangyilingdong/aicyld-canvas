@@ -3,6 +3,7 @@ import { Alert, Button, Input, InputNumber, Modal, Select, Tag } from "antd";
 import { ChevronRight, LoaderCircle, Play, WandSparkles } from "lucide-react";
 
 import { CanvasImageMaskEditor } from "@/components/canvas/canvas-node-mask-edit-dialog";
+import { refreshMidjourneyButtons } from "@/services/api/task-center";
 import {
     MIDJOURNEY_ACTION_LABELS,
     midjourneyActionCapabilities,
@@ -26,12 +27,13 @@ type CanvasMidjourneyActionsDialogProps = {
     config: AiConfig;
     onClose: () => void;
     onSubmit: (nodeId: string, payload: MidjourneyActionSubmission) => Promise<void>;
+    onButtonsLoaded?: (nodeId: string, buttons: Array<{ customId: string; label?: string; emoji?: string }>) => void;
 };
 
 const INDEX_ACTIONS = new Set<MidjourneyAction>(["upscale", "variation", "high-variation", "low-variation", "inpaint", "remix-strong", "remix-subtle"]);
 const PROMPT_ACTIONS = new Set<MidjourneyAction>(["edits", "remix-strong", "remix-subtle", "video"]);
 
-export function CanvasMidjourneyActionsDialog({ open, node, nodes, config, onClose, onSubmit }: CanvasMidjourneyActionsDialogProps) {
+export function CanvasMidjourneyActionsDialog({ open, node, nodes, config, onClose, onSubmit, onButtonsLoaded }: CanvasMidjourneyActionsDialogProps) {
     const capabilities = useMemo(() => node ? midjourneyActionCapabilities(node) : [], [node]);
     const [action, setAction] = useState<MidjourneyAction>("describe");
     const [prompt, setPrompt] = useState("");
@@ -50,6 +52,8 @@ export function CanvasMidjourneyActionsDialog({ open, node, nodes, config, onClo
     const [endUrl, setEndUrl] = useState("");
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState("");
+    const [refreshingButtons, setRefreshingButtons] = useState(false);
+    const [buttonRefreshError, setButtonRefreshError] = useState("");
 
     useEffect(() => {
         if (!open || !node) return;
@@ -73,6 +77,27 @@ export function CanvasMidjourneyActionsDialog({ open, node, nodes, config, onClo
         setSubmitting(false);
         setError("");
     }, [node?.id, open]);
+
+    useEffect(() => {
+        if (!open || !node?.metadata?.taskId || node.metadata.midjourneyButtons?.length) return;
+        let active = true;
+        setRefreshingButtons(true);
+        setButtonRefreshError("");
+        void refreshMidjourneyButtons(node.metadata.taskId)
+            .then((result) => {
+                if (!active || !result.buttons.length) return;
+                onButtonsLoaded?.(node.id, result.buttons);
+            })
+            .catch((reason) => {
+                if (active) setButtonRefreshError(reason instanceof Error ? reason.message : "上游按钮读取失败");
+            })
+            .finally(() => {
+                if (active) setRefreshingButtons(false);
+            });
+        return () => {
+            active = false;
+        };
+    }, [node?.id, node?.metadata?.midjourneyButtons?.length, node?.metadata?.taskId, onButtonsLoaded, open]);
 
     const imageOptions = useMemo(
         () => nodes
@@ -158,6 +183,8 @@ export function CanvasMidjourneyActionsDialog({ open, node, nodes, config, onClo
                     <div className="flex flex-wrap items-center gap-2 rounded-xl border border-black/8 bg-black/[0.025] px-3 py-2 text-xs text-foreground/70 dark:border-white/10 dark:bg-white/[0.04]">
                         <Tag color="purple">父动作 {parentAction ? MIDJOURNEY_ACTION_LABELS[parentAction] : "未知"}</Tag>
                         <Tag color={upstreamTaskId ? "green" : "default"}>{upstreamTaskId ? "上游 task_id 已就绪" : "无上游 task_id"}</Tag>
+                        {refreshingButtons ? <Tag color="processing">读取上游按钮</Tag> : null}
+                        {buttonRefreshError ? <span className="text-amber-600">{buttonRefreshError}</span> : null}
                         <span className="min-w-0 truncate">源节点：{node.title || node.id}</span>
                     </div>
 

@@ -110,6 +110,20 @@ func TestMidjourneyImagineMapsRequestAndGridPoll(t *testing.T) {
 	}
 }
 
+func TestMidjourneyDescribeAcceptsSynchronousCreateResult(t *testing.T) {
+	adapter, ok := Builtins().Get("midjourney")
+	if !ok {
+		t.Fatal("Midjourney adapter missing")
+	}
+	result, err := adapter.ParseCreate(context.Background(), []byte(`{"description":"a quiet forest at dawn"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != StatusSucceeded || result.Result == nil || result.Result.Text != "a quiet forest at dawn" {
+		t.Fatalf("create result = %#v", result)
+	}
+}
+
 func TestMidjourneyActionsMapIndependentParameters(t *testing.T) {
 	adapter, _ := Builtins().Get("midjourney")
 	tests := []struct {

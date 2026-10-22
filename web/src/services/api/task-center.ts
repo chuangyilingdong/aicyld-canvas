@@ -324,6 +324,13 @@ export type MidjourneyModalInput = {
 export function submitMidjourneyModal(taskId: string, input: MidjourneyModalInput) {
     return http.post<GenerationTask>(`/tasks/${encodeURIComponent(taskId)}/midjourney/modal`, input);
 }
+export type MidjourneyButtonSnapshot = {
+    buttons: Array<{ customId: string; label?: string; emoji?: string }>;
+    providerStatus: string;
+};
+export function refreshMidjourneyButtons(taskId: string) {
+    return http.post<MidjourneyButtonSnapshot>(`/tasks/${encodeURIComponent(taskId)}/midjourney/buttons`);
+}
 export function cancelGenerationTask(id: string, expectedScope = captureUserScope()) {
     return http.post<GenerationTask>(`/tasks/${encodeURIComponent(id)}/cancel`, undefined, { expectedScope }).then((task) => {
         window.dispatchEvent(new CustomEvent("canvas:task-cancelled", { detail: { task } }));

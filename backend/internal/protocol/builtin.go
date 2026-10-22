@@ -361,7 +361,7 @@ func midjourneyAdapter() Adapter {
 			}
 			return jsonSpec(http.MethodPost, path, body), nil
 		},
-		parseCreate: parseAsyncCreate,
+		parseCreate: parseMidjourneyCreate,
 		poll: func(c PollContext) (RequestSpec, error) {
 			return RequestSpec{Method: http.MethodGet, Path: "/v1/midjourney/tasks/" + url.PathEscape(c.TaskID)}, nil
 		},
@@ -1031,6 +1031,21 @@ func parseAsyncCreate(payload map[string]any) (CreateResult, error) {
 		status = StatusPending
 	}
 	return CreateResult{TaskID: id, Status: status, Message: firstString(payload, "message", "error")}, nil
+}
+
+func parseMidjourneyCreate(payload map[string]any) (CreateResult, error) {
+	created, err := parseAsyncCreate(payload)
+	if err == nil {
+		return created, nil
+	}
+	text := strings.TrimSpace(firstString(payload, "description", "text"))
+	if text == "" {
+		return CreateResult{}, err
+	}
+	return CreateResult{
+		Status: StatusSucceeded,
+		Result: &Result{Text: text, ProviderMetadata: midjourneyProviderMetadata(payload)},
+	}, nil
 }
 
 func parseAsyncMediaPoll(c PollContext, payload map[string]any, capability Capability) (PollResult, error) {
