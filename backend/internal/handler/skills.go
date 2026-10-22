@@ -324,6 +324,19 @@ func registerSkillRoutes(r *gin.RouterGroup, svc *app.Service, includeRemote boo
 		}
 		ok(c, gin.H{"skill": skill})
 	})
+	r.POST("/skills/:id/rewrite", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		skill, err := svc.CreatePrivateSkillRewrite(user.ID, c.Param("id"))
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"skill": skill})
+	})
 	r.POST("/skills/:id/like", setSkillLiked(svc, true))
 	r.DELETE("/skills/:id/like", setSkillLiked(svc, false))
 }

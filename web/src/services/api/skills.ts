@@ -252,6 +252,10 @@ export function rollbackSkillVersion(id: string, versionId: string) {
     return http.post<{ skill: Skill }>(`/skills/${encodeURIComponent(id)}/rollback`, { versionId }).finally(invalidateAddedSkillsCache);
 }
 
+export function createSkillRewrite(id: string) {
+    return http.post<{ skill: Skill }>(`/skills/${encodeURIComponent(id)}/rewrite`).finally(invalidateAddedSkillsCache);
+}
+
 export function likeSkill(id: string) {
     return http.post<{ skill: Skill }>(`/skills/${encodeURIComponent(id)}/like`);
 }

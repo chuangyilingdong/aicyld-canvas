@@ -11,7 +11,7 @@ import remarkGfm from "remark-gfm";
 
 import { formatSkillCount, formatSkillDate, skillCategoryLabel } from "@/pages/skills/skill-catalog";
 import { isLocalRuntimeMode } from "@/lib/runtime-mode";
-import { getSkillFile, listSkillFiles, listSkillVersions, rollbackSkillVersion, setSkillEnabled, skillFileRawURL, type Skill, type SkillCategory, type SkillPackageFile, type SkillPackageFileContent, type SkillVersion } from "@/services/api/skills";
+import { createSkillRewrite, getSkillFile, listSkillFiles, listSkillVersions, rollbackSkillVersion, setSkillEnabled, skillFileRawURL, type Skill, type SkillCategory, type SkillPackageFile, type SkillPackageFileContent, type SkillVersion } from "@/services/api/skills";
 
 type PreviewMode = "preview" | "source";
 
@@ -115,6 +115,7 @@ export function SkillDetailModal({ skill, loading, mutating, categories, onClose
                             <p className="mt-1 line-clamp-2 max-w-4xl text-sm leading-5 text-foreground/58">{skill.description}</p>
                         </div>
                         <div className="skill-package-actions">
+                            {skill.isAdded && !skill.isOwner ? <Button icon={<Pencil className="size-4" />} onClick={() => void createSkillRewrite(skill.skillId).then(({ skill: next }) => { onChanged(next); message.success("已创建私人改写"); }).catch((error) => message.error(error instanceof Error ? error.message : "私人改写失败"))}>私人改写</Button> : null}
                             {skill.isAdded && !skill.isOwner ? <Button loading={mutating} icon={<Power className="size-4" />} onClick={() => void setSkillEnabled(skill.skillId, !skill.isEnabled).then(({ skill: next }) => { onChanged(next); message.success(next.isEnabled ? "技能已启用" : "技能已停用"); }).catch((error) => message.error(error instanceof Error ? error.message : "启停失败"))}>{skill.isEnabled ? "停用" : "启用"}</Button> : null}
                             {skill.isAdded && !skill.isOwner && versions.length > 1 ? <Dropdown trigger={["click"]} menu={{ items: versions.map((version) => ({ key: version.id, label: `${version.versionLabel}${version.id === skill.installedVersionId ? "（当前）" : ""}`, disabled: version.id === skill.installedVersionId, onClick: () => void rollbackSkillVersion(skill.skillId, version.id).then(({ skill: next }) => { onChanged(next); message.success(`已切换到 ${version.versionLabel}`); }).catch((error) => message.error(error instanceof Error ? error.message : "版本切换失败")) })) }}><Button icon={<History className="size-4" />}>版本</Button></Dropdown> : null}
                             {!localRuntime && skill.sourceType === "github" && skill.isOwner ? <Tooltip title={skill.syncError || "从 GitHub 检查并同步最新提交"}><Button loading={mutating} icon={<RefreshCw className="size-4" />} onClick={() => onSync(skill)}>同步</Button></Tooltip> : null}

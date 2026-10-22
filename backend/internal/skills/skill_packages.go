@@ -484,6 +484,46 @@ func (s *Service) SkillPackageBundle(userID string, skillID string) (*SkillPacka
 	return bundle, nil
 }
 
+func (s *Service) CreatePrivateRewrite(userID, skillID string) (*SkillItem, error) {
+	skill, err := s.visibleSkill(userID, skillID)
+	if err != nil {
+		return nil, err
+	}
+	if skill.OwnerID == userID {
+		return nil, kernel.BadAuthRequest("这是你自己的技能，可直接编辑")
+	}
+	bundle, err := s.SkillPackageBundle(userID, skillID)
+	if err != nil {
+		return nil, err
+	}
+	var archiveBytes bytes.Buffer
+	writer := zip.NewWriter(&archiveBytes)
+	for _, file := range bundle.Files {
+		data, err := base64.StdEncoding.DecodeString(file.ContentBase64)
+		if err != nil {
+			return nil, err
+		}
+		header := &zip.FileHeader{Name: file.Path, Method: zip.Deflate}
+		part, err := writer.CreateHeader(header)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := part.Write(data); err != nil {
+			return nil, err
+		}
+	}
+	if err := writer.Close(); err != nil {
+		return nil, err
+	}
+	archive, err := archiveFromZip(archiveBytes.Bytes(), "")
+	if err != nil {
+		return nil, err
+	}
+	return s.createSkillFromArchive(userID, archive, SkillInstallRequest{
+		Name: skill.Name + "（我的改写）", Description: skill.Description, Tag: skill.Tag, IsPrivate: true,
+	}, "zip", "", "", "", "", false)
+}
+
 func (s *Service) SearchSkillPackage(userID string, skillID string, query string) ([]SkillFileSearchResult, error) {
 	skill, err := s.visibleSkill(userID, skillID)
 	if err != nil {
