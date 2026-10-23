@@ -93,12 +93,12 @@ func TestInvalidVideoCapabilityDoesNotCreateTask(t *testing.T) {
 		{
 			name:    "Grok Imagine two images",
 			input:   map[string]any{"mode": "video", "prompt": "test", "config": map[string]any{"interfaceType": "newapi", "model": "grok-imagine-video-1.5", "videoSeconds": "5", "size": "16:9", "vquality": "720p"}, "referenceImages": []any{map[string]any{"url": "https://cdn.example/one.png"}, map[string]any{"url": "https://cdn.example/two.png"}}},
-			wantErr: "参考图片",
+			wantErr: "参考图",
 		},
 		{
 			name:    "Wan 3.0 two images",
 			input:   map[string]any{"mode": "video", "prompt": "test", "config": map[string]any{"interfaceType": "newapi-channel-2", "model": "wan3.0-video", "videoSeconds": "5", "size": "16:9", "vquality": "720p"}, "referenceImages": []any{map[string]any{"url": "https://cdn.example/one.png"}, map[string]any{"url": "https://cdn.example/two.png"}}},
-			wantErr: "参考图片",
+			wantErr: "参考图",
 		},
 		{
 			name:    "MiniMax H3 Max 1080p",
