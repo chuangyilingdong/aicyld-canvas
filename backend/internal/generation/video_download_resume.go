@@ -123,14 +123,14 @@ func videoDownloadHTTPClient(req *http.Request, timeout time.Duration) *http.Cli
 }
 
 func openVideoDownloadResponse(req *http.Request, limit int64) (*http.Response, error) {
-	if _, err := outbound.ValidateOutboundURL(req.URL.String()); err != nil {
+	if _, err := outbound.ValidateOutboundURLContext(req.Context(), req.URL.String()); err != nil {
 		return nil, err
 	}
 	runtime, _ := RuntimeFromContext(req.Context())
 	observation := TransportObservation{Request: req, StartedAt: time.Now(), ResponseLimitBytes: limit}
 	trace := &transportTrace{}
 	response, err := videoDownloadHTTPClient(req, 0).Do(trace.attach(req))
-	observation.Dispatched, observation.TransportPhase = trace.result()
+	observation.Dispatched, observation.TransportPhase = trace.result(err)
 	if err != nil {
 		observation.Err = err
 		if runtime.Receipts != nil {

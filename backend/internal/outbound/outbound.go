@@ -48,6 +48,10 @@ var (
 )
 
 func ValidateOutboundURL(rawURL string) (*url.URL, error) {
+	return ValidateOutboundURLContext(context.Background(), rawURL)
+}
+
+func ValidateOutboundURLContext(ctx context.Context, rawURL string) (*url.URL, error) {
 	parsed, err := url.Parse(strings.TrimSpace(rawURL))
 	if err != nil || parsed.Hostname() == "" {
 		return nil, BadAuthRequest("外部服务地址无效")
@@ -58,7 +62,7 @@ func ValidateOutboundURL(rawURL string) (*url.URL, error) {
 	if parsed.User != nil {
 		return nil, BadAuthRequest("外部服务地址不允许包含认证信息")
 	}
-	if err := ValidateOutboundHost(parsed.Hostname()); err != nil {
+	if err := ValidateOutboundHostContext(ctx, parsed.Hostname()); err != nil {
 		return nil, err
 	}
 	return parsed, nil
@@ -101,7 +105,7 @@ func OutboundHTTPClient(timeout time.Duration) *http.Client {
 			if len(via) >= maxOutboundRedirects {
 				return errors.New("外部服务重定向次数过多")
 			}
-			_, err := ValidateOutboundURL(req.URL.String())
+			_, err := ValidateOutboundURLContext(req.Context(), req.URL.String())
 			return err
 		},
 	}
@@ -364,7 +368,14 @@ func configuredProxyHost(host string) bool {
 }
 
 func ValidateOutboundHost(host string) error {
-	_, err := resolveOutboundHost(context.Background(), host)
+	return ValidateOutboundHostContext(context.Background(), host)
+}
+
+func ValidateOutboundHostContext(ctx context.Context, host string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	_, err := resolveOutboundHost(ctx, host)
 	return err
 }
 
@@ -404,7 +415,13 @@ func resolveOutboundHostWithPolicy(ctx context.Context, host string, allowPrivat
 	}
 	addresses, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
 	if err != nil {
-		return nil, BadAuthRequest("外部服务域名解析失败")
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if allowPrivateHost && (host == "localhost" || strings.HasSuffix(host, ".localhost")) {
+			return []net.IP{net.IPv4(127, 0, 0, 1)}, nil
+		}
+		return nil, &DNSResolutionError{Cause: err}
 	}
 	if len(addresses) == 0 {
 		return nil, BadAuthRequest("外部服务域名没有可用地址")

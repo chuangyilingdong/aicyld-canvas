@@ -117,6 +117,7 @@ type TaskFailureDiagnostics struct {
 type TaskRequestEvidence struct {
 	Operation             string `json:"operation"`
 	Method                string `json:"method"`
+	Attempt               int    `json:"attempt,omitempty"`
 	Dispatched            bool   `json:"dispatched"`
 	TransportPhase        string `json:"transportPhase,omitempty"`
 	TransportRoute        string `json:"transportRoute,omitempty"`

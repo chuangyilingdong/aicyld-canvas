@@ -2,8 +2,11 @@ package generation
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"io"
+	"math/rand/v2"
 	"net"
 	"strings"
 	"time"
@@ -73,7 +76,7 @@ func completeBeefAPISeedanceMultipart(ctx context.Context, config Config, sessio
 			offset = end
 		}
 		if putErr == nil {
-			return confirmSeedanceMultipart(ctx, config, session.Ticket)
+			return confirmSeedanceUpload(ctx, config, session.Ticket)
 		}
 		resultErr = MapBeefAPISeedanceUploadError(putErr, false)
 		if !retrySeedanceUpload(ctx, putErr, true) || attempt == 3 {
@@ -110,17 +113,27 @@ func completeBeefAPISeedanceMultipart(ctx context.Context, config Config, sessio
 	return result, resultErr
 }
 
-func confirmSeedanceMultipart(ctx context.Context, config Config, ticket string) (BeefAPISeedanceUploadComplete, error) {
+func confirmSeedanceUpload(ctx context.Context, config Config, ticket string) (BeefAPISeedanceUploadComplete, error) {
 	ctx = referenceUploadStage(ctx, "complete")
+	var cancel context.CancelFunc
+	defer func() {
+		if cancel != nil {
+			cancel()
+		}
+	}()
 	for attempt := 0; ; attempt++ {
 		var uploaded BeefAPISeedanceUploadComplete
-		err := PostJSON(ctx, config, beefAPISeedanceUploadCompletePath, map[string]string{"ticket": ticket}, &uploaded)
+		attemptCtx := referenceUploadAttempt(ctx, attempt+1)
+		err := PostJSON(attemptCtx, config, beefAPISeedanceUploadCompletePath, map[string]string{"ticket": ticket}, &uploaded)
 		if err != nil {
 			if !retrySeedanceUpload(ctx, err, false) || attempt == 3 {
-				return uploaded, referenceUploadError(ctx, err)
+				return uploaded, referenceUploadError(attemptCtx, err)
+			}
+			if cancel == nil {
+				ctx, cancel = context.WithTimeout(ctx, seedanceUploadRecoveryBudget)
 			}
 			if err := seedanceUploadRetryPause(ctx, attempt); err != nil {
-				return uploaded, err
+				return uploaded, referenceUploadError(attemptCtx, err)
 			}
 			continue
 		}
@@ -136,6 +149,13 @@ func confirmSeedanceMultipart(ctx context.Context, config Config, ticket string)
 
 func retrySeedanceUpload(ctx context.Context, err error, storage bool) bool {
 	if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, errBeefAPISeedanceUploadRedirect) {
+		return false
+	}
+	var certificate *tls.CertificateVerificationError
+	var authority x509.UnknownAuthorityError
+	var hostname x509.HostnameError
+	var invalid x509.CertificateInvalidError
+	if errors.As(err, &certificate) || errors.As(err, &authority) || errors.As(err, &hostname) || errors.As(err, &invalid) {
 		return false
 	}
 	var upload *ReferenceUploadError
@@ -154,7 +174,9 @@ func retrySeedanceUpload(ctx context.Context, err error, storage bool) bool {
 }
 
 func seedanceUploadRetryPause(ctx context.Context, attempt int) error {
-	timer := time.NewTimer(time.Duration(attempt+1) * 250 * time.Millisecond)
+	// Spread recovery traffic without delaying the first healthy request.
+	delay := 250 * time.Millisecond * time.Duration(1<<min(attempt, 2))
+	timer := time.NewTimer(delay/2 + time.Duration(rand.Int64N(int64(delay/2))))
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():

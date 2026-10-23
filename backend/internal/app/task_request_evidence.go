@@ -89,6 +89,7 @@ func recordTaskRequestEvidence(req *http.Request, evidence model.TaskRequestEvid
 	evidence.RequestBytes = req.ContentLength
 	if reference, isReference := generation.ReferenceUploadFromContext(req.Context()); isReference {
 		evidence.Operation = "reference_" + reference.Stage
+		evidence.Attempt = reference.Attempt
 		evidence.Summary = reference.Label()
 	}
 	responseLimited := evidence.Outcome == "response_limit"
