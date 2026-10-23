@@ -179,10 +179,11 @@ func Facts(task *model.Task) map[string]any {
 	input := map[string]any{}
 	_ = json.Unmarshal([]byte(task.InputJSON), &input)
 	config, _ := input["config"].(map[string]any)
+	videoParameters, _ := input["videoParameters"].(map[string]any)
 	metadata, _ := input["metadata"].(map[string]any)
-	modelKey := firstString(config["providerModelKey"], config["channelModelKey"], config["model"], task.Model)
+	modelKey := firstString(config["providerModelKey"], config["channelModelKey"], config["model"], videoParameters["model"], task.Model)
 	category := categoryFor(task)
-	duration := firstInt(config["videoSeconds"], input["videoSeconds"], config["duration"], input["duration"], metadata["duration_seconds"])
+	duration := firstInt(config["videoSeconds"], videoParameters["videoSeconds"], input["videoSeconds"], config["duration"], videoParameters["duration"], input["duration"], metadata["duration_seconds"])
 	if raw := firstString(config["duration"], input["duration"], metadata["duration"]); raw == "-1" {
 		duration = 1
 	}
@@ -192,10 +193,10 @@ func Facts(task *model.Task) map[string]any {
 	if duration == 1 && firstString(config["duration"], input["duration"], metadata["duration"]) == "-1" {
 		duration = maxDurationFor(modelKey)
 	}
-	resolution := normalizeResolution(firstString(config["vquality"], config["resolution"], metadata["resolution"], metadata["upscaleResolution"]))
+	resolution := normalizeResolution(firstString(config["vquality"], config["resolution"], videoParameters["vquality"], videoParameters["resolution"], metadata["resolution"], metadata["upscaleResolution"]))
 	quality := strings.ToLower(firstString(config["quality"], metadata["quality"], metadata["upscaleQuality"]))
 	speed := strings.ToLower(firstString(config["speed"], metadata["speed"]))
-	outputs := firstInt(config["count"], input["count"], config["n"], input["n"], config["outputCount"])
+	outputs := firstInt(config["count"], videoParameters["count"], input["count"], config["n"], input["n"], config["outputCount"])
 	if outputs <= 0 {
 		outputs = 1
 	}
@@ -207,6 +208,10 @@ func Facts(task *model.Task) map[string]any {
 	if value, ok := config["videoGenerateAudio"].(string); ok {
 		generateAudio = strings.EqualFold(value, "true")
 	} else if value, ok := config["videoGenerateAudio"].(bool); ok {
+		generateAudio = value
+	} else if value, ok := videoParameters["videoGenerateAudio"].(string); ok {
+		generateAudio = strings.EqualFold(value, "true")
+	} else if value, ok := videoParameters["videoGenerateAudio"].(bool); ok {
 		generateAudio = value
 	}
 	sourceDuration := firstFloat(metadata["sourceDurationSeconds"])

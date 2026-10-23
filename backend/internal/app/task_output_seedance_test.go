@@ -26,3 +26,13 @@ func TestPublicSeedanceParametersMatchFrontendFixture(t *testing.T) {
 		t.Fatalf("unsafe or incomplete public input: %s", actual)
 	}
 }
+
+func TestPublicVideoParametersPreserveBillingFacts(t *testing.T) {
+	raw := `{"mode":"video","config":{"model":"MiniMax-H3","size":"16:9","vquality":"480p","videoSeconds":"4","videoGenerateAudio":"false","count":"1"},"referenceImages":[],"referenceVideos":[],"referenceAudios":[]}`
+	actual := publicTaskInputJSON(raw)
+	for _, want := range []string{`"vquality":"480p"`, `"videoSeconds":"4"`, `"videoGenerateAudio":"false"`, `"count":"1"`} {
+		if !strings.Contains(actual, want) {
+			t.Fatalf("public video parameters lost billing fact %s: %s", want, actual)
+		}
+	}
+}

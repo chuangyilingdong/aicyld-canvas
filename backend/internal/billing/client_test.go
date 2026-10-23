@@ -54,6 +54,23 @@ func TestFactsNormalizesNumericVideoResolution(t *testing.T) {
 	}
 }
 
+func TestFactsReadsPersistedPublicVideoParametersAfterCompletion(t *testing.T) {
+	raw, _ := json.Marshal(map[string]any{
+		"mode": "video",
+		"videoParameters": map[string]any{
+			"model":              "MiniMax-H3",
+			"vquality":           "480p",
+			"videoSeconds":       "4",
+			"videoGenerateAudio": "false",
+			"count":              "1",
+		},
+	})
+	facts := Facts(&model.Task{Type: "canvas_video", Operation: "text_to_video", Provider: "managed", InputJSON: string(raw)})
+	if facts["modelKey"] != "MiniMax-H3" || facts["durationSeconds"] != 4 || facts["resolution"] != "480p" || facts["outputCount"] != 1 || facts["generateAudio"] != false {
+		t.Fatalf("unexpected persisted facts: %+v", facts)
+	}
+}
+
 func TestFactsConvertsSourceDurationMillisecondsAsString(t *testing.T) {
 	raw, _ := json.Marshal(map[string]any{
 		"metadata": map[string]any{"sourceDurationMs": "5208"},

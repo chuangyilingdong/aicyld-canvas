@@ -267,10 +267,15 @@ func publicTaskInputJSON(raw string) string {
 		config, _ := input["config"].(map[string]any)
 		counts := func(key string) int { items, _ := input[key].([]any); return len(items) }
 		parameters := map[string]any{"imageCount": counts("referenceImages"), "videoCount": counts("referenceVideos"), "audioCount": counts("referenceAudios")}
-		for _, key := range []string{"model", "size"} {
+		for _, key := range []string{"model", "size", "vquality", "videoSeconds", "count", "duration", "resolution"} {
 			if value, ok := config[key].(string); ok {
 				parameters[key] = value
 			}
+		}
+		if value, ok := config["videoGenerateAudio"].(bool); ok {
+			parameters["videoGenerateAudio"] = value
+		} else if value, ok := config["videoGenerateAudio"].(string); ok {
+			parameters["videoGenerateAudio"] = value
 		}
 		base, _ := config["baseUrl"].(string)
 		u, _ := url.Parse(base)
