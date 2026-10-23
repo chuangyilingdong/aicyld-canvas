@@ -6,6 +6,7 @@ body .app-user-workspace .app-workspace-sidebar {
     border-right: 1px solid var(--user-border);
 }
 body .app-user-workspace .app-workspace-sidebar-nav { background: var(--user-page-bg); }
+body .app-user-workspace.app-home-route .app-workspace-sidebar-account-row { display: none; }
 
 .beeftv-home {
     --home-border: var(--user-border);
@@ -22,8 +23,8 @@ body .app-user-workspace .app-workspace-sidebar-nav { background: var(--user-pag
 .beeftv-home-recharge { padding:0 13px; border-color:color-mix(in srgb,var(--user-accent) 28%,var(--user-border)); color:var(--user-accent); font-weight:600; }
 .beeftv-home-recharge svg { width:15px; height:15px; stroke-width:1.9; }
 .beeftv-home-credit:hover,.beeftv-home-recharge:hover { transform:translateY(-1px); border-color:color-mix(in srgb,var(--user-accent) 45%,var(--user-border)); background:var(--user-surface-hover); color:var(--user-ink); }
-.beeftv-home .app-workspace-account-trigger.is-labeled { display:inline-flex; width:auto; height:40px; gap:8px; padding:0 10px 0 6px; border:1px solid var(--user-border); border-radius:12px; background:var(--user-surface); color:var(--user-ink-muted); }
-.beeftv-home .app-workspace-account-trigger.is-labeled:hover { border-color:var(--user-border-strong); background:var(--user-surface-hover); color:var(--user-ink); }
+.beeftv-home .app-workspace-account-trigger.is-labeled { display:inline-flex; width:auto; height:40px; gap:8px; padding:0 4px; border:0; border-radius:999px; background:transparent; color:var(--user-ink-muted); }
+.beeftv-home .app-workspace-account-trigger.is-labeled:hover { background:var(--user-surface-hover); color:var(--user-ink); }
 .beeftv-home .app-workspace-account-trigger-name { max-width:132px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; font-weight:560; }
 .beeftv-home .app-workspace-account-trigger-chevron { width:14px !important; height:14px !important; opacity:.5; }
 .beeftv-home-hero { position: relative; min-height: 160px; display: grid; place-items: center; overflow: hidden; border: 1px solid var(--user-border-strong); border-radius: 12px; background: var(--user-surface-muted); }

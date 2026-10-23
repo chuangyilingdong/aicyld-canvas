@@ -1,11 +1,13 @@
 import { Popover } from "antd";
 import { useState } from "react";
-import { ChevronDown, UserRound } from "lucide-react";
+import { ChevronDown, LogOut, UserRound } from "lucide-react";
 
 import { AppChangelogButton } from "@/components/layout/app-changelog-modal";
 import { WorkspaceAccountCard } from "./workspace-account-card";
 import { UserAvatar } from "./user-avatar";
 import { useUserStore } from "@/stores/use-user-store";
+
+const MAIN_SITE_LOGOUT_URL = "https://aicyld.com.cn/api/auth/logout";
 
 /** 顶部与侧栏复用同一账户卡片，并保留版本入口。 */
 export function WorkspaceAccountMenu({ showName = false }: { showName?: boolean } = {}) {
@@ -29,12 +31,16 @@ export function WorkspaceAccountMenu({ showName = false }: { showName?: boolean 
                     <WorkspaceAccountCard onNavigate={() => setMenuOpen(false)} />
 
                     <div className="workspace-topbar-account-section">
+                        <a href={MAIN_SITE_LOGOUT_URL} className="flex h-8 w-full items-center gap-2 rounded px-2 text-[var(--fs-label)] text-foreground/58 hover:bg-surface-hover hover:text-foreground" onClick={() => setMenuOpen(false)}>
+                            <LogOut className="size-3.5" aria-hidden />
+                            <span>退出登录</span>
+                        </a>
                         <AppChangelogButton className="flex h-8 w-full items-center gap-2 rounded px-2 text-[var(--fs-label)] text-foreground/58 hover:bg-surface-hover hover:text-foreground [&_svg]:size-3.5" showLabel showVersion versionClassName="ml-auto text-[var(--fs-micro)] tabular-nums text-foreground/32" />
                     </div>
                 </div>
             )}
         >
-            <button type="button" className={`app-workspace-topbar-icon-button app-workspace-account-trigger${showName ? " is-labeled" : ""}`} aria-label="账户菜单" title={user.displayName || user.username}>
+            <button type="button" className={showName ? "app-workspace-account-trigger is-labeled" : "app-workspace-topbar-icon-button app-workspace-account-trigger"} aria-label="账户菜单" title={user.displayName || user.username}>
                 <UserAvatar user={user} className={showName ? "size-7 rounded-full" : "size-6"} />
                 {showName ? <><span className="app-workspace-account-trigger-name">{user.displayName || user.username}</span><ChevronDown className="app-workspace-account-trigger-chevron" /></> : null}
             </button>
