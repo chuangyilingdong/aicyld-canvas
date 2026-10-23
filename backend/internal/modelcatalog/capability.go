@@ -235,7 +235,69 @@ func DefaultModelCapabilityConfigForModel(protocol string, modelName string) *Mo
 			}
 		}
 	}
+	applyVerifiedVideoContract(video, modelName)
 	return &ModelCapabilityConfig{Version: 1, Text: text, Image: DefaultImageCapabilityConfig(protocol, modelName), Video: video}
+}
+
+// applyVerifiedVideoContract narrows generated defaults to the shared, checked
+// model contract. Custom and direct channels use this function before they have
+// a persisted capability profile, so a generic protocol default must not be
+// broader than a model the gateway has already verified.
+func applyVerifiedVideoContract(video *VideoCapabilityConfig, modelName string) {
+	if video == nil {
+		return
+	}
+	contract, ok := providerpreset.BeefAPIVideoContract(modelName)
+	if !ok {
+		return
+	}
+	if contract.Duration != nil {
+		video.Duration = VideoDurationConfig{
+			Selection: "range", Min: contract.Duration.Min, Max: contract.Duration.Max,
+			Step: 1, Default: contract.Duration.Default,
+		}
+	}
+	if len(contract.Resolutions) > 0 {
+		video.Resolutions = append([]string(nil), contract.Resolutions...)
+		if !containsCapabilityString(video.Resolutions, video.DefaultResolution) {
+			video.DefaultResolution = contract.ReferenceResolution
+			if video.DefaultResolution == "" {
+				video.DefaultResolution = video.Resolutions[0]
+			}
+		}
+	}
+	if len(contract.Ratios) > 0 {
+		video.Ratios = append([]string(nil), contract.Ratios...)
+		if !containsCapabilityString(video.Ratios, video.DefaultRatio) {
+			video.DefaultRatio = video.Ratios[0]
+		}
+	}
+	if len(contract.Operations) > 0 {
+		video.Operations = append([]string(nil), contract.Operations...)
+		if !containsCapabilityString(video.Operations, video.DefaultOperation) {
+			video.DefaultOperation = video.Operations[0]
+		}
+	}
+	if limit, ok := contract.MaxReferences["image"]; ok {
+		video.References.MaxImages = boundedReferenceMax(video.References.MaxImages, limit)
+	}
+	if limit, ok := contract.MaxReferences["video"]; ok {
+		video.References.MaxVideos = boundedReferenceMax(video.References.MaxVideos, limit)
+	}
+	if limit, ok := contract.MaxReferences["audio"]; ok {
+		video.References.MaxAudios = boundedReferenceMax(video.References.MaxAudios, limit)
+	}
+	if contract.GenerateAudio != nil {
+		supported := *contract.GenerateAudio
+		video.GenerateAudio = VideoBooleanConfig{Supported: supported, Default: supported}
+	}
+}
+
+func boundedReferenceMax(current int, limit int) int {
+	if limit < 0 || current <= limit {
+		return current
+	}
+	return limit
 }
 
 func DecodeModelCapabilityConfig(raw string) (*ModelCapabilityConfig, error) {

@@ -31,7 +31,10 @@
     "protocol": "newapi-channel-2",
     "inlineMedia": true,
     "maxReferences": {"image": 2, "video": 0, "audio": 1},
-    "operations": ["text_to_video", "image_to_video", "audio_to_video"]
+    "operations": ["text_to_video", "image_to_video", "audio_to_video"],
+    "resolutions": ["480p", "768p"],
+    "duration": {"min": 5, "max": 15, "default": 5},
+    "generateAudio": false
   },
   {
     "models": ["minimax-h3"],
@@ -39,13 +42,32 @@
     "protocol": "newapi-channel-2",
     "inlineMedia": true,
     "maxReferences": {"image": 9, "video": 3, "audio": 3},
-    "operations": ["text_to_video", "image_to_video", "audio_to_video", "reference_to_video"]
+    "operations": ["text_to_video", "image_to_video", "first_last_frame", "reference_to_video", "audio_to_video"],
+    "resolutions": ["480p", "768p", "1080p"],
+    "duration": {"min": 4, "max": 15, "default": 5},
+    "generateAudio": false
   },
   {
-    "models": ["seedance-2.0", "seedance-2.5"],
+    "models": ["seedance-2.0"],
     "allowSuffix": true,
     "protocol": "newapi",
-    "inlineMedia": true
+    "inlineMedia": true,
+    "maxReferences": {"image": 9, "video": 3, "audio": 3},
+    "operations": ["text_to_video", "image_to_video", "first_last_frame", "reference_to_video"],
+    "resolutions": ["480p", "720p", "1080p"],
+    "duration": {"min": 4, "max": 15, "default": 6},
+    "generateAudio": true
+  },
+  {
+    "models": ["seedance-2.5"],
+    "allowSuffix": true,
+    "protocol": "newapi",
+    "inlineMedia": true,
+    "maxReferences": {"image": 30, "video": 10, "audio": 10},
+    "operations": ["text_to_video", "image_to_video", "first_last_frame", "reference_to_video", "audio_to_video"],
+    "resolutions": ["480p", "720p", "1080p"],
+    "duration": {"min": 1, "max": 30, "default": 6},
+    "generateAudio": true
   },
   {
     "models": ["wan3.0-video"],
@@ -53,6 +75,7 @@
     "protocol": "newapi-channel-2",
     "inlineMedia": true,
     "maxReferences": {"image": 1, "video": 0, "audio": 0},
-    "operations": ["text_to_video", "image_to_video"]
+    "operations": ["text_to_video", "image_to_video"],
+    "generateAudio": false
   }
 ]

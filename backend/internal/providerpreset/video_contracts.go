@@ -25,7 +25,7 @@ type VideoContract struct {
 	Ratios              []string               `json:"ratios,omitempty"`
 	Duration            *VideoContractDuration `json:"duration,omitempty"`
 	MaxImageDuration    int                    `json:"maxImageDuration,omitempty"`
-	GenerateAudio       bool                   `json:"generateAudio,omitempty"`
+	GenerateAudio       *bool                  `json:"generateAudio,omitempty"`
 }
 
 type VideoContractDuration struct {
@@ -57,6 +57,34 @@ func BeefAPIVideoContract(model string) (VideoContract, bool) {
 		}
 	}
 	return VideoContract{}, false
+}
+
+// VideoContracts returns a copy so callers can validate default capability
+// construction without mutating the embedded shared contract.
+func VideoContracts() []VideoContract {
+	contracts := make([]VideoContract, len(videoContracts))
+	for index, contract := range videoContracts {
+		contracts[index] = contract
+		contracts[index].Models = append([]string(nil), contract.Models...)
+		contracts[index].Operations = append([]string(nil), contract.Operations...)
+		contracts[index].Resolutions = append([]string(nil), contract.Resolutions...)
+		contracts[index].Ratios = append([]string(nil), contract.Ratios...)
+		if contract.MaxReferences != nil {
+			contracts[index].MaxReferences = make(map[string]int, len(contract.MaxReferences))
+			for kind, limit := range contract.MaxReferences {
+				contracts[index].MaxReferences[kind] = limit
+			}
+		}
+		if contract.Duration != nil {
+			duration := *contract.Duration
+			contracts[index].Duration = &duration
+		}
+		if contract.GenerateAudio != nil {
+			generateAudio := *contract.GenerateAudio
+			contracts[index].GenerateAudio = &generateAudio
+		}
+	}
+	return contracts
 }
 
 // HostedBeefAPIVideoProfile overlays the official video route onto a stored

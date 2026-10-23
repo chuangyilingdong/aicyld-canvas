@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"infinite-canvas/backend/internal/model"
+	"infinite-canvas/backend/internal/providerpreset"
 )
 
 func TestDefaultPixelPresetsSatisfyImageGenerationConstraints(t *testing.T) {
@@ -94,6 +95,57 @@ func TestSanitizeChannelModelOmitsSecrets(t *testing.T) {
 	lower := strings.ToLower(string(body))
 	if strings.Contains(lower, "apikey") || strings.Contains(lower, "secret") || strings.Contains(lower, "baseurl") {
 		t.Fatalf("public model leaked credential-shaped fields: %s", body)
+	}
+}
+
+func TestDefaultVideoCapabilitiesDoNotExceedVerifiedContracts(t *testing.T) {
+	protocols := []string{"newapi", "newapi-channel-2", "openai-videos", "minimax-video"}
+	for _, contract := range providerpreset.VideoContracts() {
+		for _, modelName := range contract.Models {
+			for _, protocol := range protocols {
+				t.Run(modelName+"/"+protocol, func(t *testing.T) {
+					profile := DefaultModelCapabilityConfigForModel(protocol, modelName)
+					if profile == nil || profile.Video == nil {
+						t.Fatal("default video capability is nil")
+					}
+					video := profile.Video
+					if contract.Duration != nil {
+						if video.Duration.Selection != "range" || video.Duration.Min < contract.Duration.Min || video.Duration.Max > contract.Duration.Max {
+							t.Fatalf("duration = %#v, contract = %#v", video.Duration, *contract.Duration)
+						}
+						if video.Duration.Default < contract.Duration.Min || video.Duration.Default > contract.Duration.Max {
+							t.Fatalf("default duration = %d, contract = %#v", video.Duration.Default, *contract.Duration)
+						}
+					}
+					if len(contract.Resolutions) > 0 {
+						for _, resolution := range video.Resolutions {
+							if !containsCapabilityString(contract.Resolutions, resolution) {
+								t.Fatalf("resolution %q exceeds contract %v", resolution, contract.Resolutions)
+							}
+						}
+					}
+					if limit, ok := contract.MaxReferences["image"]; ok && video.References.MaxImages > limit {
+						t.Fatalf("maxImages = %d, contract = %d", video.References.MaxImages, limit)
+					}
+					if limit, ok := contract.MaxReferences["video"]; ok && video.References.MaxVideos > limit {
+						t.Fatalf("maxVideos = %d, contract = %d", video.References.MaxVideos, limit)
+					}
+					if limit, ok := contract.MaxReferences["audio"]; ok && video.References.MaxAudios > limit {
+						t.Fatalf("maxAudios = %d, contract = %d", video.References.MaxAudios, limit)
+					}
+					if len(contract.Operations) > 0 {
+						for _, operation := range video.Operations {
+							if !containsCapabilityString(contract.Operations, operation) {
+								t.Fatalf("operation %q exceeds contract %v", operation, contract.Operations)
+							}
+						}
+					}
+					if contract.GenerateAudio != nil && video.GenerateAudio.Supported != *contract.GenerateAudio {
+						t.Fatalf("generateAudio supported = %v, contract = %v", video.GenerateAudio.Supported, *contract.GenerateAudio)
+					}
+				})
+			}
+		}
 	}
 }
 

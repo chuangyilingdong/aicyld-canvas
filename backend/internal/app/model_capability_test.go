@@ -201,6 +201,9 @@ func TestValidateVideoTaskRejectsImageGeometryAndAllowsLargeLinkedVideo(t *testi
 
 func TestValidateVideoTaskHonorsRequestedDurationAndResolution(t *testing.T) {
 	profile := DefaultModelCapabilityConfigForModel("newapi-channel-2", "seedance-2.5").Video
+	// The verified default contract is 480/720/1080. Add a 2K tier explicitly
+	// here so this test still covers an administrator-declared wider profile.
+	profile.Resolutions = append(profile.Resolutions, "1440p")
 	input := canvasGenerationInput{Prompt: "test", Config: providerConfig{Model: "seedance-2.5", VideoSeconds: "20", Size: "16:9", VQuality: "1080p"}}
 	if err := validateVideoTask(profile, input); err != nil {
 		t.Fatalf("20s 1080p rejected: %v", err)

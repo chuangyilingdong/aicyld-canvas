@@ -848,20 +848,16 @@ function beefApiVideoCapabilityConfig(model: string, protocol: ModelProtocol, cu
     const profile = beefApiSeedanceCapabilityConfig(model, current, sourced);
     if (sourced) return profile;
     const contract = beefAPIVideoContract(model);
-    const limits = contract?.maxReferences;
-    if (!limits) return profile;
+    if (!contract) return profile;
     const resolved = profile || defaultModelCapabilityConfig(protocol, model);
     if (!resolved.video) return resolved;
+    const limits = contract.maxReferences;
+    // Newly generated profiles already received the full contract in
+    // defaultModelCapabilityConfig. For a persisted profile, keep the
+    // administrator's unrelated limits while still enforcing hard ceilings.
     return { ...resolved, video: { ...resolved.video,
-        resolutions: contract.resolutions || resolved.video.resolutions,
-        defaultResolution: contract.resolutions?.includes(resolved.video.defaultResolution) ? resolved.video.defaultResolution : contract.resolutions?.[0] || resolved.video.defaultResolution,
-        ratios: contract.ratios || resolved.video.ratios,
-        defaultRatio: contract.ratios?.includes(resolved.video.defaultRatio) ? resolved.video.defaultRatio : contract.ratios?.[0] || resolved.video.defaultRatio,
-        duration: contract.duration ? { ...resolved.video.duration, selection: "range", min: contract.duration.min, max: contract.duration.max, default: contract.duration.default } : resolved.video.duration,
-        generateAudio: contract.generateAudio ? { ...resolved.video.generateAudio, supported: true } : resolved.video.generateAudio,
-        references: { ...resolved.video.references, maxImages: Math.min(resolved.video.references.maxImages, limits.image ?? Infinity), maxVideos: Math.min(resolved.video.references.maxVideos, limits.video ?? Infinity), maxAudios: Math.min(resolved.video.references.maxAudios, limits.audio ?? Infinity) },
-        operations: contract.operations || resolved.video.operations,
-        defaultOperation: contract.operations?.includes(resolved.video.defaultOperation) ? resolved.video.defaultOperation : contract.operations?.[0] || resolved.video.defaultOperation,
+        generateAudio: contract.generateAudio === undefined ? resolved.video.generateAudio : contract.generateAudio ? { ...resolved.video.generateAudio, supported: true } : { supported: false, default: false },
+        references: { ...resolved.video.references, maxImages: Math.min(resolved.video.references.maxImages, limits?.image ?? Infinity), maxVideos: Math.min(resolved.video.references.maxVideos, limits?.video ?? Infinity), maxAudios: Math.min(resolved.video.references.maxAudios, limits?.audio ?? Infinity) },
     } };
 }
 

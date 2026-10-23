@@ -9,6 +9,7 @@ import (
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/modelcatalog"
 	"infinite-canvas/backend/internal/platformchannels"
+	"infinite-canvas/backend/internal/providerpreset"
 )
 
 // 平台统一渠道（platformchannels 包）在浏览器侧走 /api/ai/custom 中转即可工作；
@@ -184,6 +185,15 @@ func platformModelCapabilityConfig(profile PlatformChannelModel, stored string) 
 		var config ModelCapabilityConfig
 		if err := json.Unmarshal([]byte(existing), &config); err == nil {
 			return &config, nil
+		}
+	}
+	if strings.EqualFold(strings.TrimSpace(profile.Capability), "video") {
+		if contract, ok := providerpreset.BeefAPIVideoContract(profile.Model); ok {
+			protocol := strings.TrimSpace(profile.Protocol)
+			if protocol == "" {
+				protocol = contract.Protocol
+			}
+			return modelcatalog.DefaultModelCapabilityConfigForModel(protocol, profile.Model), nil
 		}
 	}
 	// 按能力类型生成配置：视频按模型名细分（Seedance 家族识别 t2v/i2v/multi），

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { beefAPIVideoContract, isBeefAPIEndpoint } from "../src/lib/beefapi-video-contracts";
+import { VIDEO_CONTRACTS, beefAPIVideoContract, isBeefAPIEndpoint } from "../src/lib/beefapi-video-contracts";
 import { createModelChannel, defaultConfig, normalizeConfigSnapshot, resolveModelRequestConfig } from "../src/stores/use-config-store";
 import { defaultModelCapabilityConfig, modelCapabilityConfigFor } from "../src/lib/model-capabilities";
 import { createVideoGenerationsTask } from "../src/services/api/video-provider-newapi";
@@ -28,6 +28,42 @@ test("Wan uses shared protocol and supported reference limits across reloads", (
         expect(resolveModelRequestConfig(config, `beefapi::${model}`).interfaceType).toBe("newapi-channel-2");
         const refs = modelCapabilityConfigFor(config, `beefapi::${model}`).video!.references;
         expect([refs.maxImages, refs.maxVideos, refs.maxAudios]).toEqual([1, 0, 0]);
+    }
+});
+
+test("default video capabilities never exceed verified contracts", () => {
+    const protocols = ["newapi", "newapi-channel-2", "openai-videos", "minimax-video"] as const;
+    for (const contract of VIDEO_CONTRACTS) {
+        for (const model of contract.models) {
+            for (const protocol of protocols) {
+                const label = `${model}/${protocol}`;
+                const video = defaultModelCapabilityConfig(protocol, model).video!;
+                if (contract.duration) {
+                    const min = video.duration.min ?? Number.NEGATIVE_INFINITY;
+                    const max = video.duration.max ?? Number.POSITIVE_INFINITY;
+                    if (video.duration.selection !== "range" || min < contract.duration.min || max > contract.duration.max) {
+                        throw new Error(`${label}: duration ${JSON.stringify(video.duration)} exceeds ${JSON.stringify(contract.duration)}`);
+                    }
+                }
+                if (contract.resolutions) {
+                    for (const resolution of video.resolutions) {
+                        if (!contract.resolutions.includes(resolution)) throw new Error(`${label}: resolution ${resolution} exceeds ${contract.resolutions.join(",")}`);
+                    }
+                    if (!contract.resolutions.some((resolution) => resolution.toLowerCase() === video.defaultResolution.toLowerCase())) throw new Error(`${label}: default resolution ${video.defaultResolution} exceeds contract`);
+                }
+                if (contract.maxReferences?.image !== undefined && video.references.maxImages > contract.maxReferences.image) throw new Error(`${label}: maxImages exceeds contract`);
+                if (contract.maxReferences?.video !== undefined && video.references.maxVideos > contract.maxReferences.video) throw new Error(`${label}: maxVideos exceeds contract`);
+                if (contract.maxReferences?.audio !== undefined && video.references.maxAudios > contract.maxReferences.audio) throw new Error(`${label}: maxAudios exceeds contract`);
+                if (contract.operations) {
+                    for (const operation of video.operations) {
+                        if (!contract.operations.includes(operation)) throw new Error(`${label}: operation ${operation} exceeds contract`);
+                    }
+                }
+                if (contract.generateAudio !== undefined && video.generateAudio.supported !== contract.generateAudio) {
+                    throw new Error(`${label}: generateAudio ${video.generateAudio.supported} exceeds contract ${contract.generateAudio}`);
+                }
+            }
+        }
     }
 });
 

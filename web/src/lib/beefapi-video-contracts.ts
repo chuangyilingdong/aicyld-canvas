@@ -1,6 +1,6 @@
 import contracts from "../../../backend/internal/providerpreset/video_contracts.json";
 
-type VideoContract = {
+export type VideoContract = {
     models: string[];
     allowSuffix: boolean;
     protocol: string;
@@ -16,6 +16,8 @@ type VideoContract = {
     generateAudio?: boolean;
 };
 
+export const VIDEO_CONTRACTS: VideoContract[] = contracts;
+
 export function isBeefAPIEndpoint(baseUrl: string): boolean {
     try {
         const url = new URL(baseUrl.trim());
@@ -25,5 +27,5 @@ export function isBeefAPIEndpoint(baseUrl: string): boolean {
 
 export function beefAPIVideoContract(model: string): VideoContract | undefined {
     const name = model.trim().toLowerCase();
-    return contracts.find((contract) => contract.models.some((prefix) => name === prefix || (contract.allowSuffix && name.startsWith(`${prefix}-`))));
+    return VIDEO_CONTRACTS.find((contract) => contract.models.some((prefix) => name === prefix || (contract.allowSuffix && name.startsWith(`${prefix}-`))));
 }

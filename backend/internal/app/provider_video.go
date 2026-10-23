@@ -27,7 +27,10 @@ func (s *Service) validateResolvedVideoCapabilityContext(ctx context.Context, in
 }
 
 func (s *Service) resolveVideoCapability(ctx context.Context, input *canvasGenerationInput) error {
-	if isBeefAPIVideoConfig(ctx, input.Config) {
+	// A sourced catalog profile can be more specific than the shared default
+	// contract. Keep the catalog limit authoritative in that case; the contract
+	// ceiling applies only to generated defaults and unsourced profiles.
+	if isBeefAPIVideoConfig(ctx, input.Config) && input.Config.VideoCapabilitiesVersion == nil {
 		if contract, ok := providerpreset.BeefAPIVideoContract(input.Config.Model); ok {
 			for _, ref := range []struct {
 				kind, label string

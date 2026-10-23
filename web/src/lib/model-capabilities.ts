@@ -1,5 +1,6 @@
 import { isVolcengineArkVideoProtocol, type ModelProtocol, type ModelProtocolWorkflow } from "@/lib/model-protocols";
 import { beefAPIImageContract } from "@/lib/beefapi-image-contracts";
+import { beefAPIVideoContract } from "@/lib/beefapi-video-contracts";
 import type { ImageResolutionOption, ImageResolutionTier } from "@/lib/image-resolution-tiers";
 
 export type ModelCapabilityConfig = {
@@ -631,7 +632,51 @@ export function defaultModelCapabilityConfig(protocol?: ModelProtocol, model = "
             video.duration = { ...video.duration, max: 30 };
         }
     }
+    applyVerifiedVideoContract(video, model);
     return { version: 1, text, image: defaultImageCapabilityConfig(protocol, model), video };
+}
+
+// Keep generated defaults no wider than the checked model contract. Explicitly
+// configured profiles are intentionally not clamped here: they remain the
+// administrator's source of truth after creation.
+function applyVerifiedVideoContract(video: VideoCapabilityConfig, model: string) {
+    const name = model.includes("::") ? model.split("::").pop() || model : model;
+    const contract = beefAPIVideoContract(name);
+    if (!contract) return;
+    if (contract.duration) {
+        video.duration = {
+            selection: "range",
+            min: contract.duration.min,
+            max: contract.duration.max,
+            step: 1,
+            default: contract.duration.default,
+        };
+    }
+    if (contract.resolutions?.length) {
+        video.resolutions = [...contract.resolutions];
+        const hasDefaultResolution = video.resolutions.some((resolution) => resolution.trim().toLowerCase() === video.defaultResolution.trim().toLowerCase());
+        if (!hasDefaultResolution) {
+            video.defaultResolution = contract.referenceResolution && video.resolutions.some((resolution) => resolution.trim().toLowerCase() === contract.referenceResolution?.trim().toLowerCase())
+                ? contract.referenceResolution
+                : video.resolutions[0];
+        }
+    }
+    if (contract.ratios?.length) {
+        video.ratios = [...contract.ratios];
+        if (!video.ratios.includes(video.defaultRatio)) video.defaultRatio = video.ratios[0];
+    }
+    if (contract.operations?.length) {
+        video.operations = [...contract.operations];
+        if (!video.operations.includes(video.defaultOperation)) video.defaultOperation = video.operations[0];
+    }
+    if (contract.maxReferences) {
+        video.references.maxImages = Math.min(video.references.maxImages, contract.maxReferences.image ?? Infinity);
+        video.references.maxVideos = Math.min(video.references.maxVideos, contract.maxReferences.video ?? Infinity);
+        video.references.maxAudios = Math.min(video.references.maxAudios, contract.maxReferences.audio ?? Infinity);
+    }
+    if (contract.generateAudio !== undefined) {
+        video.generateAudio = { supported: contract.generateAudio, default: contract.generateAudio };
+    }
 }
 
 export function pluginWorkflowCapabilityConfig(protocol: ModelProtocol, workflow: ModelProtocolWorkflow): ModelCapabilityConfig | undefined {
