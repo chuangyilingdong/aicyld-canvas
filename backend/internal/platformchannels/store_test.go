@@ -54,6 +54,7 @@ func TestSeedance25ProfileAllowsThirtySeconds(t *testing.T) {
 	type durationConfig struct {
 		Video struct {
 			Duration struct {
+				Min int `json:"min"`
 				Max int `json:"max"`
 			} `json:"duration"`
 			References struct {
@@ -64,10 +65,11 @@ func TestSeedance25ProfileAllowsThirtySeconds(t *testing.T) {
 	}
 	for _, tc := range []struct {
 		model string
-		want  int
+		wantMin int
+		wantMax int
 	}{
-		{model: "seedance-2.5-standard", want: 30},
-		{model: "seedance-2.0-standard", want: 15},
+		{model: "seedance-2.5-standard", wantMin: 1, wantMax: 30},
+		{model: "seedance-2.0-standard", wantMin: 4, wantMax: 15},
 	} {
 		raw, ok := VideoCapabilityConfigForModel(tc.model)
 		if !ok {
@@ -77,10 +79,10 @@ func TestSeedance25ProfileAllowsThirtySeconds(t *testing.T) {
 		if err := json.Unmarshal(raw, &config); err != nil {
 			t.Fatal(err)
 		}
-		if config.Video.Duration.Max != tc.want {
-			t.Fatalf("%s duration max = %d, want %d", tc.model, config.Video.Duration.Max, tc.want)
+		if config.Video.Duration.Min != tc.wantMin || config.Video.Duration.Max != tc.wantMax {
+			t.Fatalf("%s duration = %d-%d, want %d-%d", tc.model, config.Video.Duration.Min, config.Video.Duration.Max, tc.wantMin, tc.wantMax)
 		}
-		if config.Video.References.MaxVideoDurationSeconds != tc.want || config.Video.References.MaxAudioDurationSeconds != tc.want {
+		if config.Video.References.MaxVideoDurationSeconds != tc.wantMax || config.Video.References.MaxAudioDurationSeconds != tc.wantMax {
 			t.Fatalf("%s reference duration caps = %#v", tc.model, config.Video.References)
 		}
 	}

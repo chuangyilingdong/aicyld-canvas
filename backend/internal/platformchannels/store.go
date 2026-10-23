@@ -235,14 +235,16 @@ func seedanceCapabilityConfigBody(mode string, is25 bool) []byte {
 		defaultOperation = "text_to_video"
 	}
 	durationMax := 15
+	durationMin := 4
 	if is25 {
 		durationMax = 30
+		durationMin = 1
 	}
 	config := map[string]any{
 		"version": 1,
 		"video": map[string]any{
 			"references":        references,
-			"duration":          map[string]any{"selection": "range", "min": 1, "max": durationMax, "step": 1, "default": 6},
+			"duration":          map[string]any{"selection": "range", "min": durationMin, "max": durationMax, "step": 1, "default": 6},
 			"ratios":            []string{"adaptive", "16:9", "9:16", "1:1", "4:3", "3:4", "21:9"},
 			"defaultRatio":      "16:9",
 			"resolutions":       []string{"480p", "720p", "1080p"},
