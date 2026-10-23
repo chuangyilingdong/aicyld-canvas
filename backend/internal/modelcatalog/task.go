@@ -5,6 +5,7 @@ import (
 
 	"infinite-canvas/backend/internal/kernel"
 	"infinite-canvas/backend/internal/model"
+	"infinite-canvas/backend/internal/providerpreset"
 )
 
 // ValidateConfiguredTask applies stored channel capability to a task. Workflow
@@ -31,7 +32,8 @@ func ValidateConfiguredTask(input TaskInput, lookup ChannelModelLookup) (TaskInp
 		}
 		profile := input.Config.CapabilityConfig
 		if profile == nil || profile.Video == nil {
-			if input.Config.InterfaceType != string(model.ChannelInterfaceAgnesVideo) {
+			_, verifiedModel := providerpreset.BeefAPIVideoContract(input.Config.Model)
+			if !verifiedModel && input.Config.InterfaceType != string(model.ChannelInterfaceAgnesVideo) {
 				return input, nil
 			}
 			profile = DefaultModelCapabilityConfigForModel(input.Config.InterfaceType, input.Config.Model)
