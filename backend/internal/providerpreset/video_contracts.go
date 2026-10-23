@@ -16,6 +16,7 @@ var videoContractJSON []byte
 type VideoContract struct {
 	Models              []string               `json:"models"`
 	AllowSuffix         bool                   `json:"allowSuffix"`
+	ExcludeSuffixes     []string               `json:"excludeSuffixes,omitempty"`
 	Protocol            string                 `json:"protocol"`
 	InlineMedia         bool                   `json:"inlineMedia"`
 	MaxReferences       map[string]int         `json:"maxReferences,omitempty"`
@@ -51,7 +52,7 @@ func BeefAPIVideoContract(model string) (VideoContract, bool) {
 	model = strings.ToLower(strings.TrimSpace(model))
 	for _, contract := range videoContracts {
 		for _, name := range contract.Models {
-			if model == name || contract.AllowSuffix && strings.HasPrefix(model, name+"-") {
+			if (model == name || contract.AllowSuffix && strings.HasPrefix(model, name+"-")) && !matchesExcludedSuffix(model, contract.ExcludeSuffixes) {
 				return contract, true
 			}
 		}
@@ -66,6 +67,7 @@ func VideoContracts() []VideoContract {
 	for index, contract := range videoContracts {
 		contracts[index] = contract
 		contracts[index].Models = append([]string(nil), contract.Models...)
+		contracts[index].ExcludeSuffixes = append([]string(nil), contract.ExcludeSuffixes...)
 		contracts[index].Operations = append([]string(nil), contract.Operations...)
 		contracts[index].Resolutions = append([]string(nil), contract.Resolutions...)
 		contracts[index].Ratios = append([]string(nil), contract.Ratios...)
@@ -85,6 +87,16 @@ func VideoContracts() []VideoContract {
 		}
 	}
 	return contracts
+}
+
+func matchesExcludedSuffix(model string, suffixes []string) bool {
+	for _, suffix := range suffixes {
+		suffix = strings.ToLower(strings.TrimSpace(strings.TrimPrefix(suffix, "-")))
+		if suffix != "" && strings.HasSuffix(model, "-"+suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 // HostedBeefAPIVideoProfile overlays the official video route onto a stored

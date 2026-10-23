@@ -31,6 +31,11 @@ test("Wan uses shared protocol and supported reference limits across reloads", (
     }
 });
 
+test("portrait variants do not inherit the standard Seedance contract", () => {
+    expect(beefAPIVideoContract("seedance-2.0-portrait")).toBeUndefined();
+    expect(beefAPIVideoContract("seedance-2.5-portrait")).toBeUndefined();
+});
+
 test("default video capabilities never exceed verified contracts", () => {
     const protocols = ["newapi", "newapi-channel-2", "openai-videos", "minimax-video"] as const;
     for (const contract of VIDEO_CONTRACTS) {

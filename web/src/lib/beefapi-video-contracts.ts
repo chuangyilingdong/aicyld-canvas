@@ -3,6 +3,7 @@ import contracts from "../../../backend/internal/providerpreset/video_contracts.
 export type VideoContract = {
     models: string[];
     allowSuffix: boolean;
+    excludeSuffixes?: string[];
     protocol: string;
     inlineMedia: boolean;
     // An omitted kind keeps the model's existing capability limit, matching Go.
@@ -27,5 +28,8 @@ export function isBeefAPIEndpoint(baseUrl: string): boolean {
 
 export function beefAPIVideoContract(model: string): VideoContract | undefined {
     const name = model.trim().toLowerCase();
-    return VIDEO_CONTRACTS.find((contract) => contract.models.some((prefix) => name === prefix || (contract.allowSuffix && name.startsWith(`${prefix}-`))));
+    return VIDEO_CONTRACTS.find((contract) => {
+        if (contract.excludeSuffixes?.some((suffix) => name.endsWith(`-${suffix.toLowerCase()}`))) return false;
+        return contract.models.some((prefix) => name === prefix || (contract.allowSuffix && name.startsWith(`${prefix}-`)));
+    });
 }

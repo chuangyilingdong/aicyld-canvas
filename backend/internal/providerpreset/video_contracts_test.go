@@ -34,6 +34,11 @@ func TestVideoContractBoundaries(t *testing.T) {
 			t.Fatalf("unverified model matched: %s", name)
 		}
 	}
+	for _, name := range []string{"seedance-2.0-portrait", "seedance-2.5-portrait"} {
+		if _, ok := BeefAPIVideoContract(name); ok {
+			t.Fatalf("excluded portrait variant matched standard contract: %s", name)
+		}
+	}
 	for _, base := range []string{"https://enterprise.beefapi.com.evil.test", "https://evil.test/enterprise.beefapi.com", "http://enterprise.beefapi.com", "https://user@enterprise.beefapi.com", "https://enterprise.beefapi.com:444"} {
 		if IsBeefAPIEndpoint(base) {
 			t.Fatalf("untrusted endpoint: %s", base)

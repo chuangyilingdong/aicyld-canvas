@@ -50,6 +50,7 @@
   {
     "models": ["seedance-2.0"],
     "allowSuffix": true,
+    "excludeSuffixes": ["portrait"],
     "protocol": "newapi",
     "inlineMedia": true,
     "maxReferences": {"image": 9, "video": 3, "audio": 3},
@@ -61,6 +62,7 @@
   {
     "models": ["seedance-2.5"],
     "allowSuffix": true,
+    "excludeSuffixes": ["portrait"],
     "protocol": "newapi",
     "inlineMedia": true,
     "maxReferences": {"image": 30, "video": 10, "audio": 10},
