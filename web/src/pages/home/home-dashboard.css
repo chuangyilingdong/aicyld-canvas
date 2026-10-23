@@ -23,10 +23,11 @@ body .app-user-workspace.app-home-route .app-workspace-sidebar-account-row { dis
 .beeftv-home-recharge { padding:0 13px; border-color:color-mix(in srgb,var(--user-accent) 28%,var(--user-border)); color:var(--user-accent); font-weight:600; }
 .beeftv-home-recharge svg { width:15px; height:15px; stroke-width:1.9; }
 .beeftv-home-credit:hover,.beeftv-home-recharge:hover { transform:translateY(-1px); border-color:color-mix(in srgb,var(--user-accent) 45%,var(--user-border)); background:var(--user-surface-hover); color:var(--user-ink); }
-.beeftv-home .app-workspace-account-trigger.is-labeled { display:inline-flex; width:auto; height:40px; gap:8px; padding:0 4px; border:0; border-radius:999px; background:transparent; color:var(--user-ink-muted); }
+.beeftv-home .app-workspace-account-trigger.is-labeled { display:inline-flex; width:auto; height:40px; align-items:center; justify-content:center; gap:8px; padding:0 4px; border:0; border-radius:999px; background:transparent; color:var(--user-ink-muted); line-height:1; }
 .beeftv-home .app-workspace-account-trigger.is-labeled:hover { background:var(--user-surface-hover); color:var(--user-ink); }
-.beeftv-home .app-workspace-account-trigger-name { max-width:132px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; font-weight:560; }
-.beeftv-home .app-workspace-account-trigger-chevron { width:14px !important; height:14px !important; opacity:.5; }
+.beeftv-home .app-workspace-account-trigger-name { display:inline-flex; max-width:132px; align-items:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; font-weight:560; line-height:1; }
+.beeftv-home .app-workspace-account-trigger-chevron { display:block; width:14px !important; height:14px !important; flex:none; opacity:.5; }
+.beeftv-home .app-workspace-account-trigger.is-labeled > span:first-child { display:grid; flex:none; place-items:center; line-height:0; }
 .beeftv-home-hero { position: relative; min-height: 160px; display: grid; place-items: center; overflow: hidden; border: 1px solid var(--user-border-strong); border-radius: 12px; background: var(--user-surface-muted); }
 .beeftv-home-dot-base,.beeftv-home-dot-flow { position: absolute; inset: 8px 2px; pointer-events: none; background-size: 18px 18px; }
 .beeftv-home-dot-base { background-image: radial-gradient(circle,color-mix(in srgb,var(--user-ink) 12%,transparent) .3px,transparent 1.4px); }

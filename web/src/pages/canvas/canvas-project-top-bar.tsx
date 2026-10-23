@@ -463,6 +463,12 @@ function CanvasAccountStatus({ style }: { style: CSSProperties }) {
                     <span>{balanceLabel}</span>
                 </span>
             </Tooltip>
+            <Tooltip title="充值积分" placement="bottom">
+                <a href="https://aicyld.com.cn/subscription?tab=recharge" target="_blank" rel="noopener noreferrer" className="inline-flex h-8 items-center gap-1 rounded-xl border border-white/10 bg-black/15 px-2.5 text-xs font-medium transition-colors hover:bg-white/10" aria-label="充值积分">
+                    <Plus className="size-3.5" strokeWidth={2.2} />
+                    <span>充值</span>
+                </a>
+            </Tooltip>
             <Tooltip title={displayName} placement="bottom">
                 <span className="grid size-8 place-items-center overflow-hidden rounded-full border border-white/10 bg-emerald-500 text-xs font-semibold text-white" aria-label={displayName}>
                     {user?.avatarUrl ? <img src={user.avatarUrl} alt="" className="size-full object-cover" referrerPolicy="no-referrer" loading="lazy" decoding="async" /> : initial}
