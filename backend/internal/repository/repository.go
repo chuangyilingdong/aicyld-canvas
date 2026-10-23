@@ -572,17 +572,35 @@ func (r *Repository) Tasks(userID string, limit int, projectID string, activeOnl
 	return tasks, err
 }
 
-// StaleReservedTasks returns billing holds that outlived their local task
-// lifecycle. The caller still decides by task status whether to settle or
-// refund; this query never releases an active lease by itself.
+// StaleReservedTasks returns unfinished billing transitions that outlived
+// their local task lifecycle. Besides the initial reserved state it retries
+// refund_pending and pending_reconcile, so transient billing API failures do
+// not strand a task forever. The caller still decides by task status whether
+// to settle or refund; this query never releases an active lease by itself.
 func (r *Repository) StaleReservedTasks(cutoff time.Time, limit int) ([]model.Task, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 100
 	}
 	var tasks []model.Task
-	err := r.db.Where("billing_hold_id <> '' AND billing_status = ? AND updated_at < ?", "reserved", cutoff).
+	err := r.db.Where("billing_hold_id <> '' AND billing_status IN ? AND updated_at < ?", []string{"reserved", "refund_pending", "pending_reconcile"}, cutoff).
 		Order("updated_at asc").Limit(limit).Find(&tasks).Error
 	return tasks, err
+}
+
+type TaskBillingStatusCount struct {
+	Status string
+	Count  int64
+}
+
+func (r *Repository) TaskBillingStatusCounts() ([]TaskBillingStatusCount, error) {
+	var counts []TaskBillingStatusCount
+	err := r.db.Model(&model.Task{}).
+		Select("billing_status as status, count(*) as count").
+		Where("billing_hold_id <> '' AND billing_status <> ''").
+		Group("billing_status").
+		Order("billing_status asc").
+		Scan(&counts).Error
+	return counts, err
 }
 
 // FailStaleQueuedReservedTask closes a queued task that never acquired a

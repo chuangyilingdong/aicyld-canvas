@@ -62,6 +62,9 @@ func (s *Service) reconcileCanvasBillingOnce(ctx context.Context) error {
 		case model.TaskStatusFailed, model.TaskStatusCancelled:
 			terminal.releaseBilling(&task, "任务已结束但预扣未释放，自动原路退款")
 		case model.TaskStatusQueued:
+			if task.BillingStatus != "reserved" {
+				continue
+			}
 			cutoff := now.Add(-canvasBillingStuckGrace)
 			if task.UpdatedAt.After(cutoff) {
 				continue
@@ -78,6 +81,9 @@ func (s *Service) reconcileCanvasBillingOnce(ctx context.Context) error {
 				terminal.releaseBilling(&task, message)
 			}
 		case model.TaskStatusRunning:
+			if task.BillingStatus != "reserved" {
+				continue
+			}
 			if task.ProviderRequestID != "" {
 				continue
 			}
@@ -95,6 +101,13 @@ func (s *Service) reconcileCanvasBillingOnce(ctx context.Context) error {
 				task.Stage = "预扣对账"
 				task.Error = message
 				terminal.releaseBilling(&task, message)
+			}
+		}
+	}
+	if counts, countErr := s.repo.TaskBillingStatusCounts(); countErr == nil {
+		for _, item := range counts {
+			if item.Status == "refund_pending" || item.Status == "pending_reconcile" {
+				log.Printf("canvas billing attention: worker_id=%s status=%s count=%d", s.workerID, item.Status, item.Count)
 			}
 		}
 	}

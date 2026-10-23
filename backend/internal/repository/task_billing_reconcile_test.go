@@ -24,6 +24,8 @@ func TestStaleReservedTasksAndSafeFailureGuards(t *testing.T) {
 		{ID: "queued", UserID: "u", Status: model.TaskStatusQueued, BillingHoldID: "hold-queued", BillingStatus: "reserved", UpdatedAt: old},
 		{ID: "running-no-request", UserID: "u", Status: model.TaskStatusRunning, BillingHoldID: "hold-running", BillingStatus: "reserved", UpdatedAt: old},
 		{ID: "running-dispatched", UserID: "u", Status: model.TaskStatusRunning, BillingHoldID: "hold-dispatched", BillingStatus: "reserved", ProviderRequestID: "provider-1", UpdatedAt: old},
+		{ID: "refund-pending", UserID: "u", Status: model.TaskStatusFailed, BillingHoldID: "hold-refund", BillingStatus: "refund_pending", UpdatedAt: old},
+		{ID: "pending-reconcile", UserID: "u", Status: model.TaskStatusSucceeded, BillingHoldID: "hold-pending", BillingStatus: "pending_reconcile", UpdatedAt: old},
 		{ID: "settled", UserID: "u", Status: model.TaskStatusSucceeded, BillingHoldID: "hold-settled", BillingStatus: "settled", UpdatedAt: old},
 	}
 	if err := db.Create(&tasks).Error; err != nil {
@@ -40,8 +42,15 @@ func TestStaleReservedTasksAndSafeFailureGuards(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(stale) != 3 {
-		t.Fatalf("stale count = %d, want 3: %+v", len(stale), stale)
+	if len(stale) != 5 {
+		t.Fatalf("retryable billing task count = %d, want 5: %+v", len(stale), stale)
+	}
+	counts, err := repo.TaskBillingStatusCounts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(counts) != 4 {
+		t.Fatalf("billing status count groups = %d, want 4: %+v", len(counts), counts)
 	}
 
 	failed, err := repo.FailStaleQueuedReservedTask("queued", now.Add(-2*time.Hour), "stale queued")
