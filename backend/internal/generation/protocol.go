@@ -62,19 +62,21 @@ func RunProtocolAdapterTaskWithPolicy(ctx context.Context, input Input, adapter 
 	if input.Mode == "video" {
 		policy = videoPollPolicyForConfig(ctx, input.Config, policy)
 	}
+	taskID := ResumedProviderRequestID(ctx)
 	// 适配器路径（内置与声明式）不一定经过 Execute()：Execute 里那次媒体水合负责把
 	// resource: 媒体换成渠道需要的地址（例如 newapi-image 的参考图编辑必须给公网 URL）。
-	// 少了这一步，图片编辑会带着 data URL 提交，被上游以
-	// `images must contain public HTTP(S) URLs` 拒绝（2026-10-15 实测）。
-	if runtime, ok := RuntimeFromContext(ctx); ok && strings.TrimSpace(runtime.Call.UserID) != "" {
-		if err := HydrateMedia(ctx, runtime.Call.UserID, &input, MediaHydrationPolicyFor(ctx, input)); err != nil {
-			return nil, err
+	// 但恢复已有上游任务时只应查询/下载，不能重新读取参考素材——素材可能在任务提交后
+	// 已被用户删除，重新水合会让原本可以恢复的任务失败。
+	if taskID == "" {
+		if runtime, ok := RuntimeFromContext(ctx); ok && strings.TrimSpace(runtime.Call.UserID) != "" {
+			if err := HydrateMedia(ctx, runtime.Call.UserID, &input, MediaHydrationPolicyFor(ctx, input)); err != nil {
+				return nil, err
+			}
 		}
 	}
 	// create、poll、download 是同一个外部任务的三个阶段：任一阶段失败都向上返回真实错误，
 	// 不把“已提交但结果未知”伪装成成功，也不把下载失败降级成空结果。
 	request := ProtocolRequestFromInput(input)
-	taskID := ResumedProviderRequestID(ctx)
 	var created protocol.CreateResult
 	if taskID == "" {
 		// 幂等键只存在于宿主请求元数据中，声明式插件可以把它映射到 Header，

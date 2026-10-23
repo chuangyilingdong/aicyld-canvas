@@ -20,6 +20,24 @@ import (
 )
 
 func RunImageTask(ctx context.Context, input Input) (map[string]interface{}, error) {
+	if strings.TrimSpace(input.Mode) == "" {
+		input.Mode = "image"
+	}
+	// 在进入声明式协议之前完成确定性的本地校验。否则本地 BaseURL/MIME
+	// 校验可能先于蒙版或参考图校验触发，返回无关错误，甚至发出本应拒绝的请求。
+	if input.Mask != nil && input.Config.InterfaceType != string(model.ChannelInterfaceOpenAIImage) {
+		return nil, fmt.Errorf("%s 不支持蒙版编辑，请移除蒙版后重试", input.Config.InterfaceType)
+	}
+	if input.Config.InterfaceType == string(model.ChannelInterfaceGeminiImage) {
+		if input.Mask != nil {
+			return nil, errors.New("Gemini Images 不支持蒙版编辑，请移除蒙版后重试")
+		}
+		for _, image := range input.ReferenceImages {
+			if _, _, err := GeminiImageBytes(image); err != nil {
+				return nil, fmt.Errorf("读取 Gemini Images 参考图失败：%w", err)
+			}
+		}
+	}
 	outputCount := 1
 	if input.ImageCapability != nil && input.ImageCapability.FixedOutputs > 0 {
 		outputCount = input.ImageCapability.FixedOutputs

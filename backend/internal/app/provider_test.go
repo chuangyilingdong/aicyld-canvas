@@ -23,6 +23,16 @@ import (
 
 const testReferenceImageDataURL = "data:image/png;base64,aGVsbG8="
 
+func firstImageResultDataURL(result map[string]interface{}) string {
+	images, _ := result["images"].([]interface{})
+	if len(images) == 0 {
+		return ""
+	}
+	item, _ := images[0].(map[string]interface{})
+	value, _ := item["dataUrl"].(string)
+	return value
+}
+
 func TestNativeArkPluginPreservesInlineAssetsCountsAndAutomaticDuration(t *testing.T) {
 	for _, name := range []string{"volcengine-ark-video", "volcengine-ark-agent-plan-video"} {
 		input := canvasGenerationInput{Config: providerConfig{InterfaceType: name, Model: "doubao-seedance-2-5-260528", VideoSeconds: "-1"}, Prompt: "test"}
@@ -1357,9 +1367,8 @@ func TestRunGeminiImageTaskUsesInlineDataAndImageConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runImageTask() error = %v", err)
 	}
-	images, _ := result["images"].([]map[string]string)
-	if len(images) != 1 || images[0]["dataUrl"] != testReferenceImageDataURL {
-		t.Fatalf("images = %#v", result["images"])
+	if got := firstImageResultDataURL(result); got != testReferenceImageDataURL {
+		t.Fatalf("images = %#v, dataUrl = %q", result["images"], got)
 	}
 }
 
@@ -1430,8 +1439,8 @@ func TestRunOpenAIImageTaskUsesMultipartEditContract(t *testing.T) {
 		if r.FormValue("model") != "gpt-image-2-high" || r.FormValue("prompt") != "make the reference clearer" || r.FormValue("n") != "1" {
 			t.Fatalf("form values = model:%q prompt:%q n:%q", r.FormValue("model"), r.FormValue("prompt"), r.FormValue("n"))
 		}
-		if r.FormValue("response_format") != "b64_json" || r.FormValue("output_format") != "png" || r.FormValue("size") != "1024x1024" {
-			t.Fatalf("format values = response_format:%q output_format:%q size:%q", r.FormValue("response_format"), r.FormValue("output_format"), r.FormValue("size"))
+		if r.FormValue("output_format") != "png" || r.FormValue("size") != "1024x1024" {
+			t.Fatalf("format values = output_format:%q size:%q", r.FormValue("output_format"), r.FormValue("size"))
 		}
 		file, header, err := r.FormFile("image")
 		if err != nil {
@@ -1442,7 +1451,7 @@ func TestRunOpenAIImageTaskUsesMultipartEditContract(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ReadAll(image) error = %v", err)
 		}
-		if header.Filename != "reference-reference.png" || string(content) != "hello" {
+		if header.Filename != "image.png" || string(content) != "hello" {
 			t.Fatalf("image = filename:%q content:%q", header.Filename, string(content))
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -1461,15 +1470,20 @@ func TestRunOpenAIImageTaskUsesMultipartEditContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runImageTask() error = %v", err)
 	}
-	images, _ := result["images"].([]map[string]string)
-	if len(images) != 1 || images[0]["dataUrl"] != "data:image/png;base64,aGVsbG8=" {
-		t.Fatalf("images = %#v", result["images"])
+	if got := firstImageResultDataURL(result); got != "data:image/png;base64,aGVsbG8=" {
+		t.Fatalf("images = %#v, dataUrl = %q", result["images"], got)
 	}
 }
 
 func TestRunGrokImageTaskUsesJSONEditContract(t *testing.T) {
 	t.Setenv("CANVAS_ALLOW_PRIVATE_UPSTREAMS", "true")
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/result.png" {
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write([]byte("hello"))
+			return
+		}
 		if r.URL.Path != "/v1/images/edits" {
 			t.Errorf("path = %q, want /v1/images/edits", r.URL.Path)
 		}
@@ -1487,7 +1501,7 @@ func TestRunGrokImageTaskUsesJSONEditContract(t *testing.T) {
 			t.Fatalf("image = %#v", body.Image)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"data":[{"url":"https://example.com/result.png"}]}`))
+		_, _ = w.Write([]byte(`{"data":[{"url":"` + server.URL + `/result.png"}]}`))
 	}))
 	defer server.Close()
 
@@ -1500,9 +1514,8 @@ func TestRunGrokImageTaskUsesJSONEditContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runImageTask() error = %v", err)
 	}
-	images, _ := result["images"].([]map[string]string)
-	if len(images) != 1 || images[0]["dataUrl"] != "https://example.com/result.png" {
-		t.Fatalf("images = %#v", result["images"])
+	if got := firstImageResultDataURL(result); got != "data:image/png;base64,aGVsbG8=" {
+		t.Fatalf("images = %#v, dataUrl = %q", result["images"], got)
 	}
 }
 

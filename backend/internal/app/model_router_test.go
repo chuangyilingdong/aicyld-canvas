@@ -137,31 +137,20 @@ func TestSKUSelectorIncludesVideoReferenceImageCount(t *testing.T) {
 	}
 }
 
-func TestSKUSelectorTreatsAnyVideoReferenceAsVideoToVideo(t *testing.T) {
-	intent := ModelRequestIntentFromTaskInput(map[string]any{
+func TestSKUSelectorHonorsExplicitReferenceOperation(t *testing.T) {
+	videoIntent := ModelRequestIntentFromTaskInput(map[string]any{
 		"mode":              "video",
 		"referenceImages":   []any{map[string]any{"url": "https://example.com/reference.png"}},
 		"referenceVideos":   []any{map[string]any{"url": "https://example.com/reference.mp4"}},
 		"referenceAudios":   []any{map[string]any{"url": "https://example.com/reference.mp3"}},
 		"capabilityOptions": map[string]any{"vquality": "720p"},
 	}, "canvas_video", "reference_to_video")
-	selector := skuSelectorForIntent(intent)
-	if selector["operation"] != "video_to_video" {
-		t.Fatalf("operation = %q, want video_to_video; selector = %#v", selector["operation"], selector)
+	selector := skuSelectorForIntent(videoIntent)
+	if selector["operation"] != "reference_to_video" {
+		t.Fatalf("explicit operation = %q, want reference_to_video; selector = %#v", selector["operation"], selector)
 	}
 
-	modelWithTiers := model.ChannelModel{Variants: []model.ChannelModelVariant{
-		{SelectorJSON: `{}`, Enabled: true},
-		{SelectorJSON: `{"operation":"video_to_video"}`, Enabled: true},
-	}}
-	matched := channelModelVariantForIntent(modelWithTiers, intent)
-	if matched == nil || matched.SelectorJSON != `{"operation":"video_to_video"}` {
-		t.Fatalf("matched tier = %#v", matched)
-	}
-}
-
-func TestSKUSelectorTreatsAnyImageReferenceCountAsImageToVideo(t *testing.T) {
-	intent := ModelRequestIntentFromTaskInput(map[string]any{
+	imageIntent := ModelRequestIntentFromTaskInput(map[string]any{
 		"mode": "video",
 		"referenceImages": []any{
 			map[string]any{"url": "https://example.com/reference-1.png"},
@@ -169,17 +158,41 @@ func TestSKUSelectorTreatsAnyImageReferenceCountAsImageToVideo(t *testing.T) {
 			map[string]any{"url": "https://example.com/reference-3.png"},
 		},
 	}, "canvas_video", "reference_to_video")
-	selector := skuSelectorForIntent(intent)
-	if selector["operation"] != "image_to_video" || selector["imageCount"] != "3" {
-		t.Fatalf("selector = %#v, want image_to_video with imageCount 3", selector)
+	selector = skuSelectorForIntent(imageIntent)
+	if selector["operation"] != "reference_to_video" || selector["imageCount"] != "3" {
+		t.Fatalf("selector = %#v, want explicit reference_to_video with imageCount 3", selector)
 	}
 
 	modelWithTiers := model.ChannelModel{Variants: []model.ChannelModelVariant{
 		{SelectorJSON: `{}`, Enabled: true},
-		{SelectorJSON: `{"operation":"image_to_video"}`, Enabled: true},
+		{SelectorJSON: `{"operation":"reference_to_video"}`, Enabled: true},
 	}}
-	matched := channelModelVariantForIntent(modelWithTiers, intent)
-	if matched == nil || matched.SelectorJSON != `{"operation":"image_to_video"}` {
+	matched := channelModelVariantForIntent(modelWithTiers, imageIntent)
+	if matched == nil || matched.SelectorJSON != `{"operation":"reference_to_video"}` {
 		t.Fatalf("matched tier = %#v", matched)
+	}
+}
+
+func TestSKUSelectorFallsBackFromInputsWhenOperationMissing(t *testing.T) {
+	videoIntent := ModelRequestIntentFromTaskInput(map[string]any{
+		"mode":            "video",
+		"referenceImages": []any{map[string]any{"url": "https://example.com/reference.png"}},
+		"referenceVideos": []any{map[string]any{"url": "https://example.com/reference.mp4"}},
+	}, "canvas_video", "")
+	if operation := skuSelectorForIntent(videoIntent)["operation"]; operation != "video_to_video" {
+		t.Fatalf("video fallback operation = %q, want video_to_video", operation)
+	}
+
+	imageIntent := ModelRequestIntentFromTaskInput(map[string]any{
+		"mode": "video",
+		"referenceImages": []any{
+			map[string]any{"url": "https://example.com/reference-1.png"},
+			map[string]any{"url": "https://example.com/reference-2.png"},
+			map[string]any{"url": "https://example.com/reference-3.png"},
+		},
+	}, "canvas_video", "")
+	selector := skuSelectorForIntent(imageIntent)
+	if selector["operation"] != "image_to_video" || selector["imageCount"] != "3" {
+		t.Fatalf("image fallback selector = %#v, want image_to_video with imageCount 3", selector)
 	}
 }

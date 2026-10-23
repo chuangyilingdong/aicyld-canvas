@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"sort"
 	"strings"
 
 	"infinite-canvas/backend/internal/generation"
@@ -254,8 +255,13 @@ func collectImageTaskState(value any, inResults bool, statuses *[]string, urls *
 				*urls = append(*urls, imageURL)
 			}
 		}
-		for key, nested := range current {
-			collectImageTaskState(nested, inResults || key == "results", statuses, urls, reasons)
+		keys := make([]string, 0, len(current))
+		for key := range current {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			collectImageTaskState(current[key], inResults || key == "results", statuses, urls, reasons)
 		}
 	case []any:
 		for _, item := range current {

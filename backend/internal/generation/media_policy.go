@@ -27,7 +27,7 @@ func MediaHydrationPolicyFor(ctx context.Context, input Input) MediaHydrationPol
 		return policy
 	}
 	switch strings.TrimSpace(input.Config.InterfaceType) {
-	case string(model.ChannelInterfaceNewAPIVideo), string(model.ChannelInterfaceNewAPIChannel1), string(model.ChannelInterfaceNewAPIChannel2), string(model.ChannelInterfaceVolcengineArkVideo), string(model.ChannelInterfaceVolcengineArkAgentPlanVideo), string(model.ChannelInterfaceMiniMaxVideo):
+	case string(model.ChannelInterfaceNewAPIChannel1), string(model.ChannelInterfaceNewAPIChannel2), string(model.ChannelInterfaceVolcengineArkVideo), string(model.ChannelInterfaceVolcengineArkAgentPlanVideo), string(model.ChannelInterfaceMiniMaxVideo):
 		policy.RequireURL = true
 		policy.PreferURL = true
 	case string(model.ChannelInterfaceNewAPIImage):
