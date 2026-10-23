@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"infinite-canvas/backend/internal/model"
+	"infinite-canvas/backend/internal/outbound"
 	"infinite-canvas/backend/internal/taskruntime"
 )
 
@@ -318,6 +319,10 @@ func (s *Service) shouldDeferVideoProviderTask(task model.Task, decryptedInput s
 		return false
 	}
 	deferSignal := errors.Is(err, context.DeadlineExceeded)
+	var dns *outbound.DNSResolutionError
+	if errors.As(err, &dns) {
+		deferSignal, _ = retryableVideoPollError(context.Background(), err)
+	}
 	var downloadErr videoDownloadError
 	if errors.As(err, &downloadErr) {
 		deferSignal, _ = retryableVideoPollError(context.Background(), downloadErr.Cause)
@@ -336,6 +341,10 @@ func (s *Service) shouldDeferVideoProviderTask(task model.Task, decryptedInput s
 	var input canvasGenerationInput
 	if json.Unmarshal([]byte(decryptedInput), &input) != nil {
 		return false
+	}
+	// A known query-only contract does not need another DNS lookup here.
+	if input.Config.ChannelID == "" && isBeefAPIVideoConfig(context.Background(), input.Config) {
+		return true
 	}
 	resolved, resolveErr := s.resolveProviderConfig(input.Config)
 	return resolveErr == nil && (resolved.InterfaceType == string(model.ChannelInterfaceNewAPIChannel2) || isBeefAPIVideoConfig(context.Background(), resolved))

@@ -18,7 +18,7 @@ func (r *Repository) DiagnosticTasks(userID string, from time.Time, to time.Time
 	query := r.db.Model(&model.Task{}).Select(
 		"id", "user_id", "trace_id", "request_id", "project_id", "type", "status", "stage", "progress",
 		"operation", "provider", "model", "logical_model_id", "provider_request_id", "error", "attempts",
-		"started_at", "completed_at", "created_at", "updated_at",
+		"failure_diagnostics", "started_at", "completed_at", "created_at", "updated_at",
 	)
 	if taskID = strings.TrimSpace(taskID); taskID != "" {
 		query = query.Where("user_id = ? AND id = ?", userID, taskID)

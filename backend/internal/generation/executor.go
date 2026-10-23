@@ -138,7 +138,7 @@ func Execute(ctx context.Context, input Input) (map[string]any, error) {
 		input = resolved
 	}
 
-	if preparing {
+	if preparing || (input.Mode == "video" && ResumedProviderRequestID(ctx) == "") {
 		if err := setExecutionStage(ctx, runtime, "正在提交生成任务"); err != nil {
 			return nil, err
 		}
@@ -197,7 +197,7 @@ func executeWorkflow(ctx context.Context, runtime Runtime, userID string, input 
 	if runtime.Workflow == nil {
 		return nil, errors.New("无法执行工作流任务，请重试")
 	}
-	if preparing {
+	if preparing || (input.Mode == "video" && ResumedProviderRequestID(ctx) == "") {
 		if err := setExecutionStage(ctx, runtime, "正在提交生成任务"); err != nil {
 			return nil, err
 		}

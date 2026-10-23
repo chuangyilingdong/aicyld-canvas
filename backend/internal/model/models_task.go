@@ -100,6 +100,8 @@ type TaskFailureDiagnostics struct {
 	Version         string                `json:"version,omitempty"`
 	Platform        string                `json:"platform,omitempty"`
 	ExecutionResult string                `json:"executionResult,omitempty"`
+	FailedOperation string                `json:"failedOperation,omitempty"`
+	TransportPhase  string                `json:"transportPhase,omitempty"`
 	Requests        []TaskRequestEvidence `json:"requests,omitempty"`
 	OmittedRequests int                   `json:"omittedRequests,omitempty"`
 	Input           *TaskDiagnosticInput  `json:"input,omitempty"`
