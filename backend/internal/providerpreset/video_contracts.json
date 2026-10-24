@@ -68,7 +68,7 @@
     "maxReferences": {"image": 30, "video": 10, "audio": 10},
     "operations": ["text_to_video", "image_to_video", "first_last_frame", "reference_to_video", "audio_to_video"],
     "resolutions": ["480p", "720p", "1080p"],
-    "duration": {"min": 1, "max": 30, "default": 6},
+    "duration": {"min": 4, "max": 30, "default": 6},
     "generateAudio": true
   },
   {

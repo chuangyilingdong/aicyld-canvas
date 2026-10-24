@@ -238,7 +238,6 @@ func seedanceCapabilityConfigBody(mode string, is25 bool) []byte {
 	durationMin := 4
 	if is25 {
 		durationMax = 30
-		durationMin = 1
 	}
 	config := map[string]any{
 		"version": 1,

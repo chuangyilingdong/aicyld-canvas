@@ -52,6 +52,11 @@ func TestVideoContractBoundaries(t *testing.T) {
 	if !ok || capability != "video" || protocol != "newapi" {
 		t.Fatalf("hosted Fast overlay: cap=%q proto=%q ok=%v", capability, protocol, ok)
 	}
+	contract25, ok := BeefAPIVideoContract("seedance-2.5")
+	if !ok || contract25.Duration == nil || contract25.Duration.Min != 4 || contract25.Duration.Max != 30 {
+		t.Fatalf("seedance-2.5 duration contract = %#v", contract25.Duration)
+	}
+
 	if _, _, ok := HostedBeefAPIVideoProfile("https://example.invalid/v1", "seedance-2.0-fast"); ok {
 		t.Fatal("custom gateway must keep its stored capability")
 	}

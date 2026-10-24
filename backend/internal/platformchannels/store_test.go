@@ -64,11 +64,11 @@ func TestSeedance25ProfileAllowsThirtySeconds(t *testing.T) {
 		} `json:"video"`
 	}
 	for _, tc := range []struct {
-		model string
+		model   string
 		wantMin int
 		wantMax int
 	}{
-		{model: "seedance-2.5-standard", wantMin: 1, wantMax: 30},
+		{model: "seedance-2.5-standard", wantMin: 4, wantMax: 30},
 		{model: "seedance-2.0-standard", wantMin: 4, wantMax: 15},
 	} {
 		raw, ok := VideoCapabilityConfigForModel(tc.model)
