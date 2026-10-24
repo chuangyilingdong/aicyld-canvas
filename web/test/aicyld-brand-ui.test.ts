@@ -13,12 +13,15 @@ test("built-in Lingdong brand uses the AICYLD mark and sidebar update controls a
     const sidebar = read("src/components/layout/workspace-sidebar-nav.tsx");
     const social = read("src/components/layout/workspace-sidebar-social-links.css");
     const logo = read("public/logo.svg");
+    const index = read("index.html");
     const globals = read("src/styles/globals.css");
 
     expect(appearance).toContain('brandName: "灵动TV"');
     expect(appearance).toContain('logoUrl: "/lingdong-logo-black.png"');
     expect(appearance).toContain('darkLogoUrl: "/lingdong-logo-white.png"');
     expect(appearance).not.toContain("/beef-logo.png");
+    expect(appearance).toContain('favicon.href = appearanceLogoURL(appearance, "dark")');
+    expect(index).toContain('rel="icon" href="/lingdong-logo-white.png"');
     expect(logo).toContain("/lingdong-logo-black.png");
     expect(logo).not.toContain("/beef-mark.png");
     expect(globals).not.toContain("/beef-logo.png");
