@@ -303,6 +303,33 @@ func TestCanvasTaskBindConcurrentConsumersDoNotDuplicate(t *testing.T) {
 	}
 }
 
+func TestCanvasTaskBindCreatesFallbackNodeOnlyWhenExplicitlyAllowed(t *testing.T) {
+	h := newHarness(t)
+	task := h.seedReadyCanvasImageTask(t, "task-fallback", "node-primary", "原节点", 2, 3)
+
+	_, err := h.bindTask(t, task.ID, "node-fallback", 0)
+	if got := opErr(t, err); got.Reason != "node_mismatch" {
+		t.Fatalf("default fallback bind = %v", err)
+	}
+
+	result, err := h.execute(t, operations.ManualCaller(false), "canvas.task.bind", localtask.AttachNodeEffectKey(task.ID, "node-fallback", 0), map[string]any{
+		"canvasId": h.canvasID, "taskId": task.ID, "nodeId": "node-fallback", "outputIndex": 0, "allowDifferentNode": true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := result.Result.(map[string]any)
+	if status, _ := payload["bindingStatus"].(string); status != "bound" {
+		t.Fatalf("fallback bindingStatus = %#v", payload["bindingStatus"])
+	}
+	if got := h.nodeMetaString(t, "node-fallback", "taskId"); got != task.ID {
+		t.Fatalf("fallback node taskId = %q", got)
+	}
+	if got := h.nodeMetaString(t, "node-fallback", "status"); got != "success" {
+		t.Fatalf("fallback node status = %q", got)
+	}
+}
+
 func TestCanvasTaskBindRejectsDeletedWrongOwnerAndNewerTaskNode(t *testing.T) {
 	h := newHarness(t)
 	deleted := h.seedReadyCanvasImageTask(t, "task-deleted", "node-deleted", "将被删除", 1, 1)

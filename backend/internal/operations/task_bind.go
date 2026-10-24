@@ -12,19 +12,21 @@ import (
 
 func opCanvasTaskBind(ctx *Context, params json.RawMessage) (any, error) {
 	var args struct {
-		CanvasID    string `json:"canvasId"`
-		TaskID      string `json:"taskId"`
-		NodeID      string `json:"nodeId"`
-		OutputIndex int    `json:"outputIndex"`
+		CanvasID           string `json:"canvasId"`
+		TaskID             string `json:"taskId"`
+		NodeID             string `json:"nodeId"`
+		OutputIndex        int    `json:"outputIndex"`
+		AllowDifferentNode bool   `json:"allowDifferentNode"`
 	}
 	if err := decodeParams(params, &args); err != nil {
 		return nil, err
 	}
 	receipt, err := taskbinding.Bind(&bindPorts{ctx: ctx}, ctx.UserID, taskbinding.Request{
-		CanvasID:    args.CanvasID,
-		TaskID:      args.TaskID,
-		NodeID:      args.NodeID,
-		OutputIndex: args.OutputIndex,
+		CanvasID:           args.CanvasID,
+		TaskID:             args.TaskID,
+		NodeID:             args.NodeID,
+		OutputIndex:        args.OutputIndex,
+		AllowDifferentNode: args.AllowDifferentNode,
 	})
 	if err != nil {
 		return nil, mapDomainError(err)
@@ -189,22 +191,23 @@ func (p *bindPorts) OwnedAsset(userID, assetID string) (*model.Asset, error) {
 
 func (p *bindPorts) BindExistingNode(userID string, patch taskbinding.NodePatch) (taskbinding.NodeBindResult, error) {
 	result, err := p.ctx.Domain.BindExistingCanvasNode(userID, canvas.TaskOutputBind{
-		CanvasID:    patch.CanvasID,
-		NodeID:      patch.NodeID,
-		TaskID:      patch.TaskID,
-		OutputIndex: patch.OutputIndex,
-		EffectKey:   patch.EffectKey,
-		MediaType:   patch.MediaType,
-		AssetID:     patch.AssetID,
-		ResourceID:  patch.ResourceID,
-		StorageKey:  patch.StorageKey,
-		Content:     patch.Content,
-		MimeType:    patch.MimeType,
-		Bytes:       patch.Bytes,
-		Width:       patch.Width,
-		Height:      patch.Height,
-		DurationMs:  patch.DurationMs,
-		Storyboard:  patch.Storyboard,
+		CanvasID:           patch.CanvasID,
+		NodeID:             patch.NodeID,
+		TaskID:             patch.TaskID,
+		OutputIndex:        patch.OutputIndex,
+		EffectKey:          patch.EffectKey,
+		AllowDifferentNode: patch.AllowDifferentNode,
+		MediaType:          patch.MediaType,
+		AssetID:            patch.AssetID,
+		ResourceID:         patch.ResourceID,
+		StorageKey:         patch.StorageKey,
+		Content:            patch.Content,
+		MimeType:           patch.MimeType,
+		Bytes:              patch.Bytes,
+		Width:              patch.Width,
+		Height:             patch.Height,
+		DurationMs:         patch.DurationMs,
+		Storyboard:         patch.Storyboard,
 	})
 	if err != nil {
 		return taskbinding.NodeBindResult{}, err

@@ -206,6 +206,7 @@ export async function bindBackendCanvasGenerationResult(input: {
     nodeId: string;
     task: GenerationTask;
     outputIndex?: number;
+    allowDifferentNode?: boolean;
     signal?: AbortSignal;
     isCurrent: () => boolean;
     isNodeOwned?: () => boolean;
@@ -301,6 +302,7 @@ export async function bindBackendCanvasGenerationResult(input: {
                 taskId: task.id,
                 nodeId: input.nodeId,
                 outputIndex,
+                allowDifferentNode: input.allowDifferentNode,
                 signal: input.signal,
                 expectedScope: capturedScope,
             });

@@ -53,7 +53,7 @@ func Bind(ports Ports, userID string, req Request) (Receipt, error) {
 	// The primary output belongs on the original node. Additional outputs are
 	// valid on batch child nodes created by the canvas for this same task; the
 	// canvas bind layer still enforces that each child carries this task ID.
-	if nodeID := strings.TrimSpace(target.NodeID); req.OutputIndex == 0 && nodeID != "" && nodeID != req.NodeID {
+	if nodeID := strings.TrimSpace(target.NodeID); req.OutputIndex == 0 && nodeID != "" && nodeID != req.NodeID && !req.AllowDifferentNode {
 		return Receipt{}, conflict("node_mismatch", "只能绑定到任务原先指定的节点")
 	}
 	wantKey := localtask.AttachNodeEffectKey(req.TaskID, req.NodeID, req.OutputIndex)

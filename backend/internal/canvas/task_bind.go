@@ -21,6 +21,9 @@ type TaskOutputBind struct {
 	// Trusted admission identity for a pending video saved before the task response.
 	PendingClientOperationID string `json:"-"`
 	TaskType                 string `json:"-"`
+	// AllowDifferentNode 只由前端「原节点已绑定其他任务，结果改放新节点」的
+	// 明确回退路径设置。缺省为 false，已删除的原节点绝不能被自动复活。
+	AllowDifferentNode bool `json:"-"`
 
 	CanvasID    string
 	NodeID      string
@@ -50,8 +53,9 @@ type TaskOutputBindResult struct {
 }
 
 // BindTaskOutputToExistingNode writes generation result fields onto the original
-// node whose metadata.taskId still matches the task. 如果原节点已被删除，则按任务产物
-// **重建**该节点（同一个 nodeId），避免用户已经付费的结果因为节点被删而永远取不回来。
+// node whose metadata.taskId still matches the task. Deleted original nodes stay
+// deleted; the result remains recoverable from task history. A new fallback node
+// is created only when AllowDifferentNode is explicitly set by the UI recovery path.
 func (s *Service) BindTaskOutputToExistingNode(userID string, patch TaskOutputBind) (TaskOutputBindResult, error) {
 	var last error
 	for attempt := 0; attempt < bindRevisionAttempts; attempt++ {
@@ -78,9 +82,12 @@ func (s *Service) bindTaskOutputOnce(userID string, patch TaskOutputBind) (TaskO
 	if err != nil {
 		return TaskOutputBindResult{}, err
 	}
-	node, recreated := ensureBindableNode(doc, patch)
-	if recreated {
-		log.Printf("[canvas-bind] 原节点已删除，按任务产物重建节点 task=%s node=%s", patch.TaskID, patch.NodeID)
+	node, created, err := ensureBindableNode(doc, patch)
+	if err != nil {
+		return TaskOutputBindResult{}, err
+	}
+	if created {
+		log.Printf("[canvas-bind] 目标节点不存在，按任务产物创建回退节点 task=%s node=%s", patch.TaskID, patch.NodeID)
 	}
 	if got := nodeString(nodeMetadata(node), "taskId"); got != strings.TrimSpace(patch.TaskID) && !canBindEmptyRenderNode(node, patch) && !canBindPendingVideoNode(node, patch) {
 		message := "节点已绑定到其他任务，未覆盖该节点"
@@ -220,11 +227,17 @@ func applyGenerationBindMetadata(metadata map[string]any, patch TaskOutputBind) 
 	}
 }
 
-// ensureBindableNode 找到目标节点；已被删除时按产物类型重建一个同 id 的节点。
-// 重建节点只带任务身份与占位尺寸，真实的媒体字段由随后的 bind 覆盖。
-func ensureBindableNode(doc map[string]any, patch TaskOutputBind) (map[string]any, bool) {
+// ensureBindableNode 找到目标节点。原节点被删除时默认拒绝绑定，避免用户删除后
+// 被后台任务重新写回；只有明确的回退节点路径才允许新建。
+func ensureBindableNode(doc map[string]any, patch TaskOutputBind) (map[string]any, bool, error) {
 	if node := findCanvasNode(doc, patch.NodeID); node != nil {
-		return node, false
+		return node, false, nil
+	}
+	if !patch.AllowDifferentNode {
+		return nil, false, &kernel.AppError{
+			Status: http.StatusConflict, Reason: kernel.ErrorReason("node_deleted"),
+			Message: "原节点已删除，生成结果已保留",
+		}
 	}
 	kind := strings.TrimSpace(patch.MediaType)
 	if kind != "video" && kind != "audio" {
@@ -248,7 +261,7 @@ func ensureBindableNode(doc map[string]any, patch TaskOutputBind) (map[string]an
 	}
 	nodes, _ := doc["nodes"].([]any)
 	doc["nodes"] = append(nodes, node)
-	return node, true
+	return node, true, nil
 }
 
 // restoredNodeMetadata 给重建节点带上任务身份，并尽量还原提示词，
