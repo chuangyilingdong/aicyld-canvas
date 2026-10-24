@@ -1,6 +1,8 @@
 import { http, type HttpRequestConfig } from '@/services/api/request'
 import { createGenerationTask, type CreateTaskInput, type GenerationTask } from '@/services/api/task-center'
 
+export const GENERATION_QUOTE_TIMEOUT_MS = 15_000
+
 export type BillingGenerationTask = GenerationTask & {
   billingStatus?: 'reserved' | 'settled' | 'refunded' | 'refund_pending' | 'pending_reconcile' | string
   billingPoints?: number
@@ -19,7 +21,7 @@ export type GenerationBillingQuote = {
 }
 
 export function quoteGenerationTask(input: CreateTaskInput, config?: HttpRequestConfig) {
-  return http.post<GenerationBillingQuote>('/tasks/quote', input, config)
+  return http.post<GenerationBillingQuote>('/tasks/quote', input, { timeout: GENERATION_QUOTE_TIMEOUT_MS, ...config })
 }
 
 export async function createGenerationTaskWithConfirmation(
