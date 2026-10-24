@@ -18,6 +18,7 @@ import { buildVideoOperationPrompt } from "@/lib/prompts";
 import { backendProviderConfig, logicalModelIDForConfig } from "@/services/api/generation-task";
 
 import { createGenerationTask, formatTaskLog, listGenerationTasks, listTaskLogs, queryFailedVideoProviderTask, queryGenerationTask, retryGenerationTask, type CreateTaskInput, type GenerationTask, type TaskLog } from "@/services/api/task-center";
+import { isMediaUpscaleTask, UPSCALE_RECOVER_TIMEOUT_MS } from "@/services/api/media-upscale";
 import { syncGenerationTaskToCanvasStore } from "@/lib/canvas/canvas-generation-task-sync";
 import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { resolveModelRequestConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
@@ -368,7 +369,9 @@ export default function TasksPage() {
         const request = detailRequestRef.current;
         setActingId(task.id);
         try {
-            const result = await queryFailedVideoProviderTask(task.id);
+            const result = await queryFailedVideoProviderTask(task.id, {
+                timeout: isMediaUpscaleTask(task) ? UPSCALE_RECOVER_TIMEOUT_MS : undefined,
+            });
             if (!result.recovered) {
                 const logs = await listTaskLogs(task.id);
                 if (request === detailRequestRef.current) {

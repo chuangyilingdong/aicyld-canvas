@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, type Dispatch, type SetStateAction } from "react";
 
 import { captureUserScope } from "@/lib/user-scope-guard";
-import { createUpscaleTask, type UpscaleQuality, type UpscaleResolution } from "@/services/api/media-upscale";
-import { queryGenerationTask, waitForGenerationTask, type GenerationTask } from "@/services/api/task-center";
+import { createUpscaleTask, recoverUpscaleTask, type UpscaleQuality, type UpscaleResolution } from "@/services/api/media-upscale";
+import { waitForGenerationTask, type GenerationTask } from "@/services/api/task-center";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 
 type MediaUpscaleRequest = {
@@ -87,7 +87,7 @@ export function useCanvasMediaUpscale({ projectId, nodesRef, setNodes, bindGener
             if (controller.signal.aborted) return;
             const createdTask = task;
             if (createdTask) {
-                const latest = await queryGenerationTask(createdTask.id, { expectedScope }).catch(() => createdTask);
+                const latest = await recoverUpscaleTask(createdTask.id, expectedScope).catch(() => createdTask);
                 bindGenerationTask(nodeId, latest);
                 return;
             }

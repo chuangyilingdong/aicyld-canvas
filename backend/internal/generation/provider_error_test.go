@@ -560,3 +560,18 @@ func TestWindowsSocketFailureIsActionable(t *testing.T) {
 		}
 	}
 }
+
+func TestUpscaleProviderErrorClassificationDistinguishesUnavailableFromInvalidSource(t *testing.T) {
+	unavailable := generation.ClassifyHTTP(503, "503 Service Unavailable", `{"error":{"code":"upscale_unavailable","message":"upscale source could not be verified in time; please retry"}}`)
+	if unavailable.Category != generation.CategoryProviderUnavailable || !unavailable.Retryable || unavailable.Uncertain {
+		t.Fatalf("unexpected 503 upscale_unavailable classification: %#v", unavailable)
+	}
+	invalidVideo := generation.ClassifyHTTP(400, "400 Bad Request", `{"error":{"code":"invalid_upscale_source","message":"video input must be a readable public MP4/MOV of at most five minutes and 200 MiB"}}`)
+	if invalidVideo.Category != generation.CategoryInvalidParams || invalidVideo.Reason != "超分视频素材不符合要求" {
+		t.Fatalf("unexpected 400 video invalid_upscale_source classification: %#v", invalidVideo)
+	}
+	invalidImage := generation.ClassifyHTTP(400, "400 Bad Request", `{"error":{"code":"invalid_upscale_source","message":"image input must be a readable public JPEG, PNG or WebP of at most 30 MiB and 32 megapixels"}}`)
+	if invalidImage.Category != generation.CategoryInvalidParams || invalidImage.Reason != "超分图片素材不符合要求" {
+		t.Fatalf("unexpected 400 image invalid_upscale_source classification: %#v", invalidImage)
+	}
+}

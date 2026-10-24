@@ -272,6 +272,12 @@ var providerCodeCategories = map[string]FailureCategory{
 	"pre_consume_token_quota_failed":       CategoryUnknown,
 	"upstream_crowded":                     CategoryThrottled,
 	"upstream_unavailable":                 CategoryProviderUnavailable,
+	"upscale_unavailable":                  CategoryProviderUnavailable,
+	"fal_billing_unavailable":              CategoryProviderUnavailable,
+	"invalid_upscale_source":               CategoryInvalidParams,
+	"invalid_upscale_parameters":           CategoryInvalidParams,
+	"invalid_upscale_model":                CategoryModelMissing,
+	"invalid_upscale_channel":              CategoryModelMissing,
 	"upstream_rejected":                    CategoryUnknown,
 	"upstream_error":                       CategoryUnknown,
 }
@@ -1095,6 +1101,21 @@ func specializeMediaConstraints(failure *Failure, fields extractedFields) {
 		return
 	}
 	message := promptEchoPattern.ReplaceAllString(fields.Message, "")
+	if strings.EqualFold(fields.Code, "invalid_upscale_source") {
+		lower := strings.ToLower(message)
+		if strings.Contains(lower, "video") {
+			failure.Category = CategoryInvalidParams
+			failure.Reason = "超分视频素材不符合要求"
+			failure.Action = "请使用 5 分钟以内、200MB 以内的有效 MP4/MOV 视频后重试"
+			return
+		}
+		if strings.Contains(lower, "image") {
+			failure.Category = CategoryInvalidParams
+			failure.Reason = "超分图片素材不符合要求"
+			failure.Action = "请使用 30MB 以内、像素不超过 3200 万的 JPEG/PNG/WebP 图片后重试"
+			return
+		}
+	}
 	if failure.Category == CategoryInvalidParams || failure.Category == CategoryUnknown {
 		if copy, ok := persistedTaskConstraintCopy(message); ok {
 			failure.Category, failure.Reason, failure.Action = CategoryInvalidParams, copy.Reason, copy.Action

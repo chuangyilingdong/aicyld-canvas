@@ -217,8 +217,8 @@ async function collectGenerationTaskPages<T>(readPage: (request: GenerationTaskP
     return items.slice(0, limit);
 }
 
-export function queryGenerationTask(id: string, options?: { signal?: AbortSignal; expectedScope?: CapturedUserScope }) {
-    return http.get<GenerationTask>(`/tasks/${encodeURIComponent(id)}`, { signal: options?.signal, expectedScope: options?.expectedScope });
+export function queryGenerationTask(id: string, options?: { signal?: AbortSignal; expectedScope?: CapturedUserScope; timeout?: number }) {
+    return http.get<GenerationTask>(`/tasks/${encodeURIComponent(id)}`, { signal: options?.signal, expectedScope: options?.expectedScope, timeout: options?.timeout });
 }
 
 type GenerationTaskSubscriptionDependencies = {
@@ -340,8 +340,8 @@ export function cancelGenerationTask(id: string, expectedScope = captureUserScop
     });
 }
 
-export function queryFailedVideoProviderTask(id: string) {
-    return http.post<ProviderTaskQueryResult>(`/tasks/${encodeURIComponent(id)}/query-provider`);
+export function queryFailedVideoProviderTask(id: string, options?: { expectedScope?: CapturedUserScope; timeout?: number }) {
+    return http.post<ProviderTaskQueryResult>(`/tasks/${encodeURIComponent(id)}/query-provider`, undefined, options);
 }
 
 export function canRetrieveVideoResult(task: GenerationTask) {

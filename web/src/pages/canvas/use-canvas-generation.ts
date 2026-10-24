@@ -7,6 +7,7 @@ import { bindBackendCanvasGenerationResult, CanvasGenerationDurableAckError, Can
 import { captureUserScope, isUserScopeAbandonedError, userScopeMatches } from "@/lib/user-scope-guard";
 import { ensureCanvasNodeAsset, retryCanvasAssetSyncAfterRateLimit } from "@/services/project-asset-sync";
 import { listGenerationTasks, queryFailedVideoProviderTask, subscribeGenerationTasks, type GenerationTask } from "@/services/api/task-center";
+import { isMediaUpscaleTask, UPSCALE_RECOVER_TIMEOUT_MS } from "@/services/api/media-upscale";
 import { useTaskDetails } from "@/hooks/use-task-details";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
@@ -353,7 +354,9 @@ export function useCanvasGeneration({ projectId, domainProjectId, projectLoaded,
         const signal = consumerControllerRef.current.signal;
         setRetrievingTaskId(task.id);
         try {
-            const result = await queryFailedVideoProviderTask(task.id);
+            const result = await queryFailedVideoProviderTask(task.id, {
+                timeout: isMediaUpscaleTask(task) ? UPSCALE_RECOVER_TIMEOUT_MS : undefined,
+            });
             if (signal.aborted) return;
             await queryClient.cancelQueries({ queryKey: ["task-details", projectId, task.id] });
             if (signal.aborted) return;
