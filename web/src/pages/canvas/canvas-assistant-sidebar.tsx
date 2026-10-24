@@ -11,7 +11,6 @@ import type { AssistantAttachment, AssistantGenerationProposal, AssistantSkillSe
 import type { CanvasNodeData } from "@/types/canvas";
 import { listAddedSkills, type Skill } from "@/services/api/skills";
 import { SkillInstallModal } from "@/pages/skills/skill-install-modal";
-import { AssistantPublicationEntry } from "@/pages/skills/assistant-publication-entry";
 import { Link } from "react-router";
 import { captureUserScope, userScopeMatches } from "@/lib/user-scope-guard";
 import { getActiveUserScope, getActiveUserScopeEpoch, subscribeUserScope } from "@/lib/user-scope";
@@ -256,7 +255,6 @@ export function CanvasAssistantSidebar(props: Props) {
                 ))}
 
                 <CanvasAssistantPlan plan={assistant.plan} />
-                <AssistantPublicationEntry canvasId={assistant.canvasId} turnCount={assistant.turns.length} running={assistant.streaming} />
                 {props.continuation?.notice ? <div className="canvas-assistant-card" aria-label="自动继续状态">
                     <span role="status">{props.continuation.notice}</span>
                     <div className="canvas-assistant-card-actions">

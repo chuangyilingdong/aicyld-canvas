@@ -55,7 +55,7 @@ Wails 和浏览器开发模式共用同一套 `127.0.0.1` HTTP 合同。路由�
 - `/assistant/continuations*`：登记、领取、取消和运行时验证一次性自动继续授权。`turnId` 唯一绑定；取消按画布、会话和请求 ID 生效，不能误停后续新回合。
 - `/assistant/canvases/:canvasId/skill-context`：UI 管理活动技能版本；`/assistant/runtime/canvases/:canvasId/skill-context` 仅允许本机宿主凭据，按回合固定版本并写变更回执。
 - `/assistant/runtime/turns/:turnId/*`：宿主专用的权限、快照、绑定和完成回执。它不向普通浏览器开放，也不接受模型自报身份。
-- `/skills/market/*`、`/skills/submissions*`：技能市场发现、投稿、审核、公开快照和安装状态。公开目录只展示已审核发布且非私有的固定版本。
+- `/skills*`、`/skills/submissions*`、`/skills/review/submissions*`：本站原生技能目录、安装与版本、创建与包文件、投稿和审核。公开目录只展示已审核发布且非私有的固定版本；审核接口只对 `AICYLD_CANVAS_ADMIN_IDS` 白名单内的管理员开放。
 - `/diagnostics/*`：生成当前用户可读的脱敏诊断 ZIP；不包含凭据、提示词正文、素材 URL 或本地绝对路径。离线分析使用 `beeftv diagnostics analyze --file <zip>`。
 
 助手计划、生产授权和自动继续都以 Go 持久化回合为权威。浏览器收到 `turn_end` 后仍需以任务中心和画布绑定结果确认实际产物；`/assistant/chat` 成功只表示回合完成，不表示付费生成成功。涉及真实模型的验收仍需用户单独授权，不能用替身测试替代。

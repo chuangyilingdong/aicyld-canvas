@@ -174,3 +174,7 @@ func (s *Service) SearchSkillPackage(userID string, skillID string, query string
 func (s *Service) startSkillSyncWorker(ctx context.Context) {
 	s.skillDomain().StartSyncWorker(ctx)
 }
+
+func (s *operationSession) DraftSkill(userID string, input skills.SkillMutationRequest) (*skills.SkillItem, error) {
+	return skills.New(s.repo, s.service.dataDir, nil).CreateSkill(userID, input)
+}

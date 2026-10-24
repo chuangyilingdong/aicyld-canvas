@@ -26,4 +26,13 @@ test("AICYLD skill marketplace uses the native market and publishing flow", asyn
     expect(page).toContain("投稿管理");
     expect(page).not.toContain('{ key: "builtin", label: "内置技能" }');
     expect(detail).toContain("平台技能");
+    for (const removed of [
+        "../src/pages/skills/marketplace.tsx",
+        "../src/pages/skills/publishing-panel.tsx",
+        "../src/pages/skills/assistant-publication-entry.tsx",
+        "../src/pages/skills/reference.tsx",
+        "../src/services/api/skill-market.ts",
+    ]) {
+        expect(await Bun.file(new URL(removed, import.meta.url)).exists()).toBe(false);
+    }
 });

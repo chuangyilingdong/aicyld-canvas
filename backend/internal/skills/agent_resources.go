@@ -51,18 +51,14 @@ type AgentFile struct {
 
 var agentSkillIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,80}$`)
 
-// Requirements belong to the selected immutable version, not the current
-// package or a model-supplied declaration.
+// Native skill packages do not declare external market capabilities. Keep the
+// operation for assistant compatibility and bind it to the selected immutable
+// package identity, while returning no legacy market requirements.
 func (s *Service) AgentRequirements(userID string, pin Pin) ([]string, error) {
-	_, version, _, err := s.agentPackage(userID, pin)
-	if err != nil {
+	if _, _, _, err := s.agentPackage(userID, pin); err != nil {
 		return nil, err
 	}
-	release, err := marketReleaseMetadata(version.MarketReleaseJSON)
-	if err != nil || release == nil {
-		return nil, err
-	}
-	return release.Requirements, nil
+	return []string{}, nil
 }
 
 func ValidatePin(pin Pin) error {

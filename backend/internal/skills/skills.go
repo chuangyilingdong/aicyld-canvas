@@ -13,7 +13,6 @@ import (
 	"infinite-canvas/backend/internal/kernel"
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/repository"
-	"infinite-canvas/backend/internal/skillhub"
 
 	"gorm.io/gorm"
 )
@@ -82,7 +81,6 @@ type SkillItem struct {
 	ExtraInfo       string               `json:"extraInfo"`
 	IsAdded         bool                 `json:"isAdded"`
 	IsOwner         bool                 `json:"isOwner"`
-	MarketRelease   *skillhub.Release    `json:"marketRelease,omitempty"`
 }
 
 type SkillCategory struct {
@@ -165,7 +163,7 @@ func (s *Service) RollbackSkillVersion(userID, id, versionID string) (*SkillItem
 }
 
 func (s *Service) CreatePrivateRewrite(userID, id string) (*SkillItem, error) {
-	return s.ForkMarket(userID, id)
+	return s.forkSkill(userID, id)
 }
 
 type SkillListRequest struct {
@@ -375,24 +373,8 @@ func (s *Service) SetSkillLiked(userID string, id string, liked bool) (*SkillIte
 
 func (s *Service) skillItems(userID string, skills []model.Skill, includeInstruction bool) ([]SkillItem, error) {
 	ids := make([]string, 0, len(skills))
-	versionIDs := make([]string, 0, len(skills))
 	for _, skill := range skills {
 		ids = append(ids, skill.ID)
-		if skill.CurrentVersionID != "" {
-			versionIDs = append(versionIDs, skill.CurrentVersionID)
-		}
-	}
-	versions, err := s.repo.SkillVersionsByIDs(versionIDs)
-	if err != nil {
-		return nil, err
-	}
-	releases := make(map[string]*skillhub.Release, len(versions))
-	for _, version := range versions {
-		release, err := marketReleaseMetadata(version.MarketReleaseJSON)
-		if err != nil {
-			return nil, err
-		}
-		releases[version.ID] = release
 	}
 	states, err := s.repo.UserSkillStatesBySkillIDs(userID, ids)
 	if err != nil {
@@ -413,10 +395,6 @@ func (s *Service) skillItems(userID string, skills []model.Skill, includeInstruc
 			return nil, err
 		}
 		ownerName := strings.TrimSpace(skill.AuthorName)
-		release := releases[skill.CurrentVersionID]
-		if release != nil && skill.SourceType == "market" {
-			ownerName = release.Author
-		}
 		ownerAvatarURL := strings.TrimSpace(skill.AuthorAvatarURL)
 		state := stateBySkillID[skill.ID]
 		metric := metrics[skill.ID]
@@ -436,7 +414,6 @@ func (s *Service) skillItems(userID string, skills []model.Skill, includeInstruc
 			LikeCount: metric.LikeCount, IsLike: state.Liked, OwnerUID: skill.OwnerID,
 			EffectiveUser: SkillEffectiveUser{Name: ownerName, AvatarURL: ownerAvatarURL, UID: skill.OwnerID}, ShowcaseMedia: showcaseMedia,
 			AddedCount: metric.AddedCount, ExtraInfo: skill.ExtraInfo, IsAdded: state.Added, IsOwner: skill.OwnerID == userID,
-			MarketRelease: release,
 		})
 	}
 	return items, nil

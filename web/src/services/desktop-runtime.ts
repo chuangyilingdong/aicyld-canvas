@@ -44,7 +44,6 @@ export type DesktopRuntimeBinding = {
     OpenUpdateLogDirectory?: () => Promise<void>;
     ConfirmUpdateStartup?: () => Promise<void>;
     OpenBeefTVX?: () => Promise<void>;
-    OpenSkillMarketURL?: (url: string) => Promise<void>;
     OpenBeefTVWebsite?: () => Promise<void>;
     OpenBeefTVGitHub?: () => Promise<void>;
 };

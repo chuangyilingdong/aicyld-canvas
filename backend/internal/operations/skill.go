@@ -10,6 +10,10 @@ type SkillResources interface {
 	AgentSkillFile(string, skills.Pin, string) (*skills.AgentFile, error)
 }
 
+type SkillDraft interface {
+	DraftSkill(string, skills.SkillMutationRequest) (*skills.SkillItem, error)
+}
+
 func registerSkillOps(r *Registry) {
 	for _, id := range []string{"skill.get", "skill.file"} {
 		operation := id
@@ -41,4 +45,27 @@ func registerSkillOps(r *Registry) {
 				return result, mapDomainError(err)
 			}})
 	}
+}
+
+func registerSkillDraftOp(r *Registry) {
+	r.Register(Op{ID: "skill.draft", AssistantCanvas: true, Scope: ScopeCanvas, Summary: "把当前画布的创作方法保存为私人技能草稿，不上传、不送审", Params: json.RawMessage(`{"type":"object","properties":{"canvasId":{"type":"string"},"name":{"type":"string"},"description":{"type":"string"},"instruction":{"type":"string"}},"required":["canvasId","name","description","instruction"],"additionalProperties":false}`), Handler: func(ctx *Context, raw json.RawMessage) (any, error) {
+		var args struct {
+			CanvasID    string `json:"canvasId"`
+			Name        string `json:"name"`
+			Description string `json:"description"`
+			Instruction string `json:"instruction"`
+		}
+		if err := decodeParams(raw, &args); err != nil {
+			return nil, err
+		}
+		port, ok := ctx.Domain.(SkillDraft)
+		if !ok {
+			return nil, Unsupported("skill_unavailable", "当前工作区无法保存技能草稿")
+		}
+		if _, err := ctx.Domain.UserCanvasProject(ctx.UserID, args.CanvasID); err != nil {
+			return nil, mapDomainError(err)
+		}
+		value, err := port.DraftSkill(ctx.UserID, skills.SkillMutationRequest{SkillName: args.Name, Description: args.Description, Instruction: args.Instruction, Tag: "others", IsPrivate: true})
+		return value, mapDomainError(err)
+	}})
 }
