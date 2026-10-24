@@ -78,6 +78,7 @@ describe("backend canvas bind cutover", () => {
         const applyEnd = generationSource.indexOf("const retrieveTaskResult = useCallback", applyStart);
         const apply = generationSource.slice(applyStart, applyEnd);
         expect(apply).toContain("bindBackendCanvasGenerationResult");
+        expect(apply).toContain("allowDifferentNode: true");
         expect(apply).not.toContain("applyStoredTaskResult");
         expect(apply).not.toContain("persistCanvasGenerationEffect");
         expect(apply).not.toContain("consumeGenerationTaskNode");
@@ -111,6 +112,7 @@ describe("backend canvas bind cutover", () => {
         expect(bind).not.toContain("applyExternalCanvasRevision");
         expect(consumerSource).not.toContain("overlayBoundGenerationOnLiveCanvas");
         expect(consumerSource).toContain("persistCanvasDocument as PersistCanvasDocumentWithScope");
+        expect(bind).toContain("allowDifferentNode: input.allowDifferentNode");
         expect(consumerSource).toContain("adopt(project, captured.userScope, captured)");
     });
 
