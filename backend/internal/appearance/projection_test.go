@@ -46,7 +46,7 @@ func TestDefaultAppearanceUsesLingdongBrandAndMark(t *testing.T) {
 	if public.BrandName != "灵动TV" || public.BrandSlug != "lingdong" {
 		t.Fatalf("default brand = %q %q", public.BrandName, public.BrandSlug)
 	}
-	if public.LogoURL != "/lingdong-logo.png" || public.DarkLogoURL != "/lingdong-logo.png" {
+	if public.LogoURL != "/lingdong-logo-black.png" || public.DarkLogoURL != "/lingdong-logo-white.png" {
 		t.Fatalf("default logo = %q %q", public.LogoURL, public.DarkLogoURL)
 	}
 }

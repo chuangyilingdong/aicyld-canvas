@@ -1,6 +1,8 @@
 import { Tooltip } from "antd";
 import { Globe, HelpCircle, Mail } from "lucide-react";
 
+import "./workspace-sidebar-social-links.css";
+
 /**
  * 侧栏外部入口。
  *

@@ -21,7 +21,7 @@ func publicSetting(setting *model.SystemSetting, value Setting) *PublicSetting {
 		AuthHeroTitle:       value.AuthHeroTitle,
 		AuthHeroDescription: value.AuthHeroDescription,
 		LogoURL:             DefaultLogoURL,
-		DarkLogoURL:         DefaultLogoURL,
+		DarkLogoURL:         DefaultDarkLogoURL,
 		LogoFrameEnabled:    value.LogoFrameEnabled,
 		AuthVideoURL:        DefaultVideoURL,
 		AuthVideoPosterURL:  DefaultPosterURL,
