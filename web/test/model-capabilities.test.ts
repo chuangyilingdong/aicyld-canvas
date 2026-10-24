@@ -3,7 +3,7 @@ import test from "node:test";
 
 // Bun 直接执行 TypeScript 测试时需要保留扩展名；生产 tsconfig 不包含 test/。
 import { DEFAULT_VIDEO_PROMPT_MAX_CHARS, defaultModelCapabilityConfig, modelCapabilityConfigFor, normalizeVideoValue } from "../src/lib/model-capabilities.ts";
-import { modelCompatibilityError } from "../src/lib/model-selection.ts";
+import { modelCompatibilityError, modelPromptLengthError } from "../src/lib/model-selection.ts";
 import type { AiConfig } from "../src/stores/use-config-store.ts";
 
 test("FullVideo full models accept one or two image references as well as mixed video references", () => {
@@ -28,15 +28,38 @@ test("switching to MiniMax H3 replaces an unsupported 720p value with 768P", () 
     });
 });
 
-// 视频提示词由「输入框文本 + 连线内容 + 技能上下文」合成，技能上下文预算为 32000，
-// 合成结果远长于用户手输内容。默认上限过小会把正常可用的画布工作流拦在本地预检。
-// 这里锁定默认值本身，避免被改回偏小值（前端放行/后端拒绝的判定必须同源）。
-test("video prompt default allows a composed canvas prompt", () => {
-    assert.equal(DEFAULT_VIDEO_PROMPT_MAX_CHARS, 8000);
-    for (const protocol of [undefined, "seedance-videos-compatible", "agnes-video", "volcengine-ark-video"]) {
-        const profile = defaultModelCapabilityConfig(protocol, "test-model");
-        assert.equal(profile.video!.references.promptMaxChars, DEFAULT_VIDEO_PROMPT_MAX_CHARS);
+test("video prompt defaults use endpoint contracts", () => {
+    assert.equal(DEFAULT_VIDEO_PROMPT_MAX_CHARS, 0);
+    const cases = [
+        [undefined, "test-model", 0, 0],
+        ["seedance-videos-compatible", "test-model", 0, 0],
+        ["newapi", "seedance-2.5", 0, 0],
+        ["minimax-h3-v2", "MiniMax-H3", 7000, 0],
+        ["newapi-channel-2", "minimax-h3-max", 7000, 0],
+        ["newapi-channel-2", "wan3.0-video", 20000, 0],
+        ["full-video", "sd-native-full-2.5", 4000, 0],
+        ["openai-videos", "sora-2-pro", 32000, 0],
+        ["runway-video", "gen4_turbo", 0, 1000],
+    ] as const;
+    for (const [protocol, model, chars, units] of cases) {
+        const profile = defaultModelCapabilityConfig(protocol, model).video!;
+        assert.equal(profile.references.promptMaxChars, chars, `${protocol}/${model} chars`);
+        assert.equal(profile.references.promptMaxUtf16Units || 0, units, `${protocol}/${model} units`);
     }
+});
+
+test("video prompt UTF-16 limits are enforced in the frontend", () => {
+    const profile = defaultModelCapabilityConfig("runway-video", "gen4_turbo");
+    profile.video!.references.promptMaxUtf16Units = 1000;
+    const config = { channels: [{ id: "custom", models: ["gen4_turbo"], modelProfiles: [{ model: "gen4_turbo", capability: "video", protocol: "runway-video", capabilityConfig: profile }] }] } as AiConfig;
+    assert.equal(modelPromptLengthError(config, "custom::gen4_turbo", "video", "😀".repeat(500)), "");
+    assert.match(modelPromptLengthError(config, "custom::gen4_turbo", "video", "😀".repeat(501)), /UTF-16/);
+});
+
+test("unpublished video limits remain local-zero without rejecting long prompts", () => {
+    const profile = defaultModelCapabilityConfig("newapi", "seedance-2.5");
+    const config = { channels: [{ id: "custom", models: ["seedance-2.5"], modelProfiles: [{ model: "seedance-2.5", capability: "video", protocol: "newapi", capabilityConfig: profile }] }] } as AiConfig;
+    assert.equal(modelPromptLengthError(config, "custom::seedance-2.5", "video", "镜".repeat(32001)), "");
 });
 
 test("raising the video default leaves text and image limits untouched", () => {

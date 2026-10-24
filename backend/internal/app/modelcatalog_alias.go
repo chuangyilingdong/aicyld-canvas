@@ -48,8 +48,6 @@ type cachedLogicalRoute = modelcatalog.CachedLogicalRoute
 type routeCatalogSnapshot = modelcatalog.RouteCatalog
 type routeDispatchUncertainError = modelcatalog.DispatchUncertainError
 
-const DefaultVideoPromptMaxChars = modelcatalog.DefaultVideoPromptMaxChars
-
 const (
 	officialSeedanceImageMinEdge    = modelcatalog.OfficialSeedanceImageMinEdge
 	officialSeedanceImageMaxEdge    = modelcatalog.OfficialSeedanceImageMaxEdge

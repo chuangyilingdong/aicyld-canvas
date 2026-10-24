@@ -1,6 +1,6 @@
 import { ImageSizePresetsEditor } from "./image-size-presets-editor";
 import { imageSizeConfigWithPresets, imageSizePresets } from "@/lib/image-size-presets";
-import { Input, InputNumber, Select } from "antd";
+import { Button, Input, InputNumber, Select } from "antd";
 import { Switch } from "@/components/ui/base/switch";
 import { SegmentedControl } from "@/components/ui/base/segmented-control";
 import type { ReactNode } from "react";
@@ -50,6 +50,8 @@ export function ModelCapabilityEditor({ value, onChange, protocol, capability = 
     const updateDuration = (patch: Partial<VideoCapabilityConfig["duration"]>) => update({ duration: { ...profile.duration, ...patch } });
     const durationValues = (profile.duration.values || []).join(",");
     const resolutionOptions = Array.from(new Set([...VIDEO_RESOLUTION_CAPABILITY_OPTIONS, ...profile.resolutions]));
+    const defaultVideoReferences = defaultModelCapabilityConfig(protocol, model).video!.references;
+    const usesUtf16PromptLimit = Boolean(profile.references.promptMaxUtf16Units || (!profile.references.promptMaxChars && defaultVideoReferences.promptMaxUtf16Units));
 
     if (section === "references") {
         return (
@@ -81,7 +83,15 @@ export function ModelCapabilityEditor({ value, onChange, protocol, capability = 
                         <NumberField label="单个视频最长秒数" value={profile.references.maxVideoDurationSeconds} min={0} disabled={disabled} onChange={(value) => updateReferences({ maxVideoDurationSeconds: value || 0 })} />
                     </ReferenceCard>
                     <ReferenceCard title="通用限制" description="所有视频请求共用的基础约束">
-                        <NumberField label="提示词最大字符数" value={profile.references.promptMaxChars} min={1} disabled={disabled} onChange={(value) => updateReferences({ promptMaxChars: value || 1 })} />
+                        <NumberField
+                            label={usesUtf16PromptLimit ? "提示词最大 UTF-16 单位数" : "提示词最大字符数"}
+                            value={usesUtf16PromptLimit ? profile.references.promptMaxUtf16Units || 0 : profile.references.promptMaxChars}
+                            min={0}
+                            disabled={disabled}
+                            onChange={(value) => updateReferences(usesUtf16PromptLimit ? { promptMaxChars: 0, promptMaxUtf16Units: value || 0 } : { promptMaxChars: value || 0, promptMaxUtf16Units: 0 })}
+                        />
+                        <p className="text-[var(--fs-label)] leading-relaxed text-foreground/60">设为 0 时由服务商校验。{usesUtf16PromptLimit ? "此通道按 UTF-16 计数，常见表情占 2 个单位。" : ""}</p>
+                        <Button size="small" disabled={disabled} onClick={() => updateReferences({ promptMaxChars: defaultVideoReferences.promptMaxChars, promptMaxUtf16Units: defaultVideoReferences.promptMaxUtf16Units || 0 })}>恢复默认限制</Button>
                         <BooleanField label="水印" value={profile.watermark} disabled={disabled} onChange={(watermark) => update({ watermark })} />
                     </ReferenceCard>
                 </div>

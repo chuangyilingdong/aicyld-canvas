@@ -85,6 +85,7 @@ type VideoCapabilityConfig struct {
 
 type VideoReferenceConfig struct {
 	PromptMaxChars        int     `json:"promptMaxChars"`
+	PromptMaxUTF16Units   int     `json:"promptMaxUtf16Units"`
 	MinImages             int     `json:"minImages"`
 	MaxImages             int     `json:"maxImages"`
 	MaxImageBytes         int64   `json:"maxImageBytes"`
@@ -115,11 +116,6 @@ type VideoReferenceConfig struct {
 	MinAudioDuration      float64 `json:"minAudioDurationSeconds,omitempty"`
 	MaxAudioTotalDuration int     `json:"maxAudioTotalDurationSeconds,omitempty"`
 }
-
-// DefaultVideoPromptMaxChars 是普通视频模型提示词字符数的默认上限。
-// 视频提示词由输入框文本、连线内容和技能上下文合成，远长于用户手输内容；
-// 默认值过小会把画布工作流正常可用的提示词拦在本地。管理员仍可按模型覆盖。
-const DefaultVideoPromptMaxChars = 8000
 
 type VideoDurationConfig struct {
 	Selection string `json:"selection"`

@@ -161,13 +161,18 @@ func catalogProtocol(model CatalogModel) string {
 }
 
 func catalogCapabilityAndProtocol(model CatalogModel) (capability, protocol string) {
+	id := strings.ToLower(strings.TrimSpace(model.ID))
 	if contract, ok := providerpreset.BeefAPIImageContract(model.ID); ok {
 		return "image", contract.Protocol
+	}
+	// Portrait variants intentionally use their own pricing and capability
+	// profile, not the standard Seedance contract, but remain video models.
+	if id == "seedance-2.0-portrait" || id == "seedance-2.5-portrait" {
+		return "video", "newapi"
 	}
 	if contract, ok := providerpreset.BeefAPIVideoContract(model.ID); ok {
 		return "video", contract.Protocol
 	}
-	id := strings.ToLower(strings.TrimSpace(model.ID))
 	modelType := strings.ToLower(strings.TrimSpace(model.ModelType))
 	endpoints := catalogEndpoints(model)
 	if catalogClearsGeneration(model) {

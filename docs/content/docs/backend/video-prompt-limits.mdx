@@ -1,0 +1,46 @@
+---
+title: 视频提示词长度
+description: 按实际接入接口和模型校验长度，区分字符、UTF-16 和 token
+---
+
+## 规则
+
+视频没有统一的 8000 或 32000 字符限制。默认值按协议和模型选取，用户已保存的能力配置或渠道目录中的明确值优先。`promptMaxChars: 0` 表示本地没有字符上限，由服务商继续校验，不能理解为服务商无限接收。系统不自动截断提示词。
+
+字符数按 Unicode 码点统计；明确使用 UTF-16 的接口另存 `promptMaxUtf16Units`，前后端统一计数，常见表情占两个单位。Veo 的 token 上限不换算成字符数，交由上游校验。图片与文本模型的既有限制不受视频调整影响。
+
+## 本地协议映射
+
+| 接入协议与模型 | 默认上限 | 说明 |
+| --- | --- | --- |
+| `full-video` | 4000 字符 | 接入协议既有限制 |
+| `openai` / `openai-videos` / `newapi` 下的 `sora-2`、`sora-2-pro` | 32000 字符 | 仅精确匹配 Sora 2 系列 |
+| `minimax-video` / `minimax-h3-v2` / `newapi-channel-2` 下的 H3、H3 Max、H3 Max Turbo | 7000 字符 | H3 V2 普通生成合同；不套用 regenerate 的 40000 |
+| `dashscope-wan-video` 与 `newapi-channel-2` 下的 Wan 3.0 | 20000 字符 | 只匹配明确模型名 |
+| `dashscope-wan-video` 下的 Wan 2.7 | 5000 字符 | 按官方模型档位匹配 |
+| `dashscope-wan-video` 下的 Wan 2.5 / 2.6 | 1500 字符 | 按官方模型档位匹配 |
+| `dashscope-wan-video` 下的 Wan 2.1 / 2.2 | 800 字符 | 按官方模型档位匹配 |
+| `volcengine-jimeng-video` 的 `jimeng_t2v_v30` | 800 字符 | 其他即梦 req_key 不外推 |
+| `luma-dream-machine` 的 `ray-2` / `ray-flash-2` | 5000 字符 | 仅匹配明确模型 |
+| `pixverse-video` 已列出的 v3.5 至 v6、c1 | 5000 字符 | 不套用其他动作的旧限制 |
+| `zhipu-cogvideox` 已列出的 CogVideoX / Vidu 模型 | 512 字符 | 仅匹配 schema 中的确切 ID |
+| `runway-video` 的 `gen4.5`、`gen4_turbo`、`veo3.1`、`veo3.1_fast` | 1000 UTF-16 单位 | 按接口 schema 计数 |
+| `runway-video` 的 `happyhorse_1_0` | 2500 UTF-16 单位 | 按接口 schema 计数 |
+| `runway-video` 的 `seedance2_5` | 15000 字符 | 仅匹配该 Runway 模型 ID |
+| `runway-video` 的 `seedance2`、`seedance2_fast`、`seedance2_mini` | 3500 字符 | 仅匹配这些模型 ID |
+| `runway-video` 的 `hailuo3`、`h3_max` | 6000 字符 | 仅匹配这些模型 ID |
+| Runway 的其他已列模型 | 2500 / 20000 / 4000 字符 | 按模型分别匹配 |
+
+## 本地零上限
+
+以下路径没有公布可直接采用的字符硬上限，本地默认值为 0，不继续使用通用 8000：
+
+- Ark Seedance 系列
+- `newapi` / `newapi-channel-2` 下的 Seedance 标准、Fast、Mini
+- Kling、Grok、Agnes 视频
+- Gemini Veo（token 限制交由上游）
+- 未知自定义渠道和不匹配的工作流
+
+未知或新增模型 ID 不通过前缀猜测限制。真实生成成功只证明该请求被执行；允许更长提示词不保证人物对应、台词、构图等全部遵循。
+
+旧配置中的 8000 可能来自历史默认，也可能是用户主动设置，不能仅凭数值猜测并覆盖。保存的能力配置优先；如需恢复接口默认值，在模型能力设置中点击“恢复默认限制”。
