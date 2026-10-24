@@ -13,10 +13,10 @@ const smartReferences: CanvasResourceReference[] = [
 describe("canvas smart references", () => {
     test("converts repeated names and aliases without rewriting existing mentions", () => {
         expect(autoMentionCanvasResourceReferences("图片6在前景，图6退后；宫门全景可见。唐妙菱看向图片60。", smartReferences))
-            .toBe("@图片6 在前景，@图片6 退后；@图片6 可见。@角色1 看向图片60。");
+            .toBe("@[node:image-6] 在前景，@[node:image-6] 退后；@[node:image-6] 可见。@[node:character] 看向图片60。");
         const existing = "已有 @图片6 和 @[node:image-6]、@[asset:宫门全景]。";
         expect(autoMentionCanvasResourceReferences(existing, smartReferences)).toBe(existing);
-        expect(autoMentionCanvasResourceReferences("请使用 2。不要改约2秒。", smartReferences)).toBe("请使用 @角色1。不要改约2秒。");
+        expect(autoMentionCanvasResourceReferences("请使用 2。不要改约2秒。", smartReferences)).toBe("请使用 @[node:character]。不要改约2秒。");
     });
 
     test("returns exact replacement offsets for names and shelf orders", () => {
@@ -304,14 +304,14 @@ describe("canvas resource mention slots", () => {
         expect(reference).toMatchObject({ kind: "image", label: "绘图1", drawingId: "drawing-document-a", drawingRevision: 3 });
     });
 
-    test("画布节点引用只保存类型位置，不保存节点 ID", () => {
+    test("画布节点引用保存稳定节点身份", () => {
         const target = videoNode("target");
         const image = imageNode("image-a");
         const [reference] = buildNodeMentionReferences(target, [image, target], [connection(image.id, target.id)]);
 
         expect(reference.label).toBe("图片1");
-        expect(canvasResourceMentionToken(reference)).toBe("@图片1");
-        expect(canvasResourceMentionToken(reference)).not.toContain(image.id);
+        expect(canvasResourceMentionToken(reference)).toBe("@[node:image-a]");
+        expect(canvasResourceMentionToken(reference)).toContain(image.id);
     });
 
     test("图片、音频和文本分别按各自类型顺序编号", () => {
@@ -361,7 +361,7 @@ describe("remove canvas resource mention tokens", () => {
         const connections = images.map((image) => connection(image.id, target.id));
         const result = applyCanvasConnectionPromptSync(nodes, connections, nodes, connections.slice(1));
         expect(result.find((node) => node.id === target.id)?.metadata?.composerContent)
-            .toBe("@图片1的人物参考@图片9，@图片1保持一致");
+            .toBe("@图片1的人物参考@图片9，@[node:image-1]保持一致");
     });
 
     test("取消引用后会清掉对应的 @图片N", () => {

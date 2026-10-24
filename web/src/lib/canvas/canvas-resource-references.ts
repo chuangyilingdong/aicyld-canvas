@@ -45,6 +45,7 @@ export function canvasResourceMentionToken(reference: CanvasResourceReference) {
     if (reference.mentionToken) return reference.mentionToken;
     if (reference.kind === "skill" && reference.skill?.skillId) return canvasSkillMentionToken(reference.skill.skillId);
     if (reference.assetId) return `@[asset:${reference.assetId}]`;
+    if (reference.nodeId) return canvasNodeMentionToken(reference.nodeId);
     return `@${reference.label}`;
 }
 
@@ -190,15 +191,20 @@ function rewriteCanvasPromptAfterReferenceChange(prompt: string, previousReferen
     const nextByNodeId = new Map(nextCanvasReferences.map((reference) => [reference.nodeId, reference]));
     let value = prompt;
     previousCanvasReferences.forEach((reference) => {
-        const nodeToken = canvasNodeMentionToken(reference.nodeId);
-        canvasResourceReferenceMentionTokens(reference).forEach((token) => {
-            if (token !== nodeToken) value = replaceCanvasMentionToken(value, token, nodeToken);
-        });
+        value = replaceCanvasMentionToken(value, `@${reference.label}`, `@[legacy-slot:${reference.nodeId}]`);
     });
     previousCanvasReferences.filter((reference) => !nextByNodeId.has(reference.nodeId)).forEach((reference) => {
         value = removeCanvasMentionToken(value, canvasNodeMentionToken(reference.nodeId));
+        value = removeCanvasMentionToken(value, `@[legacy-slot:${reference.nodeId}]`);
     });
-    value = normalizeCanvasNodeMentionTokens(value, nextCanvasReferences);
+    nextCanvasReferences.forEach((reference) => {
+        value = replaceCanvasMentionToken(value, `@[legacy-slot:${reference.nodeId}]`, `@${reference.label}`);
+    });
+    const nextLabelByNodeId = new Map(nextCanvasReferences.map((reference) => [reference.nodeId, reference.label]));
+    value = value.replace(/@\[legacy-slot:([^\]]+)\]/gu, (_token, nodeId: string) => {
+        const label = nextLabelByNodeId.get(nodeId);
+        return label ? `@${label}` : "";
+    });
     return value === prompt ? prompt : compactRemovedCanvasMentionPrompt(value);
 }
 
