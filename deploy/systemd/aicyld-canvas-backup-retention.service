@@ -1,0 +1,14 @@
+[Unit]
+Description=AICYLD Canvas production backup retention
+Documentation=file:/srv/aicyld/canvas/src/docs/operations/backup-retention.md
+After=local-fs.target
+ConditionPathIsDirectory=/srv/aicyld/canvas/backups
+
+[Service]
+Type=oneshot
+ExecStart=/srv/aicyld/canvas/src/scripts/prune-production-backups.sh --apply
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=30min
+PrivateTmp=true
+NoNewPrivileges=true
