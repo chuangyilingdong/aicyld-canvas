@@ -227,6 +227,16 @@ func (s *Service) UpdateSkill(userID string, id string, req SkillMutationRequest
 	if err != nil {
 		return nil, err
 	}
+	active, err := s.repo.ActiveSkillSubmission(skill.ID)
+	if err != nil {
+		return nil, err
+	}
+	if active != nil {
+		if active.Status == skillSubmissionInReview {
+			return nil, kernel.NewAppError(409, "技能正在审核中，不能修改；请等待审核结果")
+		}
+		return nil, kernel.NewAppError(409, "技能有未提交的投稿草稿，请先撤回后再修改")
+	}
 	if skill.ReviewStatus == skillReviewStatusInReview {
 		return nil, kernel.NewAppError(409, "技能正在审核，审核完成前不能修改")
 	}
