@@ -1,0 +1,38 @@
+.app-workspace-social-links {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 4px;
+}
+
+.app-workspace-sidebar-contact-row:not(.is-collapsed) .app-workspace-social-links {
+    padding-inline: 2px 4px;
+}
+
+.app-workspace-sidebar-contact-row.is-collapsed .app-workspace-social-links {
+    justify-content: center;
+    gap: 0;
+}
+
+.app-workspace-social-action {
+    display: grid;
+    width: 24px;
+    height: 24px;
+    place-items: center;
+    border-radius: 6px;
+    color: var(--user-ink-soft, var(--foreground));
+    transition: background-color 120ms ease, color 120ms ease;
+}
+
+.app-workspace-social-action:hover,
+.app-workspace-social-action:focus-visible {
+    background: var(--user-surface-hover, var(--surface-hover));
+    color: var(--user-ink, var(--foreground));
+}
+
+.app-workspace-social-action svg {
+    width: 17px;
+    height: 17px;
+    stroke-width: 1.7;
+}
