@@ -41,6 +41,16 @@ func TestPublicProjectionHidesResourceIDsAndSkinLibrary(t *testing.T) {
 	}
 }
 
+func TestDefaultAppearanceUsesLingdongBrandAndMark(t *testing.T) {
+	public := publicSetting(&model.SystemSetting{}, DefaultSetting())
+	if public.BrandName != "灵动TV" || public.BrandSlug != "lingdong" {
+		t.Fatalf("default brand = %q %q", public.BrandName, public.BrandSlug)
+	}
+	if public.LogoURL != "/lingdong-logo.png" || public.DarkLogoURL != "/lingdong-logo.png" {
+		t.Fatalf("default logo = %q %q", public.LogoURL, public.DarkLogoURL)
+	}
+}
+
 func TestBuiltInSkinTooltipPairsMeetContrast(t *testing.T) {
 	for _, skin := range DefaultSkinThemes() {
 		for _, mode := range []struct {

@@ -16,37 +16,20 @@ describe("desktop update UI contract", () => {
         expect(appChangelogZh.find((entry) => entry.version === version)?.changes.length).toBeGreaterThan(0);
         expect(new Set(appChangelogZh.map((entry) => entry.version)).size).toBe(appChangelogZh.length);
     });
-    test("sidebar version area is desktop-gated and keeps changelog access", () => {
+    test("sidebar no longer exposes version or download controls while account keeps changelog access", () => {
         const sidebar = read("src/components/layout/workspace-sidebar-nav.tsx");
-        const update = read("src/components/layout/workspace-sidebar-update.tsx");
         const changelog = read("src/components/layout/app-changelog-modal.tsx");
         const account = read("src/components/layout/workspace-account-menu.tsx");
         const shell = read("src/components/layout/app-top-nav.tsx");
 
-        expect(sidebar).toContain("WorkspaceSidebarUpdate");
+        expect(sidebar).not.toContain("WorkspaceSidebarUpdate");
+        expect(sidebar).not.toContain("app-workspace-update");
         expect(sidebar).toContain("app-workspace-sidebar-footer");
+        expect(sidebar).toContain("AnimatedThemeToggler");
         expect(account).toContain("AppChangelogButton");
         expect(account).toContain("showVersion");
         expect(changelog).toContain("查看更新日志");
         expect(shell).toContain("useDesktopUpdateBootstrap");
-        expect(update).toContain("AppChangelogButton");
-        expect(update).toContain("showVersion");
-        expect(update).toContain("updater.downloadAndInstall()");
-        expect(update).toContain("AppModal");
-        expect(update).toContain("仍然更新");
-        expect(update).toContain("尚未保存的修改可能丢失");
-        expect(update).toContain("updater.check()");
-        expect(update).toContain('aria-live="polite"');
-        expect(update).toContain("desktopUpdateDetailLabel");
-        expect(update).toContain("hasResumableDesktopUpdate");
-        expect(update).toContain('role="progressbar"');
-        expect(update).toContain("useReducedMotion");
-        expect(update).not.toContain("Modal.confirm");
-        expect(update).not.toContain("所有修改已保存");
-        expect(update).not.toContain("github.com");
-        expect(update).not.toContain("desktop-update.json");
-        expect(update).not.toContain("Wails");
-        expect(update).not.toContain("BeefAPI");
     });
 
     test("frontend update client never fetches a release origin", () => {
@@ -70,11 +53,9 @@ describe("desktop update UI contract", () => {
         expect(runtime).toContain("downloadedBytes");
     });
 
-    test("installed version stays visible when updater controls are hidden", () => {
-        const update = read("src/components/layout/workspace-sidebar-update.tsx");
-        expect(update).toContain("showVersion");
-        expect(update).toContain("shouldShowDesktopUpdaterControls");
-        expect(update).toContain("currentVersion");
-        expect(update.indexOf("AppChangelogButton")).toBeLessThan(update.indexOf("showControls"));
+    test("account menu remains the single changelog version entry", () => {
+        const account = read("src/components/layout/workspace-account-menu.tsx");
+        expect(account).toContain("AppChangelogButton");
+        expect(account).toContain("showVersion");
     });
 });
