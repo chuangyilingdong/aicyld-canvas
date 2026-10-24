@@ -108,6 +108,7 @@ export function PaginationBar({
     pageSizeOptions = [20, 50, 100],
     alwaysShow = false,
     itemLabel = "条",
+    showPageSize = true,
 }: {
     current: number;
     pageSize: number;
@@ -116,6 +117,7 @@ export function PaginationBar({
     pageSizeOptions?: number[];
     alwaysShow?: boolean;
     itemLabel?: string;
+    showPageSize?: boolean;
 }) {
     if (!alwaysShow && total <= pageSize && current === 1) return null;
     const pages = Math.max(1, Math.ceil(total / pageSize));
@@ -125,7 +127,7 @@ export function PaginationBar({
     return (
         <div className="app-pagination-bar admin-pagination-bar mt-4 flex min-h-10 min-w-0 items-center justify-end gap-2 px-2 py-1.5">
             <span className="admin-pagination-total">{total === 0 ? `共 0 ${itemLabel}` : `${start}-${end} / 共 ${total} ${itemLabel}`}</span>
-            <Select size="small" value={pageSize} className="app-pagination-size" options={pageSizeOptions.map((size) => ({ value: size, label: `${size} ${itemLabel}/页` }))} onChange={(value) => onChange(1, Number(value))} />
+            {showPageSize ? <Select size="small" value={pageSize} className="app-pagination-size" options={pageSizeOptions.map((size) => ({ value: size, label: `${size} ${itemLabel}/页` }))} onChange={(value) => onChange(1, Number(value))} /> : null}
             <div className="app-pagination-pages" role="navigation" aria-label="分页">
                 <button type="button" className="app-pagination-btn app-pagination-prev" disabled={current <= 1} aria-label="上一页" onClick={() => onChange(current - 1, pageSize)}>
                     <ChevronLeft className="size-4" />

@@ -25,6 +25,8 @@ const scopeOptions = [
     { label: "我的收藏", value: "favorites", icon: Heart },
 ];
 
+const SKILL_CATEGORY_PAGE_SIZE = 12;
+
 /* 分类图标映射：画廊卡片顶部的图标块，未知分类回退 Boxes。 */
 const categoryIcons: Record<string, LucideIcon> = {
     drama: Clapperboard,
@@ -48,8 +50,7 @@ export default function SkillsPage() {
     const [search, setSearch] = useState("");
     const debouncedSearch = useDebouncedValue(search, 250);
     const [tag, setTag] = useState("all");
-    const [page, setPage] = useState(1);
-    const [pageSize, setPageSize] = useState(20);
+    const [categoryPages, setCategoryPages] = useState<Record<string, number>>({});
     const [skills, setSkills] = useState<Skill[]>([]);
     const [categories, setCategories] = useState<SkillCategory[]>(fallbackSkillCategories);
     const [total, setTotal] = useState(0);
@@ -84,31 +85,54 @@ export default function SkillsPage() {
         let cancelled = false;
         setLoading(true);
         setLoadError("");
-        listSkills({ page, pageSize, scope, sort, search: debouncedSearch || undefined, tag: tag === "all" ? undefined : tag })
-            .then((result) => {
+        void (async () => {
+            try {
+                const collected: Skill[] = [];
+                let nextPage = 1;
+                let totalCount = 0;
+                let nextCategories: SkillCategory[] = [];
+                for (let guard = 0; guard < 50; guard += 1) {
+                    const result = await listSkills({
+                        page: nextPage,
+                        pageSize: 100,
+                        scope,
+                        sort,
+                        search: debouncedSearch || undefined,
+                        tag: tag === "all" ? undefined : tag,
+                    });
+                    if (cancelled) return;
+                    collected.push(...result.skills);
+                    totalCount = result.totalCount;
+                    if (result.categories.length) nextCategories = result.categories;
+                    if (!result.hasMore || result.skills.length === 0) break;
+                    nextPage = result.page + 1;
+                }
                 if (cancelled) return;
-                setSkills(result.skills);
-                setTotal(result.totalCount);
-                setCounts((prev) => ({ ...prev, [scope]: result.totalCount }));
-                if (result.categories.length) setCategories(result.categories);
-            })
-            .catch((error) => {
+                setSkills(collected);
+                setTotal(totalCount);
+                setCounts((prev) => ({ ...prev, [scope]: totalCount }));
+                if (nextCategories.length) setCategories(nextCategories);
+            } catch (error) {
                 if (cancelled) return;
                 setSkills([]);
                 setTotal(0);
                 setLoadError(error instanceof Error ? error.message : "技能加载失败");
-            })
-            .finally(() => {
+            } finally {
                 if (!cancelled) setLoading(false);
-            });
+            }
+        })();
         return () => {
             cancelled = true;
         };
-    }, [debouncedSearch, page, pageSize, reloadKey, scope, sort, tag]);
+    }, [debouncedSearch, reloadKey, scope, sort, tag]);
+
+    useEffect(() => {
+        setCategoryPages({});
+    }, [debouncedSearch, reloadKey, scope, sort, tag]);
 
     const groupedSkills = useMemo(() => groupSkills(skills, categories), [categories, skills]);
     const filtersActive = Boolean(search || tag !== "all" || sort !== "popular");
-    const resetFilters = useCallback(() => { setSearch(""); setTag("all"); setSort("popular"); setPage(1); }, []);
+    const resetFilters = useCallback(() => { setSearch(""); setTag("all"); setSort("popular"); setCategoryPages({}); }, []);
 
     const openSkill = async (skill: Skill) => {
         setActiveSkill(skill);
@@ -214,7 +238,7 @@ export default function SkillsPage() {
     return (
         <>
             <WorkspacePage className="library-page skills-library-page" grid>
-                <PageHeader title="技能市场" description="在这里发现、创建、投稿和管理创作技能。" actions={<div className="flex gap-2"><Button icon={<Send className="size-4" />} onClick={() => { setScope("created"); setPage(1); setPageSize(20); message.info("选择你创建的技能，点击“投稿”查看状态或准备送审"); }}>投稿管理</Button>{isAdmin ? <Button icon={<ShieldCheck className="size-4" />} onClick={() => setReviewOpen(true)}>审核台</Button> : null}<Button type="primary" icon={<Plus className="size-4" />} onClick={() => setInstallOpen(true)}>创建 / 导入</Button></div>} />
+                <PageHeader title="技能市场" description="在这里发现、创建、投稿和管理创作技能。" actions={<div className="flex gap-2"><Button icon={<Send className="size-4" />} onClick={() => { setScope("created"); message.info("选择你创建的技能，点击“投稿”查看状态或准备送审"); }}>投稿管理</Button>{isAdmin ? <Button icon={<ShieldCheck className="size-4" />} onClick={() => setReviewOpen(true)}>审核台</Button> : null}<Button type="primary" icon={<Plus className="size-4" />} onClick={() => setInstallOpen(true)}>创建 / 导入</Button></div>} />
 
                 <div className="skills-browse-bar">
                 <div className="skills-navigation">
@@ -224,7 +248,6 @@ export default function SkillsPage() {
                         const current = scopeOptions.findIndex((option) => option.value === scope);
                         const next = event.key === "Home" ? 0 : event.key === "End" ? scopeOptions.length - 1 : (current + (event.key === "ArrowRight" ? 1 : -1) + scopeOptions.length) % scopeOptions.length;
                         setScope(scopeOptions[next].value as SkillScope);
-                        setPage(1);
                         tabsRef.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus();
                     }}>
                         <span className="skills-tabs-indicator" ref={indicatorRef} aria-hidden="true" />
@@ -240,7 +263,7 @@ export default function SkillsPage() {
                                     tabIndex={active ? 0 : -1}
                                     aria-selected={active}
                                     className={`skills-tab${active ? " is-active" : ""}`}
-                                    onClick={() => { setScope(option.value as SkillScope); setPage(1); }}
+                                    onClick={() => setScope(option.value as SkillScope)}
                                 >
                                     <Icon className="size-4" />
                                     <span>{option.label}</span>
@@ -251,16 +274,19 @@ export default function SkillsPage() {
                     </div>
                 </div>
                 <CollectionToolbar active={filtersActive} onReset={resetFilters}>
-                        <Input className="min-w-0 sm:!w-56" prefix={<Search className="size-4 text-foreground/38" />} value={search} allowClear placeholder="搜索技能或作者" onChange={(event) => { setSearch(event.target.value); setPage(1); }} />
-                        <Select aria-label="技能分类" className="w-28" value={tag} options={[{ value: "all", label: "全部分类" }, ...categories]} onChange={(value) => { setTag(value); setPage(1); }} />
-                        <Select aria-label="技能排序" className="w-24" value={sort} options={sortOptions} onChange={(value) => { setSort(value); setPage(1); }} />
+                        <Input className="min-w-0 sm:!w-56" prefix={<Search className="size-4 text-foreground/38" />} value={search} allowClear placeholder="搜索技能或作者" onChange={(event) => setSearch(event.target.value)} />
+                        <Select aria-label="技能分类" className="w-28" value={tag} options={[{ value: "all", label: "全部分类" }, ...categories]} onChange={(value) => setTag(value)} />
+                        <Select aria-label="技能排序" className="w-24" value={sort} options={sortOptions} onChange={(value) => setSort(value)} />
                 </CollectionToolbar>
                 </div>
 
                 {loading && !skills.length ? <SkillSkeleton /> : loadError ? <WorkspaceErrorState compact description={loadError} onRetry={reload} /> : groupedSkills.length ? (
-                    <div key={`${scope}-${page}`} className="skills-scope-panel">
+                    <div className="skills-scope-panel">
                         {groupedSkills.map((group) => {
                             const GroupIcon = categoryIconOf(group.value);
+                            const currentPage = categoryPages[group.value] || 1;
+                            const pageStart = (currentPage - 1) * SKILL_CATEGORY_PAGE_SIZE;
+                            const visibleSkills = group.skills.slice(pageStart, pageStart + SKILL_CATEGORY_PAGE_SIZE);
                             return (
                                 <section key={group.value} data-category={group.value} aria-labelledby={`skill-category-${group.value}`}>
                                     <div className="skill-section-heading">
@@ -270,9 +296,17 @@ export default function SkillsPage() {
                                         </h2>
                                         <span className="text-[var(--fs-label)] text-foreground/32">{group.skills.length} 个</span>
                                     </div>
-                                    <div className="library-grid skill-library-grid">
-                                        {group.skills.map((skill, index) => <SkillCard key={skill.skillId} skill={skill} categories={categories} loading={mutatingID === skill.skillId} style={{ animationDelay: `${Math.min(index, 5) * 30}ms` }} onOpen={() => void openSkill(skill)} onAdd={() => void toggleAdded(skill)} onLike={() => void toggleLiked(skill)} onEdit={() => void openEditor(skill)} onPublish={() => openPublishing(skill)} onDelete={() => confirmDelete(skill)} />)}
+                                    <div key={`${group.value}-${currentPage}`} className="library-grid skill-library-grid">
+                                        {visibleSkills.map((skill, index) => <SkillCard key={skill.skillId} skill={skill} categories={categories} loading={mutatingID === skill.skillId} style={{ animationDelay: `${Math.min(index, 5) * 30}ms` }} onOpen={() => void openSkill(skill)} onAdd={() => void toggleAdded(skill)} onLike={() => void toggleLiked(skill)} onEdit={() => void openEditor(skill)} onPublish={() => openPublishing(skill)} onDelete={() => confirmDelete(skill)} />)}
                                     </div>
+                                    <PaginationBar
+                                        current={currentPage}
+                                        pageSize={SKILL_CATEGORY_PAGE_SIZE}
+                                        total={group.skills.length}
+                                        itemLabel="项"
+                                        showPageSize={false}
+                                        onChange={(nextPage) => setCategoryPages((previous) => ({ ...previous, [group.value]: nextPage }))}
+                                    />
                                 </section>
                             );
                         })}
@@ -285,14 +319,13 @@ export default function SkillsPage() {
                         title={filtersActive ? "没有找到匹配技能" : scope === "created" ? "还没有创建技能" : scope === "public" ? "技能市场还是空的" : "这里还没有技能"}
                         description={filtersActive ? "换个关键词或分类试试。" : scope === "favorites" ? "收藏的公开技能会显示在这里。" : scope === "mine" ? "从技能市场加入后会显示在这里。" : "创建并公开第一个技能，其他用户就能直接加入使用。"}
                         action={filtersActive
-                            ? <Button onClick={() => { setSearch(""); setTag("all"); setSort("popular"); setPage(1); }}>清除筛选</Button>
+                            ? <Button onClick={() => { setSearch(""); setTag("all"); setSort("popular"); setCategoryPages({}); }}>清除筛选</Button>
                             : (scope === "created" || scope === "public")
-                              ? <Button type="primary" icon={<Plus className="size-4" />} onClick={() => setInstallOpen(true)}>安装技能</Button>
+                              ? <Button type="primary" icon={<Plus className="size-4" />} onClick={() => setInstallOpen(true)}>创建 / 导入</Button>
                               : undefined}
                     />
                 )}
 
-                <PaginationBar current={page} pageSize={pageSize} total={total} pageSizeOptions={[20, 40, 80]} onChange={(nextPage, nextPageSize) => { setPage(nextPageSize !== pageSize ? 1 : nextPage); setPageSize(nextPageSize); }} />
             </WorkspacePage>
 
             <SkillDetailModal skill={activeSkill} loading={detailLoading} mutating={Boolean(activeSkill && mutatingID === activeSkill.skillId)} categories={categories} onClose={() => setActiveSkill(null)} onAdd={(skill) => void toggleAdded(skill)} onLike={(skill) => void toggleLiked(skill)} onEdit={(skill) => void openEditor(skill)} onPublish={openPublishing} onSync={(skill) => void synchronizeSkill(skill)} onChanged={(skill) => { setActiveSkill(skill); reload(); }} />
