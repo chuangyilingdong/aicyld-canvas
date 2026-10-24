@@ -12,11 +12,11 @@ import remarkGfm from "remark-gfm";
 import { formatSkillCount, formatSkillDate, skillCategoryLabel } from "@/pages/skills/skill-catalog";
 import { isLocalRuntimeMode } from "@/lib/runtime-mode";
 import { createSkillRewrite, getSkill, getSkillFile, listSkillFiles, listSkillVersions, replaceSkillPackage, rollbackSkillVersion, setSkillEnabled, skillFileRawURL, type Skill, type SkillCategory, type SkillPackageFile, type SkillPackageFileContent, type SkillVersion } from "@/services/api/skills";
-import { ReviewSummary, SkillPublishingPanel } from "@/pages/skills/skill-publishing-panel";
+import { ReviewSummary } from "@/pages/skills/skill-publishing-panel";
 
 type PreviewMode = "preview" | "source";
 
-export function SkillDetailModal({ skill, loading, mutating, categories, onClose, onAdd, onLike, onEdit, onSync, onChanged = () => {}, fileOnly = false }: { skill: Skill | null; loading: boolean; mutating: boolean; categories: SkillCategory[]; onClose: () => void; onAdd: (skill: Skill) => void; onLike: (skill: Skill) => void; onEdit: (skill: Skill) => void; onSync: (skill: Skill) => void; onChanged?: (skill: Skill) => void; fileOnly?: boolean }) {
+export function SkillDetailModal({ skill, loading, mutating, categories, onClose, onAdd, onLike, onEdit, onPublish, onSync, onChanged = () => {}, fileOnly = false }: { skill: Skill | null; loading: boolean; mutating: boolean; categories: SkillCategory[]; onClose: () => void; onAdd: (skill: Skill) => void; onLike: (skill: Skill) => void; onEdit: (skill: Skill) => void; onPublish?: (skill: Skill) => void; onSync: (skill: Skill) => void; onChanged?: (skill: Skill) => void; fileOnly?: boolean }) {
     const { message } = App.useApp();
     const [files, setFiles] = useState<SkillPackageFile[]>([]);
     const [filesLoading, setFilesLoading] = useState(false);
@@ -28,7 +28,6 @@ export function SkillDetailModal({ skill, loading, mutating, categories, onClose
     const [previewMode, setPreviewMode] = useState<PreviewMode>("preview");
     const [pathFilter, setPathFilter] = useState("");
     const [versions, setVersions] = useState<SkillVersion[]>([]);
-    const [publishingOpen, setPublishingOpen] = useState(false);
     const [replacingPackage, setReplacingPackage] = useState(false);
     const packageInputRef = useRef<HTMLInputElement>(null);
     const localRuntime = isLocalRuntimeMode();
@@ -146,7 +145,8 @@ export function SkillDetailModal({ skill, loading, mutating, categories, onClose
                             {skill.isAdded && !skill.isOwner && versions.length > 1 ? <Dropdown trigger={["click"]} menu={{ items: versions.map((version) => ({ key: version.id, label: `${version.versionLabel}${version.id === skill.installedVersionId ? "（当前）" : ""}`, disabled: version.id === skill.installedVersionId, onClick: () => void rollbackSkillVersion(skill.skillId, version.id).then(({ skill: next }) => { onChanged(next); message.success(`已切换到 ${version.versionLabel}`); }).catch((error) => message.error(error instanceof Error ? error.message : "版本切换失败")) })) }}><Button icon={<History className="size-4" />}>版本</Button></Dropdown> : null}
                             {!localRuntime && skill.sourceType === "github" && skill.isOwner ? <Tooltip title={skill.syncError || "从 GitHub 检查并同步最新提交"}><Button loading={mutating} icon={<RefreshCw className="size-4" />} onClick={() => onSync(skill)}>同步</Button></Tooltip> : null}
                             {skill.sourceType === "zip" && skill.isOwner ? <><input ref={packageInputRef} type="file" accept=".zip,application/zip" hidden onChange={(event) => void replacePackage(event)} /><Button loading={replacingPackage} disabled={skill.reviewStatus === "in_review"} icon={<UploadCloud className="size-4" />} onClick={() => packageInputRef.current?.click()}>替换包</Button></> : null}
-                            {skill.isOwner ? <Button icon={<Send className="size-4" />} onClick={() => setPublishingOpen(true)}>投稿</Button> : null}
+                            {skill.isOwner && onPublish ? <Button icon={<Send className="size-4" />} onClick={() => onPublish(skill)}>投稿</Button> : null}
+                            {skill.sourceType === "zip" && skill.isOwner ? <><input ref={packageInputRef} type="file" accept=".zip,application/zip" hidden onChange={(event) => void replacePackage(event)} /><Button loading={replacingPackage} disabled={skill.reviewStatus === "in_review"} icon={<UploadCloud className="size-4" />} onClick={() => packageInputRef.current?.click()}>替换包</Button></> : null}
                             {skill.isOwner ? <Button icon={<Pencil className="size-4" />} onClick={() => onEdit(skill)}>编辑</Button> : null}
                             <Button loading={mutating} icon={<Heart className={`size-4 ${skill.isLike ? "fill-current text-rose-500" : ""}`} />} onClick={() => onLike(skill)}>{skill.isLike ? "已收藏" : "收藏"}</Button>
                             <Button type={skill.isAdded ? "default" : "primary"} loading={mutating} disabled={skill.isOwner} icon={skill.isAdded ? <Check className="size-4" /> : <Plus className="size-4" />} onClick={() => onAdd(skill)}>{skill.isOwner ? "我的技能" : skill.isAdded ? "已加入" : "加入技能"}</Button>
@@ -198,7 +198,6 @@ export function SkillDetailModal({ skill, loading, mutating, categories, onClose
                     </div>
                 </div>
             ) : null}
-            <SkillPublishingPanel skill={skill} open={publishingOpen} onClose={() => setPublishingOpen(false)} onChanged={() => { if (skill) void getSkill(skill.skillId).then((result) => onChanged(result.skill)).catch(() => undefined); }} />
         </AppModal>
     );
 }
@@ -311,7 +310,7 @@ function isExternalURL(value?: string) {
 function sourceLabel(source: string) {
     if (source === "github") return "GitHub";
     if (source === "zip") return "ZIP 技能包";
-    if (source === "builtin") return "内置技能";
+    if (source === "builtin") return "平台技能";
     return "Markdown";
 }
 
