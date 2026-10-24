@@ -49,8 +49,16 @@ func TestSkillPublishingRequiresReviewAndExposesPublishedSummary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if detail.IsPrivate || detail.ReviewStatus != skillReviewStatusPublished || detail.ReviewSummary == nil {
-		t.Fatalf("published detail = %+v", detail)
+	owned, err := s.ownedSkill("owner", pin.SkillID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	review, err := s.PublishedSkillReview(pin.SkillID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if owned.IsPrivate || owned.ReviewStatus != skillReviewStatusPublished || review == nil {
+		t.Fatalf("published detail = %+v review=%+v", detail, review)
 	}
 	public, err := s.Skills("consumer", SkillListRequest{Scope: "public", PageSize: 20})
 	if err != nil {
@@ -115,6 +123,24 @@ func TestRejectedSkillCanBeRevisedAndResubmitted(t *testing.T) {
 	}
 	if loaded.ReviewStatus != skillReviewStatusInReview {
 		t.Fatalf("review status = %s", loaded.ReviewStatus)
+	}
+}
+
+func TestSkillWithActiveSubmissionCannotBeDeleted(t *testing.T) {
+	s, _ := agentSkillFixture(t)
+	pin := installAgentSkill(t, s, map[string]string{"SKILL.md": "# 删除锁\n\n投稿期间不可删除。"})
+	draft, err := s.PrepareSkillSubmission("owner", pin.SkillID, SkillSubmissionRequest{VersionID: pin.VersionID, ContentHash: pin.ContentHash, Confirmed: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteSkill("owner", pin.SkillID); err == nil {
+		t.Fatal("skill with draft submission was deleted")
+	}
+	if _, err := s.SubmitSkillSubmission("owner", draft.SubmissionID, SkillSubmissionRequest{VersionID: pin.VersionID, ContentHash: pin.ContentHash, Confirmed: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteSkill("owner", pin.SkillID); err == nil {
+		t.Fatal("skill under review was deleted")
 	}
 }
 

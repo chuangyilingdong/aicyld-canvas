@@ -314,6 +314,16 @@ func (s *Service) DeleteSkill(userID string, id string) error {
 	if err != nil {
 		return err
 	}
+	active, err := s.repo.ActiveSkillSubmission(skill.ID)
+	if err != nil {
+		return err
+	}
+	if active != nil {
+		if active.Status == skillSubmissionInReview {
+			return kernel.NewAppError(409, "技能正在审核中，不能删除；请等待审核结果")
+		}
+		return kernel.NewAppError(409, "技能有未提交的投稿草稿，请先撤回后再删除")
+	}
 	if err := s.repo.DeleteSkill(skill.ID); err != nil {
 		return err
 	}
