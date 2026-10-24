@@ -44,6 +44,12 @@ func (s *Service) skillDomain() *skills.Service {
 	return skills.New(s.repo, s.dataDir, s.runWorkerLoop)
 }
 
+// SkillsDomain exposes the domain service to handlers and tests without
+// routing reads and writes back through the broad app.Service surface.
+func (s *Service) SkillsDomain() *skills.Service {
+	return s.skillDomain()
+}
+
 func (s *Service) Skills(userID string, req SkillListRequest) (*SkillList, error) {
 	return s.skillDomain().Skills(userID, req)
 }
@@ -149,4 +155,8 @@ func (s *Service) SyncGitHubSkill(userID string, skillID string) (*SkillItem, er
 
 func (s *Service) startSkillSyncWorker(ctx context.Context) {
 	s.skillDomain().StartSyncWorker(ctx)
+}
+
+func (s *operationSession) DraftSkill(userID string, input skills.SkillMutationRequest) (*skills.SkillItem, error) {
+	return skills.New(s.repo, s.service.dataDir, nil).CreateSkill(userID, input)
 }

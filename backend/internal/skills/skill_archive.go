@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"infinite-canvas/backend/internal/kernel"
-	"infinite-canvas/backend/internal/skillhub"
 	"io"
 	"os"
 	"path"
@@ -21,7 +20,6 @@ type skillPackageMetadata struct {
 	TechnicalName string
 	Description   string
 	Version       string
-	MarketRelease *skillhub.Release
 }
 
 func archiveFromMarkdown(data []byte, fallbackName string, fallbackDescription string) (skillPackageArchive, error) {

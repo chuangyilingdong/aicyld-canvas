@@ -1,8 +1,5 @@
 import { ApiError, http, apiBaseURL, compactApiParams, serializeApiParams, type ApiParams } from "@/services/api/request";
 import { getActiveUserScope } from "@/lib/user-scope";
-import type { MarketRelease } from "./skill-market";
-
-
 let addedSkillsRequest: { scope: string; promise: Promise<{ skills: Skill[] }> } | null = null;
 let addedSkillsCache: { scope: string; value: { skills: Skill[] }; expiresAt: number } | null = null;
 
@@ -50,7 +47,6 @@ export type Skill = {
     ownerUid: string;
     effectiveUser: { name: string; avatarUrl: string; uid: string };
     originalSkillId: string | null;
-    marketRelease?: MarketRelease;
     showcaseMedia: SkillShowcaseMedia[];
     addedCount: number;
     isTest: boolean;

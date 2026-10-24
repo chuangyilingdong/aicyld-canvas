@@ -32,6 +32,10 @@ func truncateSkillDescription(value string) string {
 	return string(runes[:SkillDescriptionLimit]) + "…"
 }
 
+type SkillDraft interface {
+	DraftSkill(string, skills.SkillMutationRequest) (*skills.SkillItem, error)
+}
+
 func registerSkillOps(r *Registry) {
 	r.Register(Op{AssistantCanvas: true, ID: "skill.catalog", Summary: "列出当前用户已安装技能的名称、说明和当前版本；不含正文", ReadOnly: true, Scope: ScopeWorkspaceRead,
 		Params: json.RawMessage(`{"type":"object","properties":{"id":{"type":"string","description":"精确技能 id"},"q":{"type":"string","description":"按名称或说明搜索"},"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":50}},"additionalProperties":false}`),
@@ -115,4 +119,27 @@ func registerSkillOps(r *Registry) {
 				return result, mapDomainError(err)
 			}})
 	}
+}
+
+func registerSkillDraftOp(r *Registry) {
+	r.Register(Op{ID: "skill.draft", AssistantCanvas: true, Scope: ScopeCanvas, Summary: "把当前画布的创作方法保存为私人技能草稿，不上传、不送审", Params: json.RawMessage(`{"type":"object","properties":{"canvasId":{"type":"string"},"name":{"type":"string"},"description":{"type":"string"},"instruction":{"type":"string"}},"required":["canvasId","name","description","instruction"],"additionalProperties":false}`), Handler: func(ctx *Context, raw json.RawMessage) (any, error) {
+		var args struct {
+			CanvasID    string `json:"canvasId"`
+			Name        string `json:"name"`
+			Description string `json:"description"`
+			Instruction string `json:"instruction"`
+		}
+		if err := decodeParams(raw, &args); err != nil {
+			return nil, err
+		}
+		port, ok := ctx.Domain.(SkillDraft)
+		if !ok {
+			return nil, Unsupported("skill_unavailable", "当前工作区无法保存技能草稿")
+		}
+		if _, err := ctx.Domain.UserCanvasProject(ctx.UserID, args.CanvasID); err != nil {
+			return nil, mapDomainError(err)
+		}
+		value, err := port.DraftSkill(ctx.UserID, skills.SkillMutationRequest{SkillName: args.Name, Description: args.Description, Instruction: args.Instruction, Tag: "others", IsPrivate: true})
+		return value, mapDomainError(err)
+	}})
 }

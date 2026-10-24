@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"net/url"
 	"path"
+	"regexp"
 	"strings"
 
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
-	"infinite-canvas/backend/internal/skillhub"
 )
+
+var skillLinkIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
 
 // The OS supplies untrusted links. Only identifiers reach the UI; a link never
 // downloads a package, connects an account or confirms an installation.
@@ -19,7 +21,7 @@ func skillLinkRoute(raw string) (string, error) {
 		return "", fmt.Errorf("技能链接无效")
 	}
 	q, err := url.ParseQuery(u.RawQuery)
-	if err != nil || len(q) != 2 || len(q["id"]) != 1 || len(q["version"]) != 1 || !skillhub.ResourceID.MatchString(q.Get("id")) || !skillhub.ResourceID.MatchString(q.Get("version")) {
+	if err != nil || len(q) != 2 || len(q["id"]) != 1 || len(q["version"]) != 1 || !skillLinkIDPattern.MatchString(q.Get("id")) || !skillLinkIDPattern.MatchString(q.Get("version")) {
 		return "", fmt.Errorf("技能链接必须指定有效的技能和版本")
 	}
 	return "/skills?" + url.Values{"skillId": {q.Get("id")}, "releaseId": {q.Get("version")}}.Encode(), nil
