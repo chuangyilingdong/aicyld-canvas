@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 
 	"infinite-canvas/backend/internal/app"
 	"infinite-canvas/backend/internal/beefapi"
@@ -43,12 +44,29 @@ func RegisterWorkspaceRoutes(r *gin.RouterGroup, bootstrap workspaceBootstrap) {
 			fail(c, http.StatusInternalServerError, err)
 			return
 		}
-		user, err := bootstrap.WorkspaceOwner(scope.ID)
+		user, err := currentUser(c, bootstrap)
 		if err != nil {
 			failService(c, err)
 			return
 		}
-		publicUser := app.AuthUser{User: *user}
+		userPayload := gin.H{
+			"id": user.ID, "username": user.Username, "displayName": user.DisplayName,
+			"role": user.Role, "status": user.Status,
+			"createdAt": user.CreatedAt, "updatedAt": user.UpdatedAt,
+		}
+		if identity, ok := WorkspaceIdentity(c); ok {
+			if identity.Username != "" {
+				userPayload["username"] = identity.Username
+				userPayload["identityUsername"] = identity.Username
+			}
+			if identity.DisplayName != "" {
+				userPayload["displayName"] = identity.DisplayName
+			}
+			if identity.Avatar != "" {
+				userPayload["avatarUrl"] = identity.Avatar
+			}
+			userPayload["identityProvider"] = "aicyld"
+		}
 		// Desktop model configuration is persisted separately under the workspace
 		// data directory. The bootstrap contract contains no account metadata.
 		logicalModels := []app.PublicLogicalModel{}
@@ -63,18 +81,30 @@ func RegisterWorkspaceRoutes(r *gin.RouterGroup, bootstrap workspaceBootstrap) {
 			return
 		}
 		contract := LocalDesktopContract()
+		profile := contract.Profile
+		storageMode := "local"
+		workspaceName := "本地工作区"
+		workspaceOwner := "local"
+		if SSOConfigured() {
+			profile = "hosted"
+			storageMode = "remote"
+			workspaceOwner = "account"
+			if name := strings.TrimSpace(user.DisplayName); name != "" {
+				workspaceName = name
+			}
+		}
 		ok(c, gin.H{
 			"contractVersion": contract.Version,
-			"profile":         contract.Profile,
+			"profile":         profile,
 			"capabilities":    contract.Capabilities,
 			"workspace": gin.H{
 				"id":      scope.ID,
-				"name":    "本地工作区",
-				"owner":   "local",
+				"name":    workspaceName,
+				"owner":   workspaceOwner,
 				"storage": "sqlite",
 			},
-			"user":          publicUser,
-			"storageMode":   "local",
+			"user":          userPayload,
+			"storageMode":   storageMode,
 			"logicalModels": logicalModels,
 			"runtimeLimits": limits,
 			"features":      features,

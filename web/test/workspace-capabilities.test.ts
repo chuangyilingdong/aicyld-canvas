@@ -3,6 +3,7 @@ import { afterEach, expect, test } from "bun:test";
 import {
     resetWorkspaceMode,
     setWorkspaceCapabilitySnapshot,
+    setWorkspaceProfile,
     workspaceCapabilities,
 } from "../src/services/workspace-mode";
 
@@ -31,4 +32,15 @@ test("workspace capabilities use safe local defaults before bootstrap", () => {
         localAssets: true,
         providerCalls: true,
     });
+});
+
+test("workspace capabilities follow a hosted bootstrap", () => {
+    setWorkspaceProfile("hosted");
+    setWorkspaceCapabilitySnapshot({
+        contractVersion: 1,
+        profile: "hosted",
+        capabilities: { localAssets: false, providerCalls: true },
+    });
+
+    expect(workspaceCapabilities()).toEqual({ local: false, localAssets: false, providerCalls: true });
 });

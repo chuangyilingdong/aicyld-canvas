@@ -16,6 +16,7 @@ import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { CanvasGenerationTargetSaveError } from "@/services/canvas-generation-errors";
 import { normalizeImageValue } from "@/lib/model-capabilities";
 import { mergedImageCapabilityConfig } from "@/lib/model-selection";
+import { isImageEditModel, withPlatformImageEditModel } from "@/lib/canvas/feature-models";
 import type { GenerationTask } from "@/services/api/task-center";
 
 import type { CanvasGenerationExecution } from "./canvas-generation-executor-types";
@@ -59,6 +60,11 @@ export async function executeImageGeneration({
     if (canvasNodeHasPendingOutcomeResult(sourceNode, canvasNodes)) {
         showError(canvasImagePendingResultMessage(sourceNode, canvasNodes));
         return;
+    }
+    // 带参考图时，如果当前模型本身不能做图改图，切换到平台绑定的图片编辑模型。
+    // 用户显式选中的可编辑模型保持不变。
+    if (generationContext.referenceImages.length > 0 && !isImageEditModel(generationConfig.model)) {
+        generationConfig = withPlatformImageEditModel(generationConfig);
     }
     const isCurrent = () => !controller.signal.aborted;
     const profile = mergedImageCapabilityConfig(generationConfig, generationConfig.model || generationConfig.imageModel);

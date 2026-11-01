@@ -5,6 +5,7 @@ import { Bubble, Sender, type BubbleItemType } from "@ant-design/x";
 import { ArrowUp, Check, ChevronDown, FileText, Image as ImageIcon, LoaderCircle, Music2, Sparkles, UserRound, Video, X } from "lucide-react";
 
 import { ModelPicker } from "@/components/model-picker";
+import { canvasFeatureModel } from "@/lib/canvas/feature-models";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import type { PromptOptimizationMode, PromptOptimizationResult, PromptOptimizerProvider } from "@/lib/plugins/plugin-types";
 import type { AiConfig } from "@/stores/use-config-store";
@@ -143,7 +144,7 @@ export function CanvasPromptOptimizerDrawer({ open, children, prompt, generation
         abortRef.current?.abort();
         setDraftPrompt(prompt);
         setSubmittedPrompt(prompt.trim());
-        setActiveOptimizerModel(optimizerModel);
+        setActiveOptimizerModel(optimizerModel || canvasFeatureModel("text.chat") || "");
         setSelectedReferenceIds(references.filter((reference) => reference.active).map((reference) => reference.id));
         setResult(null);
         setSelectedPrompt("");
@@ -438,7 +439,7 @@ export function CanvasPromptOptimizerDrawer({ open, children, prompt, generation
                     generationMode,
                     targetModel,
                     targetProtocol,
-                    optimizerModel: activeOptimizerModel || undefined,
+                    optimizerModel: activeOptimizerModel || canvasFeatureModel("text.chat") || undefined,
                     context: { texts: textContext, images: imageContext },
                 },
                 {

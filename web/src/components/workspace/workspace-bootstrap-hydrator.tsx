@@ -7,6 +7,9 @@ import { appPathname } from "@/lib/app-routing";
 import { preloadWorkspaceRoute } from "@/lib/workspace-route-modules";
 import { applyUserSession, localWorkspaceConfig } from "@/lib/user-session";
 import { getWorkspaceBootstrap, type WorkspaceBootstrapPayload } from "@/services/api/workspace";
+import { isSignInRequiredError } from "@/services/api/request";
+import { applyPlatformFeatureModels } from "@/lib/canvas/feature-models";
+import { isHostedBuild, isLocalWorkspaceMode } from "@/services/workspace-mode";
 import { commitModelConfig, flushModelConfig, hydrateModelConfig } from "@/services/model-config-repository";
 import { normalizeConfigSnapshot, useConfigStore } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
@@ -85,7 +88,8 @@ export async function initializeWorkspaceState<T>({
     try {
         try {
             await applySession(await loadWorkspace());
-        } catch {
+        } catch (error) {
+            if (isSignInRequiredError(error) || isHostedBuild()) throw error;
             // Keep the desktop usable while the embedded backend is still
             // starting. There is no remote/account fallback in a local build.
             await applySession(createLocalWorkspace());
@@ -104,9 +108,10 @@ export function shouldSaveLocalModelConfig({ subscriptionReady, modelConfigReady
 
 async function hydrateLocalModelConfig() {
     const result = await hydrateModelConfig();
-    const normalizedConfig = localWorkspaceConfig(normalizeConfigSnapshot({ config: result.config }).config);
+    const normalized = normalizeConfigSnapshot({ config: result.config }).config;
+    const normalizedConfig = applyPlatformFeatureModels(isLocalWorkspaceMode() ? localWorkspaceConfig(normalized) : normalized);
     useConfigStore.getState().replaceConfig(normalizedConfig);
-    if (shouldPersistHydratedModelConfig(result.health)) await commitModelConfig(normalizedConfig);
+    if (isLocalWorkspaceMode() && shouldPersistHydratedModelConfig(result.health)) await commitModelConfig(normalizedConfig);
 }
 
 export function shouldPersistHydratedModelConfig(health: string) {

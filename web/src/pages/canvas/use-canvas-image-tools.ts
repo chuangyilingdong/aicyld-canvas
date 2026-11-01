@@ -28,6 +28,7 @@ import { mediaResultMetadata } from "@/lib/canvas/canvas-node-semantics";
 import { generationErrorMessage } from "@/lib/generation-error";
 import { modelCapabilityConfigFor } from "@/lib/model-capabilities";
 import { defaultImageParamsForModel } from "@/lib/model-selection";
+import { canvasFeatureModel, resolveImageEditModel, withPlatformImageEditModel } from "@/lib/canvas/feature-models";
 import { navigateToSettings } from "@/lib/settings-navigation";
 import { resolveImageUrl, uploadImage } from "@/services/image-storage";
 import type { GenerationTask } from "@/services/api/task-center";
@@ -130,7 +131,7 @@ export function useCanvasImageTools({
         };
         const resultNode = {
             ...createCanvasNode(CanvasNodeType.Text, { x: textNode.position.x + textNode.width + gap + resultSpec.width / 2, y: centerY }, {
-                content: "", generationMode: "text", model: effectiveConfig.textModel || effectiveConfig.model || defaultConfig.textModel,
+                content: "", generationMode: "text", model: canvasFeatureModel("text.chat") || effectiveConfig.textModel || effectiveConfig.model || defaultConfig.textModel,
                 count: 1, composerContent: isVideo ? "参考视频：@视频1\n任务说明：@文本1" : "参考图片：@图片1\n任务说明：@文本1",
             }),
             title: isVideo ? "视频反推提示词结果" : "反推提示词结果",
@@ -247,7 +248,7 @@ export function useCanvasImageTools({
         try {
             if (!node.metadata?.content) return;
             const baseGenerationConfig = buildGenerationConfig(effectiveConfig, node, "image");
-            const selectedModel = payload.generationConfig?.model || payload.generationConfig?.imageModel || baseGenerationConfig.model;
+            const selectedModel = resolveImageEditModel(payload.generationConfig?.model || payload.generationConfig?.imageModel || baseGenerationConfig.model);
             const modelDefaults = defaultImageParamsForModel(baseGenerationConfig, selectedModel);
             const selectedImageProfile = modelCapabilityConfigFor(baseGenerationConfig, selectedModel).image;
             if (!selectedImageProfile?.references.maskSupported) {
@@ -415,7 +416,7 @@ export function useCanvasImageTools({
         const operation = beginMediaOperation();
         if (!operation.isCurrent()) return;
         if (!node.metadata?.content) return;
-        const generationConfig = { ...buildGenerationConfig(effectiveConfig, node, "image"), count: "1" };
+        const generationConfig = { ...withPlatformImageEditModel(buildGenerationConfig(effectiveConfig, node, "image")), count: "1" };
         if (!isAiConfigReady(generationConfig, generationConfig.model)) {
             navigateToSettings({ continueCreation: true });
             return;
@@ -463,7 +464,7 @@ export function useCanvasImageTools({
 
     const generateLightingNode = useCallback((node: CanvasNodeData, options: CanvasImageLightingOptions, prompt: string) => {
         if (!node.metadata?.content) return;
-        const generationConfig = { ...buildGenerationConfig(effectiveConfig, node, "image"), count: "1" };
+        const generationConfig = { ...withPlatformImageEditModel(buildGenerationConfig(effectiveConfig, node, "image")), count: "1" };
         const childId = nanoid();
         const imageSpec = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
         const title = buildLightingLabel(options);
@@ -486,7 +487,7 @@ export function useCanvasImageTools({
         const operation = beginMediaOperation();
         if (!operation.isCurrent()) return;
         if (!node.metadata?.content) return;
-        const baseConfig = buildGenerationConfig(effectiveConfig, node, "image");
+        const baseConfig = withPlatformImageEditModel(buildGenerationConfig(effectiveConfig, node, "image"));
         const providerSize = emotionGenerationSize(payload.editRegion);
         const generationConfig = { ...baseConfig, count: "1", size: providerSize, quality: !baseConfig.quality || baseConfig.quality === "auto" ? "high" : baseConfig.quality };
         if (!isAiConfigReady(generationConfig, generationConfig.model)) { navigateToSettings({ continueCreation: true }); return; }

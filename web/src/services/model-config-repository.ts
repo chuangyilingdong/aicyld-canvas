@@ -1,5 +1,6 @@
 import { getLocalModelConfig, saveLocalModelConfig, type LocalModelConfigPayload } from "@/services/api/workspace";
 import type { AiConfig } from "@/stores/use-config-store";
+import { setCanvasFeatureModels } from "@/lib/canvas/feature-models";
 
 export type ModelConfigPersistenceState = {
     status: "idle" | "hydrating" | "saving" | "saved" | "error";
@@ -34,6 +35,7 @@ export function createModelConfigRepository(dependencies: ModelConfigRepositoryD
         publish({ status: "hydrating", error: "" });
         try {
             const result = await dependencies.read();
+            setCanvasFeatureModels(result.featureModels);
             state = { status: "idle", revision: result.revision, dirty: Boolean(latestConfig), error: "" };
             return result;
         } catch (error) {
@@ -66,6 +68,7 @@ export function createModelConfigRepository(dependencies: ModelConfigRepositoryD
                 if (isRevisionConflict(error)) {
                     try {
                         const current = await dependencies.read();
+                        setCanvasFeatureModels(current.featureModels);
                         state = { ...state, revision: current.revision, status: "saving", dirty: true, error: "" };
                         const retried = await write(config, state.revision);
                         state = { status: "saved", revision: retried.revision, dirty: generation !== savingGeneration, error: "" };

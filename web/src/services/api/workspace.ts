@@ -25,17 +25,17 @@ export function normalizeModelCapabilityDraft(draft: ModelCapabilityDraftInput) 
 export type LocalWorkspace = {
     id: string;
     name: string;
-    owner: "local";
-    storage: "sqlite";
+    owner: string;
+    storage: string;
 };
 
 export type WorkspaceBootstrapPayload = {
     contractVersion: number;
-    profile: "local";
+    profile: "local" | "hosted";
     capabilities: WorkspaceCapabilityContract["capabilities"];
     user: LocalUser;
     workspace: LocalWorkspace;
-    storageMode: "local";
+    storageMode: "local" | "remote";
     runtimeLimits?: RuntimeLimits;
     features?: FeatureAvailability;
 };

@@ -10,7 +10,7 @@ import { CREATION_PREFERENCES_STORE_KEY, useCreationPreferencesStore } from "@/s
 import { PLUGIN_STORE_KEY, usePluginStore } from "@/stores/use-plugin-store";
 import { defaultFeatureAvailability, useUserStore } from "@/stores/use-user-store";
 import type { WorkspaceBootstrapPayload } from "@/services/api/workspace";
-import { setWorkspaceCapabilitySnapshot } from "@/services/workspace-mode";
+import { setWorkspaceCapabilitySnapshot, setWorkspaceProfile } from "@/services/workspace-mode";
 import { withGenerationConsumersPaused } from "@/services/generation-consumer-lifecycle";
 
 /**
@@ -18,11 +18,13 @@ import { withGenerationConsumersPaused } from "@/services/generation-consumer-li
  * session: it only selects the persistence namespace and restores local stores.
  */
 export async function applyUserSession(payload: WorkspaceBootstrapPayload) {
+    setWorkspaceProfile(payload.profile);
     // Drain old result writers before changing the persistence namespace or stores.
     return withGenerationConsumersPaused(() => hydrateLocalWorkspace(payload));
 }
 
 async function hydrateLocalWorkspace(payload: WorkspaceBootstrapPayload) {
+    const hosted = payload.profile === "hosted";
     useUserStore.getState().setHydrated(false);
     setWorkspaceCapabilitySnapshot({
         contractVersion: payload.contractVersion,
@@ -45,7 +47,7 @@ async function hydrateLocalWorkspace(payload: WorkspaceBootstrapPayload) {
 
         usePluginStore.setState({ hydrated: false, runtimeStatuses: {}, pluginStates: {} });
         useUserStore.getState().setUser(payload.user);
-        useUserStore.getState().setStorageMode("local");
+        useUserStore.getState().setStorageMode(hosted ? "remote" : "local");
         useUserStore.getState().setRuntimeLimits(payload.runtimeLimits);
         useUserStore.getState().setFeatures({ ...defaultFeatureAvailability, ...payload.features });
 
@@ -58,9 +60,19 @@ async function hydrateLocalWorkspace(payload: WorkspaceBootstrapPayload) {
             useCreationPreferencesStore.persist.rehydrate(),
         ]);
 
-        useConfigStore.getState().replaceConfig(localWorkspaceConfig(useConfigStore.getState().config));
-        useCanvasStore.setState((state) => ({ projects: state.projects.map(normalizeLocalCanvasProject) }));
-        useAssetStore.setState((state) => ({ assets: state.assets.map(normalizeLocalAsset) }));
+        if (hosted) {
+            // 托管模式以服务端为唯一数据源，浏览器缓存只作为随后回灌的副本。
+            useCanvasStore.setState({ projects: [] });
+            useCanvasHistoryStore.setState({ deletedProjects: [] });
+            useAssetStore.setState({ assets: [] });
+            void import("@/services/local-workspace-repository")
+                .then(({ hydrateLocalCanvasProjectsFromBackend }) => hydrateLocalCanvasProjectsFromBackend())
+                .catch((error) => console.warn("[canvas-hydrate] 托管模式回灌画布缓存失败", error));
+        } else {
+            useConfigStore.getState().replaceConfig(localWorkspaceConfig(useConfigStore.getState().config));
+            useCanvasStore.setState((state) => ({ projects: state.projects.map(normalizeLocalCanvasProject) }));
+            useAssetStore.setState((state) => ({ assets: state.assets.map(normalizeLocalAsset) }));
+        }
 
         // Zustand keeps the previous in-memory value when a scoped snapshot is
         // absent, so every empty local namespace must be reset explicitly.
@@ -76,7 +88,7 @@ async function hydrateLocalWorkspace(payload: WorkspaceBootstrapPayload) {
         }
         if (!persistedPlugins) usePluginStore.setState({ installations: [], runtimeStatuses: {}, pluginStates: {} });
         if (!persistedCreationPreferences) useCreationPreferencesStore.setState({ preferences: {} });
-        if (!persistedConfig) useConfigStore.getState().replaceConfig(localWorkspaceConfig(defaultConfig));
+        if (!persistedConfig && !hosted) useConfigStore.getState().replaceConfig(localWorkspaceConfig(defaultConfig));
     } finally {
         useUserStore.getState().setHydrated(true);
     }

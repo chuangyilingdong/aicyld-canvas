@@ -7,6 +7,7 @@ import { workflowFieldCurrentValue, workflowFieldHasStoredValue, workflowFieldKe
 import { modelRequestOptions, resolveCompatibleModel, resolveModelGenerationDefaults, resolveModelVideoBooleanOptions, type ModelGenerationDefaults, type ModelInputSummary, type ModelRequirements } from "@/lib/model-selection";
 import { mediaGeneratorMetadata } from "@/lib/canvas/canvas-node-semantics";
 import { resolveCanvasWorkflowProvider } from "@/lib/canvas/canvas-workflow";
+import { canvasFeatureModelForMode } from "@/lib/canvas/feature-models";
 import { useCreationPreferencesStore } from "@/stores/use-creation-preferences-store";
 import { CanvasNodeType, type CanvasGenerationMode, type CanvasNodeData, type CanvasNodeMetadata } from "@/types/canvas";
 
@@ -50,7 +51,12 @@ export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | u
     const defaultModel = mode === "image" ? config.imageModel : mode === "video" ? config.videoModel : mode === "audio" ? config.audioModel : config.textModel;
     const fallbackModel = mode === "image" ? defaultConfig.imageModel : mode === "video" ? defaultConfig.videoModel : mode === "audio" ? defaultConfig.audioModel : defaultConfig.textModel;
     const storedModel = resolveCanvasGenerationModel(config, node?.metadata?.model, mode);
-    const preferredModel = storedModel || resolveCanvasGenerationModel(config, defaultModel, mode) || fallbackModel;
+    // 平台绑定只作为默认值；节点上显式选过的模型优先。
+    const platformModeModel = canvasFeatureModelForMode(mode, {
+        input: requirements?.input,
+        videoOperation: node?.metadata?.videoEditOperation,
+    });
+    const preferredModel = storedModel || platformModeModel || resolveCanvasGenerationModel(config, defaultModel, mode) || fallbackModel;
     // 先合并节点上的实时选择，再做兼容性匹配。否则路由只看到全局默认值，节点改过的时长、分辨率或布尔能力无法参与分流。
     const workflowParameters = node?.metadata?.workflowParameters || {};
     const runningHubWorkflowId = node?.metadata?.runningHubWorkflowId?.trim() || config.runningHub.workflowId.trim();
