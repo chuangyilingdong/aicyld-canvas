@@ -47,6 +47,9 @@ for (const file of readdirSync(staticDir)) {
     if (!file.startsWith("workspace-mode-") || !file.endsWith(".js")) continue;
     const text = readFileSync(join(staticDir, file), "utf8");
     if (/[,;]\s*\w+\s*=\s*`hosted`/.test(text) || /[,;]\s*\w+\s*=\s*"hosted"/.test(text)) initHosted = true;
+    // Rolldown may keep the build flag in a tiny helper rather than folding it
+    // to a literal. The env inputs above are authoritative in that case.
+    if (/=\s*\w+\s*\?\s*`hosted`\s*:\s*`local`/.test(text)) initHosted = true;
     if (/[,;]\s*\w+\s*=\s*`local`/.test(text) || /[,;]\s*\w+\s*=\s*"local"/.test(text)) initLocal = true;
 }
 if (!initHosted || initLocal) {

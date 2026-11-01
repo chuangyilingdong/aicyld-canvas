@@ -47,14 +47,21 @@ export function getTransportFailureKind(error: unknown): "timeout" | "network" |
 }
 
 // 所有后端 JSON 请求共用同一实例，避免认证、Base URL 和错误语义在模块间漂移。
-export let apiBaseURL = import.meta.env.VITE_CANVAS_BACKEND_URL || "/api";
+export let apiBaseURL = import.meta.env?.VITE_CANVAS_BACKEND_URL || "/api";
 // 本地预览和桌面模式都必须在后端暂不可用时尽快降级到本地工作区；
 // 没有超时会让启动水合一直停留在 loading，Playwright 和用户都看不到页面。
 export const apiClient = axios.create({ baseURL: apiBaseURL, withCredentials: true, timeout: 4_000 });
 
 /** 主站登录页地址；托管部署下会话失效时跳转过去，并带回跳地址。 */
 export function signInURL(): string {
-    const base = import.meta.env.VITE_AICYLD_LOGIN_URL || "https://aicyld.com.cn/login";
+    const configured = (() => {
+        try {
+            return import.meta.env.VITE_AICYLD_LOGIN_URL;
+        } catch {
+            return undefined;
+        }
+    })();
+    const base = configured || "https://aicyld.com.cn/login";
     const current = typeof window === "undefined" ? "" : window.location.href;
     return `${base}?redirect=${encodeURIComponent(current)}`;
 }
@@ -67,7 +74,14 @@ export function isSignInRequiredError(error: unknown): boolean {
 apiClient.interceptors.response.use(
     (response) => response,
     (error) => {
-        if (import.meta.env.VITE_CANVAS_HOSTED === "1" && axios.isAxiosError(error) && error.response?.status === 401 && typeof window !== "undefined") {
+        const hosted = (() => {
+            try {
+                return import.meta.env.VITE_CANVAS_HOSTED === "1";
+            } catch {
+                return false;
+            }
+        })();
+        if (hosted && axios.isAxiosError(error) && error.response?.status === 401 && typeof window !== "undefined") {
             window.location.replace(signInURL());
         }
         return Promise.reject(error);

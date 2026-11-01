@@ -1,5 +1,6 @@
 import { useUserStore } from "@/stores/use-user-store";
 import { apiBaseURL } from "@/services/api/request";
+import { isHostedBuild } from "@/services/workspace-mode";
 
 export type RuntimeSessionLike = {
     storageMode?: "local" | "remote";
@@ -18,7 +19,7 @@ export function isLocalRuntimeModeForSession(session: RuntimeSessionLike, localF
 export function isLocalRuntimeMode() {
     return isLocalRuntimeModeForSession(
         useUserStore.getState(),
-        import.meta.env.VITE_CANVAS_LOCAL_MODE !== "false",
+        !isHostedBuild(),
     );
 }
 

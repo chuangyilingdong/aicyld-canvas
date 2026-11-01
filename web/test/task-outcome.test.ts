@@ -205,10 +205,10 @@ describe("task-outcome", () => {
         const expiredIso = new Date(nowMs - 60_000).toISOString();
 
         const futureCopy = formatReconcileDeadlineCopy(futureIso, nowMs);
-        expect(futureCopy).toMatch(/^BeefTV 正在核对上次提交，预计 \d{2}:\d{2} 前有结论$/);
+        expect(futureCopy).toMatch(/^灵动TV正在核对上次提交，预计 \d{2}:\d{2} 前有结论$/);
 
         const expiredCopy = formatReconcileDeadlineCopy(expiredIso, nowMs);
-        expect(expiredCopy).toBe("BeefTV 正在核对，已超过预计时间，可联系客服");
+        expect(expiredCopy).toBe("灵动TV正在核对，已超过预计时间，可联系客服");
 
         const confirmUncertain = taskOutcomeCopy(
             {

@@ -1,5 +1,21 @@
+function buildHostedFlag(): string | undefined {
+    try {
+        return import.meta.env.VITE_CANVAS_HOSTED;
+    } catch {
+        return undefined;
+    }
+}
+
+function buildLocalModeFlag(): string | undefined {
+    try {
+        return import.meta.env.VITE_CANVAS_LOCAL_MODE;
+    } catch {
+        return undefined;
+    }
+}
+
 /** 托管构建（hb.aicyld.com.cn）：默认即托管模式，bootstrap 载荷再确认一次。 */
-const HOSTED_BUILD = import.meta.env.VITE_CANVAS_HOSTED === "1";
+const HOSTED_BUILD = buildHostedFlag() === "1" || buildLocalModeFlag() === "false";
 
 export type WorkspaceProfile = "local" | "hosted";
 
