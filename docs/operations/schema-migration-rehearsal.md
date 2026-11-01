@@ -76,3 +76,15 @@ GIN_MODE=release \
 - 只审计数据库，不读取渠道密钥、对象存储凭据或支付配置。
 - 副本目录放在 `/tmp` 或独立演练目录，不能覆盖生产数据目录。
 - 迁移失败时保留副本和日志；生产回滚仍使用完整归档点。
+
+## 2026-11-02 演练结果
+
+生产库副本从官方 v24 迁移到 v29，并应用 AICYLD overlay v1：
+
+- 迁移前：`local=24`、overlay 不存在、`integrity_check=ok`
+- 迁移后：`local=29`、`aicyld=1`、`integrity_check=ok`、外键违规 0
+- 迁移前已有业务表行数全部一致；新增表只有 `aicyld_schema_migrations`
+- 蓝绿只读实例：`/api/health` 返回 200，`ready=true`、`activeWorkerTasks=0`
+- 未登录 `/api/workspace/bootstrap` 返回 401，托管身份边界生效
+
+原始证据位于 `docs/operations/evidence/canvas-migration-2026-11-02-*.json` 与 `canvas-bluegreen-2026-11-02-*.json`。
