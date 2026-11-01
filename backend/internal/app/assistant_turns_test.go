@@ -356,3 +356,24 @@ func TestAssistantTurnsOrInitDoesNotAssignLazyField(t *testing.T) {
 		t.Fatal("stateless fallback must return a fresh instance")
 	}
 }
+
+func TestAssistantTurnOwnerForHostOnlyReturnsOpenTurn(t *testing.T) {
+	service, canvasID, _ := newAssistantTurnService(t)
+	turnID := "11223344aabbccdd"
+	if _, err := service.BeginAssistantTurn("local", canvasID, turnID, AssistantTurnInput{}); err != nil {
+		t.Fatal(err)
+	}
+	owner, ok := service.AssistantTurnOwnerForHost(turnID)
+	if !ok || owner != "local" {
+		t.Fatalf("open turn owner=%q ok=%v", owner, ok)
+	}
+	if err := service.FinalizeAssistantTurn(turnID); err != nil {
+		t.Fatal(err)
+	}
+	if owner, ok := service.AssistantTurnOwnerForHost(turnID); ok || owner != "" {
+		t.Fatalf("settled turn resolved owner=%q ok=%v", owner, ok)
+	}
+	if owner, ok := service.AssistantTurnOwnerForHost("deadbeefdeadbeef"); ok || owner != "" {
+		t.Fatalf("missing turn resolved owner=%q ok=%v", owner, ok)
+	}
+}

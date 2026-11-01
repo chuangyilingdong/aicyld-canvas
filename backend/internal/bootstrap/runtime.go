@@ -24,6 +24,7 @@ import (
 	"infinite-canvas/backend/internal/eagle"
 	canvasHandler "infinite-canvas/backend/internal/handler"
 	"infinite-canvas/backend/internal/localapp"
+	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/modelcatalog"
 	"infinite-canvas/backend/internal/repository"
 	"infinite-canvas/backend/internal/runtimeinfo"
@@ -98,9 +99,13 @@ func Open(_ context.Context, raw Config) (result *Runtime, openErr error) {
 		return nil, err
 	}
 	if cfg.AutoMigrate {
-		err = database.MigrateLocalSchema(db)
+		if err = database.MigrateLocalSchema(db); err == nil {
+			err = database.MigrateAICYLDOverlaySchema(db)
+		}
 	} else {
-		err = database.RequireLocalSchema(db)
+		if err = database.RequireLocalSchema(db); err == nil {
+			err = database.RequireAICYLDOverlaySchema(db)
+		}
 	}
 	if err != nil {
 		cleanupDB()
@@ -217,7 +222,11 @@ func Open(_ context.Context, raw Config) (result *Runtime, openErr error) {
 	if cfg.Profile == ProfileDesktop {
 		router.Use(desktopCORSMiddleware())
 	}
-	router.Use(canvasHandler.WorkspaceMiddleware(scope))
+	// 主站登录集成：配置 AICYLD_SSO_SECRET 时按请求解析主站身份并映射到独立工作区；
+	// 未配置时中间件内部回退到 fallback，保持上游单工作区行为。
+	router.Use(canvasHandler.WorkspaceResolverMiddleware(cfg.DataDir, scope, func(identity canvasHandler.SSOIdentity) (*model.User, error) {
+		return svc.EnsureWorkspaceUser(identity.UserID, identity.Username, identity.DisplayName)
+	}, svc.AssistantTurnOwnerForHost))
 	// 本机可信凭据在组合根生成：owner 凭据与宿主凭据只在本机数据目录，0600。
 	agentops.EnsureAgentCredentials(svc.DataDir())
 	assistantHost := assistantruntime.New(assistantruntime.OptionsFromService(svc))
