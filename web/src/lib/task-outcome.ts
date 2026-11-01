@@ -319,16 +319,16 @@ function formatClockTime(timestampMs: number): string {
 
 export function formatReconcileDeadlineCopy(reconcileDeadline?: string, nowMs = Date.now()): string {
     if (!reconcileDeadline?.trim()) {
-        return "BeefTV 正在核对上次提交，请稍候";
+        return "灵动TV正在核对上次提交，请稍候";
     }
     const deadlineMs = Date.parse(reconcileDeadline);
     if (Number.isNaN(deadlineMs)) {
-        return "BeefTV 正在核对上次提交，请稍候";
+        return "灵动TV正在核对上次提交，请稍候";
     }
     if (deadlineMs <= nowMs) {
-        return "BeefTV 正在核对，已超过预计时间，可联系客服";
+        return "灵动TV正在核对，已超过预计时间，可联系客服";
     }
-    return `BeefTV 正在核对上次提交，预计 ${formatClockTime(deadlineMs)} 前有结论`;
+    return `灵动TV正在核对上次提交，预计 ${formatClockTime(deadlineMs)} 前有结论`;
 }
 
 /**
@@ -418,7 +418,7 @@ export function taskOutcomeCopy(outcome?: TaskOutcome | null, nowMs = Date.now()
                 }
                 const reason = outcome.reconcileDeadline
                     ? formatReconcileDeadlineCopy(outcome.reconcileDeadline, nowMs)
-                    : "BeefTV 正在核对上次提交，请稍候";
+                    : "灵动TV正在核对上次提交，请稍候";
                 const action = "核对完成前请勿重新生成";
                 return {
                     badge: "正在核对",
