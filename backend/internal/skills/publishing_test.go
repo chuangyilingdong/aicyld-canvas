@@ -190,6 +190,45 @@ func TestRejectedZipSkillCanReplacePackageAndResubmit(t *testing.T) {
 	}
 }
 
+func TestPublishedSkillCanBeUnpublishedByReviewer(t *testing.T) {
+	s, _ := agentSkillFixture(t)
+	pin := installAgentSkill(t, s, map[string]string{"SKILL.md": "# 下架测试\n\n公开后由审核员下架。"})
+	draft, err := s.PrepareSkillSubmission("owner", pin.SkillID, SkillSubmissionRequest{VersionID: pin.VersionID, ContentHash: pin.ContentHash, Confirmed: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SubmitSkillSubmission("owner", draft.SubmissionID, SkillSubmissionRequest{VersionID: pin.VersionID, ContentHash: pin.ContentHash, Confirmed: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ReviewSkillSubmission("reviewer", true, draft.SubmissionID, SkillReviewRequest{Decision: "approve", Summary: passingReviewSummary()}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UnpublishSkill("owner", false, pin.SkillID, "无权限"); err == nil {
+		t.Fatal("non-reviewer unpublished a skill")
+	}
+	unpublished, err := s.UnpublishSkill("reviewer", true, pin.SkillID, "素材授权需要复核")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unpublished.Status != skillSubmissionUnpublished || unpublished.ReviewReason != "素材授权需要复核" {
+		t.Fatalf("unpublished submission = %+v", unpublished)
+	}
+	if _, err := s.SkillDetail("consumer", pin.SkillID); err == nil {
+		t.Fatal("unpublished skill remained public")
+	}
+	published, err := s.SkillSubmissionReviewQueue("reviewer", true, skillSubmissionPublished)
+	if err != nil {
+		t.Fatal(err)
+	}
+	removed, err := s.SkillSubmissionReviewQueue("reviewer", true, skillSubmissionUnpublished)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(published) != 0 || len(removed) != 1 || removed[0].SkillID != pin.SkillID {
+		t.Fatalf("queues published=%+v unpublished=%+v", published, removed)
+	}
+}
+
 func passingReviewSummary() *SkillReviewSummaryInput {
 	return &SkillReviewSummaryInput{Trials: []SkillReviewTrial{{
 		Scenario: "normal", Target: "canvas", RuntimeVersion: "test", Model: "text-model",

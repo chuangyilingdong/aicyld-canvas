@@ -7,6 +7,7 @@ import { ReviewSummary, SubmissionStatusIcon } from "@/pages/skills/skill-publis
 import {
     getSkillReviewFile,
     listSkillReviewFiles,
+    unpublishSkill,
     listSkillReviewQueue,
     reviewSkillSubmission,
     type SkillPackageFile,
@@ -28,6 +29,7 @@ const queueOptions = [
     { value: "in_review", label: "待审核" },
     { value: "rejected", label: "已退回" },
     { value: "published", label: "已公开" },
+    { value: "unpublished", label: "已下架" },
 ];
 
 export function SkillReviewPanel({ open, onClose, onReviewed }: { open: boolean; onClose: () => void; onReviewed: () => void }) {
@@ -48,7 +50,7 @@ export function SkillReviewPanel({ open, onClose, onReviewed }: { open: boolean;
         setLoading(true);
         setError("");
         try {
-            const result = await listSkillReviewQueue(nextStatus as "in_review" | "rejected" | "published");
+            const result = await listSkillReviewQueue(nextStatus as "in_review" | "rejected" | "published" | "unpublished");
             setItems(result.items);
             setSelectedId((current) => result.items.some((item) => item.submissionId === current) ? current : result.items[0]?.submissionId || "");
         } catch (cause) {
@@ -143,6 +145,24 @@ export function SkillReviewPanel({ open, onClose, onReviewed }: { open: boolean;
         }
     };
 
+    const unpublish = async () => {
+        if (!selected || selected.status !== "published") return;
+        setBusy(true);
+        setError("");
+        try {
+            const reason = String(form.getFieldValue("reason") || "").trim();
+            if (!reason) throw new Error("下架技能时必须填写原因");
+            await unpublishSkill(selected.skillId, reason);
+            message.success("技能已下架");
+            await load("published");
+            onReviewed();
+        } catch (cause) {
+            setError(cause instanceof Error ? cause.message : "下架操作未完成");
+        } finally {
+            setBusy(false);
+        }
+    };
+
     return (
         <Modal open={open} width="86vw" footer={null} destroyOnHidden title="技能投稿审核台" onCancel={onClose} styles={{ body: { maxHeight: "82vh", overflow: "hidden" } }}>
             <div className="skill-review-panel">
@@ -209,6 +229,16 @@ export function SkillReviewPanel({ open, onClose, onReviewed }: { open: boolean;
                                 </div>
                                 <p className="skill-review-help"><CheckCircle2 className="size-3.5" />通过前请确认已在填写环境和模型中实际运行，并核对文件、素材授权和敏感信息。</p>
                             </Form> : null}
+                            {selected.status === "published" ? <Form form={form} layout="vertical" className="skill-review-form">
+                                <h3>公开状态</h3>
+                                <p>下架后会立即从前台市场移除，已安装用户保留固定版本；再次公开需要重新投稿审核。</p>
+                                <Form.Item name="reason" label="下架原因" rules={[{ required: true, message: "请填写下架原因" }]}>
+                                    <Input.TextArea rows={3} maxLength={4000} placeholder="说明下架原因，供作者和审核记录查看" />
+                                </Form.Item>
+                                <div className="skill-review-actions">
+                                    <Button danger loading={busy} onClick={() => void unpublish()}>下架技能</Button>
+                                </div>
+                            </Form> : null}
                         </section> : null}
                     </div>
                 ) : <div className="skill-publishing-empty"><FileText /><h3>当前队列为空</h3><p>切换状态可查看历史审核记录。</p></div>}
@@ -221,6 +251,7 @@ function statusLabel(status: string) {
     if (status === "in_review") return "待审核";
     if (status === "rejected") return "已退回";
     if (status === "published") return "已公开";
+    if (status === "unpublished") return "已下架";
     return status;
 }
 

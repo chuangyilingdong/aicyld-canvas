@@ -120,6 +120,10 @@ func (s *Service) ReviewSkillSubmission(adminID string, isAdmin bool, submission
 	return s.skillDomain().ReviewSkillSubmission(adminID, isAdmin, submissionID, req)
 }
 
+func (s *Service) UnpublishSkill(adminID string, isAdmin bool, skillID string, reason string) (*SkillSubmissionItem, error) {
+	return s.skillDomain().UnpublishSkill(adminID, isAdmin, skillID, reason)
+}
+
 func (s *Service) SkillSubmissionFiles(adminID string, isAdmin bool, submissionID string) ([]SkillPackageFileItem, error) {
 	return s.skillDomain().SkillSubmissionFiles(adminID, isAdmin, submissionID)
 }

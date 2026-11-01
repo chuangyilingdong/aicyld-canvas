@@ -187,6 +187,28 @@ func registerSkillRoutes(r *gin.RouterGroup, owners workspaceOwners, skillsDomai
 		ok(c, gin.H{"submission": item})
 	})
 
+	r.POST("/skills/:id/unpublish", func(c *gin.Context) {
+		user, err := currentUser(c, owners)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 8<<10)
+		var body struct {
+			Reason string `json:"reason"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			fail(c, http.StatusBadRequest, kernel.BadAuthRequest("下架数据格式无效"))
+			return
+		}
+		item, err := skillsDomain.UnpublishSkill(user.ID, user.Role == model.UserRoleAdmin, c.Param("id"), body.Reason)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"submission": item})
+	})
+
 	r.GET("/skills/:id/submissions", func(c *gin.Context) {
 		user, err := currentUser(c, owners)
 		if err != nil {

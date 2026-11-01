@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -31,10 +32,26 @@ func TestAssistantSkillContextReceiptSurvivesSkillRemoval(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
+				pin := skills.Pin{SkillID: item.SkillID, VersionID: item.VersionID, ContentHash: item.ContentHash}
+				if owner != "local" {
+					draft, err := service.SkillsDomain().PrepareSkillSubmission(owner, item.SkillID, skills.SkillSubmissionRequest{VersionID: item.VersionID, ContentHash: item.ContentHash, Confirmed: true})
+					if err != nil {
+						t.Fatal(err)
+					}
+					if _, err := service.SkillsDomain().SubmitSkillSubmission(owner, draft.SubmissionID, skills.SkillSubmissionRequest{VersionID: item.VersionID, ContentHash: item.ContentHash, Confirmed: true}); err != nil {
+						t.Fatal(err)
+					}
+					summary := &skills.SkillReviewSummaryInput{Trials: []skills.SkillReviewTrial{{
+						Scenario: "normal", Target: "canvas", RuntimeVersion: "test", Model: "text-model", Conclusion: "passed", TestedAt: time.Now().UTC().Format(time.RFC3339),
+					}}}
+					if _, err := service.SkillsDomain().ReviewSkillSubmission("reviewer", true, draft.SubmissionID, skills.SkillReviewRequest{Decision: "approve", Summary: summary}); err != nil {
+						t.Fatal(err)
+					}
+				}
 				if _, err := service.SkillsDomain().SetSkillAdded("local", item.SkillID, true); err != nil {
 					t.Fatal(err)
 				}
-				return skills.Pin{SkillID: item.SkillID, VersionID: item.VersionID, ContentHash: item.ContentHash}
+				return pin
 			}
 			owner := "local"
 			if removal == "uninstall" {

@@ -153,7 +153,7 @@ func migrateSkillMarketSubmissions(tx *gorm.DB) error {
 	if err := tx.AutoMigrate(&model.Skill{}, &model.SkillSubmission{}); err != nil {
 		return fmt.Errorf("迁移技能市场投稿表: %w", err)
 	}
-	return tx.Model(&model.Skill{}).Where("review_status = '' OR review_status IS NULL").Update("review_status", gorm.Expr("CASE WHEN is_private = ? THEN ? ELSE ? END", false, "draft", "published")).Error
+	return tx.Model(&model.Skill{}).Where("review_status = '' OR review_status IS NULL").Update("review_status", gorm.Expr("CASE WHEN is_private THEN ? ELSE ? END", "draft", "published")).Error
 }
 
 func migrateLocalSchema(db *gorm.DB, beforeApply func(int64) error) error {

@@ -14,17 +14,19 @@ import (
 )
 
 const (
-	skillReviewStatusDraft     = "draft"
-	skillReviewStatusPending   = "pending"
-	skillReviewStatusInReview  = "in_review"
-	skillReviewStatusRejected  = "rejected"
-	skillReviewStatusPublished = "published"
+	skillReviewStatusDraft       = "draft"
+	skillReviewStatusPending     = "pending"
+	skillReviewStatusInReview    = "in_review"
+	skillReviewStatusRejected    = "rejected"
+	skillReviewStatusPublished   = "published"
+	skillReviewStatusUnpublished = "unpublished"
 
-	skillSubmissionDraft     = "draft"
-	skillSubmissionInReview  = "in_review"
-	skillSubmissionRejected  = "rejected"
-	skillSubmissionPublished = "published"
-	skillSubmissionWithdrawn = "withdrawn"
+	skillSubmissionDraft       = "draft"
+	skillSubmissionInReview    = "in_review"
+	skillSubmissionRejected    = "rejected"
+	skillSubmissionPublished   = "published"
+	skillSubmissionWithdrawn   = "withdrawn"
+	skillSubmissionUnpublished = "unpublished"
 )
 
 type SkillSubmissionMetadata struct {
@@ -233,7 +235,7 @@ func (s *Service) SkillSubmissionReviewQueue(adminID string, isAdmin bool, statu
 	if status == "" {
 		status = skillSubmissionInReview
 	}
-	if status != skillSubmissionInReview && status != skillSubmissionRejected && status != skillSubmissionPublished {
+	if status != skillSubmissionInReview && status != skillSubmissionRejected && status != skillSubmissionPublished && status != skillSubmissionUnpublished {
 		return nil, kernel.BadAuthRequest("审核状态无效")
 	}
 	rows, err := s.repo.ReviewSkillSubmissions(status)
@@ -249,6 +251,47 @@ func (s *Service) SkillSubmissionReviewQueue(adminID string, isAdmin bool, statu
 		items = append(items, *item)
 	}
 	return items, nil
+}
+
+// UnpublishSkill removes a published skill from the public catalog while
+// preserving its immutable version and review evidence as historical records.
+func (s *Service) UnpublishSkill(adminID string, isAdmin bool, skillID string, reason string) (*SkillSubmissionItem, error) {
+	if !isAdmin || strings.TrimSpace(adminID) == "" {
+		return nil, kernel.Forbidden("只有审核员可以下架技能")
+	}
+	skill, err := s.repo.Skill(strings.TrimSpace(skillID))
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, kernel.BadAuthRequest("技能不存在")
+	}
+	if err != nil {
+		return nil, err
+	}
+	if skill.ReviewStatus != skillReviewStatusPublished || skill.IsPrivate {
+		return nil, kernel.NewAppError(409, "只有已公开技能可以下架")
+	}
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return nil, kernel.BadAuthRequest("下架技能时必须填写原因")
+	}
+	if utf8.RuneCountInString(reason) > 4000 {
+		return nil, kernel.BadAuthRequest("下架原因不能超过 4000 个字符")
+	}
+	submission, err := s.repo.PublishedSkillSubmission(skill.ID)
+	if err != nil {
+		return nil, err
+	}
+	if submission == nil {
+		return nil, kernel.NewAppError(409, "没有可下架的已发布投稿记录")
+	}
+	submission.Status = skillSubmissionUnpublished
+	submission.ReviewerID = adminID
+	submission.ReviewReason = reason
+	skill.ReviewStatus = skillReviewStatusUnpublished
+	skill.IsPrivate = true
+	if err := s.repo.SaveSkillSubmissionAndSkill(submission, skill); err != nil {
+		return nil, err
+	}
+	return s.skillSubmissionItem(submission)
 }
 
 func (s *Service) ReviewSkillSubmission(adminID string, isAdmin bool, submissionID string, req SkillReviewRequest) (*SkillSubmissionItem, error) {

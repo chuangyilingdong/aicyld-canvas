@@ -90,7 +90,7 @@ export type SkillSubmission = {
     versionId: string;
     authorId: string;
     revision: number;
-    status: "draft" | "in_review" | "rejected" | "published" | "withdrawn" | string;
+    status: "draft" | "in_review" | "rejected" | "published" | "withdrawn" | "unpublished" | string;
     contentHash: string;
     metadata: SkillSubmissionMetadata;
     reviewReason?: string;
@@ -334,7 +334,7 @@ export function withdrawSkillSubmission(submissionId: string) {
     return http.delete<{ submission: SkillSubmission }>(`/skills/submissions/${encodeURIComponent(submissionId)}`);
 }
 
-export function listSkillReviewQueue(status: "in_review" | "rejected" | "published" = "in_review") {
+export function listSkillReviewQueue(status: "in_review" | "rejected" | "published" | "unpublished" = "in_review") {
     return http.get<{ items: SkillSubmission[] }>("/skills/review/submissions", { params: { status } });
 }
 
@@ -348,4 +348,8 @@ export function getSkillReviewFile(submissionId: string, path: string) {
 
 export function reviewSkillSubmission(submissionId: string, input: { decision: "approve" | "reject"; reason?: string; summary?: { trials: SkillReviewTrial[] } }) {
     return http.post<{ submission: SkillSubmission }>(`/skills/review/submissions/${encodeURIComponent(submissionId)}/review`, input);
+}
+
+export function unpublishSkill(skillId: string, reason: string) {
+    return http.post<{ submission: SkillSubmission }>(`/skills/${encodeURIComponent(skillId)}/unpublish`, { reason });
 }
