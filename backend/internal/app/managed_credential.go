@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"infinite-canvas/backend/internal/beefapi"
+	"infinite-canvas/backend/internal/platformchannels"
+	"infinite-canvas/backend/internal/workspace"
 )
 
 const managedBeefAPIRef = beefapi.CredentialRef
@@ -153,6 +155,9 @@ func (s *Service) ResolveCustomRelayAPIKey(targetURL, incoming string) (string, 
 }
 
 func (s *Service) resolveCustomRelayKey(targetURL, incoming string) (string, error) {
+	if key, ok := s.resolvePlatformChannelKey(targetURL, incoming); ok {
+		return key, nil
+	}
 	// An unrelated custom channel must remain usable even if the managed
 	// connection is revoked. Resolve its secret only for the bound origin.
 	if s.beefAPI != nil && s.beefAPI.HasManagedCredential() && !sameCredentialOrigin(targetURL, s.beefAPI.Origin()) {
@@ -166,6 +171,23 @@ func (s *Service) resolveCustomRelayKey(targetURL, incoming string) (string, err
 		return incoming, nil
 	}
 	return apiKey, nil
+}
+
+// resolvePlatformChannelKey replaces only the browser placeholder, never a real
+// user-supplied key. Matching is limited to the configured scheme and host.
+func (s *Service) resolvePlatformChannelKey(targetURL, incoming string) (string, bool) {
+	if s == nil {
+		return "", false
+	}
+	provided := strings.TrimSpace(incoming)
+	if provided != "" && provided != platformchannels.PlaceholderSecret && provided != workspace.RedactedSecret {
+		return "", false
+	}
+	store, err := platformchannels.New(s.dataDir)
+	if err != nil || !store.Configured() {
+		return "", false
+	}
+	return store.ResolveAPIKey(targetURL)
 }
 
 func sameCredentialOrigin(targetURL, baseURL string) bool {

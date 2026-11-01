@@ -53,6 +53,7 @@ export type LocalModelConfigPayload = {
 	revision: number;
 	health: "ready" | "default" | "migrated" | "recovered";
 	source: "builtin+local";
+	featureModels?: Record<string, string>;
 };
 
 export function saveLocalModelConfig(config: AiConfig, expectedRevision: number) {

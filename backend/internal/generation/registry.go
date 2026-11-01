@@ -48,10 +48,13 @@ func EnsureOfficialProtocolAdapter(ctx context.Context, interfaceType string) co
 	}
 	registry := LoadOfficialFallbackRegistry()
 	adapter, ok := registry.Resolve(interfaceType)
-	if !ok || adapter.Metadata().Execution != "declarative" {
-		return ctx
+	if ok && adapter.Metadata().Execution == "declarative" {
+		return WithProtocolRegistry(ctx, registry)
 	}
-	return WithProtocolRegistry(ctx, registry)
+	if builtin, builtinOK := protocol.Builtins().Resolve(interfaceType); builtinOK && builtin.Metadata().Execution == "declarative" {
+		return WithProtocolRegistry(ctx, protocol.Builtins())
+	}
+	return ctx
 }
 
 func OfficialDeclarativeVideoInterface(interfaceType string) (string, bool) {
@@ -85,6 +88,8 @@ func OfficialDeclarativeVideoInterface(interfaceType string) (string, bool) {
 
 func OfficialDeclarativeImageInterface(interfaceType string) (string, bool) {
 	switch strings.TrimSpace(interfaceType) {
+	case string(model.ChannelInterfaceMidjourney):
+		return "Midjourney", true
 	case string(model.ChannelInterfaceGeminiImage):
 		return "Gemini Images", true
 	case string(model.ChannelInterfaceOpenAIImage):

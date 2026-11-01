@@ -3,14 +3,17 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	"os"
 
 	"infinite-canvas/backend/internal/app"
 	"infinite-canvas/backend/internal/beefapi"
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/modelcatalog"
 	"infinite-canvas/backend/internal/platform"
+	"infinite-canvas/backend/internal/platformchannels"
 	"infinite-canvas/backend/internal/workspace"
 
 	"github.com/gin-gonic/gin"
@@ -23,6 +26,7 @@ type workspaceBootstrap interface {
 	WorkspaceOwner(string) (*model.User, error)
 	PublicRuntimeLimits() (*platform.PublicRuntimeLimits, error)
 	FeatureAvailability() (*platform.PublicFeatureAvailability, error)
+	DataDir() string
 	ReadLocalModelConfig() ([]byte, error)
 	SaveLocalModelConfig([]byte) error
 }
@@ -88,7 +92,13 @@ func RegisterWorkspaceRoutes(r *gin.RouterGroup, bootstrap workspaceBootstrap) {
 				failService(c, err)
 				return
 			}
-			ok(c, gin.H{"config": redactModelConfig(c, bootstrap, effective.Config), "revision": effective.Revision, "health": health, "source": "builtin+local"})
+			ok(c, gin.H{
+				"config":        publicModelConfig(c, bootstrap, effective.Config),
+				"revision":      effective.Revision,
+				"health":        health,
+				"source":        "builtin+local",
+				"featureModels": platformFeatureModels(bootstrap),
+			})
 			return
 		}
 		body, err := providerConfig.ReadLocalModelConfig()
@@ -105,7 +115,7 @@ func RegisterWorkspaceRoutes(r *gin.RouterGroup, bootstrap workspaceBootstrap) {
 			fail(c, http.StatusInternalServerError, errors.New("本地模型配置损坏"))
 			return
 		}
-		ok(c, gin.H{"config": redactModelConfig(c, bootstrap, config)})
+		ok(c, gin.H{"config": publicModelConfig(c, bootstrap, config), "featureModels": platformFeatureModels(bootstrap)})
 	})
 	r.PUT("/workspace/model-config", func(c *gin.Context) {
 		if _, err := workspaceForLocalRequest(c, bootstrap); err != nil {
@@ -129,6 +139,13 @@ func RegisterWorkspaceRoutes(r *gin.RouterGroup, bootstrap workspaceBootstrap) {
 			fail(c, http.StatusBadRequest, errors.New("修改模型配置需要 expectedRevision"))
 			return
 		}
+		if err := requireModelConfigWrite(c); err != nil {
+			fail(c, http.StatusForbidden, err)
+			return
+		}
+		// Platform channels are server-owned. Ignore stale browser copies so a
+		// settings save can never turn the placeholder credential into storage.
+		envelope.Config = stripPlatformChannelConfig(envelope.Config)
 		envelope.Config = preserveManagedModelConfig(c, bootstrap, envelope.Config)
 		providerConfig := requestProviderConfig(c, bootstrap)
 		if versioned, supportsVersioning := providerConfig.(VersionedProviderConfig); supportsVersioning && envelope.ExpectedRevision != nil {
@@ -178,6 +195,70 @@ func RegisterWorkspaceRoutes(r *gin.RouterGroup, bootstrap workspaceBootstrap) {
 			"capabilityConfig": normalized,
 		})
 	})
+}
+
+// requireModelConfigWrite keeps hosted workspace users read-only. The internal
+// channel API remains the only platform-managed write path and uses its own
+// server-to-server credential.
+func requireModelConfigWrite(c *gin.Context) error {
+	if !SSOConfigured() {
+		return nil
+	}
+	if value, exists := c.Get(workspaceAdminKey); exists {
+		if allowed, ok := value.(bool); ok && allowed {
+			return nil
+		}
+	}
+	return errors.New("模型配置由平台统一维护，如需调整请联系管理员")
+}
+
+func platformFeatureModels(bootstrap workspaceBootstrap) map[string]string {
+	store, err := platformchannels.New(bootstrap.DataDir())
+	if err != nil || !store.Configured() {
+		return map[string]string{}
+	}
+	features, err := store.FeatureModels()
+	if err != nil {
+		logPlatformChannelFailure(err)
+		return map[string]string{}
+	}
+	if features == nil {
+		return map[string]string{}
+	}
+	return features
+}
+
+// publicModelConfig injects only redacted platform channels. Real API keys stay
+// on disk and are resolved by the server-side relay when a placeholder key is
+// presented.
+func publicModelConfig(c *gin.Context, bootstrap workspaceBootstrap, config map[string]any) map[string]any {
+	redacted := redactModelConfig(c, bootstrap, config)
+	store, err := platformchannels.New(bootstrap.DataDir())
+	if err != nil || !store.Configured() {
+		return redacted
+	}
+	channels, err := store.List()
+	if err != nil {
+		logPlatformChannelFailure(err)
+		return redacted
+	}
+	return platformchannels.Apply(redacted, channels)
+}
+
+func stripPlatformChannelConfig(raw json.RawMessage) json.RawMessage {
+	var value map[string]any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return raw
+	}
+	encoded, err := json.Marshal(platformchannels.Strip(value))
+	if err != nil {
+		return raw
+	}
+	return encoded
+}
+
+func logPlatformChannelFailure(err error) {
+	fmt.Fprintf(os.Stderr, "[canvas] 读取平台渠道配置失败: %v\n", err)
 }
 
 func redactModelConfig(c *gin.Context, connections beefAPIConnections, config map[string]any) map[string]any {

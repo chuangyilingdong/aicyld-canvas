@@ -8,10 +8,44 @@ import (
 )
 
 func (s *Service) protocolRegistry() *protocol.Registry {
-	if registry := s.pluginDomain().Registry(); registry != nil {
-		return registry
+	registry := s.pluginDomain().Registry()
+	if registry == nil {
+		registry = loadOfficialFallbackRegistry()
 	}
-	return loadOfficialFallbackRegistry()
+	return registryWithHostBuiltins(registry)
+}
+
+// registryWithHostBuiltins keeps host-backed protocols available when the
+// installer registry is populated only from declarative packages. Package
+// adapters win; builtins fill protocols that have no packaged replacement.
+func registryWithHostBuiltins(base *protocol.Registry) *protocol.Registry {
+	if base == nil {
+		return protocol.Builtins()
+	}
+	adapters := make([]protocol.Adapter, 0)
+	for _, metadata := range base.List("", "", true) {
+		if adapter, ok := base.Get(metadata.ID); ok {
+			adapters = append(adapters, adapter)
+		}
+	}
+	missing := false
+	for _, metadata := range protocol.Builtins().List("", "", true) {
+		if _, exists := base.Resolve(metadata.ID); exists {
+			continue
+		}
+		if adapter, ok := protocol.Builtins().Get(metadata.ID); ok {
+			adapters = append(adapters, adapter)
+			missing = true
+		}
+	}
+	if !missing {
+		return base
+	}
+	merged, err := protocol.NewRegistry(adapters...)
+	if err != nil {
+		return base
+	}
+	return merged
 }
 
 func (s *Service) protocolMetadata(id string) (protocol.Metadata, bool) {
