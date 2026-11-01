@@ -25,6 +25,7 @@ import (
 type workspaceBootstrap interface {
 	beefAPIConnections
 	WorkspaceOwner(string) (*model.User, error)
+	LocalWorkspaceOwner() (*model.User, error)
 	PublicRuntimeLimits() (*platform.PublicRuntimeLimits, error)
 	FeatureAvailability() (*platform.PublicFeatureAvailability, error)
 	DataDir() string

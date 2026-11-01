@@ -1,0 +1,27 @@
+{
+  "ok": true,
+  "changed_rows": [],
+  "schema_ledger_changes": [
+    {
+      "table": "local_schema_migrations",
+      "before": 23,
+      "after": 28
+    }
+  ],
+  "missing_tables": [],
+  "added_tables": [
+    "aicyld_schema_migrations"
+  ],
+  "before_versions": {
+    "local": 24,
+    "aicyld_overlay": null
+  },
+  "after_versions": {
+    "local": 29,
+    "aicyld_overlay": 1
+  },
+  "integrity_check": [
+    "ok"
+  ],
+  "foreign_key_violations": []
+}
