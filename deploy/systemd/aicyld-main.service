@@ -1,0 +1,25 @@
+[Unit]
+Description=AICYLD main site
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=10
+
+[Service]
+Type=simple
+User=aicyld
+Group=aicyld
+WorkingDirectory=/srv/aicyld/main-prod
+EnvironmentFile=/srv/aicyld/main-prod/.env
+ExecStart=/usr/bin/node /srv/aicyld/main-prod/dist/server/index.js
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+MemoryAccounting=true
+MemoryHigh=700M
+MemoryMax=1000M
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
