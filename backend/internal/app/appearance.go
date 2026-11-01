@@ -24,6 +24,7 @@ const (
 	defaultAppearanceBrandSlug = appearance.DefaultBrandSlug
 	defaultAppearanceSkinID    = appearance.DefaultSkinID
 	defaultAppearanceLogoURL   = appearance.DefaultLogoURL
+	defaultAppearanceDarkLogoURL = appearance.DefaultDarkLogoURL
 	defaultAppearanceVideoURL  = appearance.DefaultVideoURL
 	defaultAppearancePosterURL = appearance.DefaultPosterURL
 	defaultAppearanceHeroTitle = appearance.DefaultHeroTitle
