@@ -116,14 +116,39 @@ func (s *Service) retry(userID, id string, refresh *retryCredentialRefresh) (*mo
 		}
 		task.InputJSON = string(encoded)
 	}
+	nextAttempt := *task
+	nextAttempt.RouteRun = task.RouteRun + 1
+	nextAttempt.BillingHoldID = ""
+	nextAttempt.BillingStatus = ""
+	nextAttempt.BillingPoints = 0
+	billingReserved, reserveErr := s.reserveBilling(userID, &nextAttempt)
+	if reserveErr != nil {
+		return nil, reserveErr
+	}
 	if refresh != nil {
 		store, ok := s.store.(credentialRetryStore)
 		if !ok {
+			if billingReserved {
+				s.releaseBilling(&nextAttempt, "任务重试未进入队列，释放预扣")
+			}
 			return nil, unavailable()
 		}
-		task, err = store.RetryWithExpectedInput(userID, task, limit, refresh.expectedInputJSON)
+		task, err = store.RetryWithExpectedInput(userID, &nextAttempt, limit, refresh.expectedInputJSON)
 	} else {
-		task, err = s.store.Retry(userID, task, limit)
+		task, err = s.store.Retry(userID, &nextAttempt, limit)
+	}
+	if err != nil && billingReserved {
+		retryOwned := false
+		latest, lookupErr := s.store.TaskForUser(userID, nextAttempt.ID)
+		if lookupErr != nil {
+			retryOwned = true
+			s.log(userID, nextAttempt.ID, "error", "重试失败后无法确认任务状态，保留预扣待对账", lookupErr.Error())
+		} else if latest != nil {
+			retryOwned = latest.Status == model.TaskStatusQueued || latest.Status == model.TaskStatusRunning || latest.Status == model.TaskStatusSucceeded
+		}
+		if !retryOwned {
+			s.releaseBilling(&nextAttempt, "任务重试未进入队列，释放预扣")
+		}
 	}
 	if errors.Is(err, repository.ErrActiveTaskLimit) {
 		return nil, activeLimitError(limit)
@@ -185,6 +210,7 @@ func (s *Service) Cancel(ctx context.Context, userID, id string) (*model.Task, e
 	task.Error = "任务已取消"
 	task.CompletedAt = &now
 	s.deps.Runtime.StopLocalWait(task.ID)
+	s.releaseBilling(task, "用户取消任务，释放预扣")
 
 	if s.deps.TextReplay != nil {
 		if err := s.deps.TextReplay.Finalize(task.ID, model.TaskStatusCancelled); err != nil {

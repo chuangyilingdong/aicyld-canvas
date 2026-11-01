@@ -41,6 +41,45 @@ func RegisterTaskRoutes(r *gin.RouterGroup, svc *app.Service, hostedProfile ...b
 		}
 		ok(c, task)
 	})
+	r.POST("/tasks/quote", func(c *gin.Context) {
+		if !requireTrustedDesktopWritePrincipal(c, "任务报价只能由当前界面发起") {
+			return
+		}
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		policy, available := loadRuntimePolicy(c, svc)
+		if !available || !enforceRateLimit(c, "task-quote:"+user.ID, policy.Request.TaskCreatePerMinute, time.Minute) {
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 16<<20)
+		var req localtask.CreateRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			fail(c, http.StatusBadRequest, err)
+			return
+		}
+		quote, err := svc.QuoteLocalTask(user.ID, req)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, quote)
+	})
+	r.GET("/billing/balance", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		balance, err := svc.BillingBalance(c.Request.Context(), user.ID)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, balance)
+	})
 	r.POST("/timeline/transcriptions", func(c *gin.Context) {
 		if !requireTrustedDesktopWritePrincipal(c, "字幕转写只能由当前桌面界面创建") {
 			return

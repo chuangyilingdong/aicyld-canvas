@@ -189,3 +189,25 @@ func TestAPIErrorClassification(t *testing.T) {
 		t.Fatalf("insufficient error misclassified as missing rule: %v", err)
 	}
 }
+
+func TestReservePrefersClientOperationIdempotencyKey(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if body["idempotencyKey"] != "op-1:2" {
+			t.Fatalf("idempotencyKey = %v", body["idempotencyKey"])
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"enabled":true,"holdId":"hold-1","points":3,"balance":9,"status":"reserved"}`))
+	}))
+	defer server.Close()
+	client := &Client{baseURL: server.URL, secret: "test-secret", http: server.Client()}
+	_, err := client.Reserve(context.Background(), "user", &TaskSnapshot{
+		ID: "task-1", ClientOperationID: "op-1", RouteRun: 2, Type: "canvas_image", Provider: "managed", Model: "image-model",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}

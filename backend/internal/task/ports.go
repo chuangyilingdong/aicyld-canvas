@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"infinite-canvas/backend/internal/billing"
 	"infinite-canvas/backend/internal/generation"
 	"infinite-canvas/backend/internal/model"
 )
@@ -158,6 +159,16 @@ type Activity interface {
 	Record(userID, kind string, n int)
 }
 
+// Billing is the AICYLD points-ledger port. It stays disabled in local builds
+// without a billing secret.
+type Billing interface {
+	Enabled() bool
+	Quote(context.Context, string, *model.Task) (*billing.BillingQuote, error)
+	Reserve(context.Context, string, *model.Task) (*billing.BillingReservation, error)
+	Settle(context.Context, *model.Task, string, string) (*billing.BillingSettlement, error)
+	Release(context.Context, *model.Task, string) (*billing.BillingSettlement, error)
+}
+
 // Dependencies are the explicit collaborators of the task domain.
 // NewService does not require every port so reads can omit provider-side
 // collaborators. Operations fail closed when a port needed on that path is
@@ -177,6 +188,7 @@ type Activity interface {
 // require Catalog, Secrets, Media, or TextReplay.
 type Dependencies struct {
 	BindTranscriptionModel func(string) (string, error)
+	Billing                Billing
 	Catalog                Catalog
 	Secrets                Secrets
 	Media                  Media

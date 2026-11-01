@@ -123,6 +123,10 @@ func (m *memStore) Retry(userID string, prepared *model.Task, limit int) (*model
 	task.InputJSON = prepared.InputJSON
 	task.Model = prepared.Model
 	task.Provider = prepared.Provider
+	task.RouteRun = prepared.RouteRun
+	task.BillingHoldID = prepared.BillingHoldID
+	task.BillingStatus = prepared.BillingStatus
+	task.BillingPoints = prepared.BillingPoints
 	m.tasks[task.ID] = task
 	copied := task
 	return &copied, nil

@@ -42,6 +42,7 @@ func (w *taskWorkerCoordinator) start(ctx context.Context) {
 	s := w.service
 	s.startTextReplayCleanup(ctx)
 	s.startProviderCancellationReconciliation(ctx)
+	s.startCanvasBillingReconciliation(ctx)
 	s.startGenerationDeliveryRecovery(ctx)
 	s.startCanvasWorkflowScheduler(ctx)
 	// 旧内置 Agent 的后台调度已整体从产品生命周期移出：

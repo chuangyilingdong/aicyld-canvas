@@ -327,6 +327,9 @@ func (r *Repository) CreateTaskWithActiveLimit(task *model.Task, limit int) erro
 			}
 			return err
 		}
+		if err := updateTaskBillingTx(tx, task); err != nil {
+			return err
+		}
 		return nil
 	})
 }
@@ -372,6 +375,11 @@ func (r *Repository) retryTask(userID string, prepared *model.Task, limit int, e
 		}
 		if updated.RowsAffected != 1 {
 			return ErrTaskNotRetryable
+		}
+		if tx.Migrator().HasColumn("tasks", "billing_hold_id") {
+			if err := tx.Exec("UPDATE tasks SET billing_hold_id = ?, billing_status = ?, billing_points = ? WHERE id = ? AND user_id = ?", prepared.BillingHoldID, prepared.BillingStatus, prepared.BillingPoints, prepared.ID, userID).Error; err != nil {
+				return err
+			}
 		}
 		if err := tx.Delete(&model.TaskTextDelta{}, "user_id = ? AND task_id = ?", userID, prepared.ID).Error; err != nil {
 			return err

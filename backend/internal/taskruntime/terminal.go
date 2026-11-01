@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"infinite-canvas/backend/internal/billing"
 	"infinite-canvas/backend/internal/generation"
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/repository"
@@ -19,6 +20,7 @@ type Terminal struct {
 	replay            TerminalReplay
 	logger            TerminalLogger
 	outputs           TerminalOutputs
+	billing           TerminalBilling
 	userFacingMessage func(error) string
 	captureFailure    func(*model.Task, error, string)
 	logFailedAttempt  func(model.Task, error)
@@ -38,18 +40,24 @@ type TerminalOutputs interface {
 	DeliverSucceededTask(model.Task) error
 	RegisterTaskOutputFromTask(model.Task) error
 }
+type TerminalBilling interface {
+	Settle(context.Context, *model.Task, string, string) (*billing.BillingSettlement, error)
+	Release(context.Context, *model.Task, string) (*billing.BillingSettlement, error)
+}
+
 type TerminalDependencies struct {
 	Repository        TerminalRepository
 	Replay            TerminalReplay
 	Logger            TerminalLogger
 	Outputs           TerminalOutputs
+	Billing           TerminalBilling
 	UserFacingMessage func(error) string
 	CaptureFailure    func(*model.Task, error, string)
 	LogFailedAttempt  func(model.Task, error)
 }
 
 func NewTerminal(d TerminalDependencies) *Terminal {
-	return &Terminal{repo: d.Repository, replay: d.Replay, logger: d.Logger, outputs: d.Outputs, userFacingMessage: d.UserFacingMessage, captureFailure: d.CaptureFailure, logFailedAttempt: d.LogFailedAttempt}
+	return &Terminal{repo: d.Repository, replay: d.Replay, logger: d.Logger, outputs: d.Outputs, billing: d.Billing, userFacingMessage: d.UserFacingMessage, captureFailure: d.CaptureFailure, logFailedAttempt: d.LogFailedAttempt}
 }
 
 func (c *Terminal) MarkPreparationFailure(task *model.Task, stage string, err error, _ bool, _ string) error {
@@ -61,6 +69,7 @@ func (c *Terminal) MarkPreparationFailure(task *model.Task, stage string, err er
 	if terminalErr := c.markTerminalState(task); terminalErr != nil {
 		return errors.Join(err, terminalErr)
 	}
+	c.releaseBilling(task, "任务准备失败，退还预扣积分")
 	return err
 }
 
@@ -72,7 +81,11 @@ func (c *Terminal) Refuse(task *model.Task, stage string, message string) error 
 	task.Status = model.TaskStatusFailed
 	task.Stage = stage
 	task.Error = message
-	return c.markTerminalState(task)
+	if err := c.markTerminalState(task); err != nil {
+		return err
+	}
+	c.releaseBilling(task, "任务被产品边界拒绝，退还预扣积分")
+	return nil
 }
 
 // HandleExecutionFailure 返回 nil 仅表示取消已被正常收尾；普通失败仍返回原始错误，
@@ -90,6 +103,7 @@ func (c *Terminal) HandleExecutionFailure(task *model.Task, err error, providerS
 		if terminalErr := c.markTerminalState(task); terminalErr != nil {
 			return terminalErr
 		}
+		c.releaseBilling(task, "任务已取消，退还预扣积分")
 		c.finalizeReplay(task, model.TaskStatusCancelled, "文本回放草稿归并失败")
 		_ = c.logger.Log(task.UserID, task.ID, "warn", "任务已取消", "")
 		return nil
@@ -116,6 +130,11 @@ func (c *Terminal) HandleExecutionFailure(task *model.Task, err error, providerS
 	task.Error = c.userFacingMessage(err)
 	if terminalErr := c.markTerminalState(task); terminalErr != nil {
 		return errors.Join(err, terminalErr)
+	}
+	if task.Stage == "submission_unknown" {
+		c.markBillingPending(task, "上游提交结果未确认，等待核对")
+	} else {
+		c.releaseBilling(task, "任务失败，退还预扣积分")
 	}
 	c.finalizeReplay(task, model.TaskStatusFailed, "文本回放草稿归并失败")
 	_ = c.logger.Log(task.UserID, task.ID, "error", "任务处理失败", task.Error)
@@ -154,6 +173,7 @@ func (c *Terminal) HandleResultPersistenceFailure(task *model.Task, saveErr erro
 	if terminalErr := c.markTerminalState(task); terminalErr != nil {
 		return false, errors.Join(saveErr, terminalErr)
 	}
+	c.releaseBilling(task, "任务结果保存失败，退还预扣积分")
 	c.finalizeReplay(task, model.TaskStatusFailed, "文本回放草稿归并失败")
 	_ = c.logger.Log(task.UserID, task.ID, "error", "任务结果保存失败", task.Error)
 	return false, saveErr
@@ -168,6 +188,7 @@ func (c *Terminal) ensureFailedAttemptLogged(task *model.Task, err error) {
 
 func (c *Terminal) HandleSuccess(task *model.Task) error {
 	c.finalizeReplay(task, model.TaskStatusSucceeded, "文本回放窗口更新失败")
+	c.settleBilling(task, "任务成功，结算预扣积分")
 	var completionErr error
 	completedTask, fetchErr := c.repo.Task(task.ID)
 	if fetchErr != nil {

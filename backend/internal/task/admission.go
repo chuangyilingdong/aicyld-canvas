@@ -170,14 +170,26 @@ func (s *Service) admit(userID string, req CreateRequest) (*model.Task, error) {
 		return nil, err
 	}
 	task.InputJSON = inputJSON
+	billingReserved, err := s.reserveBilling(userID, &task)
+	if err != nil {
+		return nil, err
+	}
+	releaseBilling := func(reason string) {
+		if billingReserved {
+			s.releaseBilling(&task, reason)
+		}
+	}
 	if s.deps.Persist == nil {
+		releaseBilling("任务持久化服务不可用，释放预扣")
 		return nil, localStorageFailed(errors.New("task persistence is required"))
 	}
 	if s.deps.Present == nil {
+		releaseBilling("任务展示服务不可用，释放预扣")
 		return nil, unavailable()
 	}
 	err = s.deps.Persist.CreateAdmitted(&task, limit)
 	if mapped, mapErr := mapPersistError(err, req, s.deps.Present, limit); mapErr != nil || mapped != nil {
+		releaseBilling("任务准入未成功，释放预扣")
 		return mapped, mapErr
 	}
 	if !textReplay && s.deps.Activity != nil {

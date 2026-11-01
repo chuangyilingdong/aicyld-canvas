@@ -25,15 +25,16 @@ type Client struct {
 // separate from model.Task prevents hosted billing fields from changing the
 // upstream persistence contract.
 type TaskSnapshot struct {
-	ID            string
-	ProjectID     string
-	RouteRun      int
-	Type          string
-	Operation     string
-	Provider      string
-	Model         string
-	InputJSON     string
-	BillingHoldID string
+	ID                string
+	ProjectID         string
+	RouteRun          int
+	Type              string
+	Operation         string
+	Provider          string
+	Model             string
+	InputJSON         string
+	ClientOperationID string
+	BillingHoldID     string
 }
 
 type BillingQuote struct {
@@ -131,7 +132,7 @@ func (c *Client) Reserve(ctx context.Context, userID string, task *TaskSnapshot)
 	}
 	body := map[string]any{
 		"userId":         mainUserID(userID),
-		"idempotencyKey": task.ID + ":" + strconv.Itoa(routeRun),
+		"idempotencyKey": reserveIdempotencyKey(task, routeRun),
 		"taskId":         task.ID,
 		"projectId":      task.ProjectID,
 		"facts":          Facts(task),
@@ -141,6 +142,16 @@ func (c *Client) Reserve(ctx context.Context, userID string, task *TaskSnapshot)
 		return nil, err
 	}
 	return &reservation, nil
+}
+
+func reserveIdempotencyKey(task *TaskSnapshot, routeRun int) string {
+	if task == nil {
+		return ""
+	}
+	if operationID := strings.TrimSpace(task.ClientOperationID); operationID != "" {
+		return operationID + ":" + strconv.Itoa(routeRun)
+	}
+	return task.ID + ":" + strconv.Itoa(routeRun)
 }
 
 func mainUserID(canvasUserID string) string {
