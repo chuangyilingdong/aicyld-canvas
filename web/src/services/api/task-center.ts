@@ -46,6 +46,8 @@ export type GenerationTask = {
     operation?: string;
     provider?: string;
     model?: string;
+    billingStatus?: "reserved" | "settled" | "refunded" | "refund_pending" | "pending_reconcile" | string;
+    billingPoints?: number;
     providerRequestId?: string;
     providerCancelStatus?: ProviderCancelStatus;
     providerCancelError?: string;

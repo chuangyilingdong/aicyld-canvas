@@ -330,6 +330,19 @@ export async function prepareBackendGenerationTask(options: BackendGenerationTas
     return backendGenerationTaskInput(options, prepared);
 }
 
+/**
+ * Builds the same task shape used by the price quote without reading or
+ * uploading reference media. Real submission still prepares references.
+ */
+export function buildBackendGenerationTaskQuoteInput(options: BackendGenerationTaskOptions): CreateTaskInput {
+    throwIfAborted(options.signal);
+    assertBackendRuntimeConfigured(options.config, options.mode);
+    return backendGenerationTaskInput(
+        { ...options, prompt: options.prompt.trim() ? options.prompt : "生成" },
+        { referenceImages: [], referenceVideos: [], referenceAudios: [] },
+    );
+}
+
 function backendGenerationTaskInput(options: BackendGenerationTaskOptions, prepared: PreparedGenerationReferences): CreateTaskInput {
     const { projectId, mode, prompt, config, metadata } = options;
     const videoOperation = generationOperation(options);
