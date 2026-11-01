@@ -1,7 +1,7 @@
 import { Button, InputNumber, Modal, Popover } from "antd";
 import { Tooltip } from "@/components/ui/base/tooltip";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { ArrowLeftRight, ArrowUp, Boxes, Camera, ChevronDown, FileText, ImagePlus, LoaderCircle, Maximize2, Music2, SlidersHorizontal, Video, WandSparkles, X } from "lucide-react";
+import { ArrowLeftRight, ArrowUp, Boxes, Camera, ChevronDown, FileText, ImagePlus, LoaderCircle, Maximize2, Music2, SlidersHorizontal, Video, WandSparkles, X, Zap } from "lucide-react";
 
 import { ModelPicker } from "@/components/model-picker";
 import { modelCapabilityConfigFor } from "@/lib/model-capabilities";
@@ -13,6 +13,9 @@ import { modelRequestOptions, defaultImageParamsForModel, type ModelRequirements
 import { navigateToSettings } from "@/lib/settings-navigation";
 import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
 import { useUserStore } from "@/stores/use-user-store";
+import { useCanvasBillingBalance } from "@/hooks/use-canvas-billing";
+import { useCanvasGenerationQuote } from "@/hooks/use-canvas-generation-quote";
+import { buildBackendGenerationTaskQuoteInput } from "@/services/api/generation-task";
 import { CanvasCameraControlPopover } from "./canvas-camera-control-popover";
 import { CanvasImageSettingsPopover } from "./canvas-image-settings-popover";
 import { CanvasAudioSettingsPopover, type CanvasAudioSettingKey } from "./canvas-audio-settings-popover";
@@ -126,6 +129,31 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
         options: modelRequestOptions(config, mode),
         videoSeconds: mode === "video" ? config.videoSeconds : undefined,
     };
+    const billingQuoteInput = useMemo(() => {
+        if (mode === "text" || !prompt.trim()) return null;
+        try {
+            return buildBackendGenerationTaskQuoteInput({
+                projectId,
+                mode,
+                prompt: prompt.trim(),
+                config,
+                metadata: {
+                    sourceNodeId: node.id,
+                    ...(node.metadata?.videoEditOperation ? { videoEditOperation: node.metadata.videoEditOperation } : {}),
+                },
+            });
+        } catch {
+            return null;
+        }
+    }, [config, mode, node.id, node.metadata?.videoEditOperation, projectId, prompt]);
+    const billingQuoteQuery = useCanvasGenerationQuote(billingQuoteInput);
+    const billingBalanceQuery = useCanvasBillingBalance({ enabled: mode !== "text" });
+    const availableBillingBalance = billingBalanceQuery.data?.enabled ? billingBalanceQuery.data.balance : billingQuoteQuery.quote?.balance;
+    const estimatedBillingPoints = billingQuoteQuery.quote?.enabled ? billingQuoteQuery.quote.points : 0;
+    const billingPending = Boolean(billingQuoteInput) && (billingQuoteQuery.loading || (billingQuoteQuery.quote === undefined && !billingQuoteQuery.error));
+    const insufficientBillingPoints = Boolean(mode !== "text" && billingQuoteQuery.quote?.enabled && estimatedBillingPoints > 0 && typeof availableBillingBalance === "number" && availableBillingBalance < estimatedBillingPoints);
+    const billingQuoteUnavailable = Boolean(mode !== "text" && billingQuoteInput && billingQuoteQuery.error);
+
     const promptOptimizerProvider = useMemo(() => {
         if (!promptOptimizerEnabled || !promptOptimizerInstallation || !promptOptimizerPlugin.createPromptOptimizer) return null;
         return promptOptimizerPlugin.createPromptOptimizer(createPluginHostContext(promptOptimizerPlugin, promptOptimizerInstallation, globalConfig));
@@ -175,6 +203,7 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
         return { width: Math.round(rect.width), height: Math.round(rect.height) };
     };
     const isSubmitDisabled = !isRunning && !prompt.trim();
+    const submitDisabled = isRunning || isSubmitDisabled || insufficientBillingPoints || billingQuoteUnavailable;
     const canExpandPrompt = mode === "image" || mode === "video";
     const canOptimizePrompt = Boolean(promptOptimizerProvider) && canExpandPrompt;
     const isPortraitTexture = mode === "image" && Boolean(node.metadata?.portraitTexture);
@@ -238,7 +267,7 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
 
     const submit = () => {
         const text = prompt.trim();
-        if (!text || isRunning) return false;
+        if (!text || isRunning || insufficientBillingPoints || billingQuoteUnavailable) return false;
         if (referenceCheck.issues.length) {
             setReferenceAction({ type: "locate", token: referenceCheck.issues[0].token, key: Date.now() });
             return false;
@@ -327,12 +356,12 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
             <Button
                 type="text"
                 className="canvas-node-composer-submit canvas-node-composer-submit-canvas"
-                disabled={isRunning || isSubmitDisabled}
+                disabled={submitDisabled}
                 style={
                     {
-                        color: isSubmitDisabled ? theme.node.faint : theme.node.text,
-                        "--canvas-composer-submit-action": isSubmitDisabled ? theme.toolbar.itemHover : monochromeAccent,
-                        "--canvas-composer-submit-action-fg": isSubmitDisabled ? theme.node.faint : theme.canvas.background,
+                        color: submitDisabled ? theme.node.faint : theme.node.text,
+                        "--canvas-composer-submit-action": submitDisabled ? theme.toolbar.itemHover : monochromeAccent,
+                        "--canvas-composer-submit-action-fg": submitDisabled ? theme.node.faint : theme.canvas.background,
                     } as CSSProperties
                 }
                 onClick={() => (expanded ? submitExpandedPrompt() : submit())}
@@ -346,6 +375,33 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
         );
     };
 
+    const renderBillingCost = () => {
+        if (mode === "text") return null;
+        const label = billingPending ? "…" : billingQuoteUnavailable ? "—" : billingQuoteQuery.quote?.enabled ? String(estimatedBillingPoints) : "免费";
+        const detail = billingQuoteUnavailable
+            ? "暂时无法读取价格，请稍后重试"
+            : insufficientBillingPoints
+                ? `积分不足：本次预计 ${estimatedBillingPoints} 积分，当前 ${availableBillingBalance ?? 0} 积分`
+                : billingQuoteQuery.quote?.enabled
+                    ? `预计消耗 ${estimatedBillingPoints} 积分，当前余额 ${availableBillingBalance ?? billingQuoteQuery.quote.balance ?? "—"} 积分`
+                    : "当前模型不扣积分";
+        return (
+            <Tooltip title={detail}>
+                <span
+                    className="inline-flex h-7 shrink-0 items-center gap-1 rounded-lg border px-1.5 text-[var(--fs-tiny)] font-medium tabular-nums"
+                    style={{
+                        color: insufficientBillingPoints ? theme.accent.danger : theme.node.muted,
+                        borderColor: insufficientBillingPoints ? `${theme.accent.danger}55` : theme.toolbar.border,
+                        background: insufficientBillingPoints ? `${theme.accent.danger}12` : theme.toolbar.itemHover,
+                    }}
+                    aria-label={billingQuoteQuery.quote?.enabled ? `预计消耗 ${estimatedBillingPoints} 积分` : detail}
+                >
+                    <Zap className="size-3" strokeWidth={2.2} />
+                    <span>{label}</span>
+                </span>
+            </Tooltip>
+        );
+    };
     const renderComposerControls = (expanded: boolean) =>
         simpleMode ? (
             <div className="canvas-node-composer-footer">
@@ -361,6 +417,7 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                     compact
                     label={autoLinkLabel}
                 />
+                {renderBillingCost()}
                 {renderSubmitButton(expanded)}
             </div>
         ) : (
@@ -500,6 +557,7 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                             onConfigChange={(key, value) => onConfigChange(node.id, audioConfigPatch(key, value))}
                         />
                     ) : null}
+                    {renderBillingCost()}
                     {renderSubmitButton(expanded)}
                 </div>
             </div>

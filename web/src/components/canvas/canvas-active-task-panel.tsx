@@ -130,6 +130,19 @@ function ActiveTaskCard({
     const elapsedMs = Math.max(0, now - parseTime(startedAt));
     const durationLabel = `${task.status === "queued" ? "已等待" : "已运行"} ${formatDuration(elapsedMs)}`;
     const statusTone = task.status === "running" ? theme.accent.primary : theme.node.muted;
+    const billingLabel = !task.billingStatus
+        ? ""
+        : task.billingStatus === "reserved"
+            ? `已预扣${typeof task.billingPoints === "number" && task.billingPoints > 0 ? ` ${task.billingPoints}` : ""} 积分`
+            : task.billingStatus === "settled"
+                ? `已结算${typeof task.billingPoints === "number" ? ` ${task.billingPoints}` : ""} 积分`
+                : task.billingStatus === "refunded"
+                    ? "积分已退回"
+                    : task.billingStatus === "refund_pending"
+                        ? "退款处理中"
+                        : task.billingStatus === "pending_reconcile"
+                            ? "积分待对账"
+                            : "计费状态处理中";
     const transition = reducedMotion ? { duration: 0 } : aceternityMotion.spring.panel;
 
     return (
@@ -211,6 +224,14 @@ function ActiveTaskCard({
                                 {generationTaskStageLabel(task)}
                             </span>
                         </div>
+                        {billingLabel ? (
+                            <div className="mt-2 flex items-center justify-between gap-2">
+                                <span>积分</span>
+                                <span className="text-right tabular-nums" style={{ color: task.billingStatus === "pending_reconcile" || task.billingStatus === "refund_pending" ? theme.accent.danger : theme.node.text }}>
+                                    {billingLabel}
+                                </span>
+                            </div>
+                        ) : null}
                         {onCancelTask && (task.status === "queued" || task.status === "running") ? (
                             <button
                                 type="button"

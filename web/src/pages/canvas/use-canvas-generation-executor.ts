@@ -23,6 +23,8 @@ import type { Skill } from "@/services/api/skills";
 import { skillRuntime } from "@/services/skill-runtime";
 import { loadWorkspaceAssetsForUse } from "@/services/workspace-asset-read";
 import { recordDiagnosticEvent } from "@/services/diagnostics/client-diagnostics";
+import { buildBackendGenerationTaskQuoteInput } from "@/services/api/generation-task";
+import { quoteGenerationTask } from "@/services/api/task-billing";
 import { findGenerationTaskByOperation, queryGenerationTask, waitForGenerationTask, type GenerationTask } from "@/services/api/task-center";
 import { useConfigStore, useEffectiveConfig, resolveModelRequestConfig } from "@/stores/use-config-store";
 import { seedanceReferenceRatioWarning } from "@/lib/seedance-channel-warning";
@@ -36,6 +38,7 @@ import { canvasGenerationFailureMetadata, canvasImagePendingResultMessage } from
 import { canvasNodeHasPendingOutcomeResult, isNodeRegenerateBlocked, isNodeRegenerateConfirm, readNodeTaskOutcome, taskOutcomeCopy } from "@/lib/task-outcome";
 import { createReferenceLinkResolver } from "@/components/generation-reference-links";
 import { confirmCanvasGeneration, waitForCanvasPreparation } from "./canvas-generation-preflight";
+import { confirmCanvasBillingQuote } from "@/components/canvas/canvas-billing-confirmation";
 import { startOperation } from "@/stores/use-operation-progress";
 import type { CanvasPageUiStoreHook } from "@/stores/canvas/use-canvas-page-ui-store";
 
@@ -420,6 +423,45 @@ export function useCanvasGenerationExecutor({
                             }
                         }
 
+
+                        if (mode !== "text") {
+                            stage = "billing_confirmation";
+                            const quoteMessageKey = `canvas-billing-quote-${nodeId}`;
+                            message.loading({ key: quoteMessageKey, content: "正在计算本次生成所需积分", duration: 0 });
+                            try {
+                                const quoteInput = buildBackendGenerationTaskQuoteInput({
+                                    projectId,
+                                    mode,
+                                    prompt: effectivePrompt,
+                                    config: generationConfig,
+                                    signal: controller.signal,
+                                    metadata: {
+                                        sourceNodeId: nodeId,
+                                        ...(sourceNode?.metadata?.videoEditOperation ? { videoEditOperation: sourceNode.metadata.videoEditOperation } : {}),
+                                        ...options?.context,
+                                        ...styleMetadata,
+                                        ...skillExecution.metadata,
+                                    },
+                                });
+                                const quote = await quoteGenerationTask(quoteInput);
+                                message.destroy(quoteMessageKey);
+                                const confirmed = await confirmCanvasBillingQuote(modal, quote, {
+                                    signal: controller.signal,
+                                    description: "提交后先预扣积分；任务失败、取消或确认未发出上游请求时，会按规则退回预扣积分。",
+                                });
+                                if (!confirmed) {
+                                    diagnostic("generation_confirmation_cancelled");
+                                    return;
+                                }
+                            } catch (error) {
+                                message.destroy(quoteMessageKey);
+                                if (controller.signal.aborted || isGenerationCanceled(error)) return;
+                                message.error(generationErrorMessage(error) || "获取积分报价失败，请稍后重试");
+                                return;
+                            } finally {
+                                message.destroy(quoteMessageKey);
+                            }
+                        }
                         controller.signal.throwIfAborted();
                         stage = "dispatch";
                         preparationProgress?.dismiss();
