@@ -367,16 +367,22 @@ func (r *Runtime) Start() error {
 	// Shutdown waits for streams but does not cancel them. Its callback runs
 	// after Durable releases its invocations while the ops listener is alive.
 	r.httpServer.RegisterOnShutdown(cancelHTTP)
-	if r.localApp != nil {
-		r.localApp.Start()
-	} else {
-		r.service.StartWorker()
+	if !r.cfg.DisableWorkers {
+		if r.localApp != nil {
+			r.localApp.Start()
+		} else {
+			r.service.StartWorker()
+		}
 	}
 	r.backgroundDone = make(chan struct{})
-	go func() {
-		defer close(r.backgroundDone)
-		r.service.RecoverPlaybackTranscodes()
-	}()
+	if r.cfg.DisableWorkers {
+		close(r.backgroundDone)
+	} else {
+		go func() {
+			defer close(r.backgroundDone)
+			r.service.RecoverPlaybackTranscodes()
+		}()
+	}
 	// The assistant loads its operation catalog from this server before becoming
 	// healthy. Accept requests before synchronously waiting for child readiness.
 	go func() {
@@ -401,7 +407,7 @@ func (r *Runtime) Start() error {
 			}
 		}
 	}
-	if r.beefAPI != nil {
+	if r.beefAPI != nil && !r.cfg.DisableWorkers {
 		_ = r.beefAPI.Recover(context.Background())
 	}
 	r.status.markStarted()

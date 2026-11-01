@@ -25,6 +25,7 @@ type Config struct {
 	ListenAddr       string
 	LaunchToken      string
 	AutoMigrate      bool
+	DisableWorkers   bool
 	ShutdownTimeout  time.Duration
 	RouterMiddleware []gin.HandlerFunc
 }

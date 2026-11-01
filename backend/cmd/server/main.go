@@ -34,6 +34,10 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	disableWorkers, err := envBool("CANVAS_DISABLE_WORKERS", false)
+	if err != nil {
+		return err
+	}
 	corsMiddleware, err := cors()
 	if err != nil {
 		return err
@@ -50,6 +54,7 @@ func run(ctx context.Context) error {
 		DatabaseURL:      os.Getenv("DATABASE_URL"),
 		ListenAddr:       listenAddr,
 		AutoMigrate:      autoMigrate,
+		DisableWorkers:   disableWorkers,
 		ShutdownTimeout:  workerTimeout,
 		RouterMiddleware: []gin.HandlerFunc{corsMiddleware},
 	})

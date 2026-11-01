@@ -55,6 +55,22 @@ python3 scripts/canvas-db-audit.py compare \
 - `foreign_key_violations=[]`
 - 迁移前已有的表行数不变；新增表允许出现在 `added_tables`
 
+## 蓝绿只读实例
+
+用迁移后的副本启动完整 HTTP 服务时，必须显式关闭后台 Worker，避免副本里的历史失败任务被自动恢复：
+
+```bash
+CANVAS_BACKEND_DATA_DIR=/tmp/aicyld-migration/data \
+CANVAS_BACKEND_ADDR=127.0.0.1:18080 \
+CANVAS_DISABLE_WORKERS=true \
+CANVAS_AUTO_MIGRATE=false \
+CANVAS_SHUTDOWN_TIMEOUT=10s \
+GIN_MODE=release \
+/tmp/aicyld-migration/infinite-canvas-backend
+```
+
+该实例用于 `/api/health`、SSO、只读接口和前端联调。`CANVAS_DISABLE_WORKERS=true` 时不得提交生成、恢复或任务重试请求。
+
 ## 边界
 
 - 只审计数据库，不读取渠道密钥、对象存储凭据或支付配置。
