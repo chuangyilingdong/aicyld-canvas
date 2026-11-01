@@ -62,7 +62,7 @@ func Bind(ports Ports, userID string, req Request) (Receipt, error) {
 			return Receipt{}, conflict("node_mismatch", "产物未指定画布节点")
 		}
 	}
-	if nodeID != "" && nodeID != req.NodeID {
+	if nodeID != "" && nodeID != req.NodeID && !req.AllowDifferentNode {
 		return Receipt{}, conflict("node_mismatch", "只能绑定到任务原先指定的节点")
 	}
 	wantKey := localtask.AttachNodeEffectKey(req.TaskID, req.NodeID, req.OutputIndex)
@@ -147,21 +147,22 @@ func durablePatch(ports Ports, userID string, task model.Task, req Request) (Nod
 		mediaType = strings.TrimSpace(resource.Kind)
 	}
 	return NodePatch{
-		CanvasID:    req.CanvasID,
-		NodeID:      req.NodeID,
-		TaskID:      req.TaskID,
-		OutputIndex: req.OutputIndex,
-		EffectKey:   req.EffectKey,
-		MediaType:   mediaType,
-		AssetID:     output.MaterializedAssetID,
-		ResourceID:  resource.ID,
-		StorageKey:  "resource:" + resource.ID,
-		Content:     assets.FileURL(resource.ID),
-		MimeType:    resource.MimeType,
-		Bytes:       resource.Size,
-		Width:       resource.Width,
-		Height:      resource.Height,
-		DurationMs:  resource.DurationMs,
+		CanvasID:           req.CanvasID,
+		NodeID:             req.NodeID,
+		TaskID:             req.TaskID,
+		OutputIndex:        req.OutputIndex,
+		EffectKey:          req.EffectKey,
+		AllowDifferentNode: req.AllowDifferentNode,
+		MediaType:          mediaType,
+		AssetID:            output.MaterializedAssetID,
+		ResourceID:         resource.ID,
+		StorageKey:         "resource:" + resource.ID,
+		Content:            assets.FileURL(resource.ID),
+		MimeType:           resource.MimeType,
+		Bytes:              resource.Size,
+		Width:              resource.Width,
+		Height:             resource.Height,
+		DurationMs:         resource.DurationMs,
 	}, nil
 }
 
@@ -177,14 +178,15 @@ func textPatch(task model.Task, req Request) (NodePatch, error) {
 		return NodePatch{}, precondition("output_not_ready", "文本任务还没有可绑定的结果")
 	}
 	return NodePatch{
-		CanvasID:    req.CanvasID,
-		NodeID:      req.NodeID,
-		TaskID:      req.TaskID,
-		OutputIndex: req.OutputIndex,
-		EffectKey:   req.EffectKey,
-		MediaType:   "text",
-		Content:     text,
-		Storyboard:  storyboard,
+		CanvasID:           req.CanvasID,
+		NodeID:             req.NodeID,
+		TaskID:             req.TaskID,
+		OutputIndex:        req.OutputIndex,
+		EffectKey:          req.EffectKey,
+		AllowDifferentNode: req.AllowDifferentNode,
+		MediaType:          "text",
+		Content:            text,
+		Storyboard:         storyboard,
 	}, nil
 }
 

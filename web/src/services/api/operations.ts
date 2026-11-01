@@ -138,6 +138,7 @@ export async function bindCanvasTaskOutput(input: {
     taskId: string;
     nodeId: string;
     outputIndex?: number;
+    allowDifferentNode?: boolean;
     signal?: AbortSignal;
     traceId?: string;
 }) {
@@ -150,6 +151,7 @@ export async function bindCanvasTaskOutput(input: {
                 taskId: input.taskId,
                 nodeId: input.nodeId,
                 outputIndex: input.outputIndex ?? 0,
+                ...(input.allowDifferentNode ? { allowDifferentNode: true } : {}),
             },
         },
         input.signal,

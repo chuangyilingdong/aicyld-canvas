@@ -21,6 +21,9 @@ type TaskOutputBind struct {
 	// Trusted admission identity for a pending video saved before the task response.
 	PendingClientOperationID string `json:"-"`
 	TaskType                 string `json:"-"`
+	// AllowDifferentNode permits the explicit UI fallback path to bind a paid
+	// result to a newly-created node. It never permits recreating a deleted node.
+	AllowDifferentNode bool `json:"-"`
 
 	CanvasID    string
 	NodeID      string

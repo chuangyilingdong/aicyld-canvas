@@ -29,33 +29,35 @@ type MessagePorts interface {
 // Request is the authenticated bind identity. Client result URLs/payloads are
 // not accepted; the durable task Result row is the generated product.
 type Request struct {
-	CanvasID    string
-	TaskID      string
-	NodeID      string
-	OutputIndex int
-	EffectKey   string
+	CanvasID           string
+	TaskID             string
+	NodeID             string
+	OutputIndex        int
+	EffectKey          string
+	AllowDifferentNode bool
 }
 
 // NodePatch is the generation-field overlay canvas applies onto an existing
 // node. Title, position and unrelated metadata stay on the node.
 type NodePatch struct {
-	CanvasID     string
-	NodeID       string
-	TaskID       string
-	OutputIndex  int
-	EffectKey    string
-	MediaType    string
-	AssetID      string
-	ResourceID   string
-	StorageKey   string
-	Content      string
-	MimeType     string
-	Bytes        int64
-	Width        int
-	Height       int
-	DurationMs   int64
-	Storyboard   map[string]any
-	AlreadyBound bool
+	CanvasID           string
+	NodeID             string
+	TaskID             string
+	OutputIndex        int
+	EffectKey          string
+	AllowDifferentNode bool
+	MediaType          string
+	AssetID            string
+	ResourceID         string
+	StorageKey         string
+	Content            string
+	MimeType           string
+	Bytes              int64
+	Width              int
+	Height             int
+	DurationMs         int64
+	Storyboard         map[string]any
+	AlreadyBound       bool
 }
 
 // NodeBindResult is the canvas write outcome used to build the op receipt.

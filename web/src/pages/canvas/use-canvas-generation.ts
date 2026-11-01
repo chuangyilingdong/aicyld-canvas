@@ -15,9 +15,20 @@ import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { isLocalWorkspaceMode } from "@/services/workspace-mode";
 import { canvasNodeNeedsGenerationRecovery, consumeGenerationRecoveryRestore, isGenerationRecoveryRestored, MISSING_GENERATION_TASK_IDENTITY_DETAILS } from "@/lib/canvas/canvas-project-generation";
 import { generationFailureMetadata } from "@/lib/generation-error";
+import { createCanvasNode } from "@/lib/canvas/canvas-project-domain";
 import { canvasGenerationTaskNodes, canvasTaskFailureMetadata } from "./canvas-generation-failure";
 import { runGenerationConsumer } from "@/services/generation-consumer-lifecycle";
 import { consumeCanvasGenerationContinuation } from "./use-canvas-operation-history";
+
+/** 服务端返回 409 / node_task_mismatch 时，允许把已交付结果落到显式新建的回退节点。 */
+function isCanvasNodeTaskMismatchError(error: unknown, depth = 0): boolean {
+    if (!error || depth > 3) return false;
+    const reason = (error as { reason?: unknown }).reason;
+    if (typeof reason === "string" && reason === "node_task_mismatch") return true;
+    const text = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+    if (text.includes("node_task_mismatch") || text.includes("已绑定到其他任务")) return true;
+    return isCanvasNodeTaskMismatchError((error as { cause?: unknown }).cause, depth + 1);
+}
 
 type CanvasGenerationRequest = {
     targetNodeId: string;
@@ -274,13 +285,14 @@ export function useCanvasGeneration({ projectId, domainProjectId, projectLoaded,
                 }
                 throw new Error(task.error || (task.status === "cancelled" ? "任务已取消" : "任务失败"));
             }
+            const outputIndex = nodesRef.current.find((node) => node.id === nodeId)?.metadata?.taskOutputIndex ?? 0;
             let saving: ReturnType<typeof startOperation> | undefined;
             try {
                 await bindBackendCanvasGenerationResult({
                     canvasId: capturedCanvasId,
                     nodeId,
                     task,
-                    outputIndex: nodesRef.current.find((node) => node.id === nodeId)?.metadata?.taskOutputIndex ?? 0,
+                    outputIndex,
                     signal: controller.signal,
                     isCurrent: isCurrentCanvas,
                     isNodeOwned,
@@ -297,6 +309,46 @@ export function useCanvasGeneration({ projectId, domainProjectId, projectLoaded,
                 if (!isCurrentCanvas()) throw new DOMException("The canvas operation was abandoned", "AbortError");
             } catch (error) {
                 if (error instanceof Error && error.name === "AbortError") throw error;
+                if (isCanvasNodeTaskMismatchError(error)) {
+                    const source = nodesRef.current.find((item) => item.id === nodeId);
+                    if (source) {
+                        const clone = createCanvasNode(source.type, {
+                            x: source.position.x + source.width + 96,
+                            y: source.position.y,
+                        }, {
+                            ...source.metadata,
+                            taskId: task.id,
+                            taskOutputIndex: outputIndex,
+                            status: "loading",
+                            assetId: undefined,
+                            storageKey: undefined,
+                            content: undefined,
+                            errorDetails: undefined,
+                            generationErrorCode: undefined,
+                            generationEffectKeys: undefined,
+                        });
+                        clone.title = `${source.title || "生成结果"} · 取回`;
+                        clone.width = source.width;
+                        clone.height = source.height;
+                        const nextNodes = [...nodesRef.current, clone];
+                        nodesRef.current = nextNodes;
+                        setNodes(nextNodes);
+                        await bindBackendCanvasGenerationResult({
+                            canvasId: capturedCanvasId,
+                            nodeId: clone.id,
+                            task,
+                            outputIndex,
+                            allowDifferentNode: true,
+                            signal: controller.signal,
+                            isCurrent: isCurrentCanvas,
+                            isNodeOwned: () => true,
+                            nodesRef,
+                            setNodes,
+                        });
+                        if (isCurrentCanvas()) message.info("原节点已绑定其他任务，结果已放到新节点");
+                        return;
+                    }
+                }
                 throw error instanceof CanvasGenerationDurableAckError || error instanceof CanvasGenerationMaterializationError || error instanceof CanvasGenerationOutputMissingError ? error : new CanvasGenerationDurableAckError(error);
             } finally {
                 saving?.dismiss();

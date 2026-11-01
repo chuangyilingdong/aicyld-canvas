@@ -138,6 +138,32 @@ func TestBindRejectsForeignAssetAndWrongNode(t *testing.T) {
 	}
 }
 
+func TestBindAllowsDifferentNodeOnlyWithExplicitFallback(t *testing.T) {
+	ports := &fakePorts{
+		task: testImageTask(),
+		outputs: []localtask.CanonicalOutput{{
+			OutputIndex: 0, MediaType: "image", MaterializedAssetID: "generation_abc", ResourceID: "res-1",
+		}},
+		resource: &model.Resource{ID: "res-1", UserID: "user-1", Status: model.ResourceStatusReady, Kind: "image"},
+		asset:    testAsset("generation_abc", "user-1", "res-1"),
+	}
+	if _, err := Bind(ports, "user-1", Request{CanvasID: "canvas-1", TaskID: "task-1", NodeID: "fallback-node"}); !isBindReason(err, "node_mismatch") {
+		t.Fatalf("implicit fallback = %v", err)
+	}
+	receipt, err := Bind(ports, "user-1", Request{
+		CanvasID: "canvas-1", TaskID: "task-1", NodeID: "fallback-node", AllowDifferentNode: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt.NodeID != "fallback-node" || !ports.lastPatch.AllowDifferentNode {
+		t.Fatalf("fallback receipt = %#v patch=%#v", receipt, ports.lastPatch)
+	}
+	if ports.lastPatch.EffectKey != localtask.AttachNodeEffectKey("task-1", "fallback-node", 0) {
+		t.Fatalf("fallback effect = %q", ports.lastPatch.EffectKey)
+	}
+}
+
 func TestBindRetriesRevisionConflictThenStops(t *testing.T) {
 	ports := &fakePorts{
 		task: testImageTask(),

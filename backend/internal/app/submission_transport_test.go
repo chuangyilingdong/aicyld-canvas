@@ -75,3 +75,25 @@ func TestWorkflowPreservesConfirmedUnsentCreate(t *testing.T) {
 		t.Fatalf("workflow lost unsent evidence: err=%v failure=%+v", err, failure)
 	}
 }
+
+func TestDirectAttemptResubmitRequiresProvenNoJob(t *testing.T) {
+	tests := []struct {
+		name    string
+		attempt *model.RouteAttempt
+		want    bool
+	}{
+		{name: "missing", attempt: nil, want: false},
+		{name: "provider accepted", attempt: &model.RouteAttempt{DispatchState: "accepted", ProviderRequestID: "job-1"}, want: false},
+		{name: "not sent", attempt: &model.RouteAttempt{DispatchState: "not_sent"}, want: true},
+		{name: "request not sent rejection", attempt: &model.RouteAttempt{DispatchState: "rejected_no_job", FailureCode: "request_not_sent"}, want: true},
+		{name: "other rejection", attempt: &model.RouteAttempt{DispatchState: "rejected_no_job", FailureCode: "upstream_400"}, want: false},
+		{name: "submission unknown", attempt: &model.RouteAttempt{DispatchState: "submission_unknown"}, want: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := directAttemptSafeToResubmit(tc.attempt); got != tc.want {
+				t.Fatalf("safe = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
