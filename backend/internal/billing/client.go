@@ -166,7 +166,7 @@ func (c *Client) Settle(ctx context.Context, task *TaskSnapshot, outcome string,
 		"holdId":      task.BillingHoldID,
 		"outcome":     outcome,
 		"reason":      reason,
-		"actualFacts": Facts(task),
+		"actualFacts": SettlementFacts(task),
 	}
 	var settlement BillingSettlement
 	if err := c.post(ctx, "/settle", body, &settlement); err != nil {
@@ -294,6 +294,47 @@ func Facts(task *TaskSnapshot) map[string]any {
 		"generateAudio":         generateAudio,
 		"sourceDurationSeconds": sourceDuration,
 	}
+}
+
+// SettlementFacts only carries values explicitly present in the persisted
+// task input. Facts fills defaults for quote/reserve, but forwarding those
+// defaults at settlement would overwrite the original reserved facts when
+// completion has stripped provider configuration from InputJSON.
+func SettlementFacts(task *TaskSnapshot) map[string]any {
+	facts := Facts(task)
+	input := map[string]any{}
+	if task != nil {
+		_ = json.Unmarshal([]byte(task.InputJSON), &input)
+	}
+	config, _ := input["config"].(map[string]any)
+	videoParameters, _ := input["videoParameters"].(map[string]any)
+	metadata, _ := input["metadata"].(map[string]any)
+	if firstInt(config["videoSeconds"], videoParameters["videoSeconds"], input["videoSeconds"], config["duration"], videoParameters["duration"], input["duration"], metadata["duration_seconds"]) <= 0 {
+		delete(facts, "durationSeconds")
+	}
+	if firstString(config["vquality"], config["resolution"], videoParameters["vquality"], videoParameters["resolution"], metadata["resolution"], metadata["upscaleResolution"]) == "" {
+		delete(facts, "resolution")
+	}
+	if firstString(config["quality"], metadata["quality"], metadata["upscaleQuality"]) == "" {
+		delete(facts, "quality")
+	}
+	if firstString(config["speed"], metadata["speed"]) == "" {
+		delete(facts, "speed")
+	}
+	if firstInt(config["count"], videoParameters["count"], input["count"], config["n"], input["n"], config["outputCount"]) <= 0 {
+		delete(facts, "outputCount")
+	}
+	if firstInt(config["batch_size"], config["batchSize"], input["batch_size"], input["batchSize"]) <= 0 {
+		delete(facts, "batchCount")
+	}
+	_, audioString := config["videoGenerateAudio"].(string)
+	_, audioBool := config["videoGenerateAudio"].(bool)
+	_, videoAudioString := videoParameters["videoGenerateAudio"].(string)
+	_, videoAudioBool := videoParameters["videoGenerateAudio"].(bool)
+	if !audioString && !audioBool && !videoAudioString && !videoAudioBool {
+		delete(facts, "generateAudio")
+	}
+	return facts
 }
 
 func taskModel(task *TaskSnapshot) string {

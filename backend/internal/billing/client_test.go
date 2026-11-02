@@ -211,3 +211,45 @@ func TestReservePrefersClientOperationIdempotencyKey(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestSettlementFactsDoesNotForwardDerivedVideoDefaults(t *testing.T) {
+	raw, _ := json.Marshal(map[string]any{
+		"mode": "video",
+		"videoParameters": map[string]any{
+			"model": "seedance-2.0-fast-t2v",
+			"size":  "16:9",
+		},
+	})
+	facts := SettlementFacts(&TaskSnapshot{
+		Type: "canvas_video", Operation: "text_to_video", Provider: "newapi",
+		Model: "aicyld-seedance::seedance-2.0-fast", InputJSON: string(raw),
+	})
+	for _, key := range []string{"durationSeconds", "resolution", "outputCount", "batchCount", "generateAudio"} {
+		if _, exists := facts[key]; exists {
+			t.Fatalf("settlement derived default %s must not overwrite reserved facts: %+v", key, facts)
+		}
+	}
+	if facts["modelKey"] != "seedance-2.0-fast-t2v" {
+		t.Fatalf("modelKey = %v", facts["modelKey"])
+	}
+}
+
+func TestSettlementFactsKeepsExplicitVideoParameters(t *testing.T) {
+	raw, _ := json.Marshal(map[string]any{
+		"mode": "video",
+		"videoParameters": map[string]any{
+			"model":              "seedance-2.0-fast-t2v",
+			"vquality":           "480p",
+			"videoSeconds":       "4",
+			"videoGenerateAudio": "false",
+			"count":              "1",
+		},
+	})
+	facts := SettlementFacts(&TaskSnapshot{
+		Type: "canvas_video", Operation: "text_to_video", Provider: "newapi",
+		Model: "aicyld-seedance::seedance-2.0-fast", InputJSON: string(raw),
+	})
+	if facts["durationSeconds"] != 4 || facts["resolution"] != "480p" || facts["outputCount"] != 1 || facts["generateAudio"] != false {
+		t.Fatalf("unexpected settlement facts: %+v", facts)
+	}
+}

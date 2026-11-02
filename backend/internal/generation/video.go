@@ -46,6 +46,9 @@ func RunVideoTaskWithPolicy(ctx context.Context, input Input, pollPolicy VideoPo
 		}
 		return runManagedLegacyVideo(ctx, input, pollPolicy)
 	}
+	if IsSeedance2NZVideoConfig(input.Config) {
+		return RunSeedanceVideosTask(ctx, input, pollPolicy)
+	}
 	// 路由顺序是协议边界，不是“哪个请求先试”：官方声明式接口必须由已注册适配器执行，
 	// 缺少适配器时直接失败，不能偷偷退回遗留手写协议；只有未声明为官方插件的旧渠道才继续走兼容分支。
 	if strings.TrimSpace(input.Mode) == "" {

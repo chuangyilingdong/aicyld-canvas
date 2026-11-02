@@ -26,7 +26,11 @@ func RunSeedanceVideosTask(ctx context.Context, input Input, pollPolicy VideoPol
 	if id == "" {
 		var body interface{}
 		var err error
-		body, err = SeedanceVideosRequestBody(input)
+		if IsSeedanceNZVideoConfig(input.Config) {
+			body, err = SeedanceNZVideosBody(input)
+		} else {
+			body, err = SeedanceVideosRequestBody(input)
+		}
 		if err != nil {
 			return nil, err
 		}
