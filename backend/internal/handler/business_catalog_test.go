@@ -62,7 +62,7 @@ func TestBusinessCatalogOutboundPostsRequireWriteClient(t *testing.T) {
 }
 
 func TestBusinessCatalogMarketReadsCannotReachPublishingConfirmation(t *testing.T) {
-	routes := gin.RoutesInfo{{Method: "GET", Path: "/api/skills"}, {Method: "GET", Path: "/api/skills/:id"}, {Method: "GET", Path: "/api/skills/:id/file"}}
+	routes := gin.RoutesInfo{{Method: "GET", Path: "/api/skills/:id"}, {Method: "GET", Path: "/api/skills/:id/file"}}
 	public := []string{"/skills"}
 	for _, path := range public {
 		routes = append(routes, gin.RouteInfo{Method: "GET", Path: "/api" + path})
