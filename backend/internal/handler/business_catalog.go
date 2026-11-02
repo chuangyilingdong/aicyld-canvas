@@ -49,6 +49,9 @@ func businessRouteAllowed(method, p string) bool {
 			return false
 		}
 	}
+	if p == "/skills/review" || strings.HasPrefix(p, "/skills/review/") || strings.Contains(p, "/submissions") || strings.HasSuffix(p, "/unpublish") {
+		return false
+	}
 	for _, prefix := range []string{"/assets", "/asset-folders", "/resources", "/canvas-projects", "/canvas-folders", "/projects", "/project-folders", "/voice-profiles", "/style-profiles", "/tasks", "/timeline", "/depth-captures", "/creation-runs", "/creation-conversations", "/skills", "/plugins", "/runninghub", "/settings/prompt-templates"} {
 		if p == prefix || strings.HasPrefix(p, prefix+"/") {
 			return true
