@@ -58,6 +58,12 @@ type Runtime struct {
 	closeErr         error
 }
 
+func newApplicationService(repo *repository.Repository, dataDir string, profile Profile) *app.Service {
+	if profile == ProfileDesktop {
+		return app.NewLocal(repo, dataDir)
+	}
+	return app.New(repo, dataDir)
+}
 func Open(_ context.Context, raw Config) (result *Runtime, openErr error) {
 	cfg := raw.withDefaults()
 	if cfg.Profile != ProfileServer && cfg.Profile != ProfileDesktop {
@@ -119,7 +125,7 @@ func Open(_ context.Context, raw Config) (result *Runtime, openErr error) {
 			return nil, err
 		}
 	}
-	svc := app.NewLocal(repo, cfg.DataDir)
+	svc := newApplicationService(repo, cfg.DataDir, cfg.Profile)
 	cleanupService := func() {
 		_ = svc.Close()
 		cleanupDB()
