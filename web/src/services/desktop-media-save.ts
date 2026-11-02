@@ -2,7 +2,7 @@ import { saveAs } from "file-saver";
 import { nanoid } from "nanoid";
 
 import { sanitizeDownloadFileName } from "@/lib/canvas/canvas-media-download";
-import { uploadResourceFile } from "@/services/api/resources";
+import { resourceFileUrl, uploadResourceFile } from "@/services/api/resources";
 
 export type OwnedMediaSaveResult = "saved" | "cancelled";
 
@@ -23,10 +23,31 @@ export async function downloadOwnedOrBrowserMedia(options: { fileName: string; r
         const saved = await save(fileName, resourceId);
         return saved ? "saved" : "cancelled";
     }
-    const browserUrl = options.browserUrl?.trim();
+    const browserUrl = options.browserUrl?.trim()
+        || (options.resourceId?.trim() ? resourceFileUrl(options.resourceId.trim()) : "");
     if (!browserUrl) throw new Error("没有可导出的文件");
-    saveAs(browserUrl, fileName);
+    const blob = await fetchMediaDownloadBlob(browserUrl);
+    saveAs(blob, fileName);
     return "saved";
+}
+
+/** Browser downloads must validate the authenticated response before handing bytes to file-saver. */
+export async function fetchMediaDownloadBlob(url: string): Promise<Blob> {
+    let response: Response;
+    try {
+        response = await fetch(url, { credentials: "include", cache: "no-store" });
+    } catch {
+        throw new Error("下载失败，请检查网络后重试");
+    }
+    const contentType = response.headers.get("content-type")?.toLowerCase() || "";
+    if (!response.ok || contentType.includes("application/json")) {
+        const body = contentType.includes("application/json")
+            ? await response.clone().json().catch(() => null) as { msg?: string; error?: string; code?: number } | null
+            : null;
+        if (body?.msg || body?.error) throw new Error(body.msg || body.error!);
+        if (!response.ok) throw new Error(`下载失败（HTTP ${response.status}）`);
+    }
+    return await response.blob();
 }
 
 export async function saveOwnedOrBrowserBlob(fileName: string, blob: Blob): Promise<OwnedMediaSaveResult> {

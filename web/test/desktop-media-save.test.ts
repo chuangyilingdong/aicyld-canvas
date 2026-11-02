@@ -5,7 +5,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import { ownedResourceIdFromMediaRef } from "@/services/api/resources";
 import { apiClient, configureApiRuntime } from "@/services/api/request";
-import { downloadOwnedOrBrowserMedia, isWailsNativeShell, reportOwnedMediaSave, saveOwnedNativeArchiveFiles, saveOwnedOrBrowserBlob, saveOwnedOrBrowserVideoBlob } from "@/services/desktop-media-save";
+import { downloadOwnedOrBrowserMedia, fetchMediaDownloadBlob, isWailsNativeShell, reportOwnedMediaSave, saveOwnedNativeArchiveFiles, saveOwnedOrBrowserBlob, saveOwnedOrBrowserVideoBlob } from "@/services/desktop-media-save";
 import { sanitizeDownloadFileName } from "@/lib/canvas/canvas-media-download";
 import { getActiveUserScope, setActiveUserScope } from "@/lib/user-scope";
 
@@ -90,7 +90,8 @@ describe("native media save", () => {
         expect(runtime).toContain("SaveOwnedMedia");
         expect(runtime).toContain("SaveOwnedArtifact");
         const helper = readFileSync(resolve(import.meta.dir, "../src/services/desktop-media-save.ts"), "utf8");
-        expect(helper).toContain("saveAs(browserUrl, fileName)");
+        expect(helper).toContain("fetchMediaDownloadBlob(browserUrl)");
+        expect(helper).toContain("saveAs(blob, fileName)");
         expect(helper).toContain("SaveOwnedArtifact");
         expect(helper).toContain("bytesToBase64");
         expect(helper).not.toContain("Array.from(bytes)");
@@ -262,6 +263,28 @@ describe("native video export resource save", () => {
         await expect(saveOwnedOrBrowserVideoBlob("clip.mp4", new Blob(["video"]))).rejects.toThrow("cannot write selected path");
     });
 
+    test("browser media download returns a validated blob", async () => {
+        globalThis.fetch = (async () => new Response(new Uint8Array([1, 2, 3]), {
+            status: 200,
+            headers: { "Content-Type": "image/png" },
+        })) as typeof fetch;
+        const blob = await fetchMediaDownloadBlob("/api/resources/valid/file");
+        expect(blob.type).toContain("image/png");
+        expect(blob.size).toBe(3);
+    });
+
+    test("browser media download surfaces server error instead of saving JSON", async () => {
+        globalThis.fetch = (async () => new Response(JSON.stringify({ code: 404, msg: "本地媒体文件不存在或已丢失" }), {
+            status: 404,
+            headers: { "Content-Type": "application/json" },
+        })) as typeof fetch;
+        await expect(fetchMediaDownloadBlob("/api/resources/missing/file")).rejects.toThrow("本地媒体文件不存在或已丢失");
+    });
+
+    test("browser media download rejects non-json HTTP failures", async () => {
+        globalThis.fetch = (async () => new Response("upstream failed", { status: 503 })) as typeof fetch;
+        await expect(fetchMediaDownloadBlob("/api/resources/error/file")).rejects.toThrow("下载失败（HTTP 503）");
+    });
     test("browser video export does not upload an owned resource", async () => {
         Object.assign(globalThis, { window: { location: { protocol: "http:" } } });
         let requests = 0;
