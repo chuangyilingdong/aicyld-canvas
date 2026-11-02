@@ -8,19 +8,19 @@ import (
 )
 
 const (
-	appearanceSettingKey       = appearance.SettingKey
-	AppearanceAssetLogo        = appearance.AssetLogo
-	AppearanceAssetDarkLogo    = appearance.AssetDarkLogo
-	AppearanceAssetVideo       = appearance.AssetVideo
-	appearanceSchemaVersion    = appearance.SchemaVersion
-	defaultAppearanceBrandName = appearance.DefaultBrandName
-	defaultAppearanceBrandSlug = appearance.DefaultBrandSlug
-	defaultAppearanceSkinID    = appearance.DefaultSkinID
-	defaultAppearanceLogoURL   = appearance.DefaultLogoURL
+	appearanceSettingKey         = appearance.SettingKey
+	AppearanceAssetLogo          = appearance.AssetLogo
+	AppearanceAssetDarkLogo      = appearance.AssetDarkLogo
+	AppearanceAssetVideo         = appearance.AssetVideo
+	appearanceSchemaVersion      = appearance.SchemaVersion
+	defaultAppearanceBrandName   = appearance.DefaultBrandName
+	defaultAppearanceBrandSlug   = appearance.DefaultBrandSlug
+	defaultAppearanceSkinID      = appearance.DefaultSkinID
+	defaultAppearanceLogoURL     = appearance.DefaultLogoURL
 	defaultAppearanceDarkLogoURL = appearance.DefaultDarkLogoURL
-	defaultAppearanceVideoURL  = appearance.DefaultVideoURL
-	defaultAppearancePosterURL = appearance.DefaultPosterURL
-	defaultAppearanceHeroTitle = appearance.DefaultHeroTitle
+	defaultAppearanceVideoURL    = appearance.DefaultVideoURL
+	defaultAppearancePosterURL   = appearance.DefaultPosterURL
+	defaultAppearanceHeroTitle   = appearance.DefaultHeroTitle
 )
 
 type (
@@ -33,8 +33,10 @@ type (
 	AppearanceSkinComponentTokens = appearance.AppearanceSkinComponentTokens
 )
 
-func validateAppearanceUpload(slot string, h *multipart.FileHeader) (string, error) { return appearance.ValidateUpload(slot, h) }
-func defaultAppearanceSetting() AppearanceSetting                                   { return appearance.DefaultSetting() }
+func validateAppearanceUpload(slot string, h *multipart.FileHeader) (string, error) {
+	return appearance.ValidateUpload(slot, h)
+}
+func defaultAppearanceSetting() AppearanceSetting { return appearance.DefaultSetting() }
 func (s *Service) AppearanceDomain() *appearance.Service {
 	if s == nil {
 		return appearance.New(appearance.Dependencies{})
@@ -44,11 +46,25 @@ func (s *Service) AppearanceDomain() *appearance.Service {
 	})
 	return s.appearance
 }
-func (s *Service) Appearance() (*PublicAppearanceSetting, error)                                              { return s.AppearanceDomain().Public() }
-func (s *Service) AdminAppearance(actor *model.User) (*AdminAppearanceSetting, error)                         { return s.AppearanceDomain().Admin(actor) }
-func (s *Service) UpdateAppearance(actor *model.User, v AppearanceSetting) (*AdminAppearanceSetting, error)   { return s.AppearanceDomain().Update(actor, v) }
-func (s *Service) ResetAppearance(actor *model.User) (*AdminAppearanceSetting, error)                         { return s.AppearanceDomain().Reset(actor) }
-func (s *Service) UploadAppearanceAsset(actor *model.User, slot string, h *multipart.FileHeader) (*model.Resource, error) { return s.AppearanceDomain().UploadAsset(actor, slot, h, s.uploadLocalResource, s.UploadResource) }
-func (s *Service) OpenAppearanceAsset(slot, rng string) (*ResourceStream, error)                              { return s.AppearanceDomain().OpenAsset(slot, rng, s.openResourceRange) }
-func (s *Service) appearanceReferencedResourceIDs(ids []string) map[string]struct{}                           { return s.AppearanceDomain().ReferencedIDs(ids) }
-func (s *Service) appearanceIdentity() (string, string)                                                       { return s.AppearanceDomain().Identity() }
+func (s *Service) Appearance() (*PublicAppearanceSetting, error) {
+	return s.AppearanceDomain().Public()
+}
+func (s *Service) AdminAppearance(actor *model.User) (*AdminAppearanceSetting, error) {
+	return s.AppearanceDomain().Admin(actor)
+}
+func (s *Service) UpdateAppearance(actor *model.User, v AppearanceSetting) (*AdminAppearanceSetting, error) {
+	return s.AppearanceDomain().Update(actor, v)
+}
+func (s *Service) ResetAppearance(actor *model.User) (*AdminAppearanceSetting, error) {
+	return s.AppearanceDomain().Reset(actor)
+}
+func (s *Service) UploadAppearanceAsset(actor *model.User, slot string, h *multipart.FileHeader) (*model.Resource, error) {
+	return s.AppearanceDomain().UploadAsset(actor, slot, h, s.uploadLocalResource, s.UploadResource)
+}
+func (s *Service) OpenAppearanceAsset(slot, rng string) (*ResourceStream, error) {
+	return s.AppearanceDomain().OpenAsset(slot, rng, s.openResourceRange)
+}
+func (s *Service) appearanceReferencedResourceIDs(ids []string) map[string]struct{} {
+	return s.AppearanceDomain().ReferencedIDs(ids)
+}
+func (s *Service) appearanceIdentity() (string, string) { return s.AppearanceDomain().Identity() }

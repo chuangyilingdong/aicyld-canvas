@@ -289,7 +289,7 @@ func TestSignSchema2AndFromEnvelopeWithDomesticMirror(t *testing.T) {
 		t.Fatal("expected untrusted domestic domain to fail")
 	}
 
-		// Reject --domestic-download-base on schema 1
+	// Reject --domestic-download-base on schema 1
 	if err := run([]string{
 		"sign",
 		"--schema", "1",

@@ -31,5 +31,5 @@ func (s *Service) localChannelModelListItems(intent *ModelRequestIntent) []map[s
 	return modelcatalog.LocalChannelModelListItems(s.localChannelModels(), intent, beefapi.ChannelID, managedBeefAPIRef)
 }
 
-func catalogModelName(raw any) string                 { return modelcatalog.CatalogModelName(raw) }
-func coerceCatalogModels(value any) []map[string]any  { return modelcatalog.CoerceCatalogModels(value) }
+func catalogModelName(raw any) string                { return modelcatalog.CatalogModelName(raw) }
+func coerceCatalogModels(value any) []map[string]any { return modelcatalog.CoerceCatalogModels(value) }

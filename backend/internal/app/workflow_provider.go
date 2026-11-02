@@ -58,7 +58,9 @@ func (s *Service) pollRunningHubWorkflow(ctx context.Context, config providerCon
 func (s *Service) pollRunningHubVideoWorkflowWithPolicy(ctx context.Context, config providerConfig, root, taskID string, policy videoPollPolicy) (map[string]any, error) {
 	return s.workflowClient(&policy).PollVideo(ctx, workflowConfigFromProvider(config), root, taskID, toWorkflowPollPolicy(policy))
 }
-func runningHubRootURL(value string) string                    { return workflow.RootURL(value) }
-func runningHubAPIKey(config providerConfig) string            { return workflow.APIKey(workflowConfigFromProvider(config)) }
+func runningHubRootURL(value string) string { return workflow.RootURL(value) }
+func runningHubAPIKey(config providerConfig) string {
+	return workflow.APIKey(workflowConfigFromProvider(config))
+}
 func runningHubPayloadCode(payload map[string]any) (int, bool) { return workflow.PayloadCode(payload) }
 func runningHubFailureMessage(payload map[string]any) string   { return workflow.FailureMessage(payload) }

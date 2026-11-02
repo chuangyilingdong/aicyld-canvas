@@ -123,7 +123,7 @@ func NormalizeSeedanceTaskOptions(r GenerationRequest) GenerationRequest {
 				r.Duration = -1
 			}
 		}
-	if locked {
+		if locked {
 			r.AspectRatio = "adaptive"
 		}
 	}

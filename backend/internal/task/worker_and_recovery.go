@@ -361,15 +361,15 @@ func ProcessTimelineTranscription(
 			return FailTimelineTask(repo, logInfo, task, "转写已中断", "上次云端转写结果未确认，未重复提交。请检查原任务和用量后重新创建转写")
 		}
 		if beef == nil {
-			return FailTimelineTask(repo, logInfo, task, "转写失败", "请先连接 BeefTV")
+			return FailTimelineTask(repo, logInfo, task, "转写失败", "请先配置模型渠道")
 		}
 		cred, err := beef.Resolve()
 		if err != nil || input.ManagedTokenID == "" || cred.TokenID != input.ManagedTokenID {
-			return FailTimelineTask(repo, logInfo, task, "转写失败", "BeefTV 连接已改变，请重新提交转写")
+			return FailTimelineTask(repo, logInfo, task, "转写失败", "模型渠道已变更，请重新提交转写")
 		}
 		executor.Client = transcription.NewClient(cred.BaseURL)
 		if _, err := outbound.ValidateOutboundURL(cred.BaseURL); err != nil {
-			return FailTimelineTask(repo, logInfo, task, "转写失败", "云端转写地址不可用，请重新连接 BeefTV")
+			return FailTimelineTask(repo, logInfo, task, "转写失败", "云端转写地址不可用，请重新配置模型渠道")
 		}
 		executor.Client.HTTP = outbound.OutboundHTTPClient(20 * time.Minute)
 		executor.Client.Model, executor.Client.APIKey = input.Model, cred.APIKey
@@ -399,7 +399,7 @@ func ProcessTimelineTranscription(
 
 func BindTranscriptionModel(beef *beefapi.Service, modelID string) (string, error) {
 	if beef == nil {
-		return "", kernel.BadAuthRequest("请先连接 BeefTV")
+		return "", kernel.BadAuthRequest("请先配置模型渠道")
 	}
 	cred, err := beef.Resolve()
 	if err != nil {
@@ -426,7 +426,7 @@ func BindTranscriptionModel(beef *beefapi.Service, modelID string) (string, erro
 	}
 	next, err := beef.Resolve()
 	if err != nil || next.TokenID != cred.TokenID || next.AccountID != cred.AccountID {
-		return "", kernel.BadAuthRequest("BeefTV 连接已改变，请重新提交转写")
+		return "", kernel.BadAuthRequest("模型渠道已变更，请重新提交转写")
 	}
 	return cred.TokenID, nil
 }

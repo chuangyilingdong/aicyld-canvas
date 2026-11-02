@@ -440,4 +440,3 @@ func verifyReconstructedMatchesArchive(reconstructed string, expected []zipEntry
 	}
 	return nil
 }
-

@@ -91,7 +91,9 @@ func (s *Service) WithRepository(repo *repository.Repository) *Service {
 		return New(repo, nil)
 	}
 	host := s.host
-	if binder, ok := host.(interface{ WithRepository(*repository.Repository) Host }); ok {
+	if binder, ok := host.(interface {
+		WithRepository(*repository.Repository) Host
+	}); ok {
 		host = binder.WithRepository(repo)
 	}
 	next := New(repo, host)

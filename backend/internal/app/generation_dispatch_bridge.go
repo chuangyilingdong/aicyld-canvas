@@ -20,27 +20,27 @@ func runTextTask(ctx context.Context, input canvasGenerationInput) (map[string]i
 }
 
 type (
-	streamingAgentToolCall   = generation.StreamingAgentToolCall
-	streamingAgentParser     = generation.StreamingAgentParser
-	providerTextResult       = generation.ProviderTextResult
-	streamingTextDeltaParser = generation.StreamingTextDeltaParser
-	videoPollPolicy          = generation.VideoPollPolicy
-	videoPollEvent           = generation.VideoPollEvent
-	videoPollOutcome         = generation.VideoPollOutcome
-	videoDownloadError       = generation.VideoDownloadError
-	beefAPISeedanceMediaReader = generation.BeefAPISeedanceMediaReader
-	beefAPISeedanceUploadSession = generation.BeefAPISeedanceUploadSession
+	streamingAgentToolCall        = generation.StreamingAgentToolCall
+	streamingAgentParser          = generation.StreamingAgentParser
+	providerTextResult            = generation.ProviderTextResult
+	streamingTextDeltaParser      = generation.StreamingTextDeltaParser
+	videoPollPolicy               = generation.VideoPollPolicy
+	videoPollEvent                = generation.VideoPollEvent
+	videoPollOutcome              = generation.VideoPollOutcome
+	videoDownloadError            = generation.VideoDownloadError
+	beefAPISeedanceMediaReader    = generation.BeefAPISeedanceMediaReader
+	beefAPISeedanceUploadSession  = generation.BeefAPISeedanceUploadSession
 	beefAPISeedanceUploadComplete = generation.BeefAPISeedanceUploadComplete
-	beefAPISeedanceUploadRequest = generation.BeefAPISeedanceUploadRequest
-	ArkPrivateAssetSyncResult = generation.ArkPrivateAssetSyncResult
-	seedanceVideosRequest    = generation.SeedanceVideosRequest
-	geminiImageRequest       = generation.GeminiImageRequest
-	geminiImageContent       = generation.GeminiImageContent
-	geminiImageContentPart   = generation.GeminiImageContentPart
-	geminiImageInlineData    = generation.GeminiImageInlineData
-	geminiImageGenerationConfig = generation.GeminiImageGenerationConfig
-	geminiImageConfig        = generation.GeminiImageConfig
-	seedanceAgentPlanRequest = generation.SeedanceAgentPlanRequest
+	beefAPISeedanceUploadRequest  = generation.BeefAPISeedanceUploadRequest
+	ArkPrivateAssetSyncResult     = generation.ArkPrivateAssetSyncResult
+	seedanceVideosRequest         = generation.SeedanceVideosRequest
+	geminiImageRequest            = generation.GeminiImageRequest
+	geminiImageContent            = generation.GeminiImageContent
+	geminiImageContentPart        = generation.GeminiImageContentPart
+	geminiImageInlineData         = generation.GeminiImageInlineData
+	geminiImageGenerationConfig   = generation.GeminiImageGenerationConfig
+	geminiImageConfig             = generation.GeminiImageConfig
+	seedanceAgentPlanRequest      = generation.SeedanceAgentPlanRequest
 )
 
 func restoreBeefAPISeedanceAudioControl(ctx context.Context, config providerConfig, video *VideoCapabilityConfig) {

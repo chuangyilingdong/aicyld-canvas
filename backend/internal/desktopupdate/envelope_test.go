@@ -297,11 +297,11 @@ func TestSourceOrderingByMainlandChinaLocaleAndTimezone(t *testing.T) {
 	input := []string{r2URL, cnbURL}
 
 	cases := []struct {
-		name           string
-		locale         string
-		timezone       string
-		wantFirst      string
-		wantSecond     string
+		name       string
+		locale     string
+		timezone   string
+		wantFirst  string
+		wantSecond string
 	}{
 		{"zh-CN locale with UTC timezone", "zh-CN", "UTC", cnbURL, r2URL},
 		{"zh_CN.UTF-8 locale with America/New_York", "zh_CN.UTF-8", "America/New_York", cnbURL, r2URL},

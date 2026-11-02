@@ -3,16 +3,16 @@ package agentops
 import "infinite-canvas/backend/internal/operations"
 
 type (
-	Scope        = operations.Scope
-	Context      = operations.Context
-	Handler      = operations.Handler
-	Op           = operations.Op
-	Descriptor   = operations.Descriptor
-	Caller       = operations.Caller
-	CallerKind   = operations.CallerKind
-	ApprovalMode = operations.ApprovalMode
-	Request      = operations.Request
-	Result       = operations.Result
+	Scope                         = operations.Scope
+	Context                       = operations.Context
+	Handler                       = operations.Handler
+	Op                            = operations.Op
+	Descriptor                    = operations.Descriptor
+	Caller                        = operations.Caller
+	CallerKind                    = operations.CallerKind
+	ApprovalMode                  = operations.ApprovalMode
+	Request                       = operations.Request
+	Result                        = operations.Result
 	Receipt                       = operations.Receipt
 	Registry                      = operations.Registry
 	ExternalCanvasWrite           = operations.ExternalCanvasWrite

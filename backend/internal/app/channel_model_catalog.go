@@ -34,8 +34,8 @@ func (s *Service) catalogExtraSource() modelcatalog.CatalogExtraSource {
 	return extraChannelModelCatalogItems
 }
 
-func mapChannelModelCatalogError(err error) error   { return generation.MapChannelModelCatalogError(err) }
-func channelModelsUpstreamError(err error) error    { return generation.ChannelModelsUpstreamError(err) }
+func mapChannelModelCatalogError(err error) error { return generation.MapChannelModelCatalogError(err) }
+func channelModelsUpstreamError(err error) error  { return generation.ChannelModelsUpstreamError(err) }
 func catalogError(status int, reason kernel.ErrorReason, message string, cause error) *AppError {
 	return generation.CatalogError(status, reason, message, cause)
 }
