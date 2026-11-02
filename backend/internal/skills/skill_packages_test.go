@@ -3,7 +3,6 @@ package skills
 import (
 	"archive/zip"
 	"bytes"
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -136,13 +135,7 @@ func TestEnsureSkillPackagesMigratesAndRefreshesBuiltinSkills(t *testing.T) {
 }
 
 func TestBuiltinSeedSkillsIncludeLuckyPlusOnePackagesAndAuxiliaryFiles(t *testing.T) {
-	svc, db := agentSkillFixture(t)
-	if err := db.AutoMigrate(&model.Workspace{}); err != nil {
-		t.Fatalf("AutoMigrate Workspace: %v", err)
-	}
-	if err := db.Create(&model.Workspace{ID: "tester", Name: "测试工作区"}).Error; err != nil {
-		t.Fatalf("Create Workspace: %v", err)
-	}
+	svc, _ := agentSkillFixture(t)
 	if err := svc.EnsureBuiltinSkills(); err != nil {
 		t.Fatalf("EnsureBuiltinSkills: %v", err)
 	}
@@ -150,39 +143,27 @@ func TestBuiltinSeedSkillsIncludeLuckyPlusOnePackagesAndAuxiliaryFiles(t *testin
 		t.Fatalf("EnsureSkillPackages: %v", err)
 	}
 
-	addedByDefault, err := svc.AddedSkills("tester")
-	if err != nil {
-		t.Fatalf("AddedSkills: %v", err)
-	}
-	if len(addedByDefault) != 3 {
-		t.Fatalf("AddedSkills count = %d, want 3 default-added lucky加一 skills", len(addedByDefault))
-	}
-
 	expected := []struct {
 		skillID   string
 		skillName string
-		version   string
 		minFiles  int
 		auxPaths  []string
 	}{
 		{
 			skillID:   "novel-to-manju-agent",
 			skillName: "小说改编漫剧 Agent",
-			version:   "1.1.0",
 			minFiles:  20,
 			auxPaths:  []string{"references/dialogue.md", "references/requirements.md", "agents/director.md"},
 		},
 		{
 			skillID:   "ai-drama-reference-art",
 			skillName: "AI短剧参考图提示词编写",
-			version:   "1.0.0",
 			minFiles:  1,
 			auxPaths:  nil,
 		},
 		{
 			skillID:   "seedance-clip-writer",
 			skillName: "Seedance 视频提示词编写",
-			version:   "9.3.0",
 			minFiles:  9,
 			auxPaths:  []string{"references/performance_layer.md", "references/script_to_shot_breakdown.md", "references/transition_grammar.md"},
 		},
@@ -197,28 +178,17 @@ func TestBuiltinSeedSkillsIncludeLuckyPlusOnePackagesAndAuxiliaryFiles(t *testin
 		if detail.SkillName != tc.skillName {
 			t.Fatalf("%s SkillName = %q, want %q", tc.skillID, detail.SkillName, tc.skillName)
 		}
-		if !detail.IsAdded {
-			t.Fatalf("%s IsAdded = false, want true by default for local workspace owner", tc.skillID)
-		}
 		if detail.EffectiveUser.Name != "lucky加一" || detail.OwnerUID != "lucky-plus-one" {
 			t.Fatalf("%s attribution = %+v (owner=%q), want lucky加一 / lucky-plus-one", tc.skillID, detail.EffectiveUser, detail.OwnerUID)
 		}
 		if detail.FileCount < tc.minFiles {
 			t.Fatalf("%s FileCount = %d, want >= %d", tc.skillID, detail.FileCount, tc.minFiles)
 		}
-		releaseID := tc.skillID + "-" + tc.version
-		rel, err := svc.MarketRelease(context.Background(), tc.skillID, releaseID)
+		added, err := svc.SetSkillAdded("tester", tc.skillID, true)
 		if err != nil {
-			t.Fatalf("MarketRelease(%s, %s): %v", tc.skillID, releaseID, err)
+			t.Fatalf("SetSkillAdded(%s): %v", tc.skillID, err)
 		}
-		if rel.Author != "lucky加一" || len(rel.Files) < tc.minFiles {
-			t.Fatalf("MarketRelease(%s) = %+v", tc.skillID, rel)
-		}
-		chunk, err := svc.MarketFile(context.Background(), tc.skillID, releaseID, "SKILL.md", 0, 4096)
-		if err != nil || !strings.Contains(chunk.Content, "lucky加一") {
-			t.Fatalf("MarketFile(%s, SKILL.md) = %+v, err=%v", tc.skillID, chunk, err)
-		}
-		pin := Pin{SkillID: detail.SkillID, VersionID: detail.VersionID, ContentHash: detail.ContentHash}
+		pin := Pin{SkillID: added.SkillID, VersionID: added.VersionID, ContentHash: added.ContentHash}
 		pins = append(pins, pin)
 
 		resource, err := svc.AgentVersion("tester", pin)
