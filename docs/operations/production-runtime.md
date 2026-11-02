@@ -54,6 +54,18 @@ systemctl is-active aicyld-canvas aicyld-main aicyld-admin nginx
 
 ## 发布约束
 
+### 系统媒体依赖
+
+Canvas 时间线渲染依赖系统 `ffmpeg`/`ffprobe` 和中文字体。Ubuntu 生产机至少安装：
+
+```bash
+apt-get install -y ffmpeg fonts-noto-cjk
+fc-cache -f
+fc-match 'Noto Sans CJK SC'
+```
+
+`fc-match` 必须返回 Noto CJK 字体。缺少中文字体时，字幕烧录会被 v2.1.2 的字体失败检测拒绝，不能把“ffmpeg 退出 0 但缺字”当成成功。
+
 Canvas 后端必须使用 `CGO_ENABLED=1` 构建。替换生产二进制前先停 `aicyld-canvas`，保留后端、数据库、前端、渠道配置、插件包和前端回滚点，再启动并检查：
 
 ```bash
