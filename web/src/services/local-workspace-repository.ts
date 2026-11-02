@@ -5,7 +5,7 @@ import { beginCanvasHydration,finishCanvasHydration } from "./canvas-hydration-h
 import { commitCanvasDocument } from "@/services/api/operations";
 import { restoreCanvasHistory } from "@/services/api/workspace-data";
 import { notifyCanvasRefresh } from "@/services/local-workspace-sync";
-import { canvasBackendSubmitPaused, CanvasBackendSubmitPausedError, clearCanvasBackendSaveProgress, handleRejectedCanvasBackendSave, isCanvasRevisionConflict, isCanvasSubmitControlError, pauseCanvasBackendSubmit, preserveCanvasConflictDraft, resumeCanvasBackendSubmit, setCanvasBackendSaveProgress } from "@/services/canvas-revision-conflict";
+import { canvasBackendSubmitPaused, CanvasBackendSubmitPausedError, clearCanvasBackendSaveProgress, handleRejectedCanvasBackendSave, isCanvasRevisionConflict, isCanvasSubmitControlError, pauseCanvasBackendSubmit, preserveCanvasConflictDraft, resumeCanvasBackendSubmit, sameCanvasDocumentValue, setCanvasBackendSaveProgress } from "@/services/canvas-revision-conflict";
 import { CanvasJournalError, clearCanvasOperationJournal, clearCanvasPendingProjection, loadCanvasOperationJournal, newCanvasCommitOperationId, peekCanvasOperationJournal, recordConfirmedCanvasCommit, updateCanvasOperationJournal } from "@/services/canvas-operation-journal";
 import { isLocalWorkspaceMode } from "@/services/workspace-mode";
 import { getActiveUserScope } from "@/lib/user-scope";
@@ -587,6 +587,13 @@ async function queueAndSendLiveCanvasDocument(id: string, confirmed: CanvasProje
 
 type CanvasCommitOutcome = "accepted" | "rebased";
 
+function shouldKeepCanvasCommitIdentity(error: unknown) {
+    if (error instanceof DOMException && error.name === "AbortError") return true;
+    if (!(error instanceof ApiError)) return true;
+    if (error.retryable) return true;
+    return error.status === undefined && error.code === undefined;
+}
+
 /**
  * 被 revision 过时拒绝后读一次服务端最新文档并尝试三路合并。
  * 只有读到比被拒的 expectedRevision 更新的版本、且合并干净时返回 true，
@@ -653,19 +660,8 @@ async function sendCanvasDocumentCommit(
     }
 }
 
-function shouldKeepCanvasCommitIdentity(error: unknown) {
-    if (error instanceof DOMException && error.name === "AbortError") return true;
-    if (!(error instanceof ApiError)) return true;
-    if (error.retryable) return true;
-    return error.status === undefined && error.code === undefined;
-}
-
 export function syncLocalCanvasProjectToBackend(id: string): Promise<void> {
     return syncLocalCanvasProject(id);
-}
-
-function sameDocumentValue(left: unknown, right: unknown) {
-    return left === right || JSON.stringify(left) === JSON.stringify(right);
 }
 
 function revertUnchangedCanvasNodes(
@@ -673,7 +669,7 @@ function revertUnchangedCanvasNodes(
     attempted: CanvasProject["nodes"],
     live: CanvasProject["nodes"],
 ): CanvasProject["nodes"] {
-    if (sameDocumentValue(live, attempted)) return previous;
+    if (sameCanvasDocumentValue(live, attempted)) return previous;
     const previousById = new Map(previous.map((node) => [node.id, node]));
     const attemptedById = new Map(attempted.map((node) => [node.id, node]));
     const reverted: CanvasProject["nodes"] = [];
@@ -681,12 +677,12 @@ function revertUnchangedCanvasNodes(
         const before = previousById.get(node.id);
         const optimistic = attemptedById.get(node.id);
         if (!before && optimistic) {
-            if (sameDocumentValue(node, optimistic)) continue;
+            if (sameCanvasDocumentValue(node, optimistic)) continue;
             reverted.push(node);
             continue;
         }
         if (before && optimistic) {
-            reverted.push(sameDocumentValue(node, optimistic) ? before : node);
+            reverted.push(sameCanvasDocumentValue(node, optimistic) ? before : node);
             continue;
         }
         reverted.push(node);
@@ -704,7 +700,7 @@ function revertUnchangedCanvasDocumentPatch(current: CanvasProject, previous: Ca
         }
         const attempted = patch[key];
         if (attempted === undefined) return;
-        if (sameDocumentValue(current[key], attempted)) {
+        if (sameCanvasDocumentValue(current[key], attempted)) {
             (next as Record<string, unknown>)[key] = previous[key];
         }
     });
@@ -713,10 +709,10 @@ function revertUnchangedCanvasDocumentPatch(current: CanvasProject, previous: Ca
 
 /**
  * Persist a canvas document patch before the caller reports success.
- * Local desktop hydrates from SQLite, so ongoing saves commit through the
- * operations registry without waiting on IndexedDB. Hosted keeps update plus an awaited flush.
- * Network-unknown keeps the live patch and the same operationId. Stale revision
- * keeps the local draft. Other failures revert patch fields that nobody else changed.
+ * Local desktop commits through the operations registry without waiting on IndexedDB.
+ * Hosted waits for the local projection flush, then commits the same document to the server.
+ * Network-unknown keeps the live patch and operation identity. Stale revision keeps the local
+ * draft. Definite API failures revert patch fields that nobody else changed.
  */
 export async function persistCanvasDocument(id: string, patch: CanvasDocumentPersistPatch) {
     const scope = getActiveUserScope();

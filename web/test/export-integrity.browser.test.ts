@@ -183,7 +183,7 @@ test("automatic canvas creation failure leaves the opening screen and shows a re
         url.search = "?new=1";
         await page.goto(url.toString());
         await page.getByText("测试保存失败", { exact: true }).waitFor({ timeout: 5000 }).catch(async () => { throw new Error(JSON.stringify({ text: await page.locator("body").innerText(), requests, pageErrors, consoleErrors, messages: await page.evaluate(() => (window as any).creationMessages) })); });
-        expect(requests.some((entry) => entry.startsWith("PUT ") && entry.includes("/api/canvas-projects/"))).toBe(true);
+        expect(requests.some((entry) => entry.includes("/api/ops/canvas.document.commit") || (entry.startsWith("PUT ") && entry.includes("/api/canvas-projects/")))).toBe(true);
         expect(await page.getByText("正在打开画布...", { exact: true }).count()).toBe(0);
         expect(await page.getByRole("button", { name: "开始创作", exact: true }).count()).toBe(1);
         expect(await page.getByTestId("canvas-route").textContent()).toBe("/canvas?mode=new");
@@ -194,6 +194,8 @@ test("automatic canvas creation failure leaves the opening screen and shows a re
         let startedSave!: () => void;
         const saveStarted = new Promise<void>((resolve) => { startedSave = resolve; });
         let savedId = "";
+        await page.unroute("**/api/ops/**");
+        await page.unroute("**/api/canvas-projects/*");
         await page.route("**/api/canvas-projects/*", async (route) => {
             if (route.request().method() !== "PUT") return route.fallback();
             const { project } = route.request().postDataJSON();
@@ -202,11 +204,21 @@ test("automatic canvas creation failure leaves the opening screen and shows a re
             await saveGate;
             await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ code: 0, data: { project: { ...project, revision: 1 } } }) });
         });
+        await page.route("**/api/ops/canvas.document.commit", async (route) => {
+            const body = route.request().postDataJSON();
+            const project = body.params.document;
+            savedId = body.params.canvasId || project.id;
+            startedSave();
+            await saveGate;
+            await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ code: 0, data: { op: "canvas.document.commit", opId: body.opId, replayed: false, caller: "manual", revision: 1, result: { canvasId: savedId, revision: 1, title: project.title, updatedAt: project.updatedAt } } }) });
+        });
         await page.getByRole("button", { name: "开始创作", exact: true }).click();
+        await page.getByRole("button", { name: /从空白开始/ }).click();
         await saveStarted;
         expect(await page.getByTestId("canvas-route").textContent()).toBe("/canvas?mode=new");
         acceptSave();
-        await page.waitForFunction((id) => document.querySelector('[data-testid="canvas-route"]')?.textContent === `/canvas/${id}?mode=new`, savedId);
+        await page.waitForFunction((id) => document.querySelector('[data-testid="canvas-route"]')?.textContent?.startsWith(`/canvas/${id}`), savedId);
+        expect(await page.getByTestId("canvas-route").textContent()).toContain(`/canvas/${savedId}`);
         expect(pageErrors).toEqual([]);
     } finally { await context.close(); }
 }, 15_000);

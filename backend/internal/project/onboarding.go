@@ -1,4 +1,4 @@
-package app
+package project
 
 import (
 	"strings"
@@ -10,10 +10,10 @@ import (
 )
 
 var canvasOnboardingEvents = map[string]struct{}{
-	"canvas_created":   {},
-	"canvas_opened":    {},
-	"image_requested":  {},
-	"video_requested":  {},
+	"canvas_created":  {},
+	"canvas_opened":   {},
+	"image_requested": {},
+	"video_requested": {},
 }
 
 func (s *Service) RecordCanvasOnboardingEvent(userID string, eventName string, canvasID string, taskID string) error {
@@ -34,10 +34,7 @@ func (s *Service) RecordCanvasOnboardingEvent(userID string, eventName string, c
 	})
 }
 
-func (s *Service) CanvasOnboardingFunnel(actor *model.User, from, to time.Time) ([]repository.CanvasOnboardingFunnelRow, error) {
-	if err := s.RequireAdmin(actor); err != nil {
-		return nil, err
-	}
+func (s *Service) CanvasOnboardingFunnel(from, to time.Time) ([]repository.CanvasOnboardingFunnelRow, error) {
 	if !to.After(from) || to.Sub(from) > 90*24*time.Hour {
 		return nil, kernel.BadAuthRequest("统计时间范围必须为正数且不超过 90 天")
 	}

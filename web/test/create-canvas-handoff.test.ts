@@ -384,7 +384,8 @@ test("Create forwards owned result assets through one new canvas and the project
     expect(createPage).toContain("CreationConflictBanner");
     expect(canvasIndex).toContain('const handoffMode = mode === "handoff"');
     expect(canvasIndex).toContain('mode !== "new" && mode !== "recent" && mode !== "handoff"');
-    expect(canvasIndex).toContain("void saved.then(() => enterProject(id)).catch((error) => {");
+    expect(canvasIndex).toContain("void saved.then(() => {");
+    expect(canvasIndex).toContain("enterProject(id);");
     expect(canvasIndex).toContain('if (!creationError && !libraryQuery.isError');
     expect(canvasProject).toContain("useCanvasResourceHandoff");
     expect(handoffPlan).toContain('if (!input.projectLoaded || !input.assetsHydrated || input.mode !== "handoff") return { kind: "idle" }');

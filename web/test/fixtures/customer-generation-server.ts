@@ -14,7 +14,7 @@ function audioWav() {
 }
 
 export async function startCustomerScenarioServer(options: { port?: number } = {}) {
-    const build = await Bun.build({ entrypoints: [import.meta.dir + "/customer-generation-harness.tsx"], target: "browser", define: { "process.env.NODE_ENV": '"production"', "import.meta.env.DEV": "false", "import.meta.env.PROD": "true", "import.meta.env.MODE": '"production"', "import.meta.env.VITE_CANVAS_LOCAL_MODE": '"true"', "import.meta.env.VITE_CANVAS_BACKEND_URL": '"/api"' }, plugins: [{ name: "source", setup(builder) {
+    const build = await Bun.build({ entrypoints: [import.meta.dir + "/customer-generation-harness.tsx"], target: "browser", define: { "process.env.NODE_ENV": '"production"', "import.meta.env.DEV": "false", "import.meta.env.PROD": "true", "import.meta.env.MODE": '"production"', "import.meta.env.VITE_CANVAS_LOCAL_MODE": '"true"', "import.meta.env.VITE_CANVAS_HOSTED": '"0"', "import.meta.env.VITE_CANVAS_BACKEND_URL": '"/api"' }, plugins: [{ name: "source", setup(builder) {
         builder.onResolve({ filter: /^@\// }, args => ({ path: Bun.resolveSync("../../src/" + args.path.slice(2), import.meta.dir) }));
         builder.onLoad({ filter: /\.(css|svg|png|jpe?g|gif|webp|woff2?)$/ }, () => ({ contents: "export default ''", loader: "js" }));
     } }] });

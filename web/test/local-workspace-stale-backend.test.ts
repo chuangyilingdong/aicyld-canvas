@@ -84,6 +84,7 @@ writeFileSync(conflictStubPath, `
 export class CanvasBackendSubmitPausedError extends Error { constructor(message = "") { super(message); this.name = "CanvasBackendSubmitPausedError"; } }
 export const isCanvasRevisionConflict = () => false;
 export const isCanvasSubmitControlError = (error) => error instanceof CanvasBackendSubmitPausedError;
+export const sameCanvasDocumentValue = (left, right) => left === right || JSON.stringify(left) === JSON.stringify(right);
 export const canvasBackendSubmitPaused = () => false;
 export const pauseCanvasBackendSubmit = () => {};
 export const resumeCanvasBackendSubmit = () => {};

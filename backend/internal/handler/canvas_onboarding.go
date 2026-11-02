@@ -4,15 +4,21 @@ import (
 	"net/http"
 	"time"
 
-	"infinite-canvas/backend/internal/app"
+	"infinite-canvas/backend/internal/admin"
 	"infinite-canvas/backend/internal/kernel"
+	"infinite-canvas/backend/internal/repository"
 
 	"github.com/gin-gonic/gin"
 )
 
-func registerCanvasOnboardingRoutes(r *gin.RouterGroup, svc *app.Service) {
+type canvasOnboardingService interface {
+	RecordCanvasOnboardingEvent(userID string, eventName string, canvasID string, taskID string) error
+	CanvasOnboardingFunnel(from, to time.Time) ([]repository.CanvasOnboardingFunnelRow, error)
+}
+
+func registerCanvasOnboardingRoutes(r *gin.RouterGroup, owners workspaceOwners, svc canvasOnboardingService) {
 	r.POST("/canvas-onboarding/events", func(c *gin.Context) {
-		user, err := currentUser(c, svc)
+		user, err := currentUser(c, owners)
 		if err != nil {
 			failService(c, err)
 			return
@@ -38,8 +44,12 @@ func registerCanvasOnboardingRoutes(r *gin.RouterGroup, svc *app.Service) {
 	})
 
 	r.GET("/admin/canvas-onboarding/funnel", func(c *gin.Context) {
-		user, err := currentUser(c, svc)
+		user, err := currentUser(c, owners)
 		if err != nil {
+			failService(c, err)
+			return
+		}
+		if err := admin.RequireAdmin(user); err != nil {
 			failService(c, err)
 			return
 		}
@@ -63,7 +73,7 @@ func registerCanvasOnboardingRoutes(r *gin.RouterGroup, svc *app.Service) {
 			toDate = parsed
 		}
 		to := toDate.AddDate(0, 0, 1)
-		rows, err := svc.CanvasOnboardingFunnel(user, from, to)
+		rows, err := svc.CanvasOnboardingFunnel(from, to)
 		if err != nil {
 			failService(c, err)
 			return

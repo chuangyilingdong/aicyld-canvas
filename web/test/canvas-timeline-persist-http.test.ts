@@ -251,10 +251,12 @@ describe("persistCanvasTimeline http", () => {
         expect(request.puts[0].body.project.timeline.tracks.map((track: { kind: string }) => track.kind)).toEqual(["video", "audio", "subtitle"]);
     });
 
-    it("does not PUT on the hosted profile", async () => {
+    it("commits the timeline to the backend on the hosted profile", async () => {
         mode.setLocalMode(false);
         await repository.persistCanvasTimeline(project.id, timeline);
-        expect(request.puts).toEqual([]);
+        expect(request.puts).toHaveLength(1);
+        expect(request.puts[0].path).toBe("/ops/canvas.document.commit");
+        expect(request.puts[0].body.project.timeline.durationMs).toBe(5600);
         expect(store.projects[0].timeline.durationMs).toBe(5600);
     });
 
@@ -277,7 +279,7 @@ describe("persistCanvasTimeline http", () => {
         expect(request.puts[0].body.project.timeline.clips[0].nodeId).toBe("7vvfM674HnenwTekmj88V");
     });
 
-    it("hosted profile still awaits flush and does not PUT", async () => {
+    it("hosted profile awaits the local flush and keeps the live edit when that flush fails", async () => {
         mode.setLocalMode(false);
         store.setFlushImpl(async () => {
             throw new Error("IndexedDB hung");
@@ -291,6 +293,7 @@ describe("persistCanvasTimeline http", () => {
         expect((caught as Error).message).toBe("IndexedDB hung");
         expect(request.puts).toEqual([]);
         expect(store.flushCalls).toBe(1);
+        expect(store.projects[0].timeline.durationMs).toBe(5600);
 
         store.resetFlush();
         store.resetProjects([{ ...project }]);
@@ -312,7 +315,8 @@ describe("persistCanvasTimeline http", () => {
         resolveFlush();
         await pending;
         expect(settled).toBe(true);
-        expect(request.puts).toEqual([]);
+        expect(request.puts).toHaveLength(1);
+        expect(request.puts[0].body.project.timeline.durationMs).toBe(5600);
     });
 
     it("rejects when the desktop PUT fails", async () => {
@@ -360,11 +364,13 @@ describe("persistCanvasDocument http", () => {
         expect(request.puts[0].body.project.timeline.clips[0].nodeId).toBe("7vvfM674HnenwTekmj88V");
     });
 
-    it("does not PUT on the hosted profile", async () => {
+    it("commits the document to the backend on the hosted profile", async () => {
         mode.setLocalMode(false);
         store.resetProjects([{ ...project, nodes: [originalAudioNode] }]);
         await repository.persistCanvasDocument(project.id, { nodes: [originalAudioNode, historyAudioNode] });
-        expect(request.puts).toEqual([]);
+        expect(request.puts).toHaveLength(1);
+        expect(request.puts[0].path).toBe("/ops/canvas.document.commit");
+        expect(request.puts[0].body.project.nodes.map((node: { title: string }) => node.title)).toEqual(["旁白", "历史音频"]);
         expect(store.projects[0].nodes.map((node: { title: string }) => node.title)).toEqual(["旁白", "历史音频"]);
     });
 
@@ -388,7 +394,7 @@ describe("persistCanvasDocument http", () => {
         expect(request.puts[0].body.project.nodes[1].title).toBe("历史音频");
     });
 
-    it("hosted profile still awaits flush and does not PUT", async () => {
+    it("hosted profile keeps the live edit when the awaited local flush fails", async () => {
         mode.setLocalMode(false);
         store.resetProjects([{ ...project, nodes: [originalAudioNode] }]);
         store.setFlushImpl(async () => {
@@ -403,7 +409,7 @@ describe("persistCanvasDocument http", () => {
         expect((caught as Error).message).toBe("IndexedDB hung");
         expect(request.puts).toEqual([]);
         expect(store.flushCalls).toBe(1);
-        expect(store.projects[0].nodes.map((node: { title: string }) => node.title)).toEqual(["旁白"]);
+        expect(store.projects[0].nodes.map((node: { title: string }) => node.title)).toEqual(["旁白", "历史音频"]);
     });
 
     it("rejects when the desktop PUT fails", async () => {

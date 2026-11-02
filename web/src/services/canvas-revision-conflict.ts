@@ -20,6 +20,10 @@ export function isCanvasSubmitControlError(error: unknown) {
     return error instanceof CanvasBackendSubmitPausedError;
 }
 
+export function sameCanvasDocumentValue(left: unknown, right: unknown) {
+    return left === right || JSON.stringify(left) === JSON.stringify(right);
+}
+
 /**
  * 把本地画布内容另存为草稿。
  *

@@ -16,12 +16,12 @@
     "web/src/pages/canvas/project.tsx": 1985,
     "web/src/pages/canvas/use-canvas-upload.ts": 1087,
     "web/src/pages/create/index.tsx": 1243,
-    "web/src/services/local-workspace-repository.ts": 1165,
+    "web/src/services/local-workspace-repository.ts": 1163,
     "web/src/stores/use-config-store.ts": 1218,
     "web/src/styles/globals.css": 21593,
     "web/src/styles/workspace-product.css": 1542
   },
-  "modelLiterals": 614,
+  "modelLiterals": 610,
   "handlersUsingAppService": 7,
   "sourceTextTests": 142
 }

@@ -3,6 +3,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { HomeDashboard } from "@/pages/home/home-dashboard";
 import { CanvasShortDramaEmptyState } from "@/components/canvas/canvas-short-drama-entry";
@@ -94,10 +95,13 @@ function collectSourceFiles(directory: string): string[] {
 
 describe("旧内置 Agent 页面入口退场", () => {
     test("首页不再提供 Agent 能力入口，手工创作入口仍然指向真实画布路径", () => {
+        const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
         const markup = renderToStaticMarkup(
-            <MemoryRouter>
-                <HomeDashboard projects={[]} loading={false} error={false} onRetry={() => {}} />
-            </MemoryRouter>,
+            <QueryClientProvider client={queryClient}>
+                <MemoryRouter>
+                    <HomeDashboard projects={[]} loading={false} error={false} onRetry={() => {}} />
+                </MemoryRouter>
+            </QueryClientProvider>,
         );
         expect(markup).not.toContain("BeefTV Agent");
         expect(markup).not.toContain('data-mode="agent"');

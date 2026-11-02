@@ -69,6 +69,9 @@ if (import.meta.main) {
         const source = readFileSync(join(root, file), "utf8");
         // Bun module replacements persist beyond mock.restore(); isolate their import graphs.
         if (source.includes("mock.module(")) return true;
+        // Tests that materialize transformed source modules into a temp directory need
+        // their own Bun process so their specifier cache cannot collide with the real graph.
+        if (source.includes("pathToFileURL(") && source.includes("writeFileSync(")) return true;
         return source.includes("globalThis") && browserGlobalName.test(source);
     });
     const shared = files.filter((file) => !isolated.includes(file));

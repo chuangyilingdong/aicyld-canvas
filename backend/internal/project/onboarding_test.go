@@ -1,4 +1,4 @@
-package app
+package project
 
 import (
 	"testing"
@@ -11,7 +11,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestCanvasOnboardingFunnelDeduplicatesAndRequiresAdmin(t *testing.T) {
+func TestCanvasOnboardingFunnelDeduplicates(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:canvas-onboarding-funnel?mode=memory&cache=shared"), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
@@ -19,7 +19,7 @@ func TestCanvasOnboardingFunnelDeduplicatesAndRequiresAdmin(t *testing.T) {
 	if err := db.AutoMigrate(&model.CanvasOnboardingEvent{}); err != nil {
 		t.Fatal(err)
 	}
-	service := NewLocal(repository.New(db), t.TempDir())
+	service := New(repository.New(db), Dependencies{})
 	for _, item := range []struct {
 		userID   string
 		event    string
@@ -36,7 +36,7 @@ func TestCanvasOnboardingFunnelDeduplicatesAndRequiresAdmin(t *testing.T) {
 		}
 	}
 	now := time.Now().UTC()
-	rows, err := service.CanvasOnboardingFunnel(&model.User{ID: "admin", Role: model.UserRoleAdmin}, now.Add(-time.Hour), now.Add(time.Hour))
+	rows, err := service.CanvasOnboardingFunnel(now.Add(-time.Hour), now.Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,8 +49,5 @@ func TestCanvasOnboardingFunnelDeduplicatesAndRequiresAdmin(t *testing.T) {
 	}
 	if counts["canvas_opened"].count != 1 || counts["image_requested"].count != 1 {
 		t.Fatalf("unexpected funnel rows = %+v", counts)
-	}
-	if _, err := service.CanvasOnboardingFunnel(&model.User{ID: "user-1", Role: model.UserRoleUser}, now.Add(-time.Hour), now.Add(time.Hour)); err == nil {
-		t.Fatal("non-admin read the global funnel")
 	}
 }
