@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Home, Plug, Plus, Settings2, HardDrive, Sun, Moon } from "lucide-react";
+import { BarChart3, ChevronLeft, ChevronRight, Home, Plug, Plus, Settings2, HardDrive, Sun, Moon } from "lucide-react";
 import { LayoutGroup, motion, useReducedMotion } from "motion/react";
 import { useEffect, useMemo, useRef, useState, type ComponentType, type CSSProperties } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
@@ -40,7 +40,7 @@ function toolItem(slug: NavigationToolSlug, to: string): WorkspaceNavItem {
     return { id: slug, title: tool?.label ?? slug, icon: tool?.icon, to };
 }
 
-function buildNav(features: FeatureAvailability): { groups: WorkspaceNavGroup[]; footer: WorkspaceNavItem[] } {
+function buildNav(features: FeatureAvailability, isAdmin: boolean): { groups: WorkspaceNavGroup[]; footer: WorkspaceNavItem[] } {
     const groups: WorkspaceNavGroup[] = [
         {
             items: [
@@ -54,6 +54,7 @@ function buildNav(features: FeatureAvailability): { groups: WorkspaceNavGroup[];
                 { ...toolItem("assets", "/assets"), title: "资产" },
                 { ...toolItem("skills", "/skills"), title: "技能" },
                 { id: "settings:channels", title: "模型配置", icon: Settings2, to: "/settings?section=channels" },
+                ...(isAdmin ? [{ id: "settings:funnel", title: "使用漏斗", icon: BarChart3, to: "/settings?section=funnel" }] : []),
                 ...(getDesktopAppBinding()?.StorageSettings ? [{ id: "settings:storage", title: "存储设置", icon: HardDrive, to: "/settings?section=storage" }] : []),
                 { id: "agents", title: "灵动TV MCP", icon: Plug, to: "/agents" },
             ],
@@ -260,7 +261,8 @@ export function WorkspaceSidebarNav({ collapsed, onNavigate, onOpenSearch, onExp
     const { pathname } = useLocation();
     const [searchParams] = useSearchParams();
     const features = useUserStore((state) => state.features);
-    const { groups, footer } = useMemo(() => buildNav(features), [features]);
+    const isAdmin = useUserStore((state) => state.user?.role === "admin");
+    const { groups, footer } = useMemo(() => buildNav(features, isAdmin), [features, isAdmin]);
 
     const rawSlug = pathname.split("/").filter(Boolean)[0] || "home";
     // `/project` is the LibTV-compatible alias for the existing canvas library route.

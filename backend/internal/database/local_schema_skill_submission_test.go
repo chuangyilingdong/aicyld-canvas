@@ -24,7 +24,7 @@ func TestSkillSubmissionMigrationGrandfathersExistingPublicSkills(t *testing.T) 
 	if err := db.Migrator().DropTable(&model.SkillSubmission{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Exec("DELETE FROM local_schema_migrations WHERE version = ?", 29).Error; err != nil {
+	if err := db.Exec("DELETE FROM local_schema_migrations WHERE version IN (?, ?)", 29, 30).Error; err != nil {
 		t.Fatal(err)
 	}
 	publicSkill := model.Skill{ID: "public-skill", OwnerID: "owner", Name: "Public", Status: 1}
