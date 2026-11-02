@@ -91,7 +91,7 @@ func TestDirectAttemptResubmitRequiresProvenNoJob(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := directAttemptSafeToResubmit(tc.attempt); got != tc.want {
+			if got := generation.DirectAttemptSafeToResubmit(tc.attempt); got != tc.want {
 				t.Fatalf("safe = %v, want %v", got, tc.want)
 			}
 		})
