@@ -56,7 +56,7 @@ func TestAssistantAcceptanceRejectsMissingForeignAndExpiredUISessions(t *testing
 
 func TestHostedUISessionAuthorizesWorkspaceOps(t *testing.T) {
 	env := newAssistantTestEnv(t, nil)
-	body := `{"opId":"hosted-ui-op","params":{"canvasId":"` + env.canvasID + `"}}`
+	body := `{"params":{"canvasId":"` + env.canvasID + `"}}`
 	w := env.call(t, http.MethodPost, "/ops/canvas.get", body)
 	if w.Code != http.StatusOK {
 		t.Fatalf("valid UI session did not authorize ops: %d %s", w.Code, w.Body.String())
