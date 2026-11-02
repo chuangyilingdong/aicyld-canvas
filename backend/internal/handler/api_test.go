@@ -21,11 +21,12 @@ func TestRegisterCanvasAPIExposesOpenAPIAndProjects(t *testing.T) {
 	RegisterCanvasAPI(router.Group("/api"), &app.Service{})
 
 	wanted := map[string]bool{
-		"GET /api/openapi.yaml":          false,
-		"GET /api/projects":              false,
-		"POST /api/tasks":                false,
-		"POST /api/timeline/render-plan": false,
-		"GET /api/resources":             false,
+		"GET /api/openapi.yaml":                        false,
+		"GET /api/projects":                            false,
+		"POST /api/tasks":                              false,
+		"POST /api/timeline/render-plan":               false,
+		"GET /api/resources":                           false,
+		"GET /api/public/resources/:id/file/:filename": false,
 	}
 	for _, route := range router.Routes() {
 		key := route.Method + " " + route.Path
@@ -108,8 +109,7 @@ func TestRegisterDesktopCanvasAPIExcludesHostedOnlyRoutes(t *testing.T) {
 			"GET /api/admin/settings/response-interception", "PATCH /api/admin/settings/response-interception",
 			"GET /api/admin/text-replay-stats",
 			"POST /api/canvas-projects/:id/import/libtv", "POST /api/canvas-projects/:id/import/tapnow",
-			"POST /api/runninghub/workflow-info", "POST /api/runninghub/app-info",
-			"GET /api/public/resources/:id/file", "GET /api/public/resources/:id/file/:filename":
+			"POST /api/runninghub/workflow-info", "POST /api/runninghub/app-info":
 			t.Fatalf("desktop API must not expose hosted storage route %s", key)
 		}
 		if key == "POST /api/skills/install/github" || key == "POST /api/skills/:id/sync" {

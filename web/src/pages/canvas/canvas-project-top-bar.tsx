@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Link } from "react-router";
-import { Check, ChevronDown, ChevronUp, Clapperboard, CloudUpload, Columns2, CopyPlus, Focus, FolderKanban, Gauge, History, Home, LayoutGrid, MoreHorizontal, Pencil, Plus, Redo2, Save, Search, Sparkles, Trash2, Undo2, Upload, Workflow, X } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Clapperboard, CloudUpload, Columns2, CopyPlus, Focus, FolderKanban, Gauge, History, Home, LayoutGrid, MoreHorizontal, Pencil, Plus, Redo2, Save, Search, Sparkles, Trash2, Undo2, Upload, Workflow, X, Zap } from "lucide-react";
 import { App, Button, Dropdown, Tooltip } from "antd";
 
 import { BrandLogoFrame } from "@/components/brand/brand-logo";
@@ -8,11 +8,13 @@ import { canvasDockStyle } from "@/lib/canvas/canvas-aceternity-style";
 import type { CanvasContextSummary } from "@/lib/canvas/canvas-context-summary";
 import type { CanvasShortDramaProgress } from "@/lib/canvas/canvas-short-drama";
 import { canvasThemes } from "@/lib/canvas-theme";
+import { useCanvasBillingBalance } from "@/hooks/use-canvas-billing";
 import { exportCanvasProjectsByIds } from "@/lib/canvas/canvas-export";
 import { resolveWorkspaceExportCanvasIds } from "@/lib/canvas/canvas-workspace-project";
 import { loadCanvasProjectForEditing } from "@/services/local-workspace-sync";
 import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { useCanvasThemeStore } from "@/stores/canvas/use-canvas-theme-store";
+import { useUserStore } from "@/stores/use-user-store";
 import type { CanvasMediaPerformanceMode } from "@/types/canvas";
 
 type CanvasTopBarProps = {
@@ -470,8 +472,40 @@ export function CanvasTopBar({
                         </Button>
                     </CanvasTopBarTooltip>
                 </div>
+                <CanvasAccountStatus style={dockStyle} />
             </div>
         </>
+    );
+}
+
+function CanvasAccountStatus({ style }: { style: CSSProperties }) {
+    const user = useUserStore((state) => state.user);
+    const balanceQuery = useCanvasBillingBalance();
+    const displayName = user?.displayName || user?.username || "账户";
+    const initial = Array.from(displayName.trim())[0] || "U";
+    const balance = balanceQuery.data?.enabled ? balanceQuery.data.balance : null;
+    const balanceLabel = balanceQuery.isPending ? "—" : balance === null ? "--" : balance.toLocaleString("zh-CN");
+
+    return (
+        <div className="canvas-topbar-cluster canvas-topbar-account-cluster pointer-events-auto flex items-center gap-1.5" style={style} aria-label="账户与积分">
+            <Tooltip title={balance === null ? "当前无法读取积分余额" : `当前可用积分：${balance}`} placement="bottom">
+                <a href="https://aicyld.com.cn/points" target="_blank" rel="noopener noreferrer" className="inline-flex h-8 items-center gap-1.5 rounded-xl border border-white/10 bg-black/15 px-2.5 text-xs font-medium tabular-nums transition-colors hover:bg-white/10" aria-label={`查看积分，当前 ${balanceLabel} 积分`}>
+                    <Zap className="size-3.5" strokeWidth={2.2} />
+                    <span>{balanceLabel}</span>
+                </a>
+            </Tooltip>
+            <Tooltip title="充值积分" placement="bottom">
+                <a href="https://aicyld.com.cn/subscription?tab=recharge" target="_blank" rel="noopener noreferrer" className="inline-flex h-8 items-center gap-1 rounded-xl border border-white/10 bg-black/15 px-2.5 text-xs font-medium transition-colors hover:bg-white/10" aria-label="充值积分">
+                    <Plus className="size-3.5" strokeWidth={2.2} />
+                    <span>充值</span>
+                </a>
+            </Tooltip>
+            <Tooltip title={displayName} placement="bottom">
+                <span className="grid size-8 place-items-center overflow-hidden rounded-full border border-white/10 bg-emerald-500 text-xs font-semibold text-white" aria-label={displayName}>
+                    {user?.avatarUrl ? <img src={user.avatarUrl} alt="" className="size-full object-cover" referrerPolicy="no-referrer" loading="lazy" decoding="async" /> : initial}
+                </span>
+            </Tooltip>
+        </div>
     );
 }
 

@@ -32,6 +32,7 @@ type userDataUsage interface {
 	runtimePolicies
 	AccountFileStorageUsage(userID string) (*app.AccountFileStorageUsage, error)
 	PrepareResourcePlayback(userID, resourceID string) (*model.Resource, error)
+	OpenPublicResourceRange(id, expires, signature, rangeHeader string) (*assets.ResourceStream, error)
 }
 
 type userDataWorkflows interface {
@@ -327,6 +328,48 @@ func registerUserDataRoutes(r *gin.RouterGroup, owners workspaceOwners, canvasDa
 			c.Header("Accept-Ranges", stream.AcceptRanges)
 		}
 		c.DataFromReader(stream.StatusCode, stream.ContentLength, resource.MimeType, stream.Body, nil)
+	})
+	// 上游模型服务商没有主站会话，只能凭短期签名读取参考素材。
+	// 该路由必须注册在正式 API 图里，否则生成器签出的 /api/public/resources/... 会直接 404。
+	r.GET("/public/resources/:id/file/:filename", func(c *gin.Context) {
+		stream, err := usage.OpenPublicResourceRange(
+			c.Param("id"),
+			c.Query("expires"),
+			c.Query("signature"),
+			c.GetHeader("Range"),
+		)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		defer stream.Body.Close()
+		resource := stream.Resource
+		mimeType := strings.TrimSpace(resource.MimeType)
+		if mimeType == "" {
+			mimeType = "application/octet-stream"
+		}
+		c.Header("Cache-Control", "private, max-age=300")
+		c.Header("Referrer-Policy", "no-referrer")
+		c.Header("X-Content-Type-Options", "nosniff")
+		c.Header("Accept-Ranges", "bytes")
+		if resource.Kind == "file" {
+			c.Header("Content-Disposition", "attachment")
+			c.Header("Content-Security-Policy", "sandbox")
+		}
+		if stream.ContentRange != "" {
+			c.Header("Content-Range", stream.ContentRange)
+		}
+		if stream.AcceptRanges != "" {
+			c.Header("Accept-Ranges", stream.AcceptRanges)
+		}
+		if resource.Provider == "local" {
+			if seeker, ok := stream.Body.(io.ReadSeeker); ok {
+				c.Header("Content-Type", mimeType)
+				http.ServeContent(c.Writer, c.Request, resource.ID, resource.UpdatedAt, seeker)
+				return
+			}
+		}
+		c.DataFromReader(stream.StatusCode, stream.ContentLength, mimeType, stream.Body, nil)
 	})
 	r.GET("/assets", func(c *gin.Context) {
 		user, err := currentUser(c, owners)
