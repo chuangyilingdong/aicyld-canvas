@@ -983,7 +983,7 @@
   },
   {
     "id": "canvas.task.bind",
-    "summary": "把已交付任务产物绑定到节点",
+    "summary": "把已交付任务产物绑定到原节点；同画布本地时间线成片可绑定到空 video 节点，绑定后用 nodeId 检查成片（校验归属、就绪资源与版本，幂等回执）",
     "readOnly": false,
     "scope": "canvas",
     "params": {
@@ -1701,7 +1701,7 @@
   },
   {
     "id": "skill.draft",
-    "summary": "保存私人技能草稿（不上传）",
+    "summary": "把当前画布的创作方法保存为私人技能草稿，不上传、不送审",
     "readOnly": false,
     "scope": "canvas",
     "params": {
@@ -1808,7 +1808,6 @@
     "replay": "safe"
   },
   {
-
     "id": "task.get",
     "summary": "查询任务状态与产物",
     "readOnly": true,

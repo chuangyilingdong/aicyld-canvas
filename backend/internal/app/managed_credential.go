@@ -37,7 +37,7 @@ func (s *Service) resolveChannelModelsRequest(input *ChannelModelsRequest) error
 }
 
 func (s *Service) ResolveCustomRelayAPIKey(targetURL, incoming string) (string, error) {
-	return generation.ResolveCustomRelayKey(targetURL, incoming, s.beefAPI, s.ReadLocalModelConfig)
+	return s.resolveCustomRelayKey(targetURL, incoming)
 }
 
 func (s *Service) resolveCustomRelayKey(targetURL, incoming string) (string, error) {
