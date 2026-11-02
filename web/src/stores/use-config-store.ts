@@ -7,6 +7,7 @@ import { nanoid } from "nanoid";
 import { scopedLocalStorage } from "@/lib/user-scope";
 import { beefAPIVideoContract, isBeefAPIEndpoint } from "@/lib/beefapi-video-contracts";
 import { beefAPIImageContract } from "@/lib/beefapi-image-contracts";
+import { MANAGED_BEEFAPI_CREDENTIAL_REF } from "@/lib/channel-credential";
 import { defaultProtocolForCapability, defaultProtocolForModel, inferProtocolCapabilityFromModel, modelProtocolCapability, normalizeModelProtocol, usesOpenAICompatibleProtocolDefault, type ModelProtocol } from "@/lib/model-protocols";
 import { normalizeVideoBoolean, normalizeVideoDuration, normalizeVideoResolution } from "@/lib/video-generation-options";
 import { defaultModelCapabilityConfig, upgradeGPTImageCapability, workflowFieldRole, workflowFieldSafeToOverride, workflowVideoFieldsFromJson, type ModelCapabilityConfig } from "@/lib/model-capabilities";
@@ -14,6 +15,7 @@ import { useUserStore } from "@/stores/use-user-store";
 import type { CapabilitySpec } from "@/services/api/logical-models";
 import { seedancePortraitLabel, seedancePortraitModel, type VideoPriceQuote } from "@/lib/seedance-portrait";
 export { buildApiUrl, isSystemProxyBaseUrl, resolveBackendApiUrl, systemProxyChannelId } from "@/lib/channel-url";
+export { MANAGED_BEEFAPI_CREDENTIAL_REF } from "@/lib/channel-credential";
 
 export type ApiCallFormat = "openai" | "gemini" | "claude";
 export type ChannelInterfaceType = ModelProtocol;
@@ -651,8 +653,6 @@ export function configuredModelMatchesCapability(config: AiConfig, model: string
     if (!normalized) return false;
     return selectableModelsByCapability(config, capability).includes(normalized);
 }
-
-export const MANAGED_BEEFAPI_CREDENTIAL_REF = "beefapi-enterprise";
 
 export function isBuiltinBeefAPIChannel(channel: Pick<ModelChannel, "id" | "pinned">) {
     return channel.id === "beefapi" && channel.pinned === true;

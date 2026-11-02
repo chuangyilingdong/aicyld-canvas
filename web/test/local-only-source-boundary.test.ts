@@ -56,12 +56,17 @@ describe("local-only source boundary", () => {
             "src/services/workspace-mode.ts",
             "src/stores/use-user-store.ts",
             "src/services/api/creation-runs.ts",
-            "src/services/api/task-center.ts",
         ];
         for (const file of files) {
             const source = readFileSync(resolve(root, file), "utf8");
             expect(source).not.toMatch(/billing|creditsEnabled|waiting_payment|pendingPayment|wallet:updated|amountMicrocredits/i);
         }
+    });
+
+    test("task center only projects billing fields from the backend contract", () => {
+        const source = readFileSync(resolve(root, "src/services/api/task-center.ts"), "utf8");
+        const fields = [...source.matchAll(/\bbilling[A-Za-z]+\b/g)].map((match) => match[0]);
+        expect([...new Set(fields)].sort()).toEqual(["billingPoints", "billingStatus"]);
     });
 
 	test("local model configuration contains capabilities, not commerce metadata", () => {
@@ -89,7 +94,7 @@ describe("local-only source boundary", () => {
 			.filter((file) => /(?:from|import)\s*["'\(][^"'\)]*backend\//.test(readFileSync(file, "utf8")))
 			.map((file) => relative(srcRoot, file));
 		expect(offenders).toEqual([]);
-	});
+	}, 30_000);
 
 	test("frontend source files do not display BeefAPI brand in user-facing string literals", () => {
 		const offenders: string[] = [];

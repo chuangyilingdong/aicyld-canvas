@@ -14,7 +14,7 @@ beforeAll(async () => {
     if (!build.success) throw new Error(build.logs.join("\n"));
     const script = await build.outputs[0]!.text();
     server = Bun.serve({ port: 0, fetch: request => new URL(request.url).pathname === "/harness.js" ? new Response(script, { headers: { "Content-Type": "application/javascript" } })
-        : new Response('<!doctype html><meta charset="utf-8"><div id="root"></div><script src="/harness.js"></script>', { headers: { "Content-Type": "text/html; charset=utf-8" } }) });
+        : new Response('<!doctype html><meta charset="utf-8"><div id="root"></div><script type="module" src="/harness.js"></script>', { headers: { "Content-Type": "text/html; charset=utf-8" } }) });
     browser = await chromium.launch({ headless: true });
 });
 afterAll(async () => { await browser?.close(); server?.stop(true); });

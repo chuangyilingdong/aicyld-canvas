@@ -17,6 +17,9 @@ let hydrate: (context: any) => Promise<any> = async (context) => context;
 let executeVideo = async (input: any) => { dispatched++; input.bindGenerationTask(input.nodeId, { id: "task" }); };
 const react = await import("react");
 const clientDiagnostics = await import("@/services/diagnostics/client-diagnostics");
+const configStore = await import("@/stores/use-config-store");
+const modelSelection = await import("@/lib/model-selection");
+const generationTask = await import("@/services/api/generation-task");
 mock.module("@/lib/canvas/canvas-generation-config", () => ({ resolvedCanvasGenerationRequirements: (config: any, node: any, capability: string, input: any) => ({ capability, input, videoSeconds: config.videoSeconds, videoOperation: node?.metadata?.videoEditOperation }) }));
 mock.module("react", () => ({ ...react, default: react.default, useCallback: (fn: any) => fn, useRef: (value: any) => ({ current: value }) }));
 mock.module("antd", () => ({ App: { useApp: () => ({ modal: { confirm: (input: any) => { confirmations.push(input); return { destroy: () => input.afterClose() }; } }, message: {
@@ -25,7 +28,7 @@ mock.module("antd", () => ({ App: { useApp: () => ({ modal: { confirm: (input: a
 } }) } }));
 // Keep the real trace helpers used by transitive task/operation imports.
 mock.module("@/services/diagnostics/client-diagnostics", () => ({ ...clientDiagnostics, recordDiagnosticEvent: (event: any) => diagnostics.push(event) }));
-mock.module("@/stores/use-config-store", () => ({ useEffectiveConfig: () => ({}), useConfigStore: (select: any) => select({ isAiConfigReady: () => true }), resolveModelRequestConfig: () => ({}) }));
+mock.module("@/stores/use-config-store", () => ({ ...configStore, useEffectiveConfig: () => ({}), useConfigStore: (select: any) => select({ isAiConfigReady: () => true }), resolveModelRequestConfig: () => ({}) }));
 // Actual library parsing and owned reads run in customer-generation-scenario.browser.test.ts.
 mock.module("@/lib/canvas/canvas-resource-references", () => ({ referencedAssetIdsInPrompt: () => [] }));
 mock.module("@/services/workspace-asset-read", () => ({ loadWorkspaceAssetsForUse: async () => { throw new Error("unexpected library lookup in lifecycle-only fixture"); } }));
@@ -33,10 +36,13 @@ mock.module("@/stores/use-asset-store", () => ({ useAssetStore: { getState: () =
 mock.module("@/components/canvas/canvas-node-generation", () => ({ buildNodeGenerationContext: (_id: any, _nodes: any, _edges: any, prompt: string) => ({ prompt, referenceImages: [], referenceVideos: [], referenceAudios: [], characterReferences: [], resolvedCharacterVersions: [], resolvedCharacterVoices: [] }), hydrateNodeGenerationContext: (context: any) => hydrate(context), compileNodeGenerationReferences: (context: any) => context }));
 mock.module("@/pages/canvas/canvas-assistant-proposal-execution", () => ({ buildConfirmedGenerationConfig: () => ({ model: "fixture", taskWorkflowProvider: "model", size: "1:1" }) }));
 mock.module("@/lib/canvas/canvas-project-generation", () => ({ MISSING_GENERATION_TASK_IDENTITY_DETAILS: "missing task identity", isGenerationCanceled: (error: any) => error?.name === "AbortError", buildVideoGenerationMetadata: () => ({ videoEditOperation: "text_to_video" }) }));
-mock.module("@/lib/model-selection", () => ({ modelCompatibilityError: () => "", modelGroupReferenceLimits: () => undefined, modelRequestOptions: () => ({}) }));
+mock.module("@/lib/model-selection", () => ({ ...modelSelection, modelCompatibilityError: () => "", modelGroupReferenceLimits: () => undefined, modelRequestOptions: () => ({}) }));
 mock.module("@/services/skill-runtime", () => ({ skillRuntime: { prepare: async ({ prompt }: any) => ({ prompt, metadata: {} }) } }));
 mock.module("@/lib/canvas/canvas-style-execution", () => ({ resolveCanvasStyleExecution: () => undefined }));
 mock.module("@/pages/canvas/canvas-generation-failure", () => ({ canvasImagePendingResultMessage: () => "", canvasGenerationFailureMetadata: () => ({}) }));
+mock.module("@/services/api/task-billing", () => ({ quoteGenerationTask: async () => ({}) }));
+mock.module("@/components/canvas/canvas-billing-confirmation", () => ({ confirmCanvasBillingQuote: async () => true }));
+mock.module("@/services/api/generation-task", () => ({ ...generationTask, buildBackendGenerationTaskQuoteInput: () => ({}) }));
 mock.module("@/components/generation-reference-links", () => ({ createReferenceLinkResolver: () => undefined }));
 mock.module("@/pages/canvas/canvas-image-generation-executor", () => ({ executeImageGeneration: async () => {} }));
 mock.module("@/pages/canvas/canvas-media-generation-executors", () => ({ executeVideoGeneration: (input: any) => executeVideo(input), executeAudioGeneration: async () => {} }));

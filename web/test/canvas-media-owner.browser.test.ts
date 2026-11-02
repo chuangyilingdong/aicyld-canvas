@@ -27,17 +27,19 @@ const mocks: Record<string, string> = {
 beforeAll(async () => {
     const build = await Bun.build({ entrypoints: [import.meta.dir + "/fixtures/canvas-media-owner-harness.tsx"], target: "browser", define: { "import.meta.env.DEV": "false", "import.meta.env.PROD": "true", "import.meta.env.MODE": '"production"', "import.meta.env.VITE_CANVAS_LOCAL_MODE": '"true"', "import.meta.env.VITE_CANVAS_BACKEND_URL": '"/api"', "process.env.NODE_ENV": '"production"' }, plugins: [{ name: "media-boundaries", setup(builder) {
         builder.onResolve({ filter: /^@\// }, args => {
-            if (/\/use-canvas-(?:media|video|image)-tools\.ts$/.test(args.importer) && mocks[args.path]) return { path: args.path, namespace: "media-boundary" };
+            if (/[\\/]use-canvas-(?:media|video|image)-tools\.ts$/.test(args.importer) && mocks[args.path]) return { path: args.path, namespace: "media-boundary" };
             return { path: Bun.resolveSync("../src/" + args.path.slice(2), import.meta.dir) };
         });
+        builder.onResolve({ filter: /^@ffmpeg\/core(?:\/wasm)?\?url$/ }, args => ({ path: args.path, namespace: "ffmpeg-url" }));
         builder.onLoad({ filter: /.*/, namespace: "media-boundary" }, args => ({ contents: mocks[args.path], loader: "js" }));
+        builder.onLoad({ filter: /.*/, namespace: "ffmpeg-url" }, args => ({ contents: `export default ${JSON.stringify(args.path.includes("wasm") ? "data:application/wasm;base64," : "data:text/javascript,")};`, loader: "js" }));
         builder.onLoad({ filter: /\.(css|svg|png|jpe?g|gif|webp|woff2?)$/ }, () => ({ contents: "export default ''", loader: "js" }));
     } }] });
     if (!build.success) throw new Error(build.logs.join("\n"));
     const script = await build.outputs[0]!.text();
     server = Bun.serve({ port: 0, fetch: request => new URL(request.url).pathname === "/harness.js"
         ? new Response(script, { headers: { "Content-Type": "application/javascript" } })
-        : new Response('<!doctype html><meta charset="utf-8"><div id="root"></div><script src="/harness.js"></script>', { headers: { "Content-Type": "text/html; charset=utf-8" } }) });
+        : new Response('<!doctype html><meta charset="utf-8"><div id="root"></div><script type="module" src="/harness.js"></script>', { headers: { "Content-Type": "text/html; charset=utf-8" } }) });
     browser = await chromium.launch({ headless: true });
 });
 afterAll(async () => { await browser?.close(); server?.stop(true); });

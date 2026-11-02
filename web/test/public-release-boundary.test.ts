@@ -7,6 +7,8 @@ import { dirname, join, resolve } from "node:path";
 const repoRoot = resolve(import.meta.dir, "../..");
 const exportScript = join(repoRoot, "scripts/public-release-export.sh");
 const auditScript = join(repoRoot, "scripts/public-release-audit.sh");
+const shell = Bun.which("sh") ?? "sh";
+const hasRsync = Boolean(Bun.which("rsync"));
 const workspaces: string[] = [];
 
 function temporaryDirectory(prefix: string) {
@@ -28,7 +30,7 @@ afterEach(() => {
 });
 
 describe("public release boundary", () => {
-    test("exports source while excluding private state and generated artifacts", () => {
+    test.skipIf(!hasRsync)("exports source while excluding private state and generated artifacts", () => {
         const source = temporaryDirectory("beeftv-public-source-");
         const destinationParent = temporaryDirectory("beeftv-public-destination-");
         const destination = join(destinationParent, "snapshot");
@@ -58,7 +60,7 @@ describe("public release boundary", () => {
         fixtureFile(source, "release.dmg");
         fixtureFile(source, "plugin-packages/example.beeftv-plugin");
 
-        const result = spawnSync("sh", [exportScript, source, destination], { encoding: "utf8" });
+        const result = spawnSync(shell, [exportScript, source, destination], { encoding: "utf8" });
 
         expect(result.status).toBe(0);
         expect(existsSync(join(destination, "web/src/main.tsx"))).toBe(true);
@@ -82,7 +84,7 @@ describe("public release boundary", () => {
         expect(existsSync(join(destination, "plugin-packages/example.beeftv-plugin"))).toBe(false);
     });
 
-    test("audit rejects a forbidden artifact and accepts the clean export", () => {
+    test.skipIf(!hasRsync)("audit rejects a forbidden artifact and accepts the clean export", () => {
         const source = temporaryDirectory("beeftv-public-audit-source-");
         const destinationParent = temporaryDirectory("beeftv-public-audit-destination-");
         const destination = join(destinationParent, "snapshot");
@@ -93,12 +95,12 @@ describe("public release boundary", () => {
         fixtureFile(source, "backend/go.mod", "module example.invalid/beeftv/backend\n");
         fixtureFile(source, "web/package.json", '{"name":"beeftv"}\n');
 
-        expect(spawnSync("sh", [exportScript, source, destination]).status).toBe(0);
+        expect(spawnSync(shell, [exportScript, source, destination]).status).toBe(0);
         fixtureFile(destination, ".git/config", `[core]\n\trepositoryformatversion = 0\n\tworktree = ${destination}\n`);
-        expect(spawnSync("sh", [auditScript, destination]).status).toBe(0);
+        expect(spawnSync(shell, [auditScript, destination]).status).toBe(0);
 
         fixtureFile(destination, "data/private.db");
-        const rejected = spawnSync("sh", [auditScript, destination], { encoding: "utf8" });
+        const rejected = spawnSync(shell, [auditScript, destination], { encoding: "utf8" });
         expect(rejected.error).toBeUndefined();
         expect(rejected.signal).toBeNull();
         expect(rejected.status).not.toBe(0);
@@ -110,7 +112,7 @@ describe("public release boundary", () => {
         const destination = temporaryDirectory("beeftv-public-existing-destination-");
         fixtureFile(source, "README.md", "# BeefTV\n");
 
-        const result = spawnSync("sh", [exportScript, source, destination], { encoding: "utf8" });
+        const result = spawnSync(shell, [exportScript, source, destination], { encoding: "utf8" });
 
         expect(result.error).toBeUndefined();
         expect(result.signal).toBeNull();

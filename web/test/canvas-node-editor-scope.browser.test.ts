@@ -33,7 +33,7 @@ beforeAll(async () => {
                 builder.onResolve({ filter: /^@\// }, (args) => ({
                     path: Bun.resolveSync("../src/" + args.path.slice(2), import.meta.dir),
                 }));
-                builder.onLoad({ filter: /src\/services\/project-asset-sync\.ts$/ }, () => ({
+                builder.onLoad({ filter: /src[\\/]services[\\/]project-asset-sync\.ts$/ }, () => ({
                     contents: `
                         export async function ensureCanvasNodeAsset(options) {
                             const harness = window.__editorHarness;

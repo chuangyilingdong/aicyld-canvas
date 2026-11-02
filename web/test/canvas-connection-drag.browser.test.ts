@@ -10,7 +10,7 @@ beforeAll(async () => {
         entrypoints: [import.meta.dir + "/fixtures/canvas-connection-drag-harness.tsx"], target: "browser", format: "esm",
         define: { "import.meta.env": "{}", "process.env.NODE_ENV": '"production"' },
         plugins: [{ name: "alias", setup(builder) {
-            builder.onLoad({ filter: /src\/components\/model-logo\.tsx$/ }, () => ({ contents: "export function ModelLogo() { return null; }", loader: "js" }));
+            builder.onLoad({ filter: /src[\\/]components[\\/]model-logo\.tsx$/ }, () => ({ contents: "export function ModelLogo() { return null; }", loader: "js" }));
             builder.onResolve({ filter: /^@\// }, args => ({ path: Bun.resolveSync("../src/" + args.path.slice(2), import.meta.dir) }));
         } }],
     });

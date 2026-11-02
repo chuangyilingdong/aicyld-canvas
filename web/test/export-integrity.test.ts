@@ -23,7 +23,15 @@ mock.module("@/lib/canvas/canvas-drawing-storage", () => ({
     loadCanvasDrawingPreview: async () => null,
     loadCanvasDrawingRender: async () => null,
 }));
-mock.module("@/services/workspace-mode", () => ({ isLocalWorkspaceMode: () => true }));
+mock.module("@/services/workspace-mode", () => ({
+    isLocalWorkspaceMode: () => true,
+    isHostedBuild: () => false,
+    workspaceCapabilities: () => ({ local: true, localAssets: true, providerCalls: true }),
+    workspaceProfileName: () => "local",
+    setWorkspaceProfile: () => {},
+    setWorkspaceCapabilitySnapshot: () => {},
+    resetWorkspaceMode: () => {},
+}));
 
 const { exportCanvasProjects, openCanvasArchive } = await import("@/lib/canvas/canvas-export");
 const { exportAssets, readAssetPackage } = await import("@/pages/assets/asset-transfer");

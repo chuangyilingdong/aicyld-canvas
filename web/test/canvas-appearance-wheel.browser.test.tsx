@@ -14,7 +14,7 @@ beforeAll(async () => {
         target: "browser", format: "esm",
         define: { "import.meta.env": "{}", "process.env.NODE_ENV": '"production"' },
         plugins: [{ name: "alias", setup(builder) {
-            builder.onLoad({ filter: /\/(model-logo\.tsx|\.css|\.svg|\.png|\.jpe?g|\.gif|\.webp|\.woff2?)$/ }, () => ({ contents: "export function ModelLogo() { return null; } export default '';", loader: "js" }));
+            builder.onLoad({ filter: /[\\/](model-logo\.tsx|\.css|\.svg|\.png|\.jpe?g|\.gif|\.webp|\.woff2?)$/ }, () => ({ contents: "export function ModelLogo() { return null; } export default '';", loader: "js" }));
             builder.onResolve({ filter: /^@\// }, (args) => ({ path: Bun.resolveSync("../src/" + args.path.slice(2), import.meta.dir) }));
         } }],
     });

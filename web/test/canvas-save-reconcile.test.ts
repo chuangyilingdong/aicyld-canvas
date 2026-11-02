@@ -126,7 +126,15 @@ mock.module("@/stores/use-asset-store", () => ({
     flushAssetStorePersistence: async () => {},
 }));
 
-mock.module("@/services/workspace-mode", () => ({ isLocalWorkspaceMode: () => true }));
+mock.module("@/services/workspace-mode", () => ({
+    isLocalWorkspaceMode: () => true,
+    isHostedBuild: () => false,
+    workspaceCapabilities: () => ({ local: true, localAssets: true, providerCalls: true }),
+    workspaceProfileName: () => "local",
+    setWorkspaceProfile: () => {},
+    setWorkspaceCapabilitySnapshot: () => {},
+    resetWorkspaceMode: () => {},
+}));
 
 mock.module("@/services/api/resources", () => ({
     resourceIdFromStorageKey: () => "",

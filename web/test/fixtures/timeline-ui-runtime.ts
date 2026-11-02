@@ -2,7 +2,8 @@ import type { TimelineProject } from "../../src/types/timeline";
 import type { TimelineRenderSource } from "../../src/lib/timeline/timeline-to-ffmpeg";
 
 // Fault injection at the encoder/task boundary; the mounted React handlers remain real.
-export const receipt = {
+const globalScope = globalThis as typeof globalThis & { __timelineUiReceipt?: any };
+export const receipt = globalScope.__timelineUiReceipt ??= {
     local: [] as TimelineRenderSource[][], remote: [] as TimelineProject[],
     downloads: 0, created: 0, aborted: 0,
     failLocal: () => {}, failRemote: () => {},

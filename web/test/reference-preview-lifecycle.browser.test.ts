@@ -15,7 +15,7 @@ beforeAll(async () => {
             // unrelated registry of generation editors and provider adapters.
             builder.onResolve({ filter: /^@\/lib\/canvas\/node-registry$/ }, () => ({ path: Bun.resolveSync("../src/lib/canvas/node-registry/node-registry.ts", import.meta.dir) }));
             builder.onResolve({ filter: /^@\// }, (args) => ({ path: Bun.resolveSync("../src/" + args.path.slice(2), import.meta.dir) }));
-            builder.onLoad({ filter: /src\/lib\/video-poster\.ts$/ }, () => ({ loader: "js", contents: `
+            builder.onLoad({ filter: /src[\\/]lib[\\/]video-poster\.ts$/ }, () => ({ loader: "js", contents: `
                 export async function detectVideoAudioTrackFromBlob() { return undefined; }
                 export function detectVideoAudioTrack() { return undefined; }
                 export async function detectVideoAudioTrackFromUrl() { return undefined; }
@@ -27,13 +27,13 @@ beforeAll(async () => {
                     const bytes = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jO1sAAAAASUVORK5CYII='), c => c.charCodeAt(0));
                     return {poster: new Blob([bytes], {type:'image/png'}), width:40, height:30, capturedAtMs:0};
                 }` }));
-            builder.onLoad({ filter: /src\/services\/canvas-video-source\.ts$/ }, () => ({ loader: "js", contents: `export async function acquireCanvasVideoSource(key, content) { return {url: content || key, release() {}}; }` }));
-            builder.onLoad({ filter: /src\/services\/image-storage\.ts$/ }, () => ({ loader: "js", contents: `
+            builder.onLoad({ filter: /src[\\/]services[\\/]canvas-video-source\.ts$/ }, () => ({ loader: "js", contents: `export async function acquireCanvasVideoSource(key, content) { return {url: content || key, release() {}}; }` }));
+            builder.onLoad({ filter: /src[\\/]services[\\/]image-storage\.ts$/ }, () => ({ loader: "js", contents: `
                 export async function resolveImageUrl(key) { return 'data:image/png,' + key; }
                 const unexpected = () => { throw new Error('unexpected image storage operation'); };
                 export {unexpected as uploadImage, unexpected as getImageBlob, unexpected as setImageBlob, unexpected as imageToDataUrl, unexpected as deleteStoredImages, unexpected as cleanupUnusedImages, unexpected as collectImageStorageKeys};` }));
-            builder.onLoad({ filter: /src\/lib\/canvas\/canvas-drawing-storage\.ts$/ }, () => ({ loader: "js", contents: `export async function loadCanvasDrawingPreview() { return null; }` }));
-            builder.onLoad({ filter: /src\/hooks\/use-personal-asset-library\.ts$/ }, () => ({ loader: "js", contents: `export function usePersonalAssetLibrary() { return []; }` }));
+            builder.onLoad({ filter: /src[\\/]lib[\\/]canvas[\\/]canvas-drawing-storage\.ts$/ }, () => ({ loader: "js", contents: `export async function loadCanvasDrawingPreview() { return null; }` }));
+            builder.onLoad({ filter: /src[\\/]hooks[\\/]use-personal-asset-library\.ts$/ }, () => ({ loader: "js", contents: `export function usePersonalAssetLibrary() { return []; }` }));
         } }],
     });
     if (!build.success) throw new Error(build.logs.join("\n"));

@@ -94,7 +94,15 @@ mock.module("@/services/api/request", () => ({
 mock.module("@/services/local-workspace-sync", () => ({ notifyCanvasRefresh: () => {} }));
 mock.module("@/services/canvas-sync-drafts", () => ({ preserveCanvasSyncDraft: async () => 1 }));
 mock.module("@/stores/use-asset-store", () => ({ useAssetStore: { getState: () => ({ assets: [] }) } }));
-mock.module("@/services/workspace-mode", () => ({ isLocalWorkspaceMode: () => true }));
+mock.module("@/services/workspace-mode", () => ({
+    isLocalWorkspaceMode: () => true,
+    isHostedBuild: () => false,
+    workspaceCapabilities: () => ({ local: true, localAssets: true, providerCalls: true }),
+    workspaceProfileName: () => "local",
+    setWorkspaceProfile: () => {},
+    setWorkspaceCapabilitySnapshot: () => {},
+    resetWorkspaceMode: () => {},
+}));
 mock.module("@/services/api/resources", () => ({
     resourceIdFromStorageKey: (storageKey?: string) => storageKey?.startsWith("resource:") ? storageKey.slice("resource:".length) : "",
     ownedResourceIdFromMediaRef: () => "",

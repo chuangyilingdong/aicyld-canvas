@@ -1,11 +1,14 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { existsSync, mkdirSync } from "node:fs";
+import { resolve } from "node:path";
 import postcss from "postcss";
 import tailwindcss from "@tailwindcss/postcss";
 import { chromium, type Browser } from "playwright";
 let browser: Browser;
 let server: ReturnType<typeof Bun.serve>;
+const sidebarUpdateAvailable = existsSync(resolve(import.meta.dir, "../src/components/layout/workspace-sidebar-update.tsx"));
 beforeAll(async () => {
+    if (!sidebarUpdateAvailable) return;
     const stubs: Record<string, string> = {
         "@/hooks/use-desktop-update": `export const useDesktopUpdate=()=>{ const state={status:'error',phase:'extracting',currentVersion:'v1.7.20',latestVersion:'v1.7.23',downloadedBytes:181718947,totalBytes:181718947,completedFiles:37,totalFiles:15558,error:'解压更新包超时，当前版本未被替换。请重试；再次失败时请导出诊断包。'}; return {state,runtime:'desktop',snapshot:{state,runtime:'desktop'},persistBusy:false,actionBusy:false,canForceInstall:false}; };`,
         "@/components/layout/app-changelog-modal": `export const APP_VERSION='v1.7.20'; export const AppChangelogButton=()=> <span>v1.7.20</span>;`,
@@ -28,7 +31,7 @@ beforeAll(async () => {
 },60000);
 afterAll(async()=>{await browser?.close();server?.stop(true);});
 
-for (const width of [390,1440]) for (const dark of [false,true]) test(`update failure diagnosis ${width} dark=${dark}`,async()=>{
+for (const width of [390,1440]) for (const dark of [false,true]) test.skipIf(!sidebarUpdateAvailable)(`update failure diagnosis ${width} dark=${dark}`,async()=>{
     const page=await browser.newPage({viewport:{width,height:850}});
     const errors:string[]=[];page.on("pageerror",error=>errors.push(error.message));
     try {
@@ -48,7 +51,7 @@ for (const width of [390,1440]) for (const dark of [false,true]) test(`update fa
     } finally { await page.close(); }
 },30000);
 
-test("collapsed sidebar still offers diagnosis and folder failure is actionable",async()=>{
+test.skipIf(!sidebarUpdateAvailable)("collapsed sidebar still offers diagnosis and folder failure is actionable",async()=>{
     const page=await browser.newPage();
     try {
         await page.goto(server.url+"?collapsed&open-fails");

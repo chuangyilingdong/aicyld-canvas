@@ -1346,22 +1346,26 @@ const EXPECTED: Array<{ name: string } & CanvasNodeFailureView> = [
         },
         "copy": {
             "badge": "正在核对",
-            "reason": "BeefTV 正在核对上次提交，预计 06:15 前有结论",
+            "reason": "灵动TV正在核对上次提交，预计 06:15 前有结论",
             "action": "核对完成前请勿重新生成",
-            "message": "BeefTV 正在核对上次提交，预计 06:15 前有结论。核对完成前请勿重新生成。"
+            "message": "灵动TV正在核对上次提交，预计 06:15 前有结论。核对完成前请勿重新生成。"
         },
         "explanation": {
             "category": "download_failed",
             "summary": "opaque",
-            "reason": "BeefTV 正在核对上次提交，预计 06:15 前有结论",
+            "reason": "灵动TV正在核对上次提交，预计 06:15 前有结论",
             "action": "核对完成前请勿重新生成",
             "message": "opaque",
             "errorCode": "download_failed",
+            "httpStatus": undefined,
+            "providerCode": undefined,
+            "requestId": undefined,
             "retryable": false,
             "uncertain": true,
             "blockAutomaticRetry": true,
             "blockManualRetry": true,
-            "moderation": false
+            "moderation": false,
+            "taskId": undefined
         },
         "retryBlocked": true,
         "regenerateBlocked": true,

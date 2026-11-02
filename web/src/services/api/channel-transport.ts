@@ -1,9 +1,9 @@
 import axios from "axios";
 
+import { isSystemProxyBaseUrl } from "@/lib/channel-url";
 import { createClientId } from "@/lib/client-id";
 import { explainGenerationError, preserveGenerationFailure } from "@/lib/generation-error";
 import { channelRequest } from "@/services/api/custom-channel-relay";
-import { isSystemProxyBaseUrl } from "@/stores/use-config-store";
 
 export type ChannelScene = "image" | "video" | "audio";
 
