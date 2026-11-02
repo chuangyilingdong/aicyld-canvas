@@ -1,3 +1,4 @@
+import { formatCanvasShotLabel } from "@/lib/canvas/canvas-shot-label";
 import type { ProjectUnit } from "@/services/api/projects";
 import type { CanvasNodeData } from "@/types/canvas";
 
@@ -21,7 +22,7 @@ export function summarizeCanvasContext(nodes: CanvasNodeData[], selectedNodeIds:
         nodeCount: nodes.length,
         selectedCount: selectedNodes.length,
         chapterLabel: chapterTitles.length === 1 ? chapterTitles[0] : chapterTitles.length > 1 ? `${chapterTitles.length} 个章节` : "",
-        shotLabel: shotIndexes.length === 1 ? `镜头 ${shotIndexes[0] + 1}` : shotIndexes.length > 1 ? `${shotIndexes.length} 个镜头` : "",
+        shotLabel: shotIndexes.length === 1 ? formatCanvasShotLabel(shotIndexes[0]) : shotIndexes.length > 1 ? `${shotIndexes.length} 个镜头` : "",
     };
 }
 
