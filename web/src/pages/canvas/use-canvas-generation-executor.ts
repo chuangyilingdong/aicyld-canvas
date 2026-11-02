@@ -15,6 +15,7 @@ import { buildPortraitTexturePrompt } from "@/lib/canvas/canvas-portrait-texture
 import { buildCameraPrompt } from "@/lib/canvas/camera-prompt-library";
 import { buildTextRewritePrompt } from "@/lib/prompts";
 import { resolveCanvasStyleExecution } from "@/lib/canvas/canvas-style-execution";
+import { imagePromptLengthError } from "@/lib/canvas/image-prompt-limits";
 import { generationErrorMessage } from "@/lib/generation-error";
 import { navigateToSettings } from "@/lib/settings-navigation";
 import { modelGroupReferenceLimits, modelRequestOptions, type ModelRequirements } from "@/lib/model-selection";
@@ -333,6 +334,13 @@ export function useCanvasGenerationExecutor({
                                 }
                             } catch (error) {
                                 reportError(error);
+                                return;
+                            }
+                        }
+                        if (mode === "image") {
+                            const promptError = imagePromptLengthError(effectivePrompt, generationConfig.model);
+                            if (promptError) {
+                                reportError(new Error(promptError));
                                 return;
                             }
                         }

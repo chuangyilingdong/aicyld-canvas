@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"infinite-canvas/backend/internal/kernel"
 	"infinite-canvas/backend/internal/model"
@@ -373,6 +374,16 @@ func validateImageTask(profile *ImageCapabilityConfig, input TaskInput) error {
 	if !sourced {
 		profile = applyModelSpecificImageCapability(profile, input.Config.InterfaceType, input.Config.Model, input.Config.APIFormat)
 	}
+	modelName := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(input.Config.Model)), "models/")
+	promptChars := utf8.RuneCountInString(strings.TrimSpace(composedPrompt(input.Config.SystemPrompt, input.Prompt)))
+	if strings.HasPrefix(modelName, "zhenzhen-image-") {
+		if promptChars < 5 {
+			return kernel.BadAuthRequest("当前图片模型的提示词至少需要 5 个字符")
+		}
+		if promptChars > 5000 {
+			return kernel.BadAuthRequest("当前图片模型的提示词最多支持 5000 个字符")
+		}
+	}
 	if !sourced && providerpreset.IsBeefAPIEndpoint(input.Config.BaseURL) {
 		if contract, ok := providerpreset.BeefAPIImageContract(input.Config.Model); ok {
 			profile = DefaultImageCapabilityConfig(contract.Protocol, input.Config.Model)
@@ -396,7 +407,9 @@ func validateImageTask(profile *ImageCapabilityConfig, input TaskInput) error {
 			return kernel.BadAuthRequest(err.Error())
 		}
 	}
-	modelName := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(input.Config.Model)), "models/")
+	if profile.References.PromptMaxChars > 0 && promptChars > profile.References.PromptMaxChars {
+		return kernel.BadAuthRequest(fmt.Sprintf("当前图片模型的提示词最多支持 %d 个字符", profile.References.PromptMaxChars))
+	}
 	if len(input.ReferenceImages) > profile.References.MaxImages {
 		return kernel.BadAuthRequest(fmt.Sprintf("当前图片模型最多支持 %d 张参考图", profile.References.MaxImages))
 	}
