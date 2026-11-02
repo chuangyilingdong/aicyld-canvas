@@ -391,7 +391,7 @@ func (c *MediaClient) Execute(ctx context.Context, request MediaRequest, refs []
 		if err != nil {
 			return nil, err
 		}
-		if !strings.HasPrefix(link, "https://") && !c.AllowHTTPTest {
+		if err := c.validURLContext(ctx, link); err != nil {
 			return nil, errors.New("媒体参考素材需要 HTTPS 链接")
 		}
 		request.Input.References = append(request.Input.References, MediaReference{Kind: ref.Kind, Role: ref.Role, URL: link})
@@ -546,7 +546,11 @@ func (c *MediaClient) wait(ctx context.Context, ref, kind string, legacy, stopWh
 }
 func (t MediaTask) failure() error {
 	if t.Error != nil {
-		return t.Error
+		err := *t.Error
+		if err.TaskID == "" {
+			err.TaskID = t.TaskID
+		}
+		return &err
 	}
-	return &MediaTaskError{Code: "media_task_failed", Category: "unknown", Message: "媒体生成失败，请保留原任务查询结算"}
+	return &MediaTaskError{Code: "media_task_failed", Category: "upstream", TaskID: t.TaskID, Message: "媒体生成失败，请保留原任务查询结算"}
 }
