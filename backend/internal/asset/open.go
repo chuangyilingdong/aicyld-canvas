@@ -59,6 +59,20 @@ func (s *Service) OpenPublicRange(id string, rangeHeader string) (*ResourceStrea
 	return s.OpenOwnedRange(resource.UserID, resource, rangeHeader)
 }
 
+func (s *Service) openOSSOrMissing(resource *model.Resource, rangeHeader string) (*ResourceStream, error) {
+	stream, err := s.openOSSResourceRange(resource, rangeHeader)
+	if err == nil {
+		return stream, nil
+	}
+	if errors.Is(err, errOSSFallbackUnavailable) {
+		return nil, ResourceFileMissing()
+	}
+	var appErr *kernel.AppError
+	if errors.As(err, &appErr) && appErr.Status == http.StatusNotFound {
+		return nil, ResourceFileMissing()
+	}
+	return nil, err
+}
 func (s *Service) OpenOwnedRange(userID string, resource *model.Resource, rangeHeader string) (*ResourceStream, error) {
 	if resource == nil {
 		return nil, ResourceMissing()
@@ -75,7 +89,7 @@ func (s *Service) OpenOwnedRange(userID string, resource *model.Resource, rangeH
 	body, err := s.blobs.Open(resource.ObjectKey)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, ResourceFileMissing()
+			return s.openOSSOrMissing(resource, rangeHeader)
 		}
 		return nil, err
 	}
@@ -83,7 +97,7 @@ func (s *Service) OpenOwnedRange(userID string, resource *model.Resource, rangeH
 	if err != nil {
 		_ = body.Close()
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, ResourceFileMissing()
+			return s.openOSSOrMissing(resource, rangeHeader)
 		}
 		return nil, err
 	}
