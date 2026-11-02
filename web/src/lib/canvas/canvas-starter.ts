@@ -1,6 +1,15 @@
 export type CanvasStarterMode = "guided" | "freeform";
+export type CanvasStarterPreset = CanvasStarterMode | "sample";
 
 export type CanvasEmptyStateKind = "none" | "guided" | "freeform" | "linked";
+
+export function parseCanvasStarterPreset(value: string | null | undefined): CanvasStarterPreset | null {
+    return value === "guided" || value === "freeform" || value === "sample" ? value : null;
+}
+
+export function starterModeForPreset(preset: CanvasStarterPreset): CanvasStarterMode {
+    return preset === "freeform" ? "freeform" : "guided";
+}
 
 export function resolveCanvasEmptyStateKind({
     nodeCount,
@@ -16,7 +25,6 @@ export function resolveCanvasEmptyStateKind({
     if (nodeCount > 0) return "none";
     if (!shortDramaEnabled) return "freeform";
     if (isProjectLinked) return "linked";
-    // LibTV 的画布默认直接进入自由节点状态；短剧引导保留为显式选择后的入口，
-    // 避免新画布第一次打开就被流程卡片覆盖，且与已有画布的空状态保持一致。
+    // 兼容旧画布：没有显式选择时仍进入自由画布；新创建流程会写入 starterMode。
     return starterMode === "guided" ? "guided" : "freeform";
 }

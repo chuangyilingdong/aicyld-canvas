@@ -14,7 +14,7 @@ test("desktop local canvas creation starts durable sync without waiting for cach
     expect(sync).toBeGreaterThan(begin);
     expect(returned).toBeGreaterThan(sync);
     expect(repository.slice(begin, sync)).not.toContain("await flushCanvasStorePersistence();");
-    expect(repository).toContain("const { id, saved } = beginLocalCanvasProject(title, projectId, initialContent, workspaceProjectId);");
+    expect(repository).toContain("const { id, saved } = beginLocalCanvasProject(title, projectId, initialContent, workspaceProjectId, starterMode);");
     expect(repository).toContain("await saved;");
 });
 

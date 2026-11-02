@@ -1,6 +1,6 @@
 import { nanoid } from "nanoid";
 
-import { createCanvasNode } from "@/lib/canvas/canvas-project-domain";
+import { createCanvasNode, createStoryboardRow } from "@/lib/canvas/canvas-project-domain";
 import { scopedLocalStorage } from "@/lib/user-scope";
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData, type Position } from "@/types/canvas";
 
@@ -64,6 +64,82 @@ export function createShortDramaPipeline(center: Position) {
         { id: nanoid(), fromNodeId: storyNode.id, toNodeId: scriptNode.id, toHandleId: "storyboard:context" },
     ];
     return { nodes: [styleNode, storyNode, scriptNode], connections, styleNodeId: styleNode.id, storyNodeId: storyNode.id, scriptNodeId: scriptNode.id };
+}
+
+export function createShortDramaDemo(center: Position) {
+    const pipeline = createShortDramaPipeline(center);
+    const [styleNode, storyNode, scriptNode] = pipeline.nodes;
+    styleNode.title = "项目画风 · 电影感东方奇幻";
+    styleNode.metadata = {
+        ...styleNode.metadata,
+        content: "电影感东方奇幻：低饱和青灰与暖金侧逆光，细腻胶片颗粒，克制表演，近景优先。",
+        workflowDescription: "电影感东方奇幻",
+    };
+    storyNode.title = "故事梗概 · 示例";
+    storyNode.metadata = {
+        ...storyNode.metadata,
+        content: "雨夜，年轻画师在旧宅发现一幅会改变天气的古画。画中女子请求他把最后一笔补完，而门外追债的人已经上楼。他必须在毁画自保与完成约定之间做出选择。",
+    };
+    scriptNode.title = "分镜脚本 · 示例（3 镜）";
+    scriptNode.metadata = {
+        ...scriptNode.metadata,
+        storyboard: {
+            rows: [
+                createStoryboardRow(1, {
+                    durationSeconds: 5,
+                    plotDescription: "雨夜旧宅，画师推门而入，怀里的古画滑落展开。",
+                    dialogue: "旁白：那幅画，从他进门的一刻就开始下雨。",
+                    characters: [{ characterName: "画师" }],
+                    narrativeIntent: "建立悬念和古画异常",
+                    shotSize: "中景",
+                    emotion: "警觉、迟疑",
+                    lightingAndAtmosphere: "冷蓝雨夜，门缝透出暖黄灯",
+                    camera: "缓慢跟拍",
+                    motion: "雨水沿窗滑落，画纸边缘轻轻卷动",
+                    imageGenerationPrompt: "雨夜旧式书房，年轻画师抱着卷轴推门而入，冷蓝环境光与暖黄台灯，电影感东方奇幻，中景。",
+                    videoMotionPrompt: "镜头从门外缓慢跟随画师进入，雨水沿窗滑落，画纸边缘被风吹动。",
+                    status: "idle",
+                }),
+                createStoryboardRow(2, {
+                    durationSeconds: 5,
+                    plotDescription: "古画展开，画中女子抬眼看向画外，墨色水面泛起波纹。",
+                    dialogue: "画中女子：只差最后一笔。",
+                    characters: [{ characterName: "画师" }, { characterName: "画中女子" }],
+                    narrativeIntent: "提出任务和超自然规则",
+                    shotSize: "近景",
+                    emotion: "惊惧转为专注",
+                    lightingAndAtmosphere: "画纸发出微弱青金色光",
+                    camera: "俯拍推近",
+                    motion: "女子眼睫轻颤，墨色水面扩散一圈波纹",
+                    imageGenerationPrompt: "俯拍展开的古画，画中女子抬眼，墨色水面泛起青金色波纹，电影感微距细节。",
+                    videoMotionPrompt: "镜头俯拍缓慢推近古画，女子眼睫轻颤，墨纹一圈圈扩散。",
+                    status: "idle",
+                }),
+                createStoryboardRow(3, {
+                    durationSeconds: 6,
+                    plotDescription: "门外脚步声逼近，画师提笔，最后一滴墨悬在纸上。",
+                    dialogue: "画师：这一笔落下去，我就回不了头了。",
+                    characters: [{ characterName: "画师" }],
+                    narrativeIntent: "把外部威胁与承诺冲突推到选择点",
+                    shotSize: "中近景",
+                    emotion: "紧张、下定决心",
+                    lightingAndAtmosphere: "台灯闪烁，门口出现压迫阴影",
+                    camera: "手持轻晃",
+                    motion: "笔尖悬停，墨滴拉长，门口阴影停住",
+                    imageGenerationPrompt: "年轻画师提笔悬在古画上方，门口投下陌生人的阴影，台灯闪烁，电影感东方奇幻中近景。",
+                    videoMotionPrompt: "手持轻晃镜头，笔尖墨滴拉长，门口阴影逐渐停住，最后一下脚步声收尾。",
+                    status: "idle",
+                }),
+            ],
+            visibleColumns: ["shotNumber", "durationSeconds", "videoMotionPrompt", "dialogue", "assets"],
+            referenceNodeIds: [styleNode.id, storyNode.id],
+        },
+    };
+    return {
+        title: "示例：小说改编漫剧",
+        nodes: pipeline.nodes,
+        connections: pipeline.connections,
+    };
 }
 
 export function deriveShortDramaProgress(nodes: CanvasNodeData[], connections: CanvasConnection[]): CanvasShortDramaProgress {

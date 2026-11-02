@@ -10,6 +10,7 @@ import { CanvasJournalError, clearCanvasOperationJournal, clearCanvasPendingProj
 import { isLocalWorkspaceMode } from "@/services/workspace-mode";
 import { getActiveUserScope } from "@/lib/user-scope";
 import { sameCanvasDocument } from "@/lib/canvas/canvas-content";
+import type { CanvasStarterMode } from "@/lib/canvas/canvas-starter";
 import { canvasUnconfirmedReason, canvasUnconfirmedDiagnostic, type CanvasUnconfirmedState } from "@/lib/canvas/canvas-unconfirmed-edits";
 import { rebaseCanvasDocumentThreeWay, settleInFlightGenerationOverlay } from "@/lib/canvas/canvas-document-rebase";
 import { traceCanvasGraph } from "@/lib/canvas/canvas-graph-trace";
@@ -424,8 +425,8 @@ async function applyBackendCanvasRead(
  * Desktop ongoing saves commit through the operations registry. IndexedDB is
  * the offline cache, so a stopped backend never prevents opening a project.
  */
-export function beginLocalCanvasProject(title: string, projectId?: string, initialContent?: LocalCanvasContent, workspaceProjectId?: string) {
-    const id = useCanvasStore.getState().createProject(title, projectId, workspaceProjectId);
+export function beginLocalCanvasProject(title: string, projectId?: string, initialContent?: LocalCanvasContent, workspaceProjectId?: string, starterMode?: CanvasStarterMode) {
+    const id = useCanvasStore.getState().createProject(title, projectId, workspaceProjectId, starterMode);
     if (initialContent) useCanvasStore.getState().updateProject(id, initialContent);
     // The in-memory project is already usable. Do not make navigation depend
     // on an IndexedDB/localForage flush completing successfully; the store
@@ -443,8 +444,8 @@ export function beginLocalCanvasProject(title: string, projectId?: string, initi
     return { id, saved };
 }
 
-export async function createLocalCanvasProject(title: string, projectId?: string, initialContent?: LocalCanvasContent, workspaceProjectId?: string) {
-    const { id, saved } = beginLocalCanvasProject(title, projectId, initialContent, workspaceProjectId);
+export async function createLocalCanvasProject(title: string, projectId?: string, initialContent?: LocalCanvasContent, workspaceProjectId?: string, starterMode?: CanvasStarterMode) {
+    const { id, saved } = beginLocalCanvasProject(title, projectId, initialContent, workspaceProjectId, starterMode);
     await saved;
     return { id };
 }

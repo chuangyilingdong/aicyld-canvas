@@ -58,7 +58,7 @@ type CanvasStore = {
     hydrated: boolean;
     projects: CanvasProject[];
     folders: CanvasFolder[];
-    createProject: (title?: string, projectId?: string, workspaceProjectId?: string) => string;
+    createProject: (title?: string, projectId?: string, workspaceProjectId?: string, starterMode?: CanvasStarterMode) => string;
     createFolder: (name?: string) => string;
     renameFolder: (id: string, name: string) => void;
     deleteFolder: (id: string) => void;
@@ -738,7 +738,7 @@ export const useCanvasStore = create<CanvasStore>()(
             hydrated: false,
             projects: [],
             folders: [],
-            createProject: (title = "未命名画布", projectId, workspaceProjectId) => {
+            createProject: (title = "未命名画布", projectId, workspaceProjectId, starterMode) => {
                 const now = new Date().toISOString();
                 const id = nanoid();
                 const appearanceDefault = readCanvasAppearanceDefault();
@@ -754,6 +754,7 @@ export const useCanvasStore = create<CanvasStore>()(
                     connections: [],
                     chatSessions: [],
                     activeChatId: null,
+                    starterMode,
                     appearance: appearanceDefault?.appearance ?? { mode: "follow" },
                     backgroundMode: appearanceDefault?.backgroundMode || DEFAULT_CANVAS_BACKGROUND_MODE,
                     showImageInfo: false,
