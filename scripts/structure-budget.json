@@ -1,5 +1,5 @@
 {
-  "appLines": 9912,
+  "appLines": 11047,
   "largeFiles": {
     "backend/internal/handler/project.go": 1029,
     "backend/internal/protocol/manifest.go": 1653,
@@ -17,11 +17,11 @@
     "web/src/pages/canvas/use-canvas-upload.ts": 1087,
     "web/src/pages/create/index.tsx": 1243,
     "web/src/services/local-workspace-repository.ts": 1165,
-    "web/src/stores/use-config-store.ts": 1219,
-    "web/src/styles/globals.css": 21484,
-    "web/src/styles/workspace-product.css": 1566
+    "web/src/stores/use-config-store.ts": 1218,
+    "web/src/styles/globals.css": 21593,
+    "web/src/styles/workspace-product.css": 1542
   },
-  "modelLiterals": 591,
-  "handlersUsingAppService": 6,
-  "sourceTextTests": 141
+  "modelLiterals": 614,
+  "handlersUsingAppService": 7,
+  "sourceTextTests": 142
 }
