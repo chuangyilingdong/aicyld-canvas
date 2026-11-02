@@ -421,7 +421,28 @@ func alreadyBound(metadata map[string]any, patch TaskOutputBind) bool {
 	if patch.Storyboard != nil && nodeString(metadata, "status") != "success" {
 		return false
 	}
+	if hasStaleGenerationOutcome(metadata) {
+		return false
+	}
 	return nodeString(metadata, "status") == "success" && nodeString(metadata, "taskId") == strings.TrimSpace(patch.TaskID)
+}
+
+// hasStaleGenerationOutcome reports whether an already-bound node still carries
+// an explicit non-ready taskOutcome or failure marker from a prior run. Nodes
+// saved before taskOutcome existed omit the field and remain idempotent.
+func hasStaleGenerationOutcome(metadata map[string]any) bool {
+	if raw, exists := metadata["taskOutcome"]; exists && raw != nil {
+		outcome, ok := raw.(map[string]any)
+		if !ok || nodeString(outcome, "phase") != "ready" || nodeString(outcome, "regenerate") != "allowed" {
+			return true
+		}
+	}
+	for _, key := range []string{"taskOutcomeSource", "generationFailure", "generationPreflightError"} {
+		if _, exists := metadata[key]; exists {
+			return true
+		}
+	}
+	return false
 }
 
 func applyGenerationBindMetadata(metadata map[string]any, patch TaskOutputBind) {
@@ -480,6 +501,14 @@ func applyGenerationBindMetadata(metadata map[string]any, patch TaskOutputBind) 
 	metadata["taskStatus"] = "succeeded"
 	metadata["taskProgress"] = 100
 	metadata["taskStage"] = nil
+	metadata["taskOutcome"] = map[string]any{
+		"phase":      "ready",
+		"regenerate": "allowed",
+		"reason":     "result_ready",
+	}
+	delete(metadata, "taskOutcomeSource")
+	delete(metadata, "generationFailure")
+	delete(metadata, "generationPreflightError")
 	metadata["errorDetails"] = nil
 	metadata["generationErrorCode"] = nil
 	metadata["resourceReloadAvailable"] = nil

@@ -17,6 +17,7 @@ import (
 	"infinite-canvas/backend/internal/assets"
 	"infinite-canvas/backend/internal/canvas"
 	"infinite-canvas/backend/internal/kernel"
+	"infinite-canvas/backend/internal/localapp"
 	"infinite-canvas/backend/internal/model"
 	localplayback "infinite-canvas/backend/internal/playback"
 	"infinite-canvas/backend/internal/prompts"
@@ -33,17 +34,22 @@ type userDataUsage interface {
 	PrepareResourcePlayback(userID, resourceID string) (*model.Resource, error)
 }
 
-func RegisterUserDataRoutes(r *gin.RouterGroup, owners workspaceOwners, canvasData *canvas.Service, promptsDomain *prompts.Service, library *asset.Library, resources *asset.Service, playbackRuntime *localplayback.Service, usage userDataUsage, canvasWrites canvasLibraryWrites, workflows *app.Service) {
+type userDataWorkflows interface {
+	canvasWorkflowService
+	localapp.AssetPort
+}
+
+func RegisterUserDataRoutes(r *gin.RouterGroup, owners workspaceOwners, canvasData *canvas.Service, promptsDomain *prompts.Service, library *asset.Library, resources *asset.Service, playbackRuntime *localplayback.Service, usage userDataUsage, canvasWrites canvasLibraryWrites, workflows userDataWorkflows) {
 	registerUserDataRoutes(r, owners, canvasData, promptsDomain, library, resources, playbackRuntime, usage, canvasWrites, workflows)
 }
 
 // RegisterDesktopUserDataRoutes keeps hosted object-storage controls out of
 // the native app while retaining local resource and workspace CRUD.
-func RegisterDesktopUserDataRoutes(r *gin.RouterGroup, owners workspaceOwners, canvasData *canvas.Service, promptsDomain *prompts.Service, library *asset.Library, resources *asset.Service, playbackRuntime *localplayback.Service, usage userDataUsage, canvasWrites canvasLibraryWrites, workflows *app.Service) {
+func RegisterDesktopUserDataRoutes(r *gin.RouterGroup, owners workspaceOwners, canvasData *canvas.Service, promptsDomain *prompts.Service, library *asset.Library, resources *asset.Service, playbackRuntime *localplayback.Service, usage userDataUsage, canvasWrites canvasLibraryWrites, workflows userDataWorkflows) {
 	registerUserDataRoutes(r, owners, canvasData, promptsDomain, library, resources, playbackRuntime, usage, canvasWrites, workflows)
 }
 
-func registerUserDataRoutes(r *gin.RouterGroup, owners workspaceOwners, canvasData *canvas.Service, promptDomain *prompts.Service, library *asset.Library, resources *asset.Service, playback *localplayback.Service, usage userDataUsage, canvasWrites canvasLibraryWrites, workflows *app.Service) {
+func registerUserDataRoutes(r *gin.RouterGroup, owners workspaceOwners, canvasData *canvas.Service, promptDomain *prompts.Service, library *asset.Library, resources *asset.Service, playback *localplayback.Service, usage userDataUsage, canvasWrites canvasLibraryWrites, workflows userDataWorkflows) {
 	registerCanvasLibraryRoutes(r, owners, canvasData, canvasWrites)
 	registerCanvasWorkflowRoutes(r, workflows)
 	r.POST("/assets/batch", func(c *gin.Context) {
@@ -273,6 +279,18 @@ func registerUserDataRoutes(r *gin.RouterGroup, owners workspaceOwners, canvasDa
 		if usePlayback {
 			serveETag = playbackResponseETag(etag)
 		}
+		rangeHeader := c.GetHeader("Range")
+		if ifRange := strings.TrimSpace(c.GetHeader("If-Range")); ifRange != "" && ifRange != serveETag {
+			rangeHeader = ""
+		}
+		if stream == nil {
+			stream, err = resources.OpenRange(user.ID, resource.ID, rangeHeader)
+			if err != nil {
+				failService(c, err)
+				return
+			}
+			defer stream.Body.Close()
+		}
 		// 资源 ID 内容不可变（上传永远生成新 ID，不会原地覆盖）：图片可以放心交给浏览器
 		// 磁盘强缓存 30 天，大画布二次打开零请求直读磁盘缓存。视频/音频涉及转码副本
 		// 就绪与 Range 语义，保持逐次条件请求（304）。
@@ -291,18 +309,6 @@ func registerUserDataRoutes(r *gin.RouterGroup, owners workspaceOwners, canvasDa
 		if ifNoneMatch(c.GetHeader("If-None-Match"), serveETag) {
 			c.Status(http.StatusNotModified)
 			return
-		}
-		rangeHeader := c.GetHeader("Range")
-		if ifRange := strings.TrimSpace(c.GetHeader("If-Range")); ifRange != "" && ifRange != serveETag {
-			rangeHeader = ""
-		}
-		if stream == nil {
-			stream, err = resources.OpenRange(user.ID, resource.ID, rangeHeader)
-			if err != nil {
-				failService(c, err)
-				return
-			}
-			defer stream.Body.Close()
 		}
 		if resource.MimeType == "" {
 			resource.MimeType = "application/octet-stream"

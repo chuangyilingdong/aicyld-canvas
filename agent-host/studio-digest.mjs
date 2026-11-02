@@ -36,6 +36,116 @@ export function isTransientStudioTailMessage(message) {
   );
 }
 
+const HISTORICAL_TOOL_IMAGE_OMITTED_TEXT =
+  '[历史媒体预览图已省略，如需复查概览请调 media_overview，查看原图或局部细节请调 media_inspect]';
+// 仅裁剪 >=16KB base64 的真实媒体预览图；几百字节的小占位图/图标直接保留以维持前缀缓存字节一致。
+const DEFAULT_MIN_PRUNE_IMAGE_CHARS = 16 * 1024;
+
+function isToolResultMessage(message) {
+  return message?.role === 'toolResult' || message?.role === 'tool';
+}
+
+function isPrunableImagePart(part, minChars = DEFAULT_MIN_PRUNE_IMAGE_CHARS) {
+  return part?.type === 'image' && typeof part.data === 'string' && part.data.length >= minChars;
+}
+
+function hasPrunableImagePart(message, minChars = DEFAULT_MIN_PRUNE_IMAGE_CHARS) {
+  return Array.isArray(message?.content) && message.content.some((part) => isPrunableImagePart(part, minChars));
+}
+
+function isSupplementUserMessage(message) {
+  if (!message || message.role !== 'user') return false;
+  return extractMessageText(message).includes('[BEEFTV_INPUT:');
+}
+
+function assistantToolNames(message) {
+  if (!message || message.role !== 'assistant') return [];
+  const names = [];
+  if (Array.isArray(message.content)) {
+    for (const part of message.content) {
+      if (part?.type === 'toolCall' && typeof part.name === 'string') {
+        names.push(part.name);
+      }
+    }
+  }
+  if (Array.isArray(message.tool_calls)) {
+    for (const call of message.tool_calls) {
+      const name = call?.function?.name || call?.name;
+      if (typeof name === 'string') names.push(name);
+    }
+  }
+  return names;
+}
+
+const NON_MUTATING_CONTINUATION_TOOLS = new Set([
+  'plan_update',
+  'plan.update',
+  'canvas_get',
+  'canvas.get',
+  'skill_load',
+  'skill.load',
+  'task_list',
+  'task.list',
+  'task_get',
+  'task.get',
+]);
+
+function isKeepImageContinuationTool(name) {
+  if (typeof name !== 'string') return false;
+  return name.startsWith('media_') || name.startsWith('media.') || NON_MUTATING_CONTINUATION_TOOLS.has(name);
+}
+
+// 仅在当轮模型尚未完成画面消费（或仍在连续 media_* 探查及 plan_update/canvas_get 只读核对链内）时保留
+// toolResult 中的内联大图；一旦进入下一轮用户消息，或模型已基于画面发起画布写入/生成提案或收到新一批图片，
+// 就将历史 toolResult 中的 base64 大图替换为简短说明（不改写 SQLite 持久记录），避免重复上传数 MB base64。
+export function pruneHistoricalToolImages(messages = [], { minImageChars = DEFAULT_MIN_PRUNE_IMAGE_CHARS } = {}) {
+  return messages.map((message, idx) => {
+    if (!isToolResultMessage(message) || !hasPrunableImagePart(message, minImageChars)) return message;
+    let firstAssistantAfter = -1;
+    let shouldPrune = false;
+    for (let j = idx + 1; j < messages.length; j++) {
+      const later = messages[j];
+      if (!later) continue;
+      if (later.role === 'user' && !isTransientStudioTailMessage(later) && !isSupplementUserMessage(later)) {
+        shouldPrune = true;
+        break;
+      }
+      if (later.role === 'assistant') {
+        firstAssistantAfter = j;
+        break;
+      }
+    }
+    if (!shouldPrune && firstAssistantAfter >= 0) {
+      for (let k = firstAssistantAfter; k < messages.length; k++) {
+        const later = messages[k];
+        if (!later) continue;
+        if (later.role === 'user' && !isTransientStudioTailMessage(later) && !isSupplementUserMessage(later)) {
+          shouldPrune = true;
+          break;
+        }
+        if (k > firstAssistantAfter && isToolResultMessage(later) && hasPrunableImagePart(later, minImageChars)) {
+          shouldPrune = true;
+          break;
+        }
+        if (later.role === 'assistant') {
+          const names = assistantToolNames(later);
+          if (names.length === 0 || names.some((name) => !isKeepImageContinuationTool(name))) {
+            shouldPrune = true;
+            break;
+          }
+        }
+      }
+    }
+    if (!shouldPrune) return message;
+    return {
+      ...message,
+      content: message.content.map((part) =>
+        isPrunableImagePart(part, minImageChars) ? { type: 'text', text: HISTORICAL_TOOL_IMAGE_OMITTED_TEXT } : part,
+      ),
+    };
+  });
+}
+
 // Pin stable system sections from the initial system message in deterministic
 // key order (instructions first, beeftv_skill_catalog second), falling back to
 // getCurrentSystemMessage only if a section was absent on messages[0]. Even if
@@ -78,8 +188,10 @@ export function withCurrentStudio(messages, digest, options = {}) {
     planText = '',
     restoredSkillsText = '',
   } = options || {};
-  const normalized = normalizeSystemHeaderMessages(messages).filter(
-    (message, idx, arr) => !(idx === arr.length - 1 && message?.transientStudioTail === true),
+  const normalized = pruneHistoricalToolImages(
+    normalizeSystemHeaderMessages(messages).filter(
+      (message, idx, arr) => !(idx === arr.length - 1 && message?.transientStudioTail === true),
+    ),
   );
   const tailBlocks = [];
   if (typeof restoredSkillsText === 'string' && restoredSkillsText.trim()) {
@@ -127,6 +239,17 @@ export function nodeState(node) {
   return 'empty';
 }
 const STATE_LABEL = { done: '完成', running: '生成中', failed: '失败', empty: '空' };
+
+function formatMediaStatus(node) {
+  if (!node) return '不存在';
+  const state = nodeState(node);
+  const label = STATE_LABEL[state] || '不存在';
+  const durationMs = Number(node?.metadata?.durationMs);
+  if (state === 'done' && Number.isFinite(durationMs) && durationMs > 0) {
+    return `${label}(${Math.round(durationMs)}ms)`;
+  }
+  return label;
+}
 
 function fnv(text) {
   let hash = 0x811c9dc5;
@@ -179,8 +302,8 @@ export function buildStudioDigest(canvas, { maxBytes = 3600, selectedNodeIds = [
     rows.forEach((row, index) => {
       if (row.imageNodeId) rowBound.add(row.imageNodeId);
       if (row.videoNodeId) rowBound.add(row.videoNodeId);
-      const image = row.imageNodeId ? STATE_LABEL[nodeState(byId.get(row.imageNodeId))] || '不存在' : '未建';
-      const video = row.videoNodeId ? STATE_LABEL[nodeState(byId.get(row.videoNodeId))] || '不存在' : '未建';
+      const image = row.imageNodeId ? formatMediaStatus(byId.get(row.imageNodeId)) : '未建';
+      const video = row.videoNodeId ? formatMediaStatus(byId.get(row.videoNodeId)) : '未建';
       const prompts = `${row.imageGenerationPrompt ? '图词✓' : '图词✗'} ${row.videoMotionPrompt ? '视词✓' : '视词✗'}`;
       lines.push(`  镜${row.shotNumber ?? index + 1} ${row.durationSeconds ?? '?'}s｜行id=${row.id}｜首帧 ${row.imageNodeId || '—'} ${image}｜视频 ${row.videoNodeId || '—'} ${video}｜${prompts}｜${clip(row.plotDescription, 18)}`);
     });
@@ -192,9 +315,9 @@ export function buildStudioDigest(canvas, { maxBytes = 3600, selectedNodeIds = [
   if (failed.length) lines.push(`失败：${failed.slice(0, 6).map((node) => `${node.id}「${clip(node.title, 14)}」${clip(node.metadata?.generationErrorSummary || node.metadata?.errorDetails || node.metadata?.taskErrorCode, 40)}`).join('；')}${failed.length > 6 ? `…共 ${failed.length}` : ''}`);
   const loose = nodes.filter((node) => MEDIA.has(node.type) && !rowBound.has(node.id));
   if (loose.length && !nodes.some((node) => node.type === 'script')) {
-    lines.push(`媒体节点：${loose.slice(0, 16).map((node) => `${node.id}「${clip(node.title, 14)}」${TYPE_LABEL[node.type]}${STATE_LABEL[nodeState(node)]}`).join('、')}${loose.length > 16 ? `…共 ${loose.length}` : ''}`);
+    lines.push(`媒体节点：${loose.slice(0, 16).map((node) => `${node.id}「${clip(node.title, 14)}」${TYPE_LABEL[node.type]}${formatMediaStatus(node)}`).join('、')}${loose.length > 16 ? `…共 ${loose.length}` : ''}`);
   } else if (loose.length) {
-    lines.push(`不在分镜行里的媒体节点 ${loose.length} 个：${loose.slice(0, 8).map((node) => `${node.id}「${clip(node.title, 14)}」${TYPE_LABEL[node.type]}`).join('、')}${loose.length > 8 ? `…共 ${loose.length}` : ''}（如需关联分镜行请用 canvas_script_row_update 绑定 imageNodeId/videoNodeId）`);
+    lines.push(`不在分镜行里的媒体节点 ${loose.length} 个：${loose.slice(0, 8).map((node) => `${node.id}「${clip(node.title, 14)}」${TYPE_LABEL[node.type]}${formatMediaStatus(node)}`).join('、')}${loose.length > 8 ? `…共 ${loose.length}` : ''}（如需关联分镜行请用 canvas_script_row_update 绑定 imageNodeId/videoNodeId）`);
   }
   const selected = selectedNodeIds.map((id) => byId.get(id)).filter(Boolean);
   if (selected.length) lines.push(`用户选中：${selected.slice(0, 8).map((node) => `${node.id}「${clip(node.title, 14)}」`).join('、')}`);

@@ -355,13 +355,19 @@ export function defaultVideoCapabilityConfig(protocol?: ModelProtocol, model = "
         if (/^dreamina-seedance-2-0-(?:fast|mini)(?:-|$)/.test(model.toLowerCase().split("/").pop() || "")) video.resolutions = ["480p", "720p"];
     }
     if (protocol === "newapi-channel-2") {
-        // APIMart 的 Seedance 2.0 Video Generations 协议支持参考视频/音频，
-        // 但不是火山方舟 Agent Plan，因此单独声明全模态参考能力。
-        video.operations.push("reference_to_video");
+        if (/^wan3(?:\.0)?(?:-video)?$/i.test(model.trim())) {
+            video.references.maxImages = 1;
+            video.references.maxVideos = 0;
+            video.references.maxAudios = 0;
+        } else {
+            // APIMart 的 Seedance 2.0 Video Generations 协议支持参考视频/音频，
+            // 但不是火山方舟 Agent Plan，因此单独声明全模态参考能力。
+            video.operations.push("reference_to_video");
+        }
     }
     if (protocol === "video-generations-json") {
         video.duration.default = 5;
-        video.resolutions = ["720p", "1080p"];
+        video.resolutions = isSeedance25Model(model) ? ["480p", "720p", "1080p"] : ["720p", "1080p"];
         video.watermark = { supported: true, default: false };
         video.operations.push("reference_to_video");
     }
@@ -415,11 +421,14 @@ export function defaultVideoCapabilityConfig(protocol?: ModelProtocol, model = "
         if (protocol === "newapi") video.generateAudio = { supported: true, default: true };
         video.returnLastFrame = { supported: true, default: false };
         video.references = overlayOfficialSeedance2References(video.references, isSeedance25Model(model));
-        video.operations = Array.from(new Set([...video.operations, "reference_to_video", ...(isSeedance25Model(model) ? ["audio_to_video" as const] : [])]));
-        if (isSeedance25Model(model) && video.resolutions.some((value) => value.toLowerCase() === "480p")) {
-            video.draft = { supported: true, default: false };
-            if (!video.operations.includes("draft_to_final")) {
-                video.operations.push("draft_to_final");
+        video.operations = Array.from(new Set([...video.operations, "reference_to_video", ...(isSeedance25Model(model) ? (["audio_to_video", "inpaint", "extend"] as const) : [])]));
+        if (isSeedance25Model(model)) {
+            if (!video.ratios.includes("adaptive")) video.ratios = [...video.ratios, "adaptive"];
+            if (video.resolutions.some((value) => value.toLowerCase() === "480p")) {
+                video.draft = { supported: true, default: false };
+                if (!video.operations.includes("draft_to_final")) {
+                    video.operations.push("draft_to_final");
+                }
             }
         }
         if (isSeedance25Model(model) && video.duration.selection === "range" && (video.duration.max || 0) < 30) {
@@ -437,7 +446,23 @@ export function defaultVideoCapabilityConfig(protocol?: ModelProtocol, model = "
 // 官方文档写的下限只收紧、不放宽，所以旧安装里存下来的 1 秒输出、1.8 秒音频也会被改到文档值；
 // 管理员已经配得更严的数值保持不变。
 export function alignDocumentedVideoRouteLimits(video: VideoCapabilityConfig | undefined, protocol: ModelProtocol | undefined, modelName: string, channel?: { id?: string; baseUrl?: string }) {
-    if (!video || !isSeedance2Family(protocol, modelName)) return;
+    if (!video) return;
+    if (
+        protocol === "newapi-channel-2" &&
+        /^wan3(?:\.0)?(?:-video)?$/i.test(modelName.trim()) &&
+        video.operations.includes("reference_to_video") &&
+        video.references.maxImages === 9 &&
+        video.references.maxVideos === 3 &&
+        video.references.maxAudios === 3
+    ) {
+        video.operations = video.operations.filter((item) => item !== "reference_to_video");
+        if (!video.operations.includes(video.defaultOperation)) video.defaultOperation = video.operations[0] || "text_to_video";
+        video.references.maxImages = 1;
+        video.references.maxVideos = 0;
+        video.references.maxAudios = 0;
+        return;
+    }
+    if (!isSeedance2Family(protocol, modelName)) return;
     let host = "";
     try { host = new URL(channel?.baseUrl || "").hostname.toLowerCase(); } catch { /* no public URL */ }
     const materialHost = ["beeftv.app", "enterprise.beefapi.com", "beefapi.com", "whatstoken.ai", "www.whatstoken.ai"].includes(host) || channel?.id === "beefapi";
@@ -448,7 +473,7 @@ export function alignDocumentedVideoRouteLimits(video: VideoCapabilityConfig | u
 }
 
 export function isSeedance2Family(protocol: ModelProtocol | undefined, modelName: string) {
-    return Boolean((!protocol || ["openai", "openai-videos", "newapi", "newapi-channel-2", "volcengine-ark-video", "volcengine-ark-agent-plan-video"].includes(protocol)) && String(modelName).toLowerCase().includes("seedance-2"));
+    return Boolean((!protocol || ["openai", "openai-videos", "newapi", "newapi-channel-1", "newapi-channel-2", "video-generations-json", "seedance-videos-compatible", "full-video", "volcengine-ark-video", "volcengine-ark-agent-plan-video"].includes(protocol)) && String(modelName).toLowerCase().includes("seedance-2"));
 }
 
 export function isSeedance25Model(modelName: string) {

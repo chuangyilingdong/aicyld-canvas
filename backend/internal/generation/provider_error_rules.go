@@ -96,7 +96,7 @@ func categoryFromProviderMessage(raw string) (FailureCategory, bool) {
 		return CategoryThrottled, true
 	case strings.Contains(normalized, "context length") || strings.Contains(normalized, "maximum context") || strings.Contains(normalized, "too many tokens") || strings.Contains(normalized, "max_tokens") || strings.Contains(normalized, "长度") && (strings.Contains(normalized, "最大") || strings.Contains(normalized, "超出")):
 		return CategoryContextTooLong, true
-	case strings.Contains(normalized, "model_not_found") || strings.Contains(normalized, "model not found") || strings.Contains(normalized, "does not exist") && strings.Contains(normalized, "model") || strings.Contains(normalized, "模型不存在") || strings.Contains(normalized, "模型或模型接口不存在"):
+	case strings.Contains(normalized, "model_not_found") || strings.Contains(normalized, "model not found") || strings.Contains(normalized, "does not exist") && strings.Contains(normalized, "model") || strings.Contains(normalized, "模型不存在") || strings.Contains(normalized, "模型或模型接口不存在") || strings.Contains(normalized, "405 method not allowed") || strings.Contains(normalized, "method not allowed") || strings.Contains(normalized, "http 405") || strings.Contains(normalized, "status 405"):
 		return CategoryModelMissing, true
 	case strings.Contains(normalized, "invalid api key") || strings.Contains(normalized, "incorrect api key") || strings.Contains(normalized, "authentication") || strings.Contains(normalized, "unauthorized") || strings.Contains(normalized, "鉴权失败"):
 		return CategoryAuth, true
@@ -138,8 +138,22 @@ func moderationCategoryFromMessage(normalized string) FailureCategory {
 	return CategoryModerationInput
 }
 
+func hasAuthoritativeProviderCode(fields extractedFields) bool {
+	if _, ok := categoryFromProviderCode(fields.Code); ok && !genericProviderCode(fields.Code) {
+		return true
+	}
+	if _, ok := categoryFromProviderCode(fields.Status); ok && !genericProviderCode(fields.Status) {
+		return true
+	}
+	if _, ok := categoryFromProviderCode(fields.Type); ok && !genericProviderCode(fields.Type) {
+		return true
+	}
+	return false
+}
+
 func specializeModeration(failure *Failure, fields extractedFields) {
-	if f, ok := persistedModerationCopy(fields.Message); ok && (failure.Category == f.Category || (genericProviderCode(fields.Code) && (failure.Category == CategoryUnknown || failure.Category == CategoryInvalidParams))) {
+	refinableCode := !hasAuthoritativeProviderCode(fields)
+	if f, ok := persistedModerationCopy(fields.Message); ok && (failure.Category == f.Category || (refinableCode && (failure.Category == CategoryUnknown || failure.Category == CategoryInvalidParams))) {
 		failure.Category, failure.Reason, failure.Action = f.Category, f.Reason, f.Action
 		requestID, taskID := persistedReferenceIDs(fields.Message)
 		failure.RequestID = firstNonEmpty(failure.RequestID, requestID)
@@ -147,11 +161,9 @@ func specializeModeration(failure *Failure, fields extractedFields) {
 		return
 	}
 	if failure.RequestID == "" {
-		if m := regexp.MustCompile(`(?i)\brequest\s*id:\s*([A-Za-z0-9_-]{6,127})\b`).FindStringSubmatch(sanitizeProviderText(fields.Message)); len(m) == 2 {
-			failure.RequestID = sanitizeDebugID(m[1])
-		}
+		failure.RequestID = requestIDFromMessage(fields.Message)
 	}
-	if failure.IsModeration() || ((failure.Category == CategoryUnknown || failure.Category == CategoryInvalidParams) && genericProviderCode(fields.Code)) {
+	if failure.IsModeration() || ((failure.Category == CategoryUnknown || failure.Category == CategoryInvalidParams) && refinableCode) {
 		if f, ok := moderationErrorCopy(fields.Code, sanitizeProviderText(fields.Message)); ok {
 			failure.Category, failure.Reason, failure.Action = f.Category, f.Reason, f.Action
 			return
@@ -176,7 +188,7 @@ func specializeModeration(failure *Failure, fields extractedFields) {
 }
 
 func refineInvalidParams(failure *Failure, fields extractedFields) {
-	if genericProviderCode(fields.Code) && (failure.Category == CategoryUnknown || failure.Category == CategoryInvalidParams) {
+	if !hasAuthoritativeProviderCode(fields) && (failure.Category == CategoryUnknown || failure.Category == CategoryInvalidParams) {
 		if category, ok := categoryFromProviderMessage(fields.Message); ok {
 			failure.Category = category
 		}

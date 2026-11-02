@@ -149,6 +149,9 @@ export async function executeImageGeneration({
             ...skillMetadata,
             imageBatchExpanded: count > 1 ? true : undefined,
             generationErrorCode: undefined,
+            generationErrorSummary: undefined,
+            generationProviderCode: undefined,
+            taskFailureDiagnostics: undefined,
             taskOutcome: undefined,
             failedPromptFingerprint: undefined,
             failedInputFingerprint: undefined,
@@ -172,6 +175,9 @@ export async function executeImageGeneration({
             ...styleMetadata,
             ...skillMetadata,
             generationErrorCode: undefined,
+            generationErrorSummary: undefined,
+            generationProviderCode: undefined,
+            taskFailureDiagnostics: undefined,
             taskOutcome: undefined,
             failedPromptFingerprint: undefined,
             failedInputFingerprint: undefined,
@@ -395,7 +401,7 @@ export async function executeImageGeneration({
                     metadata: {
                         ...node.metadata,
                         status: hasSuccess ? NODE_STATUS_SUCCESS : generationFailureNodeStatus(isExistingImageNode),
-                        ...(hasSuccess ? { errorDetails: undefined, generationErrorCode: undefined, failedPromptFingerprint: undefined, failedInputFingerprint: undefined } : representativeFailure || { errorDetails: "全部图片生成失败" }),
+                        ...(hasSuccess ? { errorDetails: undefined, generationErrorCode: undefined, generationErrorSummary: undefined, generationProviderCode: undefined, failedPromptFingerprint: undefined, failedInputFingerprint: undefined } : representativeFailure || { errorDetails: "全部图片生成失败" }),
                     },
                 };
             }
@@ -406,7 +412,7 @@ export async function executeImageGeneration({
                         ...node.metadata,
                         status: hasSuccess ? NODE_STATUS_SUCCESS : NODE_STATUS_ERROR,
                         batchFailedCount: count > 1 ? failureCount : undefined,
-                        ...(hasSuccess ? { errorDetails: undefined, generationErrorCode: undefined, failedPromptFingerprint: undefined, failedInputFingerprint: undefined } : representativeFailure || { errorDetails: "全部图片生成失败" }),
+                        ...(hasSuccess ? { errorDetails: undefined, generationErrorCode: undefined, generationErrorSummary: undefined, generationProviderCode: undefined, failedPromptFingerprint: undefined, failedInputFingerprint: undefined } : representativeFailure || { errorDetails: "全部图片生成失败" }),
                     },
                 };
             }
