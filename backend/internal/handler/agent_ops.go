@@ -35,7 +35,7 @@ type agentOpsService interface {
 
 // RegisterAgentOpsRoutes 暴露统一操作层：CLI、MCP 与内置 pi 都调用同一组端点，
 // 不各自打开数据库或另起 worker。
-func RegisterAgentOpsRoutes(r gin.IRouter, svc agentOpsService, store *agentops.Store, clients *agentops.ClientRegistry) *agentops.Registry {
+func RegisterAgentOpsRoutes(r gin.IRouter, svc agentOpsService, store *agentops.Store, clients *agentops.ClientRegistry, ui *uiSessionStore) *agentops.Registry {
 	registry := agentops.NewRegistry(svc, store)
 	agentops.RegisterDefaultOps(registry)
 
@@ -49,7 +49,7 @@ func RegisterAgentOpsRoutes(r gin.IRouter, svc agentOpsService, store *agentops.
 			failService(c, err)
 			return
 		}
-		caller, clientLabel, authErr := resolveCaller(c, svc, clients)
+		caller, clientLabel, authErr := resolveCaller(c, svc, clients, ui, user.ID)
 		if authErr != nil {
 			fail(c, http.StatusForbidden, app.BadAuthRequest(authErr.Error()))
 			return
@@ -117,7 +117,7 @@ func RegisterAgentOpsRoutes(r gin.IRouter, svc agentOpsService, store *agentops.
 			failService(c, err)
 			return
 		}
-		if _, _, authErr := resolveCaller(c, svc, clients); authErr != nil {
+		if _, _, authErr := resolveCaller(c, svc, clients, ui, user.ID); authErr != nil {
 			fail(c, http.StatusForbidden, app.BadAuthRequest(authErr.Error()))
 			return
 		}
@@ -153,6 +153,17 @@ func RegisterAgentOpsRoutes(r gin.IRouter, svc agentOpsService, store *agentops.
 			approvedBy = "owner-cli"
 		} else if trustedDesktopUI(c) {
 			approvedBy = "ui"
+		} else if ui != nil {
+			if _, found := ui.verify(strings.TrimSpace(c.GetHeader("X-Beeftv-Ui-Session")), user.ID); found {
+				approvedBy = "ui"
+			} else {
+				c.JSON(http.StatusForbidden, gin.H{
+					"code":   http.StatusForbidden,
+					"reason": "owner_required",
+					"msg":    "批准生成单需要工作区 owner 凭据或受信任的界面会话",
+				})
+				return
+			}
 		} else {
 			c.JSON(http.StatusForbidden, gin.H{
 				"code":   http.StatusForbidden,
@@ -183,7 +194,7 @@ func RegisterAgentOpsRoutes(r gin.IRouter, svc agentOpsService, store *agentops.
 			failService(c, err)
 			return
 		}
-		if _, _, authErr := resolveCaller(c, svc, clients); authErr != nil {
+		if _, _, authErr := resolveCaller(c, svc, clients, ui, user.ID); authErr != nil {
 			fail(c, http.StatusForbidden, app.BadAuthRequest(authErr.Error()))
 			return
 		}
@@ -206,7 +217,7 @@ func RegisterAgentOpsRoutes(r gin.IRouter, svc agentOpsService, store *agentops.
 			failService(c, err)
 			return
 		}
-		caller, _, authErr := resolveCaller(c, svc, clients)
+		caller, _, authErr := resolveCaller(c, svc, clients, ui, user.ID)
 		if authErr != nil {
 			fail(c, http.StatusForbidden, app.BadAuthRequest(authErr.Error()))
 			return
@@ -274,7 +285,7 @@ func RegisterAgentOpsRoutes(r gin.IRouter, svc agentOpsService, store *agentops.
 				return
 			}
 		}
-		caller, clientLabel, authErr := resolveCaller(c, svc, clients)
+		caller, clientLabel, authErr := resolveCaller(c, svc, clients, ui, user.ID)
 		if authErr != nil {
 			fail(c, http.StatusForbidden, app.BadAuthRequest(authErr.Error()))
 			return
@@ -308,9 +319,9 @@ func RegisterAgentOpsRoutes(r gin.IRouter, svc agentOpsService, store *agentops.
 
 // resolveCaller 决定本次调用的身份与能力模式。
 // 已登记的客户端：模式完全由服务端登记决定，请求体/请求头都不能自行提升或改变。
-// 内置助手宿主：凭自己那份后端注入的宿主凭据拿到读写；页面的 UI 会话凭据不在这里。
+// 内置助手宿主：凭自己那份后端注入的宿主凭据拿到读写；hosted UI 使用短期限 UI 会话。
 // owner 通道是手工 UI 与本机直连的身份。
-func resolveCaller(c *gin.Context, svc ownerCredentialDirs, clients *agentops.ClientRegistry) (agentops.Caller, string, error) {
+func resolveCaller(c *gin.Context, svc ownerCredentialDirs, clients *agentops.ClientRegistry, ui *uiSessionStore, userID string) (agentops.Caller, string, error) {
 	if isAssistantHostRequest(c, svc) {
 		return agentops.Caller{
 			Kind:         agentops.CallerAssistant,
@@ -332,6 +343,11 @@ func resolveCaller(c *gin.Context, svc ownerCredentialDirs, clients *agentops.Cl
 			ClientLabel:  reg.Label,
 			ApprovalMode: agentops.ApprovalMode(reg.ApprovalMode),
 		}, reg.Label, nil
+	}
+	if ui != nil {
+		if _, found := ui.verify(strings.TrimSpace(c.GetHeader("X-Beeftv-Ui-Session")), userID); found {
+			return agentops.Caller{Kind: agentops.CallerManual, ClientLabel: "hosted-ui"}, "hosted-ui", nil
+		}
 	}
 	if agentops.OwnerTokenMatches(svc.DataDir(), strings.TrimSpace(c.GetHeader("X-Beeftv-Owner"))) {
 		return agentops.Caller{Kind: agentops.CallerManual, ClientLabel: "owner"}, "owner", nil
@@ -381,7 +397,7 @@ func requireTrustedDesktopWritePrincipal(c *gin.Context, message string) bool {
 }
 
 func resolveClientMode(c *gin.Context, svc ownerCredentialDirs, clients *agentops.ClientRegistry) (bool, string, error) {
-	caller, label, err := resolveCaller(c, svc, clients)
+	caller, label, err := resolveCaller(c, svc, clients, nil, "")
 	return caller.ReadOnly, label, err
 }
 

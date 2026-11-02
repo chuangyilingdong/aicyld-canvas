@@ -109,7 +109,7 @@ func newAssistantTestEnv(t *testing.T, host func(env *assistantTestEnv) http.Han
 	RegisterAgentProxyRoutes(api, service, clients, ui, assistantHost)
 	// 操作层与生产走同一条注册路径：替身宿主通过真实 HTTP 入口写画布，
 	// 「回执与业务写入同事务」这条前提才有意义。
-	RegisterAgentOpsRoutes(api, service, agentops.NewStore(db), clients)
+	RegisterAgentOpsRoutes(api, service, agentops.NewStore(db), clients, ui)
 	env.router = router
 	return env
 }
