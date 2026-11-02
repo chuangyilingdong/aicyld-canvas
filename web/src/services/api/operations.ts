@@ -1,3 +1,4 @@
+import { ensureAgentUiSession } from "@/services/api/agent-assistant";
 import { http } from "@/services/api/request";
 import { taskDiagnosticHeaders } from "@/services/diagnostics/client-diagnostics";
 
@@ -25,7 +26,11 @@ export async function executeWorkspaceOperation<T>(
     signal?: AbortSignal,
     headers?: Record<string, string>,
 ) {
-    return http.post<WorkspaceOperationResult<T>>(`/ops/${encodeURIComponent(op)}`, body, { signal, headers });
+    const requestHeaders = { ...(headers ?? {}) };
+    if (import.meta.env.VITE_CANVAS_HOSTED === "1") {
+        requestHeaders["X-Beeftv-Ui-Session"] = await ensureAgentUiSession();
+    }
+    return http.post<WorkspaceOperationResult<T>>(`/ops/${encodeURIComponent(op)}`, body, { signal, headers: requestHeaders });
 }
 
 export async function commitCanvasDocument(input: {

@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 
 const repository = readFileSync(resolve(import.meta.dir, "../src/services/local-workspace-repository.ts"), "utf8");
 const lifecycle = readFileSync(resolve(import.meta.dir, "../src/pages/canvas/use-canvas-project-lifecycle.ts"), "utf8");
+const operations = readFileSync(resolve(import.meta.dir, "../src/services/api/operations.ts"), "utf8");
 
 test("desktop local canvas creation starts durable sync without waiting for cache flush", () => {
     const begin = repository.indexOf("export function beginLocalCanvasProject(");
@@ -24,6 +25,9 @@ test("local and hosted canvas edits schedule and explicit saves await backend pe
     expect(repository).toContain("await flushCanvasStorePersistence();\n        await syncLocalCanvasProject(id);");
     expect(repository).toContain("const backendSaveTails = new Map<string, Promise<void>>()");
     expect(repository).toContain("commitCanvasDocument");
+    expect(operations).toContain("ensureAgentUiSession");
+    expect(operations).toContain("X-Beeftv-Ui-Session");
+    expect(operations).toContain("await ensureAgentUiSession()");
 });
 
 test("canvas save summary never replaces the full node document", () => {
