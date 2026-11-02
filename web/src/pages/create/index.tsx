@@ -845,8 +845,9 @@ export default function CreatePage() {
                 return;
             }
             const failedTask = Array.from(boundTasks.values()).find((task) => task.errorCode || task.failureDiagnostics || task.outcome);
-            const explained = explainGenerationError(failedTask?.errorCode && error instanceof Error ? { code: failedTask.errorCode, message: error.message } : error);
-            updateOriginAssistant((item) => ({ ...item, status: "error", error: explained.message, generationErrorSummary: explained.summary, generationProviderCode: explained.providerCode, taskFailureDiagnostics: failedTask?.failureDiagnostics, taskOutcome: failedTask?.outcome ?? item.taskOutcome, generationErrorCode: item.generationErrorCode || failedTask?.errorCode || (explained.category === "unknown" ? undefined : explained.errorCode), generationOperation: item.generationOperation || (mode === "video" ? videoOperation : mode), createdAt: assistantMessage.createdAt, content: "生成失败" }));
+            const errorForCode = failedTask?.errorCode && error instanceof Error ? { code: failedTask.errorCode, message: error.message } : error;
+            const explained = explainGenerationError(errorForCode);
+            updateOriginAssistant((item) => ({ ...item, status: "error", error: explained.message, generationErrorSummary: explained.summary, generationProviderCode: explained.providerCode, taskFailureDiagnostics: failedTask?.failureDiagnostics, taskOutcome: failedTask?.outcome ?? item.taskOutcome, generationErrorCode: item.generationErrorCode || failedTask?.errorCode || generationErrorCode(error), generationOperation: item.generationOperation || (mode === "video" ? videoOperation : mode), createdAt: assistantMessage.createdAt, content: "生成失败" }));
         } finally {
             for (const taskId of boundTaskIds) activeGenerationTaskIdsRef.current.delete(taskId);
             requestLifecycle.release();
