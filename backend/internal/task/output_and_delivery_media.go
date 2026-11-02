@@ -102,7 +102,9 @@ func ClientContextFromInput(raw string) *ClientContext {
 		ctx.BatchCount = metadata.BatchCount
 		return ctx
 	}
-	if metadata.ShotID != "" && metadata.WorkflowStepID != "" {
+	// 成片是单元级产物，没有 ShotID，但同样需要 workflowStepId 才能定位阶段；
+	// 只要求 workflowStepId 存在，否则刷新后读不到在途渲染任务的进度。
+	if metadata.WorkflowStepID != "" {
 		ctx.DomainProjectID = metadata.DomainProjectID
 		ctx.ShotID = metadata.ShotID
 		ctx.WorkflowStepID = metadata.WorkflowStepID
