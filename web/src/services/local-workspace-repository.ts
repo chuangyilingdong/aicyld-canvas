@@ -729,9 +729,10 @@ export async function persistCanvasDocument(id: string, patch: CanvasDocumentPer
             return;
         }
         await flushCanvasStorePersistence();
+        await syncLocalCanvasProject(id);
     } catch (error) {
         if (isCanvasSubmitControlError(error)) throw error;
-        if (localMode && (shouldKeepCanvasCommitIdentity(error) || isCanvasRevisionConflict(error))) throw error;
+        if (shouldKeepCanvasCommitIdentity(error) || isCanvasRevisionConflict(error)) throw error;
         if (previous) {
             await updateCanvasOperationJournal(id, scope, (current) => {
                 if (!current.inFlight) return;

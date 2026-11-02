@@ -17,9 +17,11 @@ test("desktop local canvas creation starts durable sync without waiting for cach
     expect(repository).toContain("await saved;");
 });
 
-test("local canvas edits schedule and explicit saves await backend persistence", () => {
-    expect(lifecycle).toContain("if (localMode) scheduleLocalCanvasBackendSync(projectId);");
-    expect(lifecycle).toContain("if (localMode) await syncLocalCanvasProjectToBackend(projectId);");
+test("local and hosted canvas edits schedule and explicit saves await backend persistence", () => {
+    expect(lifecycle).toContain("if (hasUnconfirmedCanvasEdits(projectId)) scheduleLocalCanvasBackendSync(projectId);");
+    expect(lifecycle).toContain("scheduleLocalCanvasBackendSync(projectId);");
+    expect(lifecycle).toContain("await syncLocalCanvasProjectToBackend(projectId);");
+    expect(repository).toContain("await flushCanvasStorePersistence();\n        await syncLocalCanvasProject(id);");
     expect(repository).toContain("const backendSaveTails = new Map<string, Promise<void>>()");
     expect(repository).toContain("commitCanvasDocument");
 });
