@@ -108,6 +108,41 @@ func RegisterInternalChannelRoutes(r *gin.RouterGroup, svc *app.Service) {
 		ok(c, gin.H{"channels": platformchannels.Redact(saved), "assistantModel": assistantModel,
 			"featureModels": featureModels, "featureKeys": platformchannels.FeatureKeys, "warnings": warnings})
 	})
+
+	group.GET("/canvas-settings", func(c *gin.Context) {
+		endpoint := strings.TrimSpace(os.Getenv("CANVAS_OSS_ENDPOINT"))
+		bucket := strings.TrimSpace(os.Getenv("CANVAS_OSS_BUCKET"))
+		accessKey := strings.TrimSpace(os.Getenv("CANVAS_OSS_ACCESS_KEY"))
+		secretKey := strings.TrimSpace(os.Getenv("CANVAS_OSS_SECRET_KEY"))
+		ok(c, gin.H{
+			"canvasDocumentMB": svc.CanvasService().CanvasDocumentLimitMB(),
+			"storage": gin.H{
+				"configured":          endpoint != "" && bucket != "" && accessKey != "" && secretKey != "",
+				"endpoint":            endpoint,
+				"bucket":              bucket,
+				"pathPrefix":          strings.TrimSpace(os.Getenv("CANVAS_OSS_PATH_PREFIX")),
+				"publicBaseURL":       strings.TrimSpace(os.Getenv("CANVAS_PUBLIC_BASE_URL")),
+				"localRetentionHours": strings.TrimSpace(os.Getenv("CANVAS_OSS_LOCAL_RETENTION_HOURS")),
+			},
+		})
+	})
+
+	group.PATCH("/canvas-settings", func(c *gin.Context) {
+		var payload struct {
+			CanvasDocumentMB *int64 `json:"canvasDocumentMB"`
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 4<<10)
+		if err := c.ShouldBindJSON(&payload); err != nil || payload.CanvasDocumentMB == nil {
+			fail(c, http.StatusBadRequest, errors.New("请填写有效的单画布容量上限"))
+			return
+		}
+		limitMB, err := svc.CanvasService().UpdateCanvasDocumentLimitMBBy("aicyld-admin", *payload.CanvasDocumentMB)
+		if err != nil {
+			fail(c, http.StatusBadRequest, err)
+			return
+		}
+		ok(c, gin.H{"canvasDocumentMB": limitMB})
+	})
 }
 
 // platformChannelSyncInputs 把落盘的平台渠道转换成系统渠道镜像输入。
