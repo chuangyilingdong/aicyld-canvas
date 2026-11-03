@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { accountStorageMeter } from "../src/lib/account-storage-usage";
+import { canOpenLocalStorageSettings, resetWorkspaceMode, setWorkspaceProfile } from "../src/services/workspace-mode";
 
 const GB = 1024 ** 3;
 
@@ -66,5 +67,30 @@ describe("workspace sidebar storage meter", () => {
         expect(css).toContain(".app-workspace-sidebar-storage.is-warn");
         expect(css).toContain(".app-workspace-sidebar-storage.is-critical");
         expect(productCss).toContain(".app-user-workspace.app-product-workspace .app-workspace-sidebar-storage { display:none; }");
+    });
+});
+
+describe("local storage settings boundary", () => {
+    test("hosted web never exposes desktop storage settings to users or admins", () => {
+        try {
+            setWorkspaceProfile("hosted");
+            expect(canOpenLocalStorageSettings(true)).toBe(false);
+            expect(canOpenLocalStorageSettings(false)).toBe(false);
+            setWorkspaceProfile("local");
+            expect(canOpenLocalStorageSettings(true)).toBe(true);
+            expect(canOpenLocalStorageSettings(false)).toBe(false);
+        } finally {
+            resetWorkspaceMode();
+        }
+    });
+
+    test("sidebar only adds storage settings behind the local-desktop capability", () => {
+        const sidebar = readFileSync(resolve(import.meta.dir, "../src/components/layout/workspace-sidebar-nav.tsx"), "utf8");
+        const settings = readFileSync(resolve(import.meta.dir, "../src/pages/settings/index.tsx"), "utf8");
+
+        expect(sidebar).toContain("const showStorageSettings = canOpenLocalStorageSettings(Boolean(getDesktopAppBinding()?.StorageSettings));");
+        expect(sidebar).toContain("...(showStorageSettings ? [{ id: \"settings:storage\"");
+        expect(settings).toContain("const storageSettingsAvailable = canOpenLocalStorageSettings(nativeStorage);");
+        expect(settings).not.toContain("requestedSection !== \"storage\" || nativeStorage || isAdmin");
     });
 });

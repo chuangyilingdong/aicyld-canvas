@@ -36,6 +36,10 @@ export function isLocalWorkspaceMode() {
     return workspaceProfile !== "hosted";
 }
 
+export function canOpenLocalStorageSettings(hasDesktopStorage: boolean) {
+    return hasDesktopStorage && isLocalWorkspaceMode();
+}
+
 export function isHostedBuild() {
     return HOSTED_BUILD;
 }

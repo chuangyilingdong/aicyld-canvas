@@ -14,6 +14,7 @@ import { ReferenceStoragePane } from "./reference-storage-pane";
 import { CanvasFunnelPane } from "./canvas-funnel-pane";
 import { getDesktopAppBinding } from "@/services/desktop-runtime";
 import { PageHeader } from "@/components/layout/workspace-page";
+import { canOpenLocalStorageSettings } from "@/services/workspace-mode";
 
 type ConfigSectionKey = "channels" | "models" | "storage" | "diagnostics" | "funnel";
 
@@ -28,22 +29,23 @@ export default function SettingsPage() {
     const requestedSection = searchParams.get("section");
     const customChannelsEnabled = useUserStore((state) => state.features.customChannelsEnabled);
     const isAdmin = useUserStore((state) => state.user?.role === "admin");
-    const initialSection = isConfigSection(requestedSection) && (requestedSection !== "funnel" || isAdmin) ? requestedSection : "channels";
+    const nativeStorage = Boolean(getDesktopAppBinding()?.StorageSettings);
+    const storageSettingsAvailable = canOpenLocalStorageSettings(nativeStorage);
+    const initialSection = isConfigSection(requestedSection) && (requestedSection !== "storage" || storageSettingsAvailable) && (requestedSection !== "funnel" || isAdmin) ? requestedSection : "channels";
     const [activeTab, setActiveTab] = useState<ConfigSectionKey>(initialSection === "models" ? "channels" : initialSection);
     const config = useConfigStore((state) => state.config);
     const effectiveConfig = useEffectiveConfig();
     const updateConfig = useConfigStore((state) => state.updateConfig);
     const shouldPromptContinue = searchParams.get("continue") === "1";
     const userChannels = config.channels.filter((channel) => channel.scope !== "system");
-    const nativeStorage = Boolean(getDesktopAppBinding()?.StorageSettings);
     useLayoutEffect(() => {
         document.body.classList.add("app-user-overlays");
         return () => document.body.classList.remove("app-user-overlays");
     }, []);
 
     useEffect(() => {
-        setActiveTab(isConfigSection(requestedSection) && (requestedSection !== "storage" || nativeStorage || isAdmin) && (requestedSection !== "funnel" || isAdmin) ? requestedSection : "channels");
-    }, [requestedSection, nativeStorage, isAdmin]);
+        setActiveTab(isConfigSection(requestedSection) && (requestedSection !== "storage" || storageSettingsAvailable) && (requestedSection !== "funnel" || isAdmin) ? requestedSection : "channels");
+    }, [requestedSection, storageSettingsAvailable, isAdmin]);
 
     const selectSection = (section: ConfigSectionKey) => {
         setActiveTab(section);
