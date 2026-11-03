@@ -42,7 +42,7 @@ export default function SettingsPage() {
     }, []);
 
     useEffect(() => {
-        setActiveTab(isConfigSection(requestedSection) && (requestedSection !== "storage" || nativeStorage) && (requestedSection !== "funnel" || isAdmin) ? requestedSection : "channels");
+        setActiveTab(isConfigSection(requestedSection) && (requestedSection !== "storage" || nativeStorage || isAdmin) && (requestedSection !== "funnel" || isAdmin) ? requestedSection : "channels");
     }, [requestedSection, nativeStorage, isAdmin]);
 
     const selectSection = (section: ConfigSectionKey) => {
