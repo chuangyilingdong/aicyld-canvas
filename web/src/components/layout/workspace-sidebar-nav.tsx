@@ -16,6 +16,7 @@ import { useAppearanceStore } from "@/stores/use-appearance-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { getDesktopAppBinding } from "@/services/desktop-runtime";
 import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler";
+import { canOpenLocalStorageSettings } from "@/services/workspace-mode";
 import { OnboardingEntry } from "@/components/onboarding/first-creation-guide";
 
 export type WorkspaceNavItem = {
@@ -41,6 +42,7 @@ function toolItem(slug: NavigationToolSlug, to: string): WorkspaceNavItem {
 }
 
 function buildNav(features: FeatureAvailability, isAdmin: boolean): { groups: WorkspaceNavGroup[]; footer: WorkspaceNavItem[] } {
+    const showStorageSettings = canOpenLocalStorageSettings(Boolean(getDesktopAppBinding()?.StorageSettings));
     const groups: WorkspaceNavGroup[] = [
         {
             items: [
@@ -54,8 +56,8 @@ function buildNav(features: FeatureAvailability, isAdmin: boolean): { groups: Wo
                 { ...toolItem("assets", "/assets"), title: "资产" },
                 { ...toolItem("skills", "/skills"), title: "技能" },
                 { id: "settings:channels", title: "模型配置", icon: Settings2, to: "/settings?section=channels" },
-                ...(isAdmin ? [{ id: "settings:funnel", title: "使用漏斗", icon: BarChart3, to: "/settings?section=funnel" }, { id: "settings:storage", title: "存储设置", icon: HardDrive, to: "/settings?section=storage" }] : []),
-                ...(getDesktopAppBinding()?.StorageSettings && !isAdmin ? [{ id: "settings:storage", title: "存储设置", icon: HardDrive, to: "/settings?section=storage" }] : []),
+                ...(isAdmin ? [{ id: "settings:funnel", title: "使用漏斗", icon: BarChart3, to: "/settings?section=funnel" }] : []),
+                ...(showStorageSettings ? [{ id: "settings:storage", title: "存储设置", icon: HardDrive, to: "/settings?section=storage" }] : []),
                 { id: "agents", title: "灵动TV MCP", icon: Plug, to: "/agents" },
             ],
         },
