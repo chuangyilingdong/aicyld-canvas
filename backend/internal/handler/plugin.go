@@ -36,6 +36,7 @@ type pluginCenter interface {
 	SubmitPluginReleaseForAdmin(actor *model.User, releaseID string) (plugins.ReleaseView, error)
 	ApprovePluginReleaseForAdmin(actor *model.User, releaseID string, notes string) (plugins.ReleaseView, error)
 	RejectPluginReleaseForAdmin(actor *model.User, releaseID string, notes string) (plugins.ReleaseView, error)
+	PublishPluginReleaseForAdmin(actor *model.User, releaseID string) (plugins.ReleaseView, error)
 }
 
 func RegisterPluginRoutes(r *gin.RouterGroup, center pluginCenter, hosted ...bool) {

@@ -86,6 +86,12 @@ func (c *Runtime) reconcileBuiltIns(stored []RegistryRecord) ([]RegistryRecord, 
 		builtInIDs[id] = struct{}{}
 		manifest := pkg.Manifest
 		record := byID[id]
+		if record.Source == OriginOfficialPublished {
+			// An administrator-published version is the release authority until a
+			// later publish or rollback replaces it. A shipped package must not
+			// silently overwrite the reviewed package after restart.
+			continue
+		}
 		if len(record.Raw) > 0 {
 			var previous protocol.Manifest
 			if err := json.Unmarshal(record.Raw, &previous); err == nil {
@@ -128,6 +134,9 @@ func (c *Runtime) reconcileBuiltIns(stored []RegistryRecord) ([]RegistryRecord, 
 			return nil, fmt.Errorf("encode built-in plugin %s: %w", bundled.Metadata.ID, err)
 		}
 		record := byID[bundled.Metadata.ID]
+		if record.Source == OriginOfficialPublished {
+			continue
+		}
 		if len(record.Raw) > 0 {
 			var installed protocol.Manifest
 			if err := json.Unmarshal(record.Raw, &installed); err != nil {
@@ -157,6 +166,9 @@ func (c *Runtime) reconcileBuiltIns(stored []RegistryRecord) ([]RegistryRecord, 
 		if !IsBuiltInSource(record.Source) {
 			continue
 		}
+		if record.Source == OriginOfficialPublished {
+			continue
+		}
 		if _, shipped := builtInIDs[record.ID]; !shipped {
 			missing = append(missing, record)
 		}
@@ -172,6 +184,10 @@ func (c *Runtime) reconcileBuiltIns(stored []RegistryRecord) ([]RegistryRecord, 
 	for _, record := range byID {
 		if IsBuiltInSource(record.Source) {
 			if _, shipped := builtInIDs[record.ID]; !shipped {
+				if record.Source == OriginOfficialPublished {
+					result = append(result, record)
+					continue
+				}
 				// Built-in records are reconciled from repository packages and host
 				// manifests on every startup, so an unreferenced removed plugin
 				// cannot survive stale.

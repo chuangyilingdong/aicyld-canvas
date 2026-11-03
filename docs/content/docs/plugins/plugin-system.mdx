@@ -238,8 +238,11 @@ Hosted 插件中心在现有 Manifest、注册表和运行时之上增加两层�
 - `POST /api/plugins/releases/:releaseId/submit`：`draft -> review`
 - `POST /api/plugins/releases/:releaseId/approve`：`review -> approved`
 - `POST /api/plugins/releases/:releaseId/reject`：`review -> rejected`，必须填写原因
+- `POST /api/plugins/releases/:releaseId/publish`：把已批准版本写入官方运行态
 
-已有线上版本时，新版本在审核期间继续保留当前发布版本；`candidateReleaseId` 只指向待审核版本。只有后续发布动作才能把候选版本切换为运行版本。
+已有线上版本时，新版本在审核期间继续保留当前发布版本；`candidateReleaseId` 只指向待审核版本。只有发布动作才能把候选版本切换为运行版本。
+
+管理员发布的运行记录使用 `official-published` 来源。服务重启时，发行目录中的同名旧包不会覆盖该记录；历史发布包继续保留在内容寻址存储中，供后续回滚和撤销使用。
 
 ## 8. Eagle 外部素材来源方案
 

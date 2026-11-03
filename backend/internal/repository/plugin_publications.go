@@ -130,6 +130,26 @@ func (r *Repository) CommitPluginReleaseReview(publication *model.PluginPublicat
 	})
 }
 
+func (r *Repository) CommitPluginReleasePublication(publication *model.PluginPublication, releaseID string, publishedBy string, publishedAt time.Time) error {
+	if publication == nil || strings.TrimSpace(publication.PluginID) == "" {
+		return errors.New("plugin publication is empty")
+	}
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&model.PluginRelease{}).Where("id = ?", strings.TrimSpace(releaseID)).Updates(map[string]any{
+			"published_by": strings.TrimSpace(publishedBy),
+			"published_at": publishedAt,
+			"updated_at":   publishedAt,
+		})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		return r.WithTx(tx).SavePluginPublication(publication)
+	})
+}
+
 func savePluginReleaseReview(db *gorm.DB, releaseID string, status string, reviewerID string, notes string, reviewedAt time.Time) error {
 	result := db.Model(&model.PluginRelease{}).Where("id = ?", strings.TrimSpace(releaseID)).Updates(map[string]any{
 		"review_status": status,

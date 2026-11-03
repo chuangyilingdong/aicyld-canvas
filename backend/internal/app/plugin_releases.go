@@ -87,6 +87,12 @@ func (s *Service) RejectPluginReleaseForAdmin(actor *model.User, releaseID strin
 	})
 }
 
+func (s *Service) PublishPluginReleaseForAdmin(actor *model.User, releaseID string) (PluginReleaseView, error) {
+	return s.transitionPluginReleaseForAdmin(actor, releaseID, "plugin.release.publish", "发布官方插件版本", func(service *plugins.ReleaseService) (PluginReleaseView, error) {
+		return service.Publish(actor.ID, releaseID)
+	})
+}
+
 func (s *Service) transitionPluginReleaseForAdmin(actor *model.User, releaseID string, action string, summary string, transition func(*plugins.ReleaseService) (PluginReleaseView, error)) (PluginReleaseView, error) {
 	if err := s.RequireAdmin(actor); err != nil {
 		return PluginReleaseView{}, err

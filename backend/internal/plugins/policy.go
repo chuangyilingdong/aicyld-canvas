@@ -64,7 +64,7 @@ func IsKnownApplication(pluginID string) bool {
 
 func IsBuiltInSource(source string) bool {
 	switch strings.TrimSpace(source) {
-	case "bundled", OriginOfficial, OriginSystem:
+	case "bundled", OriginOfficial, OriginOfficialPublished, OriginSystem:
 		return true
 	default:
 		return false

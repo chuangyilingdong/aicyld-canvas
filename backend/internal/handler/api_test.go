@@ -34,6 +34,7 @@ func TestRegisterCanvasAPIExposesOpenAPIAndProjects(t *testing.T) {
 		"POST /api/plugins/releases/:releaseId/submit":  false,
 		"POST /api/plugins/releases/:releaseId/approve": false,
 		"POST /api/plugins/releases/:releaseId/reject":  false,
+		"POST /api/plugins/releases/:releaseId/publish": false,
 	}
 	for _, route := range router.Routes() {
 		key := route.Method + " " + route.Path

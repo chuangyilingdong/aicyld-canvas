@@ -2,6 +2,8 @@ package plugins
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -100,6 +102,17 @@ func (s *memoryPublicationStore) CommitPluginReleaseReview(publication *model.Pl
 	return s.SavePluginPublication(publication)
 }
 
+func (s *memoryPublicationStore) CommitPluginReleasePublication(publication *model.PluginPublication, releaseID string, publishedBy string, publishedAt time.Time) error {
+	release := s.releases[releaseID]
+	if release == nil {
+		return nil
+	}
+	release.PublishedBy = publishedBy
+	release.PublishedAt = &publishedAt
+	release.UpdatedAt = publishedAt
+	return s.SavePluginPublication(publication)
+}
+
 func TestReleaseServiceUploadsDraftAndReviews(t *testing.T) {
 	runtime := &Runtime{packageDir: t.TempDir()}
 	store := newMemoryPublicationStore()
@@ -161,5 +174,51 @@ func TestReleaseServiceRejectClearsDraftCandidate(t *testing.T) {
 	}
 	if rejected.Release.ReviewStatus != model.PluginReleaseReviewRejected || rejected.Publication.Status != model.PluginPublicationStatusDraft || rejected.Publication.CandidateReleaseID != "" {
 		t.Fatalf("rejected view = %#v", rejected)
+	}
+}
+
+func TestReleaseServicePublishesOfficialPackageAndSurvivesRestart(t *testing.T) {
+	officialDir := t.TempDir()
+	t.Setenv("CANVAS_OFFICIAL_PLUGIN_DIR", officialDir)
+	dataDir := t.TempDir()
+	runtimeStore := &memoryStore{}
+	runtime, err := NewRuntimeWithStore(dataDir, runtimeStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicationStore := newMemoryPublicationStore()
+	service := NewReleaseService(runtime, publicationStore)
+	uploaded, err := service.Upload("admin-1", testPluginPackage(t, testManifest("publish-release", "1.0.0")), UploadReleaseInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.SubmitReview("admin-1", uploaded.Release.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Approve("reviewer-1", uploaded.Release.ID, "通过"); err != nil {
+		t.Fatal(err)
+	}
+	published, err := service.Publish("publisher-1", uploaded.Release.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if published.Publication.Status != model.PluginPublicationStatusPublished || published.Publication.CurrentReleaseID != uploaded.Release.ID || published.Publication.CandidateReleaseID != "" || published.Release.PublishedAt == nil {
+		t.Fatalf("published view = %#v", published)
+	}
+	live, ok := ByID(runtime.List(), "publish-release")
+	if !ok || live.Source != OriginOfficialPublished || live.Manifest.Version != "1.0.0" || live.Status != StatusEnabled {
+		t.Fatalf("live plugin = %#v ok=%v", live, ok)
+	}
+	shipped := testPluginPackage(t, testManifest("publish-release", "0.9.0"))
+	if err := os.WriteFile(filepath.Join(officialDir, "publish-release-shipped.beeftv-plugin"), shipped, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := NewRuntimeWithStore(dataDir, runtimeStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterRestart, ok := ByID(restarted.List(), "publish-release")
+	if !ok || afterRestart.Source != OriginOfficialPublished || afterRestart.Manifest.Version != "1.0.0" {
+		t.Fatalf("restarted plugin = %#v ok=%v", afterRestart, ok)
 	}
 }

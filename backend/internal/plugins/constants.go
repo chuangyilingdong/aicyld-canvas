@@ -9,9 +9,10 @@ const (
 	EditorShell         = "editor-shell"
 	WorkflowRunningHub  = "runninghub-workflow-provider"
 
-	OriginOfficial = "official"
-	OriginSystem   = "system"
-	OriginUploaded = "uploaded"
+	OriginOfficial          = "official"
+	OriginOfficialPublished = "official-published"
+	OriginSystem            = "system"
+	OriginUploaded          = "uploaded"
 
 	KindProtocol    = "protocol"
 	KindApplication = "application"

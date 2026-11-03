@@ -138,6 +138,23 @@ func registerPluginReleaseRoutes(r *gin.RouterGroup, center pluginCenter) {
 		}
 		ok(c, view)
 	})
+
+	releases.POST("/:releaseId/publish", func(c *gin.Context) {
+		user, err := currentUser(c, center)
+		if err == nil {
+			err = center.RequireAdmin(user)
+		}
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		view, err := center.PublishPluginReleaseForAdmin(user, c.Param("releaseId"))
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, view)
+	})
 }
 
 func pluginReleaseReviewRequest(c *gin.Context, center pluginCenter) (*model.User, string, error) {

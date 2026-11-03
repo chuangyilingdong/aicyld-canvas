@@ -20,6 +20,7 @@ type PublicationStore interface {
 	CreatePluginRelease(release *model.PluginRelease) error
 	CommitPluginPublication(publication *model.PluginPublication, release *model.PluginRelease) error
 	CommitPluginReleaseReview(publication *model.PluginPublication, releaseID string, status string, reviewerID string, notes string, reviewedAt time.Time) error
+	CommitPluginReleasePublication(publication *model.PluginPublication, releaseID string, publishedBy string, publishedAt time.Time) error
 }
 
 type repositoryPublicationStore struct {
@@ -67,4 +68,8 @@ func (s repositoryPublicationStore) CommitPluginPublication(publication *model.P
 
 func (s repositoryPublicationStore) CommitPluginReleaseReview(publication *model.PluginPublication, releaseID string, status string, reviewerID string, notes string, reviewedAt time.Time) error {
 	return s.repo.CommitPluginReleaseReview(publication, releaseID, status, reviewerID, notes, reviewedAt)
+}
+
+func (s repositoryPublicationStore) CommitPluginReleasePublication(publication *model.PluginPublication, releaseID string, publishedBy string, publishedAt time.Time) error {
+	return s.repo.CommitPluginReleasePublication(publication, releaseID, publishedBy, publishedAt)
 }

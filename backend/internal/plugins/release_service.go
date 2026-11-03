@@ -165,6 +165,65 @@ func (s *ReleaseService) Reject(actorID string, releaseID string, notes string) 
 	return s.transitionReview(actorID, releaseID, ReleaseReviewRejected, notes)
 }
 
+func (s *ReleaseService) Publish(actorID string, releaseID string) (ReleaseView, error) {
+	if s == nil || s.runtime == nil || s.store == nil {
+		return ReleaseView{}, fmt.Errorf("插件发布服务未初始化")
+	}
+	actorID = strings.TrimSpace(actorID)
+	if actorID == "" {
+		return ReleaseView{}, kernel.Unauthorized("请先登录")
+	}
+	release, publication, err := s.loadRelease(releaseID)
+	if err != nil {
+		return ReleaseView{}, err
+	}
+	if ReleaseReviewStatus(release.ReviewStatus) != ReleaseReviewApproved {
+		return ReleaseView{}, kernel.NewAppError(409, "只有审核通过的版本才能发布")
+	}
+	if strings.TrimSpace(publication.CandidateReleaseID) != release.ID {
+		return ReleaseView{}, kernel.NewAppError(409, "该版本已不是当前候选版本")
+	}
+	if publication.Status == model.PluginPublicationStatusRevoked {
+		return ReleaseView{}, kernel.NewAppError(409, "已撤销插件不能重新发布")
+	}
+	data, err := s.runtime.ReleasePackage(release.PackageSHA256)
+	if err != nil {
+		return ReleaseView{}, fmt.Errorf("读取插件发布包：%w", err)
+	}
+	previousPublication := *publication
+	var previousRelease *model.PluginRelease
+	if previousID := strings.TrimSpace(publication.CurrentReleaseID); previousID != "" {
+		previousRelease, err = s.store.PluginRelease(previousID)
+		if err != nil {
+			return ReleaseView{}, err
+		}
+	}
+	fileName := release.PluginID + "-" + release.Version + protocol.PluginPackageExtension
+	if _, err := s.runtime.PublishOfficialRelease(data, fileName, true); err != nil {
+		return ReleaseView{}, fmt.Errorf("发布插件到运行态：%w", err)
+	}
+	now := time.Now().UTC()
+	publication.Status = model.PluginPublicationStatusPublished
+	publication.CurrentReleaseID = release.ID
+	publication.CandidateReleaseID = ""
+	publication.PublishedAt = &now
+	publication.DisabledAt = nil
+	publication.RevokeReason = ""
+	publication.UpdatedBy = actorID
+	publication.UpdatedAt = now
+	if err := s.store.CommitPluginReleasePublication(publication, release.ID, actorID, now); err != nil {
+		compensationErr := s.restorePreviousPublication(&previousPublication, previousRelease)
+		if compensationErr != nil {
+			return ReleaseView{}, fmt.Errorf("保存插件发布状态失败，运行态补偿也失败：%v；%w", compensationErr, err)
+		}
+		return ReleaseView{}, fmt.Errorf("保存插件发布状态：%w", err)
+	}
+	release.PublishedBy = actorID
+	release.PublishedAt = &now
+	release.UpdatedAt = now
+	return ReleaseView{Release: *release, Publication: *publication}, nil
+}
+
 func (s *ReleaseService) transitionReview(actorID string, releaseID string, next ReleaseReviewStatus, notes string) (ReleaseView, error) {
 	if s == nil || s.store == nil {
 		return ReleaseView{}, fmt.Errorf("插件发布服务未初始化")
@@ -257,4 +316,21 @@ func (s *ReleaseService) loadRelease(releaseID string) (*model.PluginRelease, *m
 		return nil, nil, kernel.NotFound("插件发布记录不存在")
 	}
 	return release, publication, nil
+}
+
+func (s *ReleaseService) restorePreviousPublication(publication *model.PluginPublication, release *model.PluginRelease) error {
+	if publication == nil {
+		return fmt.Errorf("previous publication is empty")
+	}
+	if release == nil {
+		return s.runtime.RemoveOfficialPublished(publication.PluginID)
+	}
+	data, err := s.runtime.ReleasePackage(release.PackageSHA256)
+	if err != nil {
+		return err
+	}
+	enabled := publication.Status == model.PluginPublicationStatusPublished
+	fileName := release.PluginID + "-" + release.Version + protocol.PluginPackageExtension
+	_, err = s.runtime.PublishOfficialRelease(data, fileName, enabled)
+	return err
 }

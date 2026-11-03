@@ -377,7 +377,7 @@ func validateAuthorityRecord(record RegistryRecord) error {
 
 func validateRecordSource(source string) error {
 	switch strings.TrimSpace(source) {
-	case OriginOfficial, OriginSystem, OriginUploaded, "bundled":
+	case OriginOfficial, OriginOfficialPublished, OriginSystem, OriginUploaded, "bundled":
 		return nil
 	case "":
 		return fmt.Errorf("缺少来源")

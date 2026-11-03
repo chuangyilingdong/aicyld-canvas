@@ -55,7 +55,77 @@ func (c *Runtime) Install(data []byte, fileName string) (View, error) {
 	return stage.view, nil
 }
 
+// PublishOfficialRelease installs an administrator-reviewed package as the
+// current official definition. Old release blobs are retained for rollback.
+func (c *Runtime) PublishOfficialRelease(data []byte, fileName string, enabled bool) (View, error) {
+	if c == nil {
+		return View{}, fmt.Errorf("插件运行时未初始化")
+	}
+	c.beginMutation()
+	defer c.endMutation()
+	stage, err := c.stageOfficialReleaseLocked(data, fileName, enabled)
+	if err != nil {
+		return View{}, err
+	}
+	if err := c.commitAndPublish(&stage, persistExtras{}); err != nil {
+		c.abortUncommitted(&stage)
+		return View{}, err
+	}
+	return stage.view, nil
+}
+
+// RemoveOfficialPublished removes only an administrator-published override.
+// It is used for publish compensation and later revoke handling; shipped
+// built-in records are reconciled from the release directory on restart.
+func (c *Runtime) RemoveOfficialPublished(id string) error {
+	if c == nil {
+		return fmt.Errorf("插件运行时未初始化")
+	}
+	c.beginMutation()
+	defer c.endMutation()
+	c.mu.RLock()
+	record, ok := c.plugins[strings.TrimSpace(id)]
+	c.mu.RUnlock()
+	if !ok {
+		return nil
+	}
+	if record.Source != OriginOfficialPublished {
+		return fmt.Errorf("插件 %q 不是管理员发布版本", id)
+	}
+	stored, err := c.currentRecords()
+	if err != nil {
+		return err
+	}
+	filtered := make([]RegistryRecord, 0, len(stored))
+	for _, item := range stored {
+		if item.ID != record.Metadata.ID {
+			filtered = append(filtered, item)
+		}
+	}
+	plugins, registry, err := c.build(filtered)
+	if err != nil {
+		return err
+	}
+	stage := stagedMutation{
+		previousLive: c.captureLive(), nextDisk: filtered,
+		nextPlugins: plugins, nextRegistry: registry,
+	}
+	if err := c.commitAndPublish(&stage, persistExtras{}); err != nil {
+		c.abortUncommitted(&stage)
+		return err
+	}
+	return nil
+}
+
 func (c *Runtime) stageInstallLocked(data []byte, fileName string) (stagedMutation, error) {
+	return c.stagePackageLocked(data, fileName, OriginUploaded, false, nil)
+}
+
+func (c *Runtime) stageOfficialReleaseLocked(data []byte, fileName string, enabled bool) (stagedMutation, error) {
+	return c.stagePackageLocked(data, fileName, OriginOfficialPublished, true, &enabled)
+}
+
+func (c *Runtime) stagePackageLocked(data []byte, fileName string, source string, allowBuiltIn bool, enabledOverride *bool) (stagedMutation, error) {
 	if len(data) == 0 || len(data) > protocol.PluginPackageMaxBytes {
 		return stagedMutation{}, fmt.Errorf("plugin package must be between 1 and %d bytes", protocol.PluginPackageMaxBytes)
 	}
@@ -73,10 +143,13 @@ func (c *Runtime) stageInstallLocked(data []byte, fileName string) (stagedMutati
 	c.mu.RLock()
 	existing, exists := c.plugins[manifest.Metadata.ID]
 	c.mu.RUnlock()
-	if exists && IsBuiltInSource(existing.Source) {
+	if exists && IsBuiltInSource(existing.Source) && !allowBuiltIn {
 		return stagedMutation{}, fmt.Errorf("内置插件 %q 不能通过上传覆盖", manifest.Metadata.ID)
 	}
 	manifest.Metadata.Enabled = !exists || existing.Metadata.Enabled
+	if enabledOverride != nil {
+		manifest.Metadata.Enabled = *enabledOverride
+	}
 	manifestData, err := json.Marshal(manifest)
 	if err != nil {
 		return stagedMutation{}, err
@@ -100,7 +173,7 @@ func (c *Runtime) stageInstallLocked(data []byte, fileName string) (stagedMutati
 		return stagedMutation{}, err
 	}
 	now := time.Now().UTC()
-	newRecord := RegistryRecord{ID: manifest.Metadata.ID, Raw: manifestData, Source: OriginUploaded, FileName: packageName, PackagePath: blobName, PackageSHA256: hash, InstalledAt: now, UpdatedAt: now}
+	newRecord := RegistryRecord{ID: manifest.Metadata.ID, Raw: manifestData, Source: source, FileName: packageName, PackagePath: blobName, PackageSHA256: hash, InstalledAt: now, UpdatedAt: now}
 	if exists {
 		newRecord.InstalledAt = existing.InstalledAt
 		replaced := false
