@@ -62,14 +62,10 @@ func (s *Service) canvasDomain() *canvas.Service {
 }
 func (s *Service) canvasDomainWithTx(tx *gorm.DB) *canvas.Service {
 	repo := s.repo.WithTx(tx)
-	host := newCanvasHostWithRepo(s, repo)
 	if s.canvas == nil {
-		// The transaction already owns the only connection in constrained tests.
-		// Constructing the domain lazily must not hydrate settings through the
-		// base repository while that transaction is still open.
-		return canvas.New(repo, host)
+		return canvas.New(repo, newCanvasHostWithRepo(s, repo))
 	}
-	return s.canvas.WithRepository(repo).WithHost(host)
+	return s.canvas.WithRepository(repo).WithHost(newCanvasHostWithRepo(s, repo))
 }
 func (s *Service) validateCanvasMediaAssets(u string, raw json.RawMessage) error {
 	return s.canvasDomain().ValidateCanvasMediaAssets(u, raw)
