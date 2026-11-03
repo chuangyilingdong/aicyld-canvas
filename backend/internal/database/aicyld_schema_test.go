@@ -76,15 +76,18 @@ func TestMigrateAICYLDOverlaySchemaAddsBillingFieldsAndKeepsOfficialLedger(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !status.Ready || status.Current != 1 || status.Expected != 1 {
+	if !status.Ready || status.Current != 2 || status.Expected != 2 {
 		t.Fatalf("unexpected overlay status: %+v", status)
 	}
 	var rows []aicyldOverlayMigration
 	if err := db.Order("version").Find(&rows).Error; err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 1 || rows[0].Version != 1 || rows[0].Name != "hosted-billing-task-fields" {
+	if len(rows) != 2 || rows[0].Version != 1 || rows[0].Name != "hosted-billing-task-fields" || rows[1].Version != 2 || rows[1].Name != "plugin-publication-releases" {
 		t.Fatalf("unexpected overlay ledger: %+v", rows)
+	}
+	if !db.Migrator().HasTable("plugin_publications") || !db.Migrator().HasTable("plugin_releases") {
+		t.Fatal("plugin publication tables missing after overlay migration")
 	}
 	var officialAfter []localSchemaMigration
 	if err := db.Order("version").Find(&officialAfter).Error; err != nil {

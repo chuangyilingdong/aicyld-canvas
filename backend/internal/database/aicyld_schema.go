@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"time"
 
+	"infinite-canvas/backend/internal/model"
+
 	"gorm.io/gorm"
 )
 
-const CurrentAICYLDOverlaySchemaVersion int64 = 1
+const CurrentAICYLDOverlaySchemaVersion int64 = 2
 
 type aicyldOverlayMigration struct {
 	Version   int64 `gorm:"primaryKey;autoIncrement:false"`
@@ -32,6 +34,7 @@ type AICYLDOverlaySchemaStatus struct {
 func canonicalAICYLDOverlayMigrations() []aicyldOverlayMigrationStep {
 	return []aicyldOverlayMigrationStep{
 		{version: 1, name: "hosted-billing-task-fields", apply: migrateAICYLDHostedBillingTaskFields},
+		{version: 2, name: "plugin-publication-releases", apply: migrateAICYLDPluginPublicationSchema},
 	}
 }
 
@@ -121,6 +124,9 @@ func ReadAICYLDOverlaySchemaStatus(db *gorm.DB) (AICYLDOverlaySchemaStatus, erro
 	if err := requireAICYLDHostedBillingTaskSchema(db); err != nil {
 		return status, err
 	}
+	if err := requireAICYLDPluginPublicationSchema(db); err != nil {
+		return status, err
+	}
 	status.Ready = true
 	return status, nil
 }
@@ -158,6 +164,62 @@ func requireAICYLDHostedBillingTaskSchema(db *gorm.DB) error {
 	}
 	if !has {
 		return fmt.Errorf("AICYLD 托管计费索引 idx_tasks_billing_hold_id 缺失")
+	}
+	return nil
+}
+
+func migrateAICYLDPluginPublicationSchema(tx *gorm.DB) error {
+	if err := tx.AutoMigrate(&model.PluginPublication{}, &model.PluginRelease{}); err != nil {
+		return fmt.Errorf("迁移插件发布与版本表: %w", err)
+	}
+	return requireAICYLDPluginPublicationSchema(tx)
+}
+
+func requireAICYLDPluginPublicationSchema(db *gorm.DB) error {
+	tables := []struct {
+		model   any
+		name    string
+		columns []string
+	}{
+		{
+			model: &model.PluginPublication{}, name: "plugin_publications",
+			columns: []string{"plugin_id", "status", "current_release_id", "candidate_release_id", "created_by", "updated_by", "submitted_at", "published_at", "disabled_at", "revoked_at", "revoke_reason", "created_at", "updated_at"},
+		},
+		{
+			model: &model.PluginRelease{}, name: "plugin_releases",
+			columns: []string{"id", "plugin_id", "version", "package_sha256", "review_status", "manifest_json", "permissions_json", "contributions_json", "host_api_version", "release_notes", "review_notes", "revoke_reason", "created_by", "reviewed_by", "published_by", "reviewed_at", "published_at", "revoked_at", "created_at", "updated_at"},
+		},
+	}
+	for _, table := range tables {
+		if !db.Migrator().HasTable(table.model) {
+			return fmt.Errorf("AICYLD 插件发布表 %s 缺失", table.name)
+		}
+		for _, column := range table.columns {
+			has, err := sqliteHasColumn(db, table.name, column)
+			if err != nil {
+				return err
+			}
+			if !has {
+				return fmt.Errorf("AICYLD 插件发布字段 %s.%s 缺失", table.name, column)
+			}
+		}
+	}
+	for _, index := range []struct{ table, name string }{
+		{"plugin_publications", "idx_plugin_publications_status"},
+		{"plugin_publications", "idx_plugin_publications_current_release_id"},
+		{"plugin_publications", "idx_plugin_publications_candidate_release_id"},
+		{"plugin_releases", "idx_plugin_releases_plugin_id"},
+		{"plugin_releases", "idx_plugin_releases_review_status"},
+		{"plugin_releases", "idx_plugin_release_version"},
+		{"plugin_releases", "idx_plugin_release_sha256"},
+	} {
+		has, err := sqliteHasNamedIndex(db, index.table, index.name)
+		if err != nil {
+			return err
+		}
+		if !has {
+			return fmt.Errorf("AICYLD 插件发布索引 %s 缺失", index.name)
+		}
 	}
 	return nil
 }
