@@ -488,6 +488,7 @@ export const defaultConfig: AiConfig = {
     quality: "auto",
     size: "1:1",
     transparentBackground: "false",
+    seedreamWatermark: "false",
     count: "1",
     canvasImageCount: "1",
 };
