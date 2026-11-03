@@ -47,6 +47,28 @@ func TestRegisterCanvasAPIExposesOpenAPIAndProjects(t *testing.T) {
 	}
 }
 
+func TestRegisterCanvasAPIExcludesRemovedOnboardingRoutes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	RegisterCanvasAPI(router.Group("/api"), &app.Service{})
+
+	removed := map[string]bool{
+		"POST /api/canvas-onboarding/events":      false,
+		"GET /api/admin/canvas-onboarding/funnel": false,
+	}
+	for _, route := range router.Routes() {
+		key := route.Method + " " + route.Path
+		if _, exists := removed[key]; exists {
+			removed[key] = true
+		}
+	}
+	for route, found := range removed {
+		if found {
+			t.Errorf("removed onboarding route is registered: %s", route)
+		}
+	}
+}
+
 func TestRegisterDesktopCanvasAPIExcludesHostedOnlyRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
