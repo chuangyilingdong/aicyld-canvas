@@ -21,12 +21,19 @@ func TestRegisterCanvasAPIExposesOpenAPIAndProjects(t *testing.T) {
 	RegisterCanvasAPI(router.Group("/api"), &app.Service{})
 
 	wanted := map[string]bool{
-		"GET /api/openapi.yaml":                        false,
-		"GET /api/projects":                            false,
-		"POST /api/tasks":                              false,
-		"POST /api/timeline/render-plan":               false,
-		"GET /api/resources":                           false,
-		"GET /api/public/resources/:id/file/:filename": false,
+		"GET /api/openapi.yaml":                         false,
+		"GET /api/projects":                             false,
+		"POST /api/tasks":                               false,
+		"POST /api/timeline/render-plan":                false,
+		"GET /api/resources":                            false,
+		"GET /api/public/resources/:id/file/:filename":  false,
+		"GET /api/plugins/releases":                     false,
+		"POST /api/plugins/releases":                    false,
+		"GET /api/plugins/releases/:releaseId":          false,
+		"GET /api/plugins/releases/:releaseId/package":  false,
+		"POST /api/plugins/releases/:releaseId/submit":  false,
+		"POST /api/plugins/releases/:releaseId/approve": false,
+		"POST /api/plugins/releases/:releaseId/reject":  false,
 	}
 	for _, route := range router.Routes() {
 		key := route.Method + " " + route.Path

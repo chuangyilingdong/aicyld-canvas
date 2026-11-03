@@ -227,6 +227,20 @@ Hosted 插件中心在现有 Manifest、注册表和运行时之上增加两层�
 
 这两张表属于 AICYLD hosted overlay schema，不改变上游 `.beeftv-plugin` 包格式、现有宿主注册表或用户启用状态。
 
+### 7.2 官方版本上传与审核 API
+
+管理员先上传版本包，再提交审核和审核决策。上传只写入内容寻址包存储和 draft 记录，不会立即进入运行态：
+
+- `POST /api/plugins/releases`：上传 `.beeftv-plugin`，可选 `releaseNotes`
+- `GET /api/plugins/releases?pluginId=...`：读取插件版本历史
+- `GET /api/plugins/releases/:releaseId`：读取版本与发布聚合状态
+- `GET /api/plugins/releases/:releaseId/package`：管理员下载已存版本包
+- `POST /api/plugins/releases/:releaseId/submit`：`draft -> review`
+- `POST /api/plugins/releases/:releaseId/approve`：`review -> approved`
+- `POST /api/plugins/releases/:releaseId/reject`：`review -> rejected`，必须填写原因
+
+已有线上版本时，新版本在审核期间继续保留当前发布版本；`candidateReleaseId` 只指向待审核版本。只有后续发布动作才能把候选版本切换为运行版本。
+
 ## 8. Eagle 外部素材来源方案
 
 Eagle 插件的主分类是“素材与数据连接器”，可以附带一个 `EagleAsset` 画布节点。

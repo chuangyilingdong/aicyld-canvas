@@ -29,6 +29,13 @@ type pluginCenter interface {
 	RequireFeature(feature string) error
 	SetPluginPlatformAvailability(actor *model.User, pluginID string, available bool) (plugins.AdminStateView, error)
 	RequirePluginForUser(userID string, pluginID string) error
+	UploadPluginReleaseForAdmin(actor *model.User, data []byte, fileName string, releaseNotes string) (plugins.ReleaseView, error)
+	PluginReleasesForAdmin(actor *model.User, pluginID string) ([]model.PluginRelease, error)
+	PluginReleaseForAdmin(actor *model.User, releaseID string) (plugins.ReleaseView, error)
+	PluginReleasePackageForAdmin(actor *model.User, releaseID string) ([]byte, *model.PluginRelease, error)
+	SubmitPluginReleaseForAdmin(actor *model.User, releaseID string) (plugins.ReleaseView, error)
+	ApprovePluginReleaseForAdmin(actor *model.User, releaseID string, notes string) (plugins.ReleaseView, error)
+	RejectPluginReleaseForAdmin(actor *model.User, releaseID string, notes string) (plugins.ReleaseView, error)
 }
 
 func RegisterPluginRoutes(r *gin.RouterGroup, center pluginCenter, hosted ...bool) {
@@ -66,6 +73,7 @@ func RegisterPluginRoutes(r *gin.RouterGroup, center pluginCenter, hosted ...boo
 	})
 	pluginRoutes := r.Group("/plugins")
 	pluginRoutes.Use(requirePluginCenterAccess(center))
+	registerPluginReleaseRoutes(pluginRoutes, center)
 	// The frontend plugin center is the single management surface. Protocol
 	// plugins are returned as kind=protocol records alongside UI plugins.
 	pluginRoutes.GET("", func(c *gin.Context) {

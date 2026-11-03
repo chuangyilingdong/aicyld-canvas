@@ -113,7 +113,25 @@ func (r *Repository) PluginReleases(pluginID string) ([]model.PluginRelease, err
 }
 
 func (r *Repository) SavePluginReleaseReview(releaseID string, status string, reviewerID string, notes string, reviewedAt time.Time) error {
-	result := r.db.Model(&model.PluginRelease{}).Where("id = ?", strings.TrimSpace(releaseID)).Updates(map[string]any{
+	return savePluginReleaseReview(r.db, releaseID, status, reviewerID, notes, reviewedAt)
+}
+
+// CommitPluginReleaseReview moves one release through review while updating the
+// plugin-level candidate/publication state in the same transaction.
+func (r *Repository) CommitPluginReleaseReview(publication *model.PluginPublication, releaseID string, status string, reviewerID string, notes string, reviewedAt time.Time) error {
+	if publication == nil || strings.TrimSpace(publication.PluginID) == "" {
+		return errors.New("plugin publication is empty")
+	}
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := savePluginReleaseReview(tx, releaseID, status, reviewerID, notes, reviewedAt); err != nil {
+			return err
+		}
+		return r.WithTx(tx).SavePluginPublication(publication)
+	})
+}
+
+func savePluginReleaseReview(db *gorm.DB, releaseID string, status string, reviewerID string, notes string, reviewedAt time.Time) error {
+	result := db.Model(&model.PluginRelease{}).Where("id = ?", strings.TrimSpace(releaseID)).Updates(map[string]any{
 		"review_status": status,
 		"reviewed_by":   strings.TrimSpace(reviewerID),
 		"review_notes":  notes,
