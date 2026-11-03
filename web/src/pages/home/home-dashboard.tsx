@@ -1,11 +1,8 @@
-import { useState } from "react";
 import { ArrowRight, Coins, Plus, RefreshCw } from "lucide-react";
 import { Link, useNavigate } from "react-router";
 import type { CanvasLibrarySummary } from "@/services/api/workspace-data";
 import { ProjectPreview } from "@/components/canvas/canvas-project-card";
-import { CanvasStarterDialog } from "@/components/canvas/canvas-starter-dialog";
 import { useCanvasBillingBalance } from "@/hooks/use-canvas-billing";
-import type { CanvasStarterPreset } from "@/lib/canvas/canvas-starter";
 import { beefTVCapabilityItems } from "./home-data";
 function formatDate(value: string) {
     const date = new Date(value);
@@ -17,11 +14,6 @@ export function HomeDashboard({ projects, loading, error, onRetry }: { projects:
     const navigate = useNavigate();
     const balanceQuery = useCanvasBillingBalance();
     const points = balanceQuery.data?.enabled ? balanceQuery.data.balance.toLocaleString("zh-CN") : balanceQuery.isPending ? "—" : "--";
-    const [starterDialogOpen, setStarterDialogOpen] = useState(false);
-    const startCanvas = (preset: CanvasStarterPreset) => {
-        setStarterDialogOpen(false);
-        navigate(`/canvas?mode=new&start=${preset}`);
-    };
     return (
         <main className="beeftv-home" aria-label="灵动TV 首页">
             <header className="beeftv-home-account-bar" aria-label="账户与积分">
@@ -38,7 +30,7 @@ export function HomeDashboard({ projects, loading, error, onRetry }: { projects:
                 <span className="beeftv-home-dot-base" aria-hidden />
                 <span className="beeftv-home-dot-flow" aria-hidden />
                 <span className="beeftv-home-dot-flow beeftv-home-dot-flow-delay" aria-hidden />
-                <button type="button" className="beeftv-home-create" onClick={() => setStarterDialogOpen(true)}>
+                <button type="button" className="beeftv-home-create" onClick={() => navigate("/canvas?mode=new")}>
                     <span className="beeftv-home-create-icon"><Plus /></span>
                     <span className="beeftv-home-create-title">新建画布创作</span>
                 </button>
@@ -72,11 +64,10 @@ export function HomeDashboard({ projects, loading, error, onRetry }: { projects:
                                 <span className="beeftv-recent-copy"><strong>{project.title || "未命名"}</strong><small>{formatDate(project.updatedAt)}</small></span>
                                 <ArrowRight className="beeftv-recent-arrow" />
                             </Link>;
-                        }) : <button type="button" className="beeftv-recent-card is-empty" onClick={() => setStarterDialogOpen(true)}><span className="beeftv-recent-preview"><Plus /></span><span className="beeftv-recent-copy"><strong>创建第一个画布</strong><small>让灵感有一个开始的地方</small></span></button>}
+                        }) : <button type="button" className="beeftv-recent-card is-empty" onClick={() => navigate("/canvas?mode=new")}><span className="beeftv-recent-preview"><Plus /></span><span className="beeftv-recent-copy"><strong>创建第一个画布</strong><small>让灵感有一个开始的地方</small></span></button>}
                     </div>
                 )}
             </section>
-            <CanvasStarterDialog open={starterDialogOpen} onCancel={() => setStarterDialogOpen(false)} onSelect={startCanvas} />
         </main>
     );
 }

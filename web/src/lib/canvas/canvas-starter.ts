@@ -1,15 +1,6 @@
 export type CanvasStarterMode = "guided" | "freeform";
-export type CanvasStarterPreset = CanvasStarterMode | "sample";
 
 export type CanvasEmptyStateKind = "none" | "guided" | "freeform" | "linked";
-
-export function parseCanvasStarterPreset(value: string | null | undefined): CanvasStarterPreset | null {
-    return value === "guided" || value === "freeform" || value === "sample" ? value : null;
-}
-
-export function starterModeForPreset(preset: CanvasStarterPreset): CanvasStarterMode {
-    return preset === "freeform" ? "freeform" : "guided";
-}
 
 export function resolveCanvasEmptyStateKind({
     nodeCount,
@@ -25,6 +16,7 @@ export function resolveCanvasEmptyStateKind({
     if (nodeCount > 0) return "none";
     if (!shortDramaEnabled) return "freeform";
     if (isProjectLinked) return "linked";
-    // 兼容旧画布：没有显式选择时仍进入自由画布；新创建流程会写入 starterMode。
+    // BeefTV 默认直接进入自由节点状态；短剧引导只保留给显式设置过
+    // starterMode=guided 的历史画布，不在新建流程中强制插入选择步骤。
     return starterMode === "guided" ? "guided" : "freeform";
 }

@@ -11,15 +11,14 @@ import DiagnosticsPanel from "./diagnostics-panel";
 import { StorageSettingsPane } from "./storage-settings-pane";
 import { DepthComponentsPanel } from "@/components/depth-components-panel";
 import { ReferenceStoragePane } from "./reference-storage-pane";
-import { CanvasFunnelPane } from "./canvas-funnel-pane";
 import { getDesktopAppBinding } from "@/services/desktop-runtime";
 import { PageHeader } from "@/components/layout/workspace-page";
 import { canOpenLocalStorageSettings } from "@/services/workspace-mode";
 
-type ConfigSectionKey = "channels" | "models" | "storage" | "diagnostics" | "funnel";
+type ConfigSectionKey = "channels" | "models" | "storage" | "diagnostics";
 
 export function isConfigSection(value: string | null): value is ConfigSectionKey {
-    return value === "channels" || value === "storage" || value === "diagnostics" || value === "funnel";
+    return value === "channels" || value === "storage" || value === "diagnostics";
 }
 
 export default function SettingsPage() {
@@ -28,10 +27,9 @@ export default function SettingsPage() {
     const [searchParams, setSearchParams] = useSearchParams();
     const requestedSection = searchParams.get("section");
     const customChannelsEnabled = useUserStore((state) => state.features.customChannelsEnabled);
-    const isAdmin = useUserStore((state) => state.user?.role === "admin");
     const nativeStorage = Boolean(getDesktopAppBinding()?.StorageSettings);
     const storageSettingsAvailable = canOpenLocalStorageSettings(nativeStorage);
-    const initialSection = isConfigSection(requestedSection) && (requestedSection !== "storage" || storageSettingsAvailable) && (requestedSection !== "funnel" || isAdmin) ? requestedSection : "channels";
+    const initialSection = isConfigSection(requestedSection) && (requestedSection !== "storage" || storageSettingsAvailable) ? requestedSection : "channels";
     const [activeTab, setActiveTab] = useState<ConfigSectionKey>(initialSection === "models" ? "channels" : initialSection);
     const config = useConfigStore((state) => state.config);
     const effectiveConfig = useEffectiveConfig();
@@ -44,8 +42,8 @@ export default function SettingsPage() {
     }, []);
 
     useEffect(() => {
-        setActiveTab(isConfigSection(requestedSection) && (requestedSection !== "storage" || storageSettingsAvailable) && (requestedSection !== "funnel" || isAdmin) ? requestedSection : "channels");
-    }, [requestedSection, storageSettingsAvailable, isAdmin]);
+        setActiveTab(isConfigSection(requestedSection) && (requestedSection !== "storage" || storageSettingsAvailable) ? requestedSection : "channels");
+    }, [requestedSection, storageSettingsAvailable]);
 
     const selectSection = (section: ConfigSectionKey) => {
         setActiveTab(section);
@@ -72,7 +70,6 @@ export default function SettingsPage() {
     };
 
     const panes: Record<Exclude<ConfigSectionKey, "diagnostics">, ReactNode> = {
-        funnel: <CanvasFunnelPane />,
         channels: (
             <SettingsPane>
                 <ChannelSettingsPane onOpenDiagnostics={() => selectSection("diagnostics")} />

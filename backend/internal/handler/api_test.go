@@ -27,8 +27,6 @@ func TestRegisterCanvasAPIExposesOpenAPIAndProjects(t *testing.T) {
 		"POST /api/timeline/render-plan":               false,
 		"GET /api/resources":                           false,
 		"GET /api/public/resources/:id/file/:filename": false,
-		"POST /api/canvas-onboarding/events":           false,
-		"GET /api/admin/canvas-onboarding/funnel":      false,
 	}
 	for _, route := range router.Routes() {
 		key := route.Method + " " + route.Path
@@ -133,11 +131,6 @@ func TestRegisterDesktopCanvasAPIExcludesHostedOnlyRoutes(t *testing.T) {
 		"/api/resources/import", "/api/resources/", // filtered below for local resource routes
 	}
 	for _, route := range router.Routes() {
-		// AICYLD intentionally exposes its onboarding funnel in the hosted
-		// canvas profile, including the shared desktop registration path.
-		if (route.Method == "POST" && route.Path == "/api/canvas-onboarding/events") || (route.Method == "GET" && route.Path == "/api/admin/canvas-onboarding/funnel") {
-			continue
-		}
 		for _, prefix := range hostedPrefixes {
 			if prefix == "/api/resources/" {
 				if !strings.HasPrefix(route.Path, prefix) {

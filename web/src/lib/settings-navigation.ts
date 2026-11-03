@@ -1,6 +1,6 @@
 import { appHref } from "@/lib/app-routing";
 
-export type SettingsSection = "channels" | "models" | "preferences" | "prompts" | "storage" | "funnel";
+export type SettingsSection = "channels" | "models" | "preferences" | "prompts" | "storage";
 
 export function settingsPath(section: SettingsSection = "channels", continueCreation = false) {
     const params = new URLSearchParams({ section });

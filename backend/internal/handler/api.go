@@ -68,7 +68,6 @@ func registerDesktopCanvasAPI(api *gin.RouterGroup, svc *app.Service, dependenci
 	RegisterRunningHubRoutes(api, svc, false)
 	RegisterDesktopSkillRoutes(api, svc, svc.SkillsDomain())
 	RegisterDesktopUserDataRoutes(api, svc, svc.CanvasService(), svc.PromptService(), svc.AssetLibraryService(), svc.ResourceService(), svc.PlaybackService(), svc, svc, svc)
-	registerCanvasOnboardingRoutes(api, svc, svc.ProjectService())
 	// 登记表在进程内单实例（避免每请求新建导致并发丢记录）。
 	// 凭据落盘属于组合根职责：路由注册不产生文件副作用。
 	clients := agentops.NewClientRegistry(svc.DataDir())

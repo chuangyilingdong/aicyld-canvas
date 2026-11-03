@@ -12,14 +12,11 @@ import { WorkspaceLoadingState, WorkspaceState } from "@/components/layout/works
 
 import { CanvasFolderCard } from "@/components/canvas/canvas-folder-card";
 import { CanvasDeleteConfirmation } from "@/components/canvas/canvas-delete-confirmation";
-import { CanvasStarterDialog } from "@/components/canvas/canvas-starter-dialog";
 import { RecycleBinDialog } from "@/components/canvas/recycle-bin-dialog";
 import { LibraryCardShell } from "@/components/canvas/library-card-shell";
 import { flushCanvasStorePersistence, useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { useCanvasUiStore } from "@/stores/canvas/use-canvas-ui-store";
 import { canvasExportProgressLabel, exportCanvasProjectsByIds, type CanvasExportProgress } from "@/lib/canvas/canvas-export";
-import { createShortDramaDemo } from "@/lib/canvas/canvas-short-drama";
-import { parseCanvasStarterPreset, starterModeForPreset, type CanvasStarterPreset } from "@/lib/canvas/canvas-starter";
 import { restoreCanvasArchive } from "@/lib/canvas/canvas-archive-restore";
 import { createCanvasLibraryFolder, deleteCanvasLibraryFolder, hydrateCanvasLibraryFolders, persistCanvasFolderCover, renameCanvasLibraryFolder } from "@/lib/canvas/canvas-folder-storage";
 import { isWailsNativeShell } from "@/services/desktop-media-save";
@@ -36,7 +33,6 @@ import { useSyncProgressStore } from "@/stores/use-sync-progress-store";
 import { useAppearanceStore } from "@/stores/use-appearance-store";
 import { cn } from "@/lib/utils";
 import { recordDiagnosticEvent } from "@/services/diagnostics/client-diagnostics";
-import { recordCanvasOpened, recordCanvasStarterCreated } from "@/services/diagnostics/canvas-onboarding-events";
 import { canvasIdsForWorkspaceProjects, canvasWorkspaceProjectId, listCanvasWorkspaceProjectCanvases, listCanvasWorkspaceProjectRoots, previewNodesForWorkspaceProject, resolveWorkspaceExportCanvasIds } from "@/lib/canvas/canvas-workspace-project";
 
 const CanvasDeleteProjectsDialog = lazy(() => import("@/components/canvas/canvas-delete-projects-dialog").then((module) => ({ default: module.CanvasDeleteProjectsDialog })));
@@ -108,14 +104,12 @@ export default function CanvasPage() {
     };
     const updateProject = useCanvasStore((state) => state.updateProject);
     const [historyOpen, setHistoryOpen] = useState(() => searchParams.get("history") === "all" || searchParams.get("history") === "deleted");
-    const [starterDialogOpen, setStarterDialogOpen] = useState(false);
     const [associationOpen, setAssociationOpen] = useState(false);
     const [associationProjectId, setAssociationProjectId] = useState("");
     // 本地工作区的画布、文件夹与历史完全来自浏览器本地存储；项目关系查询只在远程工作区启用。
     const projectQuery = useQuery({ queryKey: ["projects", userId], queryFn: () => listProjects(), enabled: remoteMode && sessionHydrated });
 
     const mode = searchParams.get("mode");
-    const requestedStarterPreset = parseCanvasStarterPreset(searchParams.get("start"));
     const agentMode = mode === "new" || mode === "recent" || mode === "choose";
     const handoffMode = mode === "handoff";
     const forwardedQuery = agentMode || handoffMode || searchParams.get("agent") === "1" ? `?${searchParams.toString()}` : "";
@@ -129,22 +123,10 @@ export default function CanvasPage() {
         },
         [forwardedQuery, navigate, preloadProject],
     );
-    const createAndEnter = (preset?: CanvasStarterPreset) => {
-        if (!preset) {
-            setStarterDialogOpen(true);
-            return;
-        }
+    const createAndEnter = () => {
         setCreationError(false);
-        const sample = preset === "sample" ? createShortDramaDemo({ x: 0, y: 0 }) : undefined;
-        const { id, saved } = beginLocalCanvasProject(
-            sample?.title || "未命名项目",
-            undefined,
-            sample ? { nodes: sample.nodes, connections: sample.connections } : undefined,
-            undefined,
-            starterModeForPreset(preset),
-        );
+        const { id, saved } = beginLocalCanvasProject("未命名项目");
         void saved.then(() => {
-            recordCanvasStarterCreated(id, preset);
             // Only enter after the desktop repository has accepted the new canvas.
             if (searchParams.get("stay") !== "1") enterProject(id);
         }).catch((error) => {
@@ -331,23 +313,14 @@ export default function CanvasPage() {
             enterProject(projects[0].id);
             return;
         }
-        const preset = requestedStarterPreset || "freeform";
-        const sample = preset === "sample" ? createShortDramaDemo({ x: 0, y: 0 }) : undefined;
-        const { id, saved } = beginLocalCanvasProject(
-            sample?.title || "未命名项目",
-            undefined,
-            sample ? { nodes: sample.nodes, connections: sample.connections } : undefined,
-            undefined,
-            starterModeForPreset(preset),
-        );
+        const { id, saved } = beginLocalCanvasProject("未命名项目");
         void saved.then(() => {
-            recordCanvasStarterCreated(id, preset);
             enterProject(id);
         }).catch((error) => {
             setCreationError(true);
             message.error(error instanceof Error ? error.message : "创建项目失败，请重试");
         });
-    }, [hydrated, message, mode, projects, remoteMode, sessionHydrated, libraryQuery.isSuccess, canvasHealth, requestedStarterPreset, enterProject]);
+    }, [hydrated, message, mode, projects, remoteMode, sessionHydrated, libraryQuery.isSuccess, canvasHealth, enterProject]);
 
     if (!creationError && !libraryQuery.isError && !(canvasHealth.error && !remoteMode) && (mode === "new" || mode === "recent" || mode === "handoff")) return <main className="flex h-full items-center justify-center bg-background text-sm text-stone-500">正在打开画布...</main>;
 
@@ -527,7 +500,6 @@ export default function CanvasPage() {
                     message.success(ids.length ? `已删除文件夹及其中 ${ids.length} 个画布` : "文件夹已删除");
                 }} /> : null}
             {deleteDialogOpen ? <Suspense fallback={null}><CanvasDeleteProjectsDialog /></Suspense> : null}
-            <CanvasStarterDialog open={starterDialogOpen} onCancel={() => setStarterDialogOpen(false)} onSelect={createAndEnter} />
         </WorkspacePage>
     );
 }
