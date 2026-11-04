@@ -1,8 +1,10 @@
+import { useState } from "react";
 import { ArrowRight, Coins, Plus, RefreshCw } from "lucide-react";
 import { Link, useNavigate } from "react-router";
 import type { CanvasLibrarySummary } from "@/services/api/workspace-data";
 import { ProjectPreview } from "@/components/canvas/canvas-project-card";
 import { useCanvasBillingBalance } from "@/hooks/use-canvas-billing";
+import { PointsCenterModal } from "@/components/canvas/points-center-modal";
 import { beefTVCapabilityItems } from "./home-data";
 function formatDate(value: string) {
     const date = new Date(value);
@@ -13,19 +15,22 @@ function formatDate(value: string) {
 export function HomeDashboard({ projects, loading, error, onRetry }: { projects: CanvasLibrarySummary[]; loading: boolean; error: boolean; onRetry: () => void }) {
     const navigate = useNavigate();
     const balanceQuery = useCanvasBillingBalance();
+    const [pointsOpen, setPointsOpen] = useState(false);
+    const [pointsTab, setPointsTab] = useState<"detail" | "recharge">("detail");
     const points = balanceQuery.data?.enabled ? balanceQuery.data.balance.toLocaleString("zh-CN") : balanceQuery.isPending ? "—" : "--";
     return (
         <main className="beeftv-home" aria-label="灵动TV 首页">
             <header className="beeftv-home-account-bar" aria-label="账户与积分">
-                <a className="beeftv-home-credit" href="https://aicyld.com.cn/points" target="_blank" rel="noopener noreferrer" aria-label={`查看积分，当前 ${points} 积分`} title="查看积分明细">
+                <button type="button" className="beeftv-home-credit" onClick={() => { setPointsTab("detail"); setPointsOpen(true); }} aria-label={`查看积分，当前 ${points} 积分`} title="查看积分明细">
                     <span className="beeftv-home-credit-icon"><Coins /></span>
                     <span>积分</span>
                     <strong>{points}</strong>
-                </a>
-                <a className="beeftv-home-recharge" href="https://aicyld.com.cn/subscription?tab=recharge" target="_blank" rel="noopener noreferrer" aria-label="充值积分" title="充值积分">
+                </button>
+                <button type="button" className="beeftv-home-recharge" onClick={() => { setPointsTab("recharge"); setPointsOpen(true); }} aria-label="充值积分" title="充值积分">
                     <Plus />充值
-                </a>
+                </button>
             </header>
+            <PointsCenterModal open={pointsOpen} initialTab={pointsTab} onClose={() => setPointsOpen(false)} onBalanceChange={() => void balanceQuery.refetch()} />
             <section className="beeftv-home-hero" aria-label="新建画布">
                 <span className="beeftv-home-dot-base" aria-hidden />
                 <span className="beeftv-home-dot-flow" aria-hidden />

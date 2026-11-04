@@ -4,6 +4,7 @@ import { Check, ChevronDown, ChevronUp, Clapperboard, CloudUpload, Columns2, Cop
 import { App, Button, Dropdown, Tooltip } from "antd";
 
 import { BrandLogoFrame } from "@/components/brand/brand-logo";
+import { PointsCenterModal } from "@/components/canvas/points-center-modal";
 import { canvasDockStyle } from "@/lib/canvas/canvas-aceternity-style";
 import type { CanvasContextSummary } from "@/lib/canvas/canvas-context-summary";
 import type { CanvasShortDramaProgress } from "@/lib/canvas/canvas-short-drama";
@@ -481,6 +482,8 @@ export function CanvasTopBar({
 function CanvasAccountStatus({ style }: { style: CSSProperties }) {
     const user = useUserStore((state) => state.user);
     const balanceQuery = useCanvasBillingBalance();
+    const [pointsOpen, setPointsOpen] = useState(false);
+    const [pointsTab, setPointsTab] = useState<"detail" | "recharge">("detail");
     const displayName = user?.displayName || user?.username || "账户";
     const initial = Array.from(displayName.trim())[0] || "U";
     const balance = balanceQuery.data?.enabled ? balanceQuery.data.balance : null;
@@ -489,17 +492,18 @@ function CanvasAccountStatus({ style }: { style: CSSProperties }) {
     return (
         <div className="canvas-topbar-cluster canvas-topbar-account-cluster pointer-events-auto flex items-center gap-1.5" style={style} aria-label="账户与积分">
             <Tooltip title={balance === null ? "当前无法读取积分余额" : `当前可用积分：${balance}`} placement="bottom">
-                <a href="https://aicyld.com.cn/points" target="_blank" rel="noopener noreferrer" className="inline-flex h-8 items-center gap-1.5 rounded-xl border border-white/10 bg-black/15 px-2.5 text-xs font-medium tabular-nums transition-colors hover:bg-white/10" aria-label={`查看积分，当前 ${balanceLabel} 积分`}>
+                <button type="button" onClick={() => { setPointsTab("detail"); setPointsOpen(true); }} className="inline-flex h-8 items-center gap-1.5 rounded-xl border border-white/10 bg-black/15 px-2.5 text-xs font-medium tabular-nums transition-colors hover:bg-white/10" aria-label={`查看积分，当前 ${balanceLabel} 积分`}>
                     <Zap className="size-3.5" strokeWidth={2.2} />
                     <span>{balanceLabel}</span>
-                </a>
+                </button>
             </Tooltip>
             <Tooltip title="充值积分" placement="bottom">
-                <a href="https://aicyld.com.cn/subscription?tab=recharge" target="_blank" rel="noopener noreferrer" className="inline-flex h-8 items-center gap-1 rounded-xl border border-white/10 bg-black/15 px-2.5 text-xs font-medium transition-colors hover:bg-white/10" aria-label="充值积分">
+                <button type="button" onClick={() => { setPointsTab("recharge"); setPointsOpen(true); }} className="inline-flex h-8 items-center gap-1 rounded-xl border border-white/10 bg-black/15 px-2.5 text-xs font-medium transition-colors hover:bg-white/10" aria-label="充值积分">
                     <Plus className="size-3.5" strokeWidth={2.2} />
                     <span>充值</span>
-                </a>
+                </button>
             </Tooltip>
+            <PointsCenterModal open={pointsOpen} initialTab={pointsTab} onClose={() => setPointsOpen(false)} onBalanceChange={() => void balanceQuery.refetch()} />
             <Tooltip title={displayName} placement="bottom">
                 <span className="grid size-8 place-items-center overflow-hidden rounded-full border border-white/10 bg-emerald-500 text-xs font-semibold text-white" aria-label={displayName}>
                     {user?.avatarUrl ? <img src={user.avatarUrl} alt="" className="size-full object-cover" referrerPolicy="no-referrer" loading="lazy" decoding="async" /> : initial}

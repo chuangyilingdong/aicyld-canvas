@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -120,6 +121,102 @@ func (c *Client) Balance(ctx context.Context, userID string) (*BillingBalance, e
 		return nil, err
 	}
 	return &balance, nil
+}
+
+// PointsWallet fetches the user's points wallet through the main-site internal auth boundary.
+func (c *Client) PointsWallet(ctx context.Context, userID string) (json.RawMessage, error) {
+	return c.mainRequest(ctx, http.MethodGet, "/api/points/wallet", userID, nil)
+}
+
+func (c *Client) PointsLedger(ctx context.Context, userID, rawQuery string) (json.RawMessage, error) {
+	path := "/api/points/ledger"
+	if rawQuery != "" {
+		path += "?" + rawQuery
+	}
+	return c.mainRequest(ctx, http.MethodGet, path, userID, nil)
+}
+
+func (c *Client) PointsSummary(ctx context.Context, userID string) (json.RawMessage, error) {
+	return c.mainRequest(ctx, http.MethodGet, "/api/points/summary", userID, nil)
+}
+
+func (c *Client) PointsPlans(ctx context.Context, userID string) (json.RawMessage, error) {
+	return c.mainRequest(ctx, http.MethodGet, "/api/points/plans", userID, nil)
+}
+
+func (c *Client) GetPointsOrder(ctx context.Context, userID, orderID string) (json.RawMessage, error) {
+	return c.mainRequest(ctx, http.MethodGet, "/api/points/order/"+url.PathEscape(orderID), userID, nil)
+}
+
+func (c *Client) CreatePointsOrder(ctx context.Context, userID string, body any) (json.RawMessage, error) {
+	return c.mainRequest(ctx, http.MethodPost, "/api/points/order", userID, body)
+}
+
+func (c *Client) CreatePointsWxpay(ctx context.Context, userID, orderID string) (json.RawMessage, error) {
+	return c.mainRequest(ctx, http.MethodPost, "/api/payments/wxpay/create", userID, map[string]any{"type": "points", "id": orderID})
+}
+
+func (c *Client) CreatePointsAlipayQr(ctx context.Context, userID, orderID string) (json.RawMessage, error) {
+	return c.mainRequest(ctx, http.MethodPost, "/api/payments/alipay/qr", userID, map[string]any{"businessType": "points_order", "businessId": orderID})
+}
+
+func (c *Client) QueryPointsWxpay(ctx context.Context, userID, outTradeNo string) (json.RawMessage, error) {
+	return c.mainRequest(ctx, http.MethodGet, "/api/payments/wxpay/query/"+url.PathEscape(outTradeNo), userID, nil)
+}
+
+func (c *Client) QueryPointsAlipay(ctx context.Context, userID, outTradeNo string) (json.RawMessage, error) {
+	return c.mainRequest(ctx, http.MethodGet, "/api/payments/alipay/status?outTradeNo="+url.QueryEscape(outTradeNo), userID, nil)
+}
+
+func (c *Client) GenerateQR(ctx context.Context, value string) (json.RawMessage, error) {
+	return c.mainRequest(ctx, http.MethodPost, "/api/internal/canvas-billing/qr", "", map[string]any{"value": value})
+}
+
+func (c *Client) mainRequest(ctx context.Context, method, path, userID string, body any) (json.RawMessage, error) {
+	if !c.Enabled() {
+		return nil, errors.New("主站积分服务未配置")
+	}
+	var reader *bytes.Reader
+	if body != nil {
+		raw, err := json.Marshal(body)
+		if err != nil {
+			return nil, err
+		}
+		reader = bytes.NewReader(raw)
+	} else {
+		reader = bytes.NewReader(nil)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, reader)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-canvas-billing-secret", c.secret)
+	if uid := mainUserID(userID); uid != "" {
+		req.Header.Set("x-canvas-user-id", uid)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("主站积分服务不可用：%w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		var envelope struct {
+			Error string `json:"error"`
+			Code  string `json:"code"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&envelope)
+		if envelope.Error == "" {
+			envelope.Error = "主站积分请求失败"
+		}
+		return nil, &apiError{Status: resp.StatusCode, Code: envelope.Code, Message: envelope.Error}
+	}
+	var raw json.RawMessage
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return nil, fmt.Errorf("解析主站积分响应失败：%w", err)
+	}
+	return raw, nil
 }
 
 func (c *Client) Reserve(ctx context.Context, userID string, task *TaskSnapshot) (*BillingReservation, error) {
