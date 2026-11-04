@@ -19303,6 +19303,9 @@ html:not(.dark) .creation-home .creation-user-message-copy-wrap { box-shadow: 0 
 .canvas-model-picker-menu.is-model-list {
     width: min(720px, calc(100vw - 24px)) !important;
 }
+.canvas-model-picker-menu.is-direct-list {
+    width: min(420px, calc(100vw - 24px)) !important;
+}
 .canvas-model-picker-two-pane {
     display: grid;
     width: 100%;

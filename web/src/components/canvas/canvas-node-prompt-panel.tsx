@@ -415,14 +415,18 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
 
     const renderBillingCost = () => {
         if (mode === "text") return null;
-        const label = billingPending ? "…" : billingQuoteUnavailable ? "—" : billingQuoteQuery.quote?.enabled ? String(estimatedBillingPoints) : "免费";
-        const detail = billingQuoteUnavailable
-            ? "暂时无法读取价格，请稍后重试"
-            : insufficientBillingPoints
-                ? `积分不足：本次预计 ${estimatedBillingPoints} 积分，当前 ${availableBillingBalance ?? 0} 积分`
-                : billingQuoteQuery.quote?.enabled
-                    ? `预计消耗 ${estimatedBillingPoints} 积分，当前余额 ${availableBillingBalance ?? billingQuoteQuery.quote.balance ?? "—"} 积分`
-                    : "当前模型不扣积分";
+        const hasPrompt = Boolean(prompt.trim());
+        const billingCostUnavailable = !hasPrompt || billingQuoteUnavailable || (billingQuoteQuery.quote !== undefined && !billingQuoteQuery.quote?.enabled);
+        const label = billingPending ? "…" : billingCostUnavailable ? "—" : String(estimatedBillingPoints);
+        const detail = !hasPrompt
+            ? "输入提示词后显示预计消耗"
+            : billingQuoteUnavailable
+                ? "暂时无法读取价格，请稍后重试"
+                : insufficientBillingPoints
+                    ? `积分不足：本次预计 ${estimatedBillingPoints} 积分，当前 ${availableBillingBalance ?? 0} 积分`
+                    : billingQuoteQuery.quote?.enabled
+                        ? `预计消耗 ${estimatedBillingPoints} 积分，当前余额 ${availableBillingBalance ?? billingQuoteQuery.quote.balance ?? "—"} 积分`
+                        : "当前没有可用的计费报价";
         return (
             <Tooltip title={detail}>
                 <span
@@ -432,7 +436,7 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                         borderColor: insufficientBillingPoints ? `${theme.accent.danger}55` : theme.toolbar.border,
                         background: insufficientBillingPoints ? `${theme.accent.danger}12` : theme.toolbar.itemHover,
                     }}
-                    aria-label={billingQuoteQuery.quote?.enabled ? `预计消耗 ${estimatedBillingPoints} 积分` : detail}
+                    aria-label={!billingCostUnavailable && billingQuoteQuery.quote?.enabled ? `预计消耗 ${estimatedBillingPoints} 积分` : detail}
                 >
                     <Zap className="size-3" strokeWidth={2.2} />
                     <span>{label}</span>
