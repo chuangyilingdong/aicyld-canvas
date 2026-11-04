@@ -86,16 +86,17 @@ func pointsPayment(c *gin.Context, svc *app.Service, wxpay bool) {
 		raw, err = svc.CreatePointsAlipayQr(c.Request.Context(), user.ID, body.OrderID)
 	}
 	if err != nil { failService(c, err); return }
-	var payment struct { CodeURL string `json:"codeUrl"`; QRCode string `json:"qrCode"`; OutTradeNo string `json:"outTradeNo"` }
+	var payment struct { CodeURL string `json:"codeUrl"`; QRCode string `json:"qrCode"`; URL string `json:"url"`; OutTradeNo string `json:"outTradeNo"` }
 	if err := json.Unmarshal(raw, &payment); err != nil { failService(c, err); return }
 	value := payment.CodeURL
 	if value == "" { value = payment.QRCode }
+	if value == "" { value = payment.URL }
 	if value == "" { fail(c, http.StatusBadGateway, nil); return }
 	qr, err := svc.GeneratePointsQR(c.Request.Context(), value)
 	if err != nil { failService(c, err); return }
 	var qrData struct { DataURL string `json:"dataUrl"` }
 	if err := json.Unmarshal(qr, &qrData); err != nil { failService(c, err); return }
-	ok(c, map[string]any{"outTradeNo": payment.OutTradeNo, "codeUrl": payment.CodeURL, "qrCode": payment.QRCode, "qrDataUrl": qrData.DataURL})
+	ok(c, map[string]any{"outTradeNo": payment.OutTradeNo, "codeUrl": payment.CodeURL, "qrCode": payment.QRCode, "url": payment.URL, "qrDataUrl": qrData.DataURL})
 }
 
 func okRaw(c *gin.Context, raw json.RawMessage) {

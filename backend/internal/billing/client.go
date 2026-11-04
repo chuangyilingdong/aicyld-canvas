@@ -157,7 +157,10 @@ func (c *Client) CreatePointsWxpay(ctx context.Context, userID, orderID string) 
 }
 
 func (c *Client) CreatePointsAlipayQr(ctx context.Context, userID, orderID string) (json.RawMessage, error) {
-	return c.mainRequest(ctx, http.MethodPost, "/api/payments/alipay/qr", userID, map[string]any{"businessType": "points_order", "businessId": orderID})
+	// Use the signed page-pay URL because some production merchants do not have
+	// Alipay's precreate (face-to-face payment) product enabled. The resulting
+	// URL is still rendered as a QR code and settled through the same callback.
+	return c.mainRequest(ctx, http.MethodPost, "/api/payments/alipay/page", userID, map[string]any{"businessType": "points_order", "businessId": orderID})
 }
 
 func (c *Client) QueryPointsWxpay(ctx context.Context, userID, outTradeNo string) (json.RawMessage, error) {
