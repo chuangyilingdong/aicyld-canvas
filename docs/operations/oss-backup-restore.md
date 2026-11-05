@@ -66,3 +66,10 @@ manifest.json.sha256
 ```
 
 不带 `--apply` 时只生成计划，不上传。
+
+## OSS 保留策略
+
+- `aicyld-canvas-oss-backup.timer` 每天 03:40 生成完整备份。
+- `aicyld-canvas-oss-retention.timer` 每天 04:10 清理超过 30 天的完整备份前缀。
+- OSS 清理以本机 `backups/oss-manifests/*.json` 为唯一删除依据，不通过猜测或裸列举删除。
+- 已清理清单移动到 `backups/oss-manifests/pruned/`，保留审计记录。
