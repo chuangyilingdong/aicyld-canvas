@@ -106,7 +106,8 @@ jobs:
           test -f out/infinite-canvas-backend
           test -f out/web-dist.tar.gz
           test -f out/build-manifest.json
-          tar -tzf out/web-dist.tar.gz | grep -Eq "(^|/)index.html$"
+          tar -tzf out/web-dist.tar.gz > "$RUNNER_TEMP/web-dist.list"
+          grep -Eq "(^|/)index.html$" "$RUNNER_TEMP/web-dist.list"
           data_dir="$(mktemp -d)"
           log="$RUNNER_TEMP/backend-smoke.log"
           CANVAS_BACKEND_ADDR=127.0.0.1:18080 \
