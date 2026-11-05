@@ -21,7 +21,7 @@ const HYDRATED_MEDIA_KEYS = new Set<keyof CanvasNodeMetadata>([
 // Failure records and locally derived outcomes are recomputed on every device
 // that opens the canvas. Stamping them would give the same node different
 // updatedAt values per device and make concurrent opens look like a conflict.
-const DERIVED_FAILURE_KEYS = new Set<keyof CanvasNodeMetadata>(["generationFailure", "taskOutcomeSource"]);
+const DERIVED_FAILURE_KEYS = new Set<keyof CanvasNodeMetadata>(["generationFailure", "taskOutcomeSource", "taskUpdatedAt", "taskStartedAt", "taskCompletedAt"]);
 
 function derivedOutcomeFill(previous: CanvasNodeMetadata, next: CanvasNodeMetadata) {
     if (next.taskOutcomeSource === "local") return true;
