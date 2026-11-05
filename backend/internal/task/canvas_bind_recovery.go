@@ -336,7 +336,6 @@ func TaskCanvasIDs(task model.Task, intents []CanvasBindingIntent, isOwnedProjec
 		return strings.TrimSpace(b)
 	}
 	workflowStepID := first(input.WorkflowStepID, input.Metadata.WorkflowStepID)
-	domainProjectID := first(input.DomainProjectID, input.Metadata.DomainProjectID)
 	canvasID := first(input.CanvasID, input.Metadata.CanvasID)
 	nodeID := first(input.NodeID, input.Metadata.NodeID)
 	source := first(input.Source, input.Metadata.Source)
@@ -353,8 +352,7 @@ func TaskCanvasIDs(task model.Task, intents []CanvasBindingIntent, isOwnedProjec
 	}
 
 	projectID := strings.TrimSpace(task.ProjectID)
-	projectIsBusiness := (domainProjectID != "" && projectID != "" && projectID == domainProjectID) ||
-		operation == "character_turnaround" || characterAssetID != "" || chapterID != "" ||
+	projectIsBusiness := operation == "character_turnaround" || characterAssetID != "" || chapterID != "" ||
 		source == "short-drama-chapter-storyboard" || strings.HasPrefix(nodeID, "character-turnaround:")
 	if !projectIsBusiness && projectID != "" && isOwnedProject != nil {
 		owned, err := isOwnedProject(projectID)

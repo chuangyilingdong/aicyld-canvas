@@ -164,6 +164,9 @@ func TestAutomaticImageRecoveryConclusions(t *testing.T) {
 			if err != nil || stored.RecoveryOutcome == nil || *stored.RecoveryOutcome != want {
 				t.Fatalf("结论=%+v want=%s err=%v", stored, want, err)
 			}
+			if name == "missing" && stored.NextPollAt == nil {
+				t.Fatalf("unmanaged unrecoverable task must defer its next recovery pass: %+v", stored)
+			}
 			got, err := s.Task(task.UserID, task.ID)
 			if err != nil || got.Outcome.Phase != "failed" {
 				t.Fatalf("投影=%+v err=%v", got, err)

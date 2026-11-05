@@ -42,7 +42,7 @@ func (r *Repository) StaleReservedTasks(cutoff time.Time, limit int) ([]model.Ta
 		limit = 100
 	}
 	var tasks []model.Task
-	err := r.db.Where("billing_hold_id <> '' AND billing_status IN ? AND updated_at < ?", []string{"reserved", "refund_pending", "pending_reconcile"}, cutoff).
+	err := r.db.Where("billing_hold_id <> '' AND (billing_status IN ? OR (billing_status = ? AND updated_at < ?))", []string{"refund_pending", "pending_reconcile"}, "reserved", cutoff).
 		Order("updated_at asc").Limit(limit).Find(&tasks).Error
 	return tasks, err
 }

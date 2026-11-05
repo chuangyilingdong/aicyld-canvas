@@ -118,8 +118,14 @@ func (s *Service) RecoverFailedImage(ctx context.Context, candidate model.Task) 
 		return err
 	}
 	recheck := s.ManagedImageNeedsRecheck(*task)
-	if task.LeaseOwner != owner || task.Status != model.TaskStatusFailed || (!ImageRecoveryNeedsPolling(*task) && !recheck) {
+	if task.LeaseOwner != owner || task.Status != model.TaskStatusFailed {
 		return nil
+	}
+	if !ImageRecoveryNeedsPolling(*task) && !recheck {
+		// 非托管或已明确无法取回的任务无需持续占用恢复租约。设置下一次
+		// 检查时间，避免每轮扫描都刷新 updated_at 并阻塞计费对账。
+		next := time.Now().Add(24 * time.Hour)
+		return s.repo.FinishFailedImageRecovery(*task, task.RecoveryOutcome, &next)
 	}
 	var outcome string
 	var recoveryErr error
@@ -163,14 +169,17 @@ func (s *Service) RecoverFailedImage(ctx context.Context, candidate model.Task) 
 		}
 		at := time.Now().Add(delay)
 		next = &at
-	} else if concluded := *task; outcome == localtask.RecoveryUnrecoverable {
+	} else if outcome == localtask.RecoveryUnrecoverable {
 		// 托管图片的「无法取回」仍会定期向 BeefAPI 复查（ManagedImageNeedsRecheck），
-		// 留出间隔，避免每轮扫描都查一次。
+		// 留出间隔，避免每轮扫描都查一次；非托管任务无需高频复查。
+		concluded := *task
 		concluded.RecoveryOutcome = &outcome
+		delay := 24 * time.Hour
 		if s.ManagedImageNeedsRecheck(concluded) {
-			at := time.Now().Add(time.Hour)
-			next = &at
+			delay = time.Hour
 		}
+		at := time.Now().Add(delay)
+		next = &at
 	}
 	if err := s.repo.FinishFailedImageRecovery(*task, conclusion, next); err != nil {
 		return err

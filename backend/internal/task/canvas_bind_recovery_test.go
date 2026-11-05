@@ -151,6 +151,13 @@ func TestTaskCanvasIDsAndMissingDistinguishCanvasFromProjectTasks(t *testing.T) 
 	if ids, err := TaskCanvasIDs(projectWorkflowImplicit, nil, ownedProject); err != nil || len(ids) != 0 {
 		t.Fatalf("implicit short-drama project workflow task must not require a canvas: %v err=%v", ids, err)
 	}
+	deletedProjectWorkflow := model.Task{ID: "t-wf-deleted-proj", ProjectID: "proj-deleted", Type: "canvas_video", InputJSON: `{"metadata":{"workflowStepId":"step-1","domainProjectId":"proj-deleted"}}`}
+	if ids, err := TaskCanvasIDs(deletedProjectWorkflow, nil, func(string) (bool, error) { return false, nil }); err != nil || len(ids) != 1 || ids[0] != "proj-deleted" {
+		t.Fatalf("deleted project workflow task must fall back to canvas existence check: %v err=%v", ids, err)
+	}
+	if missing, err := TaskCanvasMissing(deletedProjectWorkflow, nil, func(string) (bool, error) { return false, nil }, func(string) (bool, error) { return false, nil }); err != nil || !missing {
+		t.Fatalf("deleted project workflow task must report missing: missing=%v err=%v", missing, err)
+	}
 
 	characterTurnaroundTask := model.Task{
 		ID: "t-turnaround", ProjectID: "proj-1", Type: "canvas_image",

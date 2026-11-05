@@ -60,8 +60,10 @@ func TestStaleReservedTasksAndSafeFailureGuards(t *testing.T) {
 		if err := repo.UpdateTaskBilling("u", row.id, row.hold, row.status, 1); err != nil {
 			t.Fatal(err)
 		}
-		if err := db.Model(&model.Task{}).Where("id = ?", row.id).UpdateColumn("updated_at", old).Error; err != nil {
-			t.Fatal(err)
+		if row.status == "reserved" || row.status == "settled" {
+			if err := db.Model(&model.Task{}).Where("id = ?", row.id).UpdateColumn("updated_at", old).Error; err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 
@@ -71,6 +73,15 @@ func TestStaleReservedTasksAndSafeFailureGuards(t *testing.T) {
 	}
 	if len(stale) != 5 {
 		t.Fatalf("retryable billing task count = %d, want 5: %+v", len(stale), stale)
+	}
+	found := map[string]bool{}
+	for _, task := range stale {
+		found[task.ID] = true
+	}
+	for _, id := range []string{"refund-pending", "pending-reconcile"} {
+		if !found[id] {
+			t.Fatalf("fresh terminal billing transition %s was not retried: %+v", id, stale)
+		}
 	}
 	if stale[0].BillingHoldID == "" {
 		t.Fatalf("billing metadata was not hydrated: %+v", stale[0])
