@@ -196,8 +196,8 @@ const durable = createDurableSessionStore({
   getModelRef: () => ({ provider: PROVIDER_ID, modelId: MODEL_ID }),
   authorizeContinuation: ({id,turnId,sessionId}) => ops.opsRequest('POST',`/assistant/runtime/continuations/${encodeURIComponent(id)}/verify`,{turnId,sessionId}),
   skills: {
-    readContext:async (entry,turnId) => ops.opsRequest('GET',`/assistant/runtime/canvases/${encodeURIComponent(entry.canvasId)}/skill-context?sessionId=${encodeURIComponent(entry.sessionId)}${turnId?`&turnId=${encodeURIComponent(turnId)}`:''}`),
-    changeContext:async (entry,change,turnId) => ops.opsRequest('POST',`/assistant/runtime/canvases/${encodeURIComponent(entry.canvasId)}/skill-context`,{...change,sessionId:entry.sessionId,...(turnId?{turnId}:{})}),
+    readContext:async (entry,turnId) => ops.opsRequest('GET',`/assistant/runtime/canvases/${encodeURIComponent(entry.canvasId)}/skill-context?sessionId=${encodeURIComponent(entry.sessionId)}${turnId?`&turnId=${encodeURIComponent(turnId)}`:''}`, undefined, undefined, turnId),
+    changeContext:async (entry,change,turnId) => ops.opsRequest('POST',`/assistant/runtime/canvases/${encodeURIComponent(entry.canvasId)}/skill-context`,{...change,sessionId:entry.sessionId,...(turnId?{turnId}:{})}, undefined, turnId),
     readVersion:async (entry,pin,signal,turnId) => (await ops.opsRequest('POST','/ops/skill.get',{params:pin},signal,turnId || entry.turn.turnId)).result,
     readCatalog:async (entry,signal,turnId,query={}) => (await ops.opsRequest('POST','/ops/skill.catalog',{params:query},signal,turnId || entry.turn.turnId)).result,
   },

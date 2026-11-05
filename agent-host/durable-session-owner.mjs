@@ -411,7 +411,7 @@ export function createDurableSessionStore({ sessionRoot, workspaceRoot, getModel
           : stopBeforeSubmit(entry, { ...input, requestId, createdAt: new Date().toISOString() });
       }
       if (!existing.active) {
-        if (skills) await resetPendingScope(entry, await readSkillContext(entry, input.skills?.length ? input.turnId : ""));
+        if (skills) await resetPendingScope(entry, await readSkillContext(entry, input.turnId));
         entry.budget = null;
         resetTurnAccumulator(entry.turn, input.revisionBefore, input.turnId);
         entry.turn.canvasId=entry.canvasId;
