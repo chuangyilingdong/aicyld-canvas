@@ -64,6 +64,20 @@ func (s *Service) recoverPendingCanvasBindings(limit int) error {
 	return localtask.RecoverPendingCanvasBindings(s.repo, s.workspaceOperations() != nil, &s.bindCursorMu, &s.bindAfterID, limit, s.recoverCanvasTaskBindings)
 }
 
+func (s *Service) operationAlreadySucceeded(userID, opID, op string) bool {
+	if s == nil || s.repo == nil || strings.TrimSpace(opID) == "" {
+		return false
+	}
+	db := s.Database()
+	if db == nil {
+		return false
+	}
+	var count int64
+	err := db.Model(&model.AgentOpRecord{}).
+		Where("user_id = ? AND op_id = ? AND op = ? AND status = ?", userID, opID, op, "succeeded").
+		Count(&count).Error
+	return err == nil && count > 0
+}
 func (s *Service) executeMessageTaskAttach(registry *operations.Registry, task model.Task, conversationID, messageID string, outputIndex int) error {
 	conversationID, messageID = strings.TrimSpace(conversationID), strings.TrimSpace(messageID)
 	if registry == nil || conversationID == "" || messageID == "" {
@@ -73,7 +87,11 @@ func (s *Service) executeMessageTaskAttach(registry *operations.Registry, task m
 	if err != nil {
 		return err
 	}
-	_, err = registry.Execute(operations.Request{Op: "conversation.message.attach", OpID: localtask.AttachMessageEffectKey(task.ID, messageID, outputIndex), UserID: task.UserID, Caller: operations.ManualCaller(false), Params: params})
+	opID := localtask.AttachMessageEffectKey(task.ID, messageID, outputIndex)
+	if s.operationAlreadySucceeded(task.UserID, opID, "conversation.message.attach") {
+		return nil
+	}
+	_, err = registry.Execute(operations.Request{Op: "conversation.message.attach", OpID: opID, UserID: task.UserID, Caller: operations.ManualCaller(false), Params: params})
 	if skippableCanvasBindError(err) {
 		return nil
 	}
@@ -89,7 +107,11 @@ func (s *Service) executeCanvasTaskBind(registry *operations.Registry, task mode
 	if err != nil {
 		return err
 	}
-	_, err = registry.Execute(operations.Request{Op: "canvas.task.bind", OpID: localtask.AttachNodeEffectKey(task.ID, nodeID, outputIndex), UserID: task.UserID, Caller: operations.ManualCaller(false), Params: params})
+	opID := localtask.AttachNodeEffectKey(task.ID, nodeID, outputIndex)
+	if s.operationAlreadySucceeded(task.UserID, opID, "canvas.task.bind") {
+		return nil
+	}
+	_, err = registry.Execute(operations.Request{Op: "canvas.task.bind", OpID: opID, UserID: task.UserID, Caller: operations.ManualCaller(false), Params: params})
 	return err
 }
 
