@@ -16,7 +16,6 @@ import { useUserStore } from "@/stores/use-user-store";
 import { useCanvasBillingBalance } from "@/hooks/use-canvas-billing";
 import { useCanvasGenerationQuote } from "@/hooks/use-canvas-generation-quote";
 import { buildBackendGenerationTaskQuoteInput } from "@/services/api/generation-task";
-import { unchangedModeratedPrompt } from "@/lib/generation-error";
 import { CanvasCameraControlPopover } from "./canvas-camera-control-popover";
 import { CanvasImageSettingsPopover } from "./canvas-image-settings-popover";
 import { CanvasAudioSettingsPopover, type CanvasAudioSettingKey } from "./canvas-audio-settings-popover";
@@ -303,10 +302,6 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
         const text = prompt.trim();
         if (!text || isRunning || insufficientBillingPoints || billingQuoteUnavailable) {
             if (submitBlockedReason) message.warning(submitBlockedReason);
-            return false;
-        }
-        if (unchangedModeratedPrompt(node.metadata, text, resolvedMentionReferences)) {
-            message.warning("提示词或参考素材与上次审核失败时相同，请先修改后再生成");
             return false;
         }
         if (referenceCheck.issues.length) {

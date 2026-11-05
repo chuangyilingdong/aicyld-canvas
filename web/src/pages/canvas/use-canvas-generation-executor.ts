@@ -16,7 +16,7 @@ import { buildCameraPrompt } from "@/lib/canvas/camera-prompt-library";
 import { buildTextRewritePrompt } from "@/lib/prompts";
 import { resolveCanvasStyleExecution } from "@/lib/canvas/canvas-style-execution";
 import { imagePromptLengthError } from "@/lib/canvas/image-prompt-limits";
-import { generationErrorMessage, unchangedModeratedPrompt } from "@/lib/generation-error";
+import { generationErrorMessage } from "@/lib/generation-error";
 import { navigateToSettings } from "@/lib/settings-navigation";
 import { modelGroupReferenceLimits, modelRequestOptions, type ModelRequirements } from "@/lib/model-selection";
 import { referencedAssetIdsInPrompt } from "@/lib/canvas/canvas-resource-references";
@@ -196,12 +196,6 @@ export function useCanvasGenerationExecutor({
                         if (isCanvasNodeGenerating(liveNode)) {
                             diagnostic("generation_task_active", "warning");
                             message.info("该节点的生成任务仍在进行中，请等待完成后再生成");
-                            return;
-                        }
-                        if (unchangedModeratedPrompt(guardNode?.metadata, prompt, sourceNode?.metadata?.references || [])) {
-                            const blockedText = "提示词或参考素材与上次审核失败时相同，请先修改后再生成";
-                            setPreflightNotice(blockedText);
-                            message.warning(blockedText);
                             return;
                         }
                         if (isNodeRegenerateBlocked(guardNode?.metadata) || isNodeRegenerateBlocked(sourceNode?.metadata)) {
