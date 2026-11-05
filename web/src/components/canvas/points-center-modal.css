@@ -103,6 +103,11 @@
 .points-center-payment-head button svg { width: 14px; height: 14px; }
 .points-center-qr { width: 226px; height: 226px; margin-top: 22px; padding: 10px; border: 1px solid var(--points-border); border-radius: 16px; background: #fff; }
 .points-center-qr img { display: block; width: 100%; height: 100%; }
+.points-center-qr.is-cashier { display: grid; place-items: center; background: linear-gradient(145deg, color-mix(in srgb, #1677ff 13%, var(--points-panel)), var(--points-panel-soft)); }
+.points-center-cashier { display: grid; justify-items: center; gap: 12px; color: var(--points-muted); font-size: 12px; }
+.points-center-cashier svg { width: 54px; height: 54px; color: #69a7ff; }
+.points-center-reopen { margin-top: 14px; padding: 8px 14px; border: 1px solid color-mix(in srgb, #1677ff 42%, var(--points-border)); border-radius: 10px; color: var(--points-text); background: color-mix(in srgb, #1677ff 16%, transparent); font-size: 12px; cursor: pointer; }
+.points-center-reopen:hover { border-color: #69a7ff; background: color-mix(in srgb, #1677ff 24%, transparent); }
 .points-center-payment-status { display: inline-flex; align-items: center; gap: 7px; margin-top: 18px; color: var(--points-accent); font-size: 13px; }
 .points-center-payment-status svg { width: 15px; height: 15px; }
 .points-center-payment > p { margin: 7px 0 0; color: var(--points-muted); font-size: 11px; }

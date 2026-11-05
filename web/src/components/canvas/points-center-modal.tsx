@@ -177,6 +177,9 @@ export function PointsCenterModal({
 
     const beginRecharge = async (method: PayMethod) => {
         if (!selectedOption || payingMethod) return;
+        const alipayPopup = method === "alipay"
+            ? window.open("about:blank", "_blank", "width=900,height=700,scrollbars=yes")
+            : null;
         setPayingMethod(method);
         setError("");
         try {
@@ -184,8 +187,17 @@ export function PointsCenterModal({
             const orderId = orderResult?.order?.id;
             if (!orderId) throw new Error("充值订单创建失败");
             const nextPayment = await createPointsPayment(orderId, method);
+            if (method === "alipay") {
+                if (!nextPayment.url) throw new Error("支付宝支付链接生成失败");
+                if (alipayPopup && !alipayPopup.closed) {
+                    alipayPopup.location.href = nextPayment.url;
+                } else {
+                    window.location.assign(nextPayment.url);
+                }
+            }
             setPayment({ ...nextPayment, method, title: `充值 ${formatPoints(selectedOption.points)} 积分` });
         } catch (reason) {
+            alipayPopup?.close();
             setError(reason instanceof Error ? reason.message : "支付创建失败，请稍后重试");
         } finally {
             setPayingMethod(null);
@@ -305,7 +317,7 @@ export function PointsCenterModal({
                                 <div><span>已选 {formatPoints(selectedOption.points)} 积分</span><strong>¥{Number(selectedOption.priceYuan).toFixed(2)}</strong></div>
                                 <div className="points-center-pay-actions">
                                     <Button loading={payingMethod === "wechat"} disabled={Boolean(payingMethod)} onClick={() => void beginRecharge("wechat")}>微信支付</Button>
-                                    <Button loading={payingMethod === "alipay"} disabled={Boolean(payingMethod)} onClick={() => void beginRecharge("alipay")}>支付宝</Button>
+                                    <Button loading={payingMethod === "alipay"} disabled={Boolean(payingMethod)} onClick={() => void beginRecharge("alipay")}>支付宝支付</Button>
                                 </div>
                             </div>
                         ) : <p className="points-center-hint">选择一个档位后，可直接在当前页面完成支付。</p>}
@@ -328,9 +340,21 @@ function PaymentPanel({ payment, onBack }: { payment: PointsPayment & { method: 
                 <div><span>正在支付</span><h3>{payment.title}</h3></div>
                 <button type="button" onClick={onBack} aria-label="返回充值档位"><X /></button>
             </div>
-            <div className="points-center-qr"><img src={payment.qrDataUrl} alt="支付二维码" /></div>
+            {payment.method === "wechat" ? (
+                <div className="points-center-qr"><img src={payment.qrDataUrl ?? ""} alt="支付二维码" /></div>
+            ) : (
+                <div className="points-center-qr is-cashier">
+                    <div className="points-center-cashier">
+                        <CreditCard />
+                        <span>支付宝收银台已打开</span>
+                    </div>
+                </div>
+            )}
             <strong className="points-center-payment-status"><LoaderCircle className="is-spinning" />等待{payment.method === "wechat" ? "微信" : "支付宝"}支付</strong>
-            <p>支付成功后会自动到账，请勿关闭当前窗口。</p>
+            <p>{payment.method === "alipay" ? "请在新窗口完成支付，本页会自动检测到账。" : "支付成功后会自动到账，请勿关闭当前窗口。"}</p>
+            {payment.method === "alipay" && payment.url ? (
+                <button type="button" className="points-center-reopen" onClick={() => window.open(payment.url!, "_blank", "width=900,height=700,scrollbars=yes")}>重新打开支付宝收银台</button>
+            ) : null}
             <button type="button" className="points-center-payment-back" onClick={onBack}>返回修改充值档位</button>
         </div>
     );

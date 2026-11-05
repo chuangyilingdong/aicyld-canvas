@@ -49,9 +49,10 @@ export type PointsOrder = {
 
 export type PointsPayment = {
     outTradeNo: string;
-    qrDataUrl: string;
+    qrDataUrl?: string;
     codeUrl?: string;
     qrCode?: string;
+    url?: string;
 };
 
 export function getPointsWallet() {
