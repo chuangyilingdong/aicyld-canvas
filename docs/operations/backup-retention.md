@@ -89,3 +89,9 @@ bash scripts/prune-production-backups.test.sh
 ## 回滚
 
 清理不会覆盖当前运行文件。需要回滚前端时，停止继续发布后把选定的 `web-dist.prev-*` 恢复为 `web-dist`；回滚后端时，先停止 `aicyld-canvas`，替换二进制并恢复匹配的数据库快照，再启动服务。任何恢复都应先记录当前文件哈希并保留新的回滚点。
+
+## OSS 备份与本地清理的顺序
+
+每日 `aicyld-canvas-oss-backup.timer` 在 03:40 先执行 OSS 一致性备份；只有上传和远端大小校验全部成功后，04:20 的本地保留策略才会清理旧回滚点。
+
+OSS 备份的内容、路径和恢复步骤见 `docs/operations/oss-backup-restore.md`。
