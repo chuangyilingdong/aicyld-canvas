@@ -56,3 +56,13 @@ test("specific provider codes outrank incidental safety text; request echoes are
     const f = explainGenerationError({ error: { code: "invalid_request_error", message: "Rate limit exceeded" } });
     expect(f.category).toBe("throttled");
 });
+
+test("content security audit is moderation_output and permits manual retry after editing", () => {
+    const failure = explainGenerationError("Content security audit did not pass | 内容安全审查未通过");
+    expect(failure.category).toBe("moderation_output");
+    expect(failure.reason).toBe("生成结果未通过内容安全审核");
+    expect(failure.moderation).toBe(true);
+    expect(failure.blockAutomaticRetry).toBe(true);
+    expect(failure.blockManualRetry).toBe(false);
+    expect(explainGenerationError({ error: { code: "1501", message: "Content security audit did not pass | 内容安全审查未通过" } }).category).toBe("moderation_output");
+});

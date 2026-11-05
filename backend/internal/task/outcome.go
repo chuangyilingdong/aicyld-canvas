@@ -94,7 +94,7 @@ func provablyNotSubmitted(task model.Task, facts OutcomeFacts) bool {
 }
 
 func isInputRejectedCode(code string) bool {
-	return code == "content_policy_violation" || code == "content_moderation" || strings.HasPrefix(code, "SAFETY.INPUT.")
+	return code == "content_policy_violation" || code == "content_moderation" || code == "1501" || strings.HasPrefix(code, "moderation_") || strings.HasPrefix(code, "SAFETY.INPUT.")
 }
 
 func computeProviderSettlementOutcome(task model.Task) (Outcome, bool) {

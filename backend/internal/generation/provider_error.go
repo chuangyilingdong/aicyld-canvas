@@ -659,6 +659,9 @@ func normalizeFailure(failure Failure) Failure {
 	}
 	if failure.IsModeration() {
 		failure.Retryable = false
+		if failure.ProviderCode == "" {
+			failure.ProviderCode = string(failure.Category)
+		}
 	}
 	if failure.Category == CategorySubmissionUncertain {
 		failure.Uncertain = true

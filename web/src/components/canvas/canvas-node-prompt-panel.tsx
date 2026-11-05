@@ -1,4 +1,4 @@
-import { Button, InputNumber, Modal, Popover } from "antd";
+import { App, Button, InputNumber, Modal, Popover } from "antd";
 import { Tooltip } from "@/components/ui/base/tooltip";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { ArrowLeftRight, ArrowUp, Boxes, Camera, ChevronDown, FileText, ImagePlus, LoaderCircle, Maximize2, Music2, SlidersHorizontal, Video, WandSparkles, X, Zap } from "lucide-react";
@@ -16,6 +16,7 @@ import { useUserStore } from "@/stores/use-user-store";
 import { useCanvasBillingBalance } from "@/hooks/use-canvas-billing";
 import { useCanvasGenerationQuote } from "@/hooks/use-canvas-generation-quote";
 import { buildBackendGenerationTaskQuoteInput } from "@/services/api/generation-task";
+import { unchangedModeratedPrompt } from "@/lib/generation-error";
 import { CanvasCameraControlPopover } from "./canvas-camera-control-popover";
 import { CanvasImageSettingsPopover } from "./canvas-image-settings-popover";
 import { CanvasAudioSettingsPopover, type CanvasAudioSettingKey } from "./canvas-audio-settings-popover";
@@ -82,6 +83,7 @@ type CanvasNodePromptPanelProps = {
 };
 
 export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChange, onConfigChange, onGenerate, onOpenGenerationHistory, onCreateGenerationReplacement, mentionReferences = [], onAddReference, onRemoveReference, onReorderReferences, onReplaceReference, onReplaceReferenceFiles, referenceNodes = [node], referenceConnections = [], onLocateReferenceNode, onClose, onNodeMouseDown, onImageSettingsOpenChange, workspaceMode = "professional" }: CanvasNodePromptPanelProps) {
+    const { message } = App.useApp();
     const globalConfig = useEffectiveConfig();
     const themeName = useActiveTheme();
     const theme = canvasThemes[themeName];
@@ -235,6 +237,7 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
     };
     const isSubmitDisabled = !isRunning && !prompt.trim();
     const submitDisabled = isRunning || isSubmitDisabled || insufficientBillingPoints || billingQuoteUnavailable;
+    const submitBlockedReason = !prompt.trim() ? "请先输入提示词" : isRunning ? "当前任务仍在生成中，请等待完成" : insufficientBillingPoints ? `积分不足：本次预计 ${estimatedBillingPoints} 积分，当前 ${availableBillingBalance ?? 0} 积分` : billingQuoteUnavailable ? "暂时无法读取价格，请稍后重试" : "";
     const canExpandPrompt = mode === "image" || mode === "video";
     const canOptimizePrompt = Boolean(promptOptimizerProvider) && canExpandPrompt;
     const isPortraitTexture = mode === "image" && Boolean(node.metadata?.portraitTexture);
@@ -298,7 +301,14 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
 
     const submit = () => {
         const text = prompt.trim();
-        if (!text || isRunning || insufficientBillingPoints || billingQuoteUnavailable) return false;
+        if (!text || isRunning || insufficientBillingPoints || billingQuoteUnavailable) {
+            if (submitBlockedReason) message.warning(submitBlockedReason);
+            return false;
+        }
+        if (unchangedModeratedPrompt(node.metadata, text, resolvedMentionReferences)) {
+            message.warning("提示词或参考素材与上次审核失败时相同，请先修改后再生成");
+            return false;
+        }
         if (referenceCheck.issues.length) {
             setReferenceAction({ type: "locate", token: referenceCheck.issues[0].token, key: Date.now() });
             return false;
@@ -394,7 +404,8 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
             <Button
                 type="text"
                 className="canvas-node-composer-submit canvas-node-composer-submit-canvas"
-                disabled={submitDisabled}
+                disabled={false}
+                aria-disabled={submitDisabled}
                 style={
                     {
                         color: submitDisabled ? theme.node.faint : theme.node.text,

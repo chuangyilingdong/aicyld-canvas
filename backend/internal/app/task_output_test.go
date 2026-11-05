@@ -181,3 +181,20 @@ func TestHistoricalVODParameterFailureProjection(t *testing.T) {
 		t.Fatal("earlier unknown submission discarded")
 	}
 }
+
+func TestTaskForOutputProjectsLegacyContentSecurityDiagnostics(t *testing.T) {
+	original := model.Task{
+		Type: "canvas_video", Status: model.TaskStatusFailed, ProviderRequestID: "task_content_security",
+		Error: "生成失败。请查看详情后再决定是否重试。",
+		FailureDiagnostics: &model.TaskFailureDiagnostics{
+			Source: "upstream_response", Summary: "Content security audit did not pass | 内容安全审查未通过",
+		},
+	}
+	got := taskForOutput(original)
+	if got.ErrorCode != "moderation_output" || !strings.Contains(got.Error, "内容安全审核") || got.FailureDiagnostics == nil || got.FailureDiagnostics.ProviderCode != "moderation_output" {
+		t.Fatalf("projected task=%+v diagnostics=%+v", got, got.FailureDiagnostics)
+	}
+	if original.Error != "生成失败。请查看详情后再决定是否重试。" || original.FailureDiagnostics.ProviderCode != "" {
+		t.Fatal("history was mutated")
+	}
+}

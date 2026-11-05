@@ -149,7 +149,7 @@ export function explainGenerationError(error: unknown, context: GenerationFailur
         retryable: Boolean(classified.retryable) && !uncertain && !moderation && !preparation,
         uncertain,
         blockAutomaticRetry,
-        blockManualRetry: blockAutomaticRetry && !preparation,
+        blockManualRetry: blockAutomaticRetry && !preparation && !moderation,
         moderation,
     };
 }

@@ -18,6 +18,9 @@ func moderationErrorCopy(code, message string) (Failure, bool) {
 		direction, media, cause = m[1], m[2], m[3]
 	} else {
 		message = strings.ToLower(message)
+		if strings.Contains(message, "content security audit did not pass") || strings.Contains(message, "内容安全审查未通过") || strings.Contains(message, "内容安全审核未通过") {
+			return Failure{Category: CategoryModerationOutput, Reason: "生成结果未通过内容安全审核", Action: "请调整提示词或参考素材后重新生成"}, true
+		}
 		if strings.Contains(message, "prompt or reference ") || strings.Contains(message, "prompt or input ") {
 			return Failure{}, false
 		}

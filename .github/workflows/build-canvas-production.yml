@@ -36,6 +36,9 @@ jobs:
         shell: bash
         run: |
           version="${{ inputs.build_version }}"
+          if [[ -z "$version" && -f RELEASE_VERSION ]]; then
+            version="$(tr -d '\r\n' < RELEASE_VERSION)"
+          fi
           if [[ -z "$version" ]]; then
             version="$(tr -d '\r\n' < VERSION)-ci"
           fi
@@ -59,12 +62,24 @@ jobs:
         working-directory: web
         run: bun install --frozen-lockfile
 
+      - name: Typecheck web
+        working-directory: web
+        run: bun --bun ./node_modules/typescript/bin/tsc --noEmit
+
+      - name: Run focused web regression tests
+        working-directory: web
+        run: bun test test/moderation-error.test.ts test/generation-failure-actions.test.tsx test/task-outcome.test.ts test/canvas-generation-failure.test.ts
+
       - name: Build hosted web
         working-directory: web
         env:
           CANVAS_BUILD_VERSION: ${{ steps.version.outputs.value }}
           VITE_BUILD_COMMIT: ${{ github.sha }}
         run: bun --bun ./node_modules/vite/bin/vite.js build
+
+      - name: Run focused backend regression tests
+        working-directory: backend
+        run: go test ./internal/generation ./internal/task ./internal/app -run 'TestContentSecurityAuditFailureIsModerationOutput|TestContentSecurityAuditOutcomeRequiresConfirmation|TestTaskForOutputProjectsLegacyContentSecurityDiagnostics'
 
       - name: Build Linux backend
         working-directory: backend
@@ -136,3 +151,4 @@ jobs:
           path: out/
           if-no-files-found: error
           retention-days: 30
+

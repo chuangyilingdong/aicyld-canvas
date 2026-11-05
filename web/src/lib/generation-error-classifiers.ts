@@ -88,6 +88,7 @@ export const CATEGORY_COPY: Record<GenerationErrorCategory, CategoryCopy> = {
 };
 
 const PROVIDER_CODE_CATEGORIES: Record<string, GenerationErrorCategory> = {
+    "1501": "moderation_output",
     local_storage_failed: "local_storage",
     local_credential_failed: "local_credential",
     local_disk_full: "local_disk_full",

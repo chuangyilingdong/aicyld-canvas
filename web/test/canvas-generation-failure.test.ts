@@ -203,7 +203,8 @@ describe("canvas generation failure consumers", () => {
         };
         const batchErrorInput = { code: batchItem.errorCode, message: batchItem.errorDetails };
         expect(isContentModerationError(batchErrorInput)).toBe(true);
-        expect(explainGenerationError(batchErrorInput).blockManualRetry).toBe(true);
+        expect(explainGenerationError(batchErrorInput).blockAutomaticRetry).toBe(true);
+        expect(explainGenerationError(batchErrorInput).blockManualRetry).toBe(false);
         expect(generationErrorMessage(batchErrorInput)).toBe(batchItem.errorDetails);
         expect(isGenerationSubmissionUncertainError({ code: "submission_uncertain", message: "普通错误描述" })).toBe(true);
 
@@ -231,7 +232,8 @@ describe("canvas generation failure consumers", () => {
         expect(failedMsg?.status).toBe("error");
         expect(failedMsg?.generationErrorCode).toBe("moderation_output");
         expect(explainGenerationError({ code: failedMsg?.generationErrorCode, message: failedMsg?.error }).category).toBe("moderation_output");
-        expect(explainGenerationError({ code: failedMsg?.generationErrorCode, message: failedMsg?.error }).blockManualRetry).toBe(true);
+        expect(explainGenerationError({ code: failedMsg?.generationErrorCode, message: failedMsg?.error }).blockAutomaticRetry).toBe(true);
+        expect(explainGenerationError({ code: failedMsg?.generationErrorCode, message: failedMsg?.error }).blockManualRetry).toBe(false);
     });
 });
 

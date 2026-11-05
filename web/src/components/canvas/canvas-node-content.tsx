@@ -199,7 +199,7 @@ function ErrorContent({ node, theme, onRetry, onReloadResource, onOpenTaskDetail
     const localDepthAction = canRecoverOrRetryDepthCapture(node);
     const upscaleAction = Boolean(node.metadata?.workflowOperation?.id.endsWith(".ai-upscale"));
     const canReload = failureView.canReload;
-    const retryBlocked = failureView.retryBlocked;
+    const retryBlocked = failureView.retryBlocked && !explanation.moderation;
     const submissionUncertain = failureView.cardSubmissionUncertain;
     return (
         <div
@@ -223,7 +223,7 @@ function ErrorContent({ node, theme, onRetry, onReloadResource, onOpenTaskDetail
                     context={{ ...canvasNodeDiagnosticContext(node), model: node.metadata?.model, createdAt: node.metadata?.taskCreatedAt, stage: node.metadata?.taskStage, providerRequestId: node.metadata?.taskProviderRequestId, failureDiagnostics: node.metadata?.taskFailureDiagnostics, errorSummary: node.metadata?.generationErrorSummary, providerCode: node.metadata?.generationProviderCode, completedAt: node.metadata?.taskCompletedAt, updatedAt: node.metadata?.taskUpdatedAt }}
                     onOpenDetails={node.metadata?.taskId && onOpenTaskDetails ? () => onOpenTaskDetails(node) : undefined}
                     retryDisabled={retryBlocked}
-                    onRetry={retryBlocked ? undefined : onRetry ? () => onRetry(node) : undefined}
+                    onRetry={onRetry ? () => onRetry(node) : undefined}
                     retryLabel={upscaleAction ? node.metadata?.taskId ? "取回原结果" : "重试未提交项" : explanation.category === "result_target_unavailable" ? "生成历史" : localDepthAction && node.metadata?.taskStatus === "succeeded" ? "恢复结果" : node.metadata?.isBatchRoot ? "重新生成失败项" : "重新生成"}
                 />
             </div>

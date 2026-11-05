@@ -3,7 +3,7 @@ import { normalizeTaskOutcome, readNodeTaskOutcome, type TaskOutcome } from "@/l
 import type { CanvasNodeData, CanvasNodeMetadata } from "@/types/canvas";
 
 export type CanvasFailureRecord = {
-    version: 1;
+    version: 2;
     source: Array<string | null>;
     explanation: GenerationFailureExplanation;
     /** The outcome this module last derived locally. A different stored
@@ -29,18 +29,25 @@ export function authoritativeNodeOutcome(metadata?: CanvasNodeMetadata) {
 }
 
 function failureInput(metadata?: CanvasNodeMetadata, authoritative = Boolean(authoritativeNodeOutcome(metadata))) {
-    const error = { code: metadata?.generationErrorCode || metadata?.taskErrorCode, message: metadata?.errorDetails };
+    const diagnostics = metadata?.taskFailureDiagnostics;
+    const diagnosticSummary = diagnostics?.summary?.trim();
+    const code = metadata?.generationErrorCode || metadata?.taskErrorCode || diagnostics?.providerCode;
+    const message = [diagnosticSummary, metadata?.errorDetails].filter((value): value is string => Boolean(value && value.trim())).join(" ");
+    const error = { code, message };
     const context = {
         taskId: metadata?.taskId,
         model: metadata?.model,
         createdAt: metadata?.taskCreatedAt,
         stage: authoritative ? undefined : metadata?.taskStage,
+        providerCode: diagnostics?.providerCode,
+        failureDiagnostics: diagnostics,
+        errorSummary: diagnosticSummary,
     };
-    return { error, context, source: [error.code ?? null, error.message ?? null, context.taskId ?? null, context.model ?? null, context.createdAt ?? null, context.stage ?? null] };
+    return { error, context, source: [error.code ?? null, error.message ?? null, context.taskId ?? null, context.model ?? null, context.createdAt ?? null, context.stage ?? null, diagnostics?.source ?? null, diagnosticSummary ?? null, diagnostics?.providerCode ?? null] };
 }
 
 function sameFailureSource(saved: CanvasFailureRecord | undefined, source: Array<string | null>) {
-    return saved?.version === 1 && Array.isArray(saved.source) && saved.source.length === source.length && saved.source.every((value, index) => value === source[index]);
+    return saved?.version === 2 && Array.isArray(saved.source) && saved.source.length === source.length && saved.source.every((value, index) => value === source[index]);
 }
 
 export function nodeFailureExplanation(metadata?: CanvasNodeMetadata, input = failureInput(metadata)): GenerationFailureExplanation {
@@ -103,7 +110,7 @@ export function persistCanvasNodeFailure(node: CanvasNodeData): CanvasNodeData {
     if (!sameFailureSource(saved, source) || Boolean(saved?.localOutcome) !== Boolean(localOutcome) || (localOutcome && !sameOutcome(saved?.localOutcome, localOutcome))) {
         const explanation = sameFailureSource(saved, source) && saved && GENERATION_ERROR_CATEGORIES.includes(saved.explanation?.category)
             ? saved.explanation : explainGenerationError(input.error, input.context);
-        next = { ...next, generationFailure: { version: 1, source, explanation, ...(localOutcome ? { localOutcome } : {}) } };
+        next = { ...next, generationFailure: { version: 2, source, explanation, ...(localOutcome ? { localOutcome } : {}) } };
     }
     return next === metadata ? node : { ...node, metadata: next };
 }

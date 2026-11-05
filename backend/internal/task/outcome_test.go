@@ -161,3 +161,14 @@ func TestComputeOutcome(t *testing.T) {
 		})
 	}
 }
+
+func TestContentSecurityAuditOutcomeRequiresConfirmation(t *testing.T) {
+	task := model.Task{
+		Type: "canvas_video", Status: model.TaskStatusFailed, ProviderRequestID: "task_content_security",
+		FailureDiagnostics: &model.TaskFailureDiagnostics{ProviderCode: "1501"},
+	}
+	got := ComputeOutcome(task, "", OutcomeFacts{DispatchState: "accepted"})
+	if got.Phase != "failed" || got.Regenerate != "confirm" || got.Reason != "input_rejected" {
+		t.Fatalf("outcome=%+v", got)
+	}
+}

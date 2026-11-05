@@ -19,7 +19,7 @@ export function GenerationFailureNotice({ explanation, context, compact, onRetry
     const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
     const diagnostics = formatGenerationDiagnostics(explanation, { ...context, traceId: context?.traceId || getDiagnosticTraceId(context?.taskId || explanation.taskId) });
     const upstreamDetail = summaryOnly ? "" : formatUpstreamFailureDetail(explanation, context);
-    const showRetry = Boolean(onRetry) && !explanation.blockManualRetry && !retryDisabled;
+    const showRetry = Boolean(onRetry) && (!explanation.blockManualRetry || explanation.moderation) && !retryDisabled;
     const copyDiagnostics = async () => {
         try {
             if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {

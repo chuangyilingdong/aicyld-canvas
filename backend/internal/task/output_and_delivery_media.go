@@ -233,6 +233,25 @@ func TaskForOutput(task model.Task) *model.Task {
 	if task.ErrorCode == string(generation.CategoryUnknown) && !generation.IsContentModerationFailure(task.Error) {
 		task.ErrorCode = ""
 	}
+	// A persisted task may carry a generic legacy error while bounded
+	// diagnostics still contain the authoritative upstream failure. Project
+	// that evidence read-only so old tasks get the same classification without
+	// rewriting their stored history.
+	if (task.ErrorCode == "" || task.ErrorCode == string(generation.CategoryUnknown)) && task.FailureDiagnostics != nil && task.FailureDiagnostics.Summary != "" {
+		diagnosticFailure := generation.ClassifyText(task.FailureDiagnostics.Summary)
+		if diagnosticFailure.Category != generation.CategoryUnknown {
+			task.ErrorCode = string(diagnosticFailure.Category)
+			if diagnosticFailure.IsModeration() {
+				if task.FailureDiagnostics.ProviderCode == "" {
+					task.FailureDiagnostics.ProviderCode = string(diagnosticFailure.Category)
+				}
+				if diagnosticFailure.TaskID == "" {
+					diagnosticFailure.TaskID = task.ProviderRequestID
+				}
+				task.Error = diagnosticFailure.UserMessage()
+			}
+		}
+	}
 	task.Error = SafePersistedFailureMessage(task.Error, task.Stage)
 	return &task
 }

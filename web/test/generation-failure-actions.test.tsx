@@ -258,3 +258,14 @@ test("creation text recovery and canvas node success clear or preserve upstream 
     expect(overwrittenDepthFailure.taskFailureDiagnostics).toBeUndefined();
     expect(formatUpstreamFailureDetail(explainGenerationError(overwrittenDepthFailure.errorDetails), { errorSummary: overwrittenDepthFailure.generationErrorSummary, providerCode: overwrittenDepthFailure.generationProviderCode, failureDiagnostics: overwrittenDepthFailure.taskFailureDiagnostics })).toBe("");
 });
+
+test("content security audit keeps a visible retry action", () => {
+    const html = renderToStaticMarkup(
+        <GenerationFailureNotice
+            explanation={explainGenerationError("Content security audit did not pass | 内容安全审查未通过")}
+            onRetry={() => {}}
+        />,
+    );
+    expect(html).toContain("生成结果未通过内容安全审核");
+    expect(html).toContain("重新生成");
+});

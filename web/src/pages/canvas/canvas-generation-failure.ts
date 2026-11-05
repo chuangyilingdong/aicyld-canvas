@@ -66,7 +66,11 @@ export function canvasTaskFailureMetadata(task: GenerationTask, metadata?: Canva
     } catch {
         // Older task records may not carry a readable submission snapshot.
     }
-    const failure = canvasGenerationFailureMetadata(error, input);
+    const diagnosticSummary = task.status === "failed" && task.failureDiagnostics && ["upstream_response", "upstream_http", "reference_upload"].includes(task.failureDiagnostics.source)
+        ? task.failureDiagnostics.summary?.trim()
+        : "";
+    const failureError = diagnosticSummary ? { code: task.failureDiagnostics?.providerCode || task.errorCode, message: diagnosticSummary } : error;
+    const failure = canvasGenerationFailureMetadata(failureError, input);
     if (failure.failedInputFingerprint && task.id === metadata?.taskId && metadata.failedInputFingerprint) {
         failure.failedInputFingerprint = metadata.failedInputFingerprint;
         failure.failedPromptFingerprint = metadata.failedPromptFingerprint;

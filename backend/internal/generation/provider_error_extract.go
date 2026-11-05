@@ -389,6 +389,9 @@ func categoryFromProviderCode(values ...string) (FailureCategory, bool) {
 		if category, ok := providerCodeCategories[normalized]; ok {
 			return category, true
 		}
+		if normalized == "1501" {
+			return CategoryModerationOutput, true
+		}
 		if f, ok := moderationErrorCopy(normalized, ""); ok {
 			return f.Category, true
 		}
