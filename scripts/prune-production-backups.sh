@@ -211,7 +211,9 @@ prune_entries "backend binaries" "$backup_root" file "$keep_backends" 'infinite-
 prune_entries "database snapshots" "$backup_root" file "$keep_databases" 'open_ai_canvas.db.*'
 prune_entries "frontend tarballs" "$backup_root" file "$keep_web_tarballs" 'web-dist*.tar.gz'
 prune_entries "frontend backup directories" "$backup_root" dir "$keep_web_dirs" 'web-dist*'
-prune_entries "root frontend rollbacks" "$web_root" dir "$keep_web_dirs" 'web-dist.prev*'
+prune_entries "root frontend rollbacks" "$web_root" dir "$keep_web_dirs" "web-dist.prev*"
+prune_entries "root hidden frontend rollbacks" "$web_root" dir "$keep_web_dirs" ".web-dist.prev*"
+prune_entries "root failed frontend directories" "$web_root" dir 0 ".web-dist.failed*"
 
 printf '\nSummary: kept=%d delete=%d reclaim=%s\n' \
     "$kept_count" "$deleted_count" "$(human_bytes "$freed_bytes")"

@@ -38,9 +38,10 @@ def main() -> int:
     prefix = args.prefix.strip("/")
     root = Path(args.canvas_root)
     keys: list[str] = []
-    for source in sorted((root / "backups").iterdir()):
+    backup_root = root / "backups"
+    for source in sorted(backup_root.rglob("*")):
         if source.is_file() and module.is_sensitive_backup_name(source.name):
-            keys.append(f"{prefix}/backups/{source.name}")
+            keys.append(f"{prefix}/backups/{source.relative_to(backup_root).as_posix()}")
     workspace = root / "data" / "workspace"
     if workspace.is_dir():
         for source in sorted(workspace.rglob("*")):
@@ -59,3 +60,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

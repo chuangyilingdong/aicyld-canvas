@@ -383,6 +383,10 @@ def main() -> int:
     checksum_path.write_text(f"{manifest_sha}  manifest.json\n", encoding="utf-8")
     checksum_key = f"{base_prefix}/manifest.json.sha256"
     client.put(checksum_key, checksum_path)
+    manifest_store = root / "backups" / "oss-manifests"
+    manifest_store.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(manifest_path, manifest_store / f"{run_id}.json")
+    (manifest_store / "LATEST").write_text(run_id + "\n", encoding="utf-8")
     print(f"MANIFEST oss://{env['CANVAS_OSS_BUCKET']}/{manifest_key}")
     print(f"SHA256 {manifest_sha}")
     print(f"backup complete: objects={len(items)} bytes={total_bytes}")
