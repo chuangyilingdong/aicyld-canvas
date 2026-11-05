@@ -258,7 +258,7 @@ export function CanvasSyncStatus({ projectId, onLoadLatest, onOpenVersions }: { 
                         <div className="flex flex-wrap gap-2">
                             {view.action === "use-latest" ? <Button size="small" type="primary" loading={adopting} disabled={busy} onClick={() => void adoptLatest()}>使用最新版本</Button> : null}
                             {view.action === "retry-save" ? <Button size="small" type="primary" loading={busy} onClick={() => void run(() => syncLocalCanvasProjectToBackend(projectId))}>重试保存</Button> : null}
-                            {view.action === "load-cloud" ? <Button size="small" loading={busy} onClick={() => void run(progress?.phase === "conflict" ? () => acceptExternalCanvasRevision(projectId) : onLoadLatest)}>加载云端最新版本</Button> : null}
+                            {view.action === "load-cloud" ? <Button size="small" loading={externalConflict || progress?.phase === "conflict" ? adopting : busy} onClick={() => void (externalConflict || progress?.phase === "conflict" ? adoptLatest() : run(onLoadLatest))}>加载云端最新版本</Button> : null}
                             <Button
                                 size="small"
                                 disabled={busy}
