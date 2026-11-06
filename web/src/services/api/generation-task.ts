@@ -340,8 +340,27 @@ export function buildBackendGenerationTaskQuoteInput(options: BackendGenerationT
     assertBackendRuntimeConfigured(options.config, options.mode);
     return backendGenerationTaskInput(
         { ...options, prompt: options.prompt.trim() ? options.prompt : "生成" },
-        { referenceImages: [], referenceVideos: [], referenceAudios: [] },
+        quoteGenerationReferences(options),
     );
+}
+
+// The quote must see the same reference counts and resource identities as the
+// real submission, otherwise image/reference video requests are quoted as
+// text-to-video. Do not read blobs or upload here; stored resource keys and
+// HTTP(S) URLs are enough for admission and pricing.
+function quoteGenerationReferences(options: BackendGenerationTaskOptions): PreparedGenerationReferences {
+    return {
+        referenceImages: (options.referenceImages ?? []).map((image) =>
+            backendImageReference(image, { url: image.url, storageKey: image.storageKey }),
+        ),
+        referenceVideos: (options.referenceVideos ?? []).map((media) =>
+            backendMediaReference(media, { url: media.url, storageKey: media.storageKey }),
+        ),
+        referenceAudios: (options.referenceAudios ?? []).map((media) =>
+            backendMediaReference(media, { url: media.url, storageKey: media.storageKey }),
+        ),
+        mask: options.mask ? backendImageReference(options.mask, { url: options.mask.url, storageKey: options.mask.storageKey }) : undefined,
+    };
 }
 
 function backendGenerationTaskInput(options: BackendGenerationTaskOptions, prepared: PreparedGenerationReferences): CreateTaskInput {

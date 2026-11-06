@@ -79,6 +79,40 @@ func TestDefaultsIncludeVerifiedMultimodalReviewProfile(t *testing.T) {
 	t.Fatal("default platform profiles are missing qwen/qwen3.8-omni-flash")
 }
 
+func TestDefaultsIncludeGPTImage26Capabilities(t *testing.T) {
+	var found *ModelProfile
+	for _, channel := range Defaults() {
+		for index := range channel.ModelProfiles {
+			if channel.ModelProfiles[index].Model == "zhenzhen-image-g-v2.6-lowprice" {
+				found = &channel.ModelProfiles[index]
+				break
+			}
+		}
+	}
+	if found == nil || found.Capability != "image" || found.Protocol != "newapi-image" {
+		t.Fatalf("GPT Image 2.6 profile = %#v", found)
+	}
+	var config struct {
+		Image struct {
+			References struct {
+				PromptMaxChars int `json:"promptMaxChars"`
+				MaxImages      int `json:"maxImages"`
+			} `json:"references"`
+			Quality struct {
+				Values  []string `json:"values"`
+				Default string   `json:"default"`
+			} `json:"quality"`
+			MaxOutputs int `json:"maxOutputs"`
+		} `json:"image"`
+	}
+	if err := json.Unmarshal(found.CapabilityConfig, &config); err != nil {
+		t.Fatal(err)
+	}
+	if config.Image.References.PromptMaxChars != 5000 || config.Image.References.MaxImages != 2 || config.Image.MaxOutputs != 1 || config.Image.Quality.Default != "1k" || len(config.Image.Quality.Values) != 1 {
+		t.Fatalf("GPT Image 2.6 capability = %#v", config.Image)
+	}
+}
+
 func TestSeedance25ProfileAllowsThirtySeconds(t *testing.T) {
 	type durationConfig struct {
 		Video struct {
