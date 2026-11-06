@@ -151,7 +151,7 @@ then
 fi
 
 python3 - "$ROOT" "$RETENTION_DAYS" <<'PY'
-import json, os, time
+import json, os, sys, time
 from pathlib import Path
 root = Path(sys.argv[1])
 retention_days = int(sys.argv[2])
