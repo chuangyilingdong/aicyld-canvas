@@ -40,7 +40,22 @@ if (env.VITE_CANVAS_LOCAL_MODE !== "false") {
     );
 }
 
-// —— ② 产物：workspace-mode 初始 profile 必须是 hosted —————————
+// —— ② 版本清单：安全自动更新依赖无缓存的 version.json ————————————
+try {
+    const manifest = JSON.parse(readFileSync(join(webDir, "dist", "version.json"), "utf8"));
+    if (!manifest.buildId || !manifest.version || !manifest.commit || !Array.isArray(manifest.files)) {
+        failures.push("dist/version.json 缺少 buildId/version/commit/files");
+    }
+    const indexHTML = readFileSync(join(webDir, "dist", "index.html"), "utf8");
+    const entry = indexHTML.match(/\/static\/index-[^"']+\.js/)?.[0]?.replace(/^\//, "");
+    if (!entry || !manifest.files?.includes(entry)) {
+        failures.push("dist/version.json 没有记录当前入口资源，旧资源保留与更新校验不完整");
+    }
+} catch {
+    failures.push("dist/version.json 不存在或不是合法 JSON");
+}
+
+// —— ③ 产物：workspace-mode 初始 profile 必须是 hosted —————————
 let initHosted = false;
 let initLocal = false;
 for (const file of readdirSync(staticDir)) {
@@ -56,14 +71,14 @@ if (!initHosted || initLocal) {
     failures.push("产物初始 profile 不是 hosted（HOSTED_BUILD 未生效），请确认 VITE_CANVAS_HOSTED=1 后重新构建。");
 }
 
-// —— ③ 产物：不能残留未替换的开关名 ————————————————————————
+// —— ④ 产物：不能残留未替换的开关名 ————————————————————————
 const unresolved = readdirSync(staticDir).filter((file) => file.endsWith(".js")
     && readFileSync(join(staticDir, file), "utf8").includes("VITE_CANVAS_LOCAL_MODE"));
 if (unresolved.length) {
     failures.push(`产物里仍有未替换的 VITE_CANVAS_LOCAL_MODE（${unresolved.slice(0, 3).join(", ")}），构建期常量没有生效。`);
 }
 
-// —— ④ 产物：项目页 /canvas 的列表查询不能被折成 enabled:false ————
+// —— ⑤ 产物：项目页 /canvas 的列表查询不能被折成 enabled:false ————
 // 这是「首页 N 个、项目页 M 个」那次事故的回归哨兵：remoteMode 一旦被构建期常量折成
 // false，react-query 的 enabled 就会变成字面量 !1。
 let libraryGuarded = false;

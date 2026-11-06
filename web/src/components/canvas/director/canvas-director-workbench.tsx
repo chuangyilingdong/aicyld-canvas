@@ -15,6 +15,7 @@ import { DirectorCameraScreenshotTabs, type DirectorCameraInspectorTab } from "@
 import { DirectorCameraProperties } from "@/components/canvas/director/director-camera-properties";
 import { DirectorPanoramaAIModal } from "@/components/canvas/director/director-panorama-ai-modal";
 import { startOperation } from "@/stores/use-operation-progress";
+import { useAppUpdateSafetyBlocker } from "@/stores/use-app-update-safety-store";
 import { DirectorWorkbenchRail, type DirectorWorkbenchTab } from "@/components/canvas/director/director-workbench-rail";
 import { DirectorViewport, type DirectorPoseEvaluation, type DirectorViewportHandle } from "@/components/canvas/director/director-viewport";
 import { DirectorViewportDock } from "@/components/canvas/director/director-viewport-dock";
@@ -249,6 +250,18 @@ export function CanvasDirectorWorkbench({ open, scene, projectId, imageNodes, on
     const saveControllerRef = useRef(saveController);
     saveControllerRef.current = saveController;
     const saveIndicator = describeDirectorSaveStatus(saveController.progress);
+    const updateBlockReason = saving
+        ? "导演台正在应用修改"
+        : sceneReferenceUploading || panoramaUploading
+            ? "导演台正在上传素材"
+            : recording
+                ? "导演台正在导出视频"
+                : sceneLayoutBusy
+                    ? "导演台正在生成场景布局"
+                    : shouldBlockDirectorUnload(saveController.progress)
+                        ? "导演台还有未保存的修改"
+                        : "";
+    useAppUpdateSafetyBlocker(`director:${projectId || "unknown"}:${scene?.id || "closed"}`, open && Boolean(updateBlockReason), updateBlockReason || "导演台正在处理修改");
 
     const retrySave = async () => {
         setRetrying(true);

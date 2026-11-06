@@ -3,6 +3,7 @@ import { Alert, Button, Checkbox, Input, InputNumber, Select } from "antd";
 import { Plus, Redo2, Save, Trash2, Undo2, X } from "lucide-react";
 import { nanoid } from "nanoid";
 import { AppModal } from "@/components/ui/product/app-modal";
+import { useAppUpdateSafetyBlocker } from "@/stores/use-app-update-safety-store";
 import { canvasNodeResourceId } from "@/lib/canvas/canvas-resource-id";
 import { compileCanvasWorkflow } from "@/lib/canvas/reusable-workflow";
 import { abstractWorkflowDefinition, connectWorkflowDraft, isWorkflowOperation, removeWorkflowDraftNode, switchWorkflowOperation, validateWorkflowDraft, workflowAppendPositions, workflowDurationSources, workflowEditableFields, workflowEditorPositions, workflowOperationDefaults, workflowOperationId } from "@/lib/canvas/workflow-editor";
@@ -49,6 +50,11 @@ export function CanvasWorkflowEditor({ initial, operations, canvasNodes, canvasC
     const alive = useRef(true);
     useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
     const dirty = JSON.stringify(draft) !== JSON.stringify(initialDraft);
+    useAppUpdateSafetyBlocker(
+        `workflow-editor:${draft.id}`,
+        !readOnly && (dirty || saving || uploading),
+        saving ? "工作流正在保存" : uploading ? "工作流正在上传素材" : "工作流还有未保存的修改",
+    );
     const commit = (change: (current: CanvasWorkflow) => CanvasWorkflow) => {
         if (saving || uploading || readOnly) return;
         setHistory(current => {

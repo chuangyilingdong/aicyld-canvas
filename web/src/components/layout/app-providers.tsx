@@ -5,6 +5,7 @@ import { App, ConfigProvider } from "antd";
 import zhCN from "antd/locale/zh_CN";
 
 import { WorkspaceBootstrapHydrator } from "@/components/workspace/workspace-bootstrap-hydrator";
+import { AppUpdateController } from "@/components/layout/app-update-controller";
 import { FullScreenLoader } from "@/components/ui/aceternity/full-screen-loader";
 import { appPathname } from "@/lib/app-routing";
 import { getAntThemeConfig } from "@/lib/app-theme";
@@ -43,6 +44,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         <ConfigProvider locale={zhCN} theme={getAntThemeConfig(dark, appearance.activeSkin)} modal={{ centered: true }}>
             <App message={{ duration: 3, maxCount: 3 }} notification={{ duration: 4.5, maxCount: 3, placement: "topRight" }}>
                 <QueryClientProvider client={appQueryClient}>
+                    <AppUpdateController />
                     {isolateDevRepro ? (
                         children
                     ) : (

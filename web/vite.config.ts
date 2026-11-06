@@ -10,12 +10,14 @@ import { distributionNotices } from "../scripts/distribution-notices.mjs";
 
 const webDir = dirname(fileURLToPath(import.meta.url));
 const appVersion = process.env.CANVAS_BUILD_VERSION?.trim() || readFileSync(resolve(webDir, "../VERSION"), "utf8").trim();
+const buildTime = new Date().toISOString();
 const buildCommit = (() => {
     const configured = process.env.VITE_BUILD_COMMIT?.trim();
     if (configured && /^[a-f0-9]{7,40}$/i.test(configured)) return configured;
     try { return execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: webDir, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); }
     catch { return "unknown"; }
 })();
+const appBuildId = `${appVersion}:${buildCommit}:${buildTime}`;
 const apiProxyTarget = process.env.VITE_API_PROXY_TARGET?.trim() || "http://127.0.0.1:8080";
 const desktopLaunchToken = process.env.VITE_DESKTOP_LAUNCH_TOKEN?.trim();
 const heavyMediaEnabled = resolveHeavyMediaEnabled(process.env.BEEFTV_FULL_MEDIA_RESOURCES);
@@ -66,13 +68,31 @@ function licenseNoticesPlugin(): Plugin {
     };
 }
 
+function releaseManifestPlugin(): Plugin {
+    return {
+        name: "beeftv-release-manifest",
+        generateBundle(_options, bundle) {
+            const files = Object.keys(bundle)
+                .map((name) => name.replaceAll("\\", "/"))
+                .filter((name) => !name.endsWith(".map"))
+                .sort();
+            this.emitFile({
+                type: "asset",
+                fileName: "version.json",
+                source: `${JSON.stringify({ version: appVersion, commit: buildCommit, buildTime, buildId: appBuildId, files }, null, 2)}\n`,
+            });
+        },
+    };
+}
+
 export default defineConfig({
-    plugins: [react(), pruneOptionalMediaPlugin(), licenseNoticesPlugin()],
+    plugins: [react(), pruneOptionalMediaPlugin(), licenseNoticesPlugin(), releaseManifestPlugin()],
     define: {
         __APP_VERSION__: JSON.stringify(appVersion),
         __BEEFTV_HEAVY_MEDIA_ENABLED__: JSON.stringify(heavyMediaEnabled),
         "import.meta.env.VITE_APP_VERSION": JSON.stringify(appVersion),
         "import.meta.env.VITE_BUILD_COMMIT": JSON.stringify(buildCommit),
+        "import.meta.env.VITE_APP_BUILD_ID": JSON.stringify(appBuildId),
     },
     server: {
         proxy: {

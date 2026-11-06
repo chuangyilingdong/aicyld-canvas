@@ -21,6 +21,7 @@ import { useEditorSlots, type EditorSlotRegistration } from "@/lib/plugins/edito
 import { pluginMayRenderEditorSlot } from "@/lib/plugins/plugin-permission-check";
 import { EditorStoreProvider } from "@/components/editor/editor-context";
 import { createEditorStore } from "@/stores/editor/editor-store";
+import { useAppUpdateSafetyStore } from "@/stores/use-app-update-safety-store";
 import { registerDesktopUpdatePreparation } from "@/services/desktop-update-preparation";
 import { localForageStorageForScope } from "@/lib/localforage-storage";
 import { getActiveUserScope } from "@/lib/user-scope";
@@ -346,6 +347,21 @@ export default function ProjectEditorView({ detail }: { detail: ProjectDetail })
             unregister();
         };
     }, [store]);
+
+    useEffect(() => {
+        const key = `project-editor:${projectId}`;
+        const sync = () => {
+            const state = store.getState();
+            const reason = state.saving ? "编辑器正在保存" : state.isDirty ? "编辑器还有未保存的修改" : "";
+            useAppUpdateSafetyStore.getState().setBlocker(key, Boolean(reason), reason || "编辑器正在处理修改");
+        };
+        sync();
+        const unsubscribe = store.subscribe(sync);
+        return () => {
+            unsubscribe();
+            useAppUpdateSafetyStore.getState().clearBlocker(key);
+        };
+    }, [projectId, store]);
 
     // 进入编辑器时只加载当前用户和项目作用域的本地时间线；没有真实数据时保持空时间线，禁止注入虚构片段。
     useEffect(() => {
