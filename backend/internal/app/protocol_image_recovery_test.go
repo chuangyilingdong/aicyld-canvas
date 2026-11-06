@@ -59,6 +59,8 @@ func TestFailedDeclarativeImageRecoveryUsesImageJobWithoutFrozenSubmission(t *te
 		ImageJobID: "task-image-recover",
 		InputJSON:  string(inputJSON),
 	}
+	unrecoverable := "unrecoverable"
+	task.RecoveryOutcome = &unrecoverable
 	if err := db.Create(&task).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -113,6 +115,8 @@ func TestFailedDeclarativeImageRecoveryPendingKeepsSameProviderTask(t *testing.T
 		ImageJobID: "task-image-pending",
 		InputJSON:  string(inputJSON),
 	}
+	unrecoverable := "unrecoverable"
+	task.RecoveryOutcome = &unrecoverable
 	if err := db.Create(&task).Error; err != nil {
 		t.Fatal(err)
 	}

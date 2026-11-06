@@ -89,6 +89,12 @@ func (s *Service) ManagedImageNeedsRecheck(task model.Task) bool {
 	if task.RecoveryOutcome == nil || *task.RecoveryOutcome != localtask.RecoveryUnrecoverable {
 		return false
 	}
+	if task.Type == "canvas_image" && strings.TrimSpace(task.ImageJobID) != "" {
+		// Declarative async image providers keep the task identity even when no
+		// frozen HTTP request was captured. That ID is enough to query the
+		// original job without resubmitting it.
+		return true
+	}
 	if ManagedTaskConnection(task) {
 		return true
 	}
