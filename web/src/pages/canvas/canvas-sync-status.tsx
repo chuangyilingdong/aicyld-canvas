@@ -58,8 +58,9 @@ function syncStatusIcon(localOnly: boolean, tone: CanvasSyncStatusView["tone"]) 
 }
 
 export function CanvasSyncStatus({ projectId, onLoadLatest, onOpenVersions }: { projectId: string; onLoadLatest: () => Promise<void>; onOpenVersions?: () => void }) {
-    const { message } = App.useApp();
+    const { message, modal } = App.useApp();
     const progress = useSyncProgressStore((state) => state.syncingProjects[canvasSyncProgressKey(projectId)]);
+    const conflictNoticeShownRef = useRef(false);
     const localOnly = workspaceCapabilities().local;
     const [busy, setBusy] = useState(false);
     const [statusOpen, setStatusOpen] = useState(false);
@@ -148,6 +149,29 @@ export function CanvasSyncStatus({ projectId, onLoadLatest, onOpenVersions }: { 
     };
     const view = canvasSyncStatusView(localOnly, progress);
     const label = view.label;
+
+    // A save conflict is a preflight block, not a model error. Give the user a
+    // single actionable recovery path instead of making them discover the
+    // tiny top-bar status popover themselves.
+    useEffect(() => {
+        if (progress?.phase !== "conflict") {
+            conflictNoticeShownRef.current = false;
+            return;
+        }
+        if (conflictNoticeShownRef.current) return;
+        conflictNoticeShownRef.current = true;
+        modal.confirm({
+            title: "画布已更新，需要刷新",
+            content: "这次生成没有提交。刷新页面后会自动加载最新版本，再点击生成即可。",
+            okText: "刷新页面",
+            cancelText: "稍后",
+            centered: true,
+            onOk: () => window.location.reload(),
+            onCancel: () => {
+                conflictNoticeShownRef.current = false;
+            },
+        });
+    }, [modal, progress?.phase, projectId]);
     // 替换前会先把当前内容存成本地草稿；草稿没存成时不替换，并把原因告诉用户。
     const adoptLatest = async () => {
         setAdopting(true);
