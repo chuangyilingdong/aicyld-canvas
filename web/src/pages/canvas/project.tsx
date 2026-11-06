@@ -466,6 +466,22 @@ function InfiniteCanvasPage() {
         lodEnterScaleRef,
     });
 
+    const didAutoFitProjectRef = useRef("");
+    useEffect(() => {
+        if (!projectLoaded || didAutoFitProjectRef.current === projectId) return;
+        // Fresh hosted tabs have no local camera yet. Fit once after hydration so
+        // off-center content is visible without asking the user to find zoom controls.
+        const timer = window.setTimeout(() => {
+            const project = useCanvasStore.getState().projects.find((item) => item.id === projectId);
+            const saved = project?.viewport;
+            if (saved && !(saved.x === 0 && saved.y === 0 && saved.k === 1)) return;
+            if (!nodesRef.current.length) return;
+            fitCanvasContent();
+            didAutoFitProjectRef.current = projectId;
+        }, 500);
+        return () => window.clearTimeout(timer);
+    }, [fitCanvasContent, nodesRef, projectId, projectLoaded]);
+
     const workflowInstances = useCanvasWorkflowInstances({
         canvasId: projectId, domainProjectId: currentProject?.projectId, readOnly, nodes, nodesRef, setNodes, connectionsRef, setConnections, getCanvasCenter,
         persist: () => saveCanvasProject({ requireRemote: false }),
