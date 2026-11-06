@@ -22,3 +22,8 @@ test("HTTP 402 keeps the classified upstream cause without exposing its raw body
     expect(generationErrorMessage({ status: 402, data: { error: { message: "subscription required api_key=PRIVATE" } } })).toContain("计费或额度");
     expect(generationErrorMessage({ status: 402, data: { error: { message: "subscription required api_key=PRIVATE" } } })).not.toContain("PRIVATE");
 });
+
+test("stale browser-local references explain that they must be uploaded again", () => {
+    const raw = "参考图片只保存在原浏览器的临时缓存里，当前浏览器无法读取；请重新上传这张图片后再生成。";
+    expect(generationErrorMessage(raw)).toBe("参考素材只保存在原浏览器的临时缓存里，当前浏览器无法读取；请重新上传参考素材后再生成");
+});

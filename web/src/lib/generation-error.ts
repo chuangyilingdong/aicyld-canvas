@@ -550,6 +550,8 @@ function classifyText(raw: string): Classified {
         if (status) return classifyHttp(status, "");
         return { category: "malformed_response", retryable: false };
     }
+    const localReference = localReferenceCacheFailureMessage(text);
+    if (localReference) return { category: "input_inaccessible", reason: localReference, action: "", retryable: false };
     const storage = resourceStorageFailureMessage(text);
     if (storage) return { category: "input_inaccessible", reason: storage.replace(/。$/, ""), action: "", retryable: false };
     const fields = extractProviderFields(text);
@@ -704,6 +706,14 @@ function persistedReferencePreparation(raw: string): Classified | undefined {
 function confirmedReferencePreparation(classified: Classified) {
     const copy = REFERENCE_PREPARATION_COPY[classified.providerCode || ""];
     return Boolean(copy && !classified.uncertain && classified.category === "provider_unavailable" && classified.reason === copy.reason && classified.action === copy.action);
+}
+
+function localReferenceCacheFailureMessage(value: string) {
+    if (!value) return "";
+    if (/参考(?:图片|媒体).{0,40}(?:只保存在原浏览器|当前浏览器无法读取)/i.test(value)) {
+        return "参考素材只保存在原浏览器的临时缓存里，当前浏览器无法读取；请重新上传参考素材后再生成。";
+    }
+    return "";
 }
 
 function resourceStorageFailureMessage(value: string) {

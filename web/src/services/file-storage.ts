@@ -1,6 +1,7 @@
 import { nanoid } from "nanoid";
 
 import { getActiveUserScope } from "@/lib/user-scope";
+import { isLocalRuntimeMode } from "@/lib/runtime-mode";
 import { captureVideoPoster, detectVideoAudioTrackFromBlob } from "@/lib/video-poster";
 import { resourceFileUrl, resourceIdFromStorageKey, resourceStorageKey, ResourceUploadError, uploadResourceFile } from "@/services/api/resources";
 import { apiBaseURL } from "@/services/api/request";
@@ -121,9 +122,15 @@ export async function uploadMediaFile(input: Blob, prefix = "file", onProgress?:
             // 与图片上传同一套判定：永久性失败必须当场暴露，不能混进“稍后自动同步”。
             if (error instanceof ResourceUploadError && error.permanent) throw error;
             remoteUploadError = error instanceof Error ? error.message : "媒体直传失败";
+            if (!isLocalRuntimeMode()) {
+                throw new ResourceUploadError(
+                    remoteUploadError ? `媒体没有保存到云端：${remoteUploadError}` : "媒体没有保存到云端，请检查网络或对象存储后重试",
+                    { permanent: false, cause: error },
+                );
+            }
         }
 
-        // 本地资源服务暂时不可用时退回浏览器本地缓存，保持当前编辑可用。
+        // 仅本机运行时可以退回浏览器本地缓存，保持离线编辑可用。
         await saveLocalMedia(storageKey, blob, previewUrl);
         retainPreviewUrl = true;
         return {

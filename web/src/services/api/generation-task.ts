@@ -416,7 +416,9 @@ async function prepareBackendMediaReference(media: ReferenceVideo | ReferenceAud
     const url = media.url || "";
     if (/^https?:\/\//i.test(url)) return backendMediaReference(media, { url });
     let blob: Blob | null = null;
+    const localOnly = Boolean(media.storageKey && !resourceIdFromStorageKey(media.storageKey));
     if (media.storageKey) blob = await getMediaBlob(media.storageKey);
+    if (!blob && localOnly) throw new Error("参考媒体只保存在原浏览器的临时缓存里，当前浏览器无法读取；请重新上传这段参考素材后再生成。");
     if (!blob && (url.startsWith("blob:") || url.startsWith("data:"))) blob = await (await fetch(url)).blob();
     if (!blob) throw new Error("参考媒体尚未保存，请重新上传后再生成");
     try {
@@ -433,7 +435,9 @@ async function prepareBackendImageReference(image: ReferenceImage, preferArkAsse
     if (resourceIdFromStorageKey(image.storageKey)) return backendImageReference(image, { storageKey: image.storageKey });
     const sourceUrl = image.url || image.dataUrl;
     if (/^https?:\/\//i.test(sourceUrl)) return backendImageReference(image, { url: sourceUrl });
+    const localOnly = Boolean(image.storageKey && !resourceIdFromStorageKey(image.storageKey));
     const blob = image.storageKey ? await getImageBlob(image.storageKey) : sourceUrl ? await (await fetch(sourceUrl)).blob() : null;
+    if (!blob && localOnly) throw new Error("参考图片只保存在原浏览器的临时缓存里，当前浏览器无法读取；请重新上传这张图片后再生成。");
     if (!blob) throw new Error("参考图片尚未保存，请重新上传后再生成");
     try {
         const resource = await uploadResourceFile(blob, "image", { fileName: image.name });

@@ -88,8 +88,16 @@ export async function uploadImage(input: string | Blob, onProgress?: (uploadedBy
             // 鉴权失效、越权、体积超限这类失败重传也是同样结果，不能退化成"稍后自动同步"。
             if (error instanceof ResourceUploadError && error.permanent) throw error;
             remoteUploadError = error instanceof Error ? error.message : "图片直传失败";
+            if (!localRuntime) {
+                // 云端画布会跨设备/刷新继续使用；只在 IndexedDB 里留一份会让
+                // 后续生成引用一个已经失效的 blob URL，必须当场要求重试。
+                throw new ResourceUploadError(
+                    remoteUploadError ? `图片没有保存到云端：${remoteUploadError}` : "图片没有保存到云端，请检查网络或对象存储后重试",
+                    { permanent: false, cause: error },
+                );
+            }
         }
-        // 本地服务暂时不可用时退回浏览器本地缓存，确保当前创作不中断。
+        // 仅本机运行时可以退回浏览器本地缓存，保证离线创作不中断。
         await store.setItem(storageKey, blob);
         const url = previewUrl;
         objectUrls.set(storageKey, url);
