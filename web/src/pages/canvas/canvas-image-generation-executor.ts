@@ -229,6 +229,7 @@ export async function executeImageGeneration({
     let representativeFailure: GenerationFailureMetadata | undefined;
     let abandoned = false;
     let saveFailureMessage: string | undefined;
+    let preflightBlocked = false;
     const nativeTasks = new Map<number, Promise<GenerationTask>>();
     let nativeBindTail = Promise.resolve();
     await Promise.all(
@@ -348,7 +349,14 @@ export async function executeImageGeneration({
                     return false;
                 }
                 if (!isCurrent() || isGenerationCanceled(error)) return false;
-                if (error instanceof CanvasGenerationTargetSaveError) saveFailureMessage = error.message;
+                if (error instanceof CanvasGenerationTargetSaveError) {
+                    // A canvas conflict means no paid task was submitted. It is a
+                    // canvas-level condition, so do not turn the node into a new
+                    // model failure just because the user clicked generate.
+                    preflightBlocked = true;
+                    saveFailureMessage = error.message;
+                    return false;
+                }
                 const failure = canvasGenerationFailureMetadata(error, { prompt: effectivePrompt, referenceImages });
                 if (!representativeFailure || failure.generationErrorCode === CONTENT_MODERATION_ERROR_CODE) representativeFailure = failure;
                 hasFailure = true;
@@ -389,6 +397,23 @@ export async function executeImageGeneration({
             }
             return cancelled.nodes.map((node) => (node.id === nodeId && isConfigNode && node.metadata?.status === NODE_STATUS_LOADING ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_IDLE, errorDetails: undefined } } : node));
         });
+        return;
+    }
+    if (preflightBlocked) {
+        setNodes((current) => {
+            const cancelled = cancelIncompleteImageBatch(rootId, childIds, current, []);
+            const nodes = cancelled.nodes.map((node) => {
+                if (node.id !== nodeId || node.metadata?.status !== NODE_STATUS_LOADING) return node;
+                return { ...node, metadata: { ...node.metadata, status: node.metadata?.content ? NODE_STATUS_SUCCESS : NODE_STATUS_IDLE, errorDetails: undefined } };
+            });
+            if (cancelled.removedIds.length) {
+                const removed = new Set(cancelled.removedIds);
+                setConnections((connections) => connections.filter((connection) => !removed.has(connection.fromNodeId) && !removed.has(connection.toNodeId)));
+            }
+            if (projectId) useCanvasStore.getState().updateProject(projectId, { nodes });
+            return nodes;
+        });
+        showError(saveFailureMessage || "画布尚未保存，未开始生成。请先处理画布提示后重试");
         return;
     }
     const representativeOutcome = readNodeTaskOutcome(representativeFailure);

@@ -30,6 +30,7 @@ import { findGenerationTaskByOperation, queryGenerationTask, waitForGenerationTa
 import { useConfigStore, useEffectiveConfig, resolveModelRequestConfig } from "@/stores/use-config-store";
 import { seedanceReferenceRatioWarning } from "@/lib/seedance-channel-warning";
 import { useAssetStore, type Asset } from "@/stores/use-asset-store";
+import { CanvasGenerationTargetSaveError } from "@/services/canvas-generation-errors";
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData } from "@/types/canvas";
 
 import { executeImageGeneration } from "./canvas-image-generation-executor";
@@ -587,6 +588,26 @@ export function useCanvasGenerationExecutor({
                             else await executeTextGeneration(execution);
                         } catch (error) {
                             if (isGenerationCanceled(error)) return;
+                            if (error instanceof CanvasGenerationTargetSaveError) {
+                                // Canvas conflicts are a canvas-level preflight state, not a
+                                // generation result for this node. Restore the node and remove
+                                // placeholders instead of creating another failed frame.
+                                const pending = new Set(pendingNodeIds);
+                                setNodes((current) => current
+                                    .filter((node) => node.id === nodeId || !pending.has(node.id))
+                                    .map((node) => {
+                                        if (node.id !== nodeId) return node;
+                                        const metadata = sourceNode?.metadata ?? {
+                                            ...node.metadata,
+                                            status: node.metadata?.content ? NODE_STATUS_SUCCESS : NODE_STATUS_IDLE,
+                                            errorDetails: undefined,
+                                        };
+                                        return { ...node, metadata };
+                                    }));
+                                setConnections((current) => current.filter((connection) => !pending.has(connection.fromNodeId) && !pending.has(connection.toNodeId)));
+                                message.warning(error.message);
+                                return;
+                            }
                             const failure = canvasGenerationFailureMetadata(error, { ...generationContext, mode });
                             if (options?.waitForTaskCapacity && isGenerationTaskCapacityError(error)) {
                                 setNodes((current) =>

@@ -7,14 +7,6 @@ import { useCanvasStore, type CanvasProject } from "@/stores/canvas/use-canvas-s
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 import type { TimelineDirectMedia } from "@/types/timeline";
 import { CanvasGenerationTargetSaveError } from "./canvas-generation-errors";
-import { CanvasBackendSubmitPausedError, pauseCanvasBackendSubmit } from "@/services/canvas-revision-conflict";
-
-function surfaceBlockedGenerationSave(projectId: string, error: unknown) {
-    // A preflight save can be blocked by the external-revision guard before the
-    // normal save-progress publisher runs. Publish the conflict phase here so
-    // the global sync-status dialog gives the user the single refresh action.
-    if (error instanceof CanvasBackendSubmitPausedError) pauseCanvasBackendSubmit(projectId);
-}
 
 export function isCanvasMediaAssetGuardError(error: unknown) {
     const message = error instanceof Error ? error.message : error && typeof error === "object" && "message" in error && typeof (error as { message?: unknown }).message === "string" ? (error as { message: string }).message : "";
@@ -314,7 +306,6 @@ export async function persistCanvasGenerationTarget(input: {
         await persist(input.projectId, { nodes: project.nodes, connections: project.connections });
     } catch (error) {
         rethrowIfControlError(error);
-        surfaceBlockedGenerationSave(input.projectId, error);
         if (isCanvasMediaAssetGuardError(error)) {
             try {
                 const healed = await healCanvasProjectMediaAssets(project, {
@@ -336,7 +327,6 @@ export async function persistCanvasGenerationTarget(input: {
                 );
             } catch (retryError) {
                 rethrowIfControlError(retryError);
-                surfaceBlockedGenerationSave(input.projectId, retryError);
                 throw new CanvasGenerationTargetSaveError(retryError);
             }
         } else {

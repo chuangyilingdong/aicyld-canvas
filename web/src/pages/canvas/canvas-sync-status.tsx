@@ -51,6 +51,14 @@ export function canvasSyncStatusView(localOnly: boolean, progress: Pick<SyncProj
     };
 }
 
+/** 画布冲突归属整张画布，不能依赖某个节点的生成失败来触发。 */
+export function canvasConflictNeedsLatestRevision(
+    externalConflict: unknown,
+    progress?: Pick<SyncProjectProgress, "phase"> | undefined,
+) {
+    return Boolean(externalConflict) || progress?.phase === "conflict";
+}
+
 function syncStatusIcon(localOnly: boolean, tone: CanvasSyncStatusView["tone"]) {
     if (tone === "saving") return <LoaderCircle className="size-3.5 animate-spin motion-reduce:animate-none" />;
     if (localOnly) return tone === "failed" ? <CircleAlert className="size-3.5" /> : <CheckCircle2 className="size-3.5 text-emerald-500" />;
@@ -58,9 +66,8 @@ function syncStatusIcon(localOnly: boolean, tone: CanvasSyncStatusView["tone"]) 
 }
 
 export function CanvasSyncStatus({ projectId, onLoadLatest, onOpenVersions }: { projectId: string; onLoadLatest: () => Promise<void>; onOpenVersions?: () => void }) {
-    const { message, modal } = App.useApp();
+    const { message } = App.useApp();
     const progress = useSyncProgressStore((state) => state.syncingProjects[canvasSyncProgressKey(projectId)]);
-    const conflictNoticeShownRef = useRef(false);
     const localOnly = workspaceCapabilities().local;
     const [busy, setBusy] = useState(false);
     const [statusOpen, setStatusOpen] = useState(false);
@@ -149,29 +156,8 @@ export function CanvasSyncStatus({ projectId, onLoadLatest, onOpenVersions }: { 
     };
     const view = canvasSyncStatusView(localOnly, progress);
     const label = view.label;
+    const canvasNeedsAdoption = canvasConflictNeedsLatestRevision(externalConflict, progress);
 
-    // A save conflict is a preflight block, not a model error. Give the user a
-    // single actionable recovery path instead of making them discover the
-    // tiny top-bar status popover themselves.
-    useEffect(() => {
-        if (progress?.phase !== "conflict") {
-            conflictNoticeShownRef.current = false;
-            return;
-        }
-        if (conflictNoticeShownRef.current) return;
-        conflictNoticeShownRef.current = true;
-        modal.confirm({
-            title: "画布已更新，需要刷新",
-            content: "这次生成没有提交。刷新页面后会自动加载最新版本，再点击生成即可。",
-            okText: "刷新页面",
-            cancelText: "稍后",
-            centered: true,
-            onOk: () => window.location.reload(),
-            onCancel: () => {
-                conflictNoticeShownRef.current = false;
-            },
-        });
-    }, [modal, progress?.phase, projectId]);
     // 替换前会先把当前内容存成本地草稿；草稿没存成时不替换，并把原因告诉用户。
     const adoptLatest = async () => {
         setAdopting(true);
@@ -196,18 +182,18 @@ export function CanvasSyncStatus({ projectId, onLoadLatest, onOpenVersions }: { 
 
     return (
         <>
-            {externalConflict ? (
+            {canvasNeedsAdoption ? (
                 <Button
                     size="small"
                     type="text"
                     data-canvas-external-revision={externalRevision}
                     className="canvas-sync-external-notice"
                     loading={adopting}
-                    aria-label="画布已在别处更新，使用最新版本"
+                    aria-label="画布已更新，使用最新版本"
                     icon={<RefreshCw className="size-3.5" />}
                     onClick={() => void adoptLatest()}
                 >
-                    <span className="canvas-sync-status-label text-xs">画布已在别处更新 · 使用最新版本</span>
+                    <span className="canvas-sync-status-label text-xs">画布已更新 · 使用最新版本</span>
                 </Button>
             ) : null}
             {latestExternalWrite ? (

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { canvasSyncStatusView } from "@/pages/canvas/canvas-sync-status";
+import { canvasConflictNeedsLatestRevision, canvasSyncStatusView } from "@/pages/canvas/canvas-sync-status";
 
 describe("本地画布保存状态", () => {
     test("排队和提交中都显示正在保存，不提前说已保存", () => {
@@ -40,5 +40,13 @@ describe("云端画布保存状态保持原样", () => {
         expect(canvasSyncStatusView(false, { phase: "saving" })).toMatchObject({ label: "正在保存", tone: "saving" });
         expect(canvasSyncStatusView(false, { phase: "done" })).toMatchObject({ label: "已保存", tone: "saved", detail: "画布已同步到云端", note: undefined });
         expect(canvasSyncStatusView(false, { phase: "error" })).toMatchObject({ label: "云端未保存", tone: "failed" });
+    });
+});
+
+describe("画布级冲突提示", () => {
+    test("画布冲突与同步暂停由顶层状态触发，不依赖节点失败", () => {
+        expect(canvasConflictNeedsLatestRevision(undefined, { phase: "done" })).toBe(false);
+        expect(canvasConflictNeedsLatestRevision({ projectId: "canvas-1" }, { phase: "done" })).toBe(true);
+        expect(canvasConflictNeedsLatestRevision(undefined, { phase: "conflict" })).toBe(true);
     });
 });
