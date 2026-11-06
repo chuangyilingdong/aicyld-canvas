@@ -1,4 +1,14 @@
 import { queryGenerationTask, retryGenerationTask, waitForGenerationTask, type GenerationTask } from "@/services/api/task-center";
+import { isRegenerateConfirm, type TaskOutcome } from "@/lib/task-outcome";
+
+/**
+ * Only replay the original task when its outcome is safe to reuse. A confirmed
+ * failure needs a fresh submission: the backend intentionally rejects replaying
+ * an uncertain submission, and the user has already accepted the extra charge.
+ */
+export function shouldReuseStoredVideoTask(outcome?: TaskOutcome | null) {
+    return !isRegenerateConfirm(outcome);
+}
 
 /** Retry the persisted request, never rebuild a failed video's inputs from the current canvas. */
 export async function retryStoredCanvasVideo(taskId: string, signal: AbortSignal, onTaskUpdate: (task: GenerationTask) => void,

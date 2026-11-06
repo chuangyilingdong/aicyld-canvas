@@ -32,7 +32,7 @@ import { navigateToSettings } from "@/lib/settings-navigation";
 import type { Skill } from "@/services/api/skills";
 import { skillRuntime, type SkillRuntimeMetadata } from "@/services/skill-runtime";
 import type { GenerationTask } from "@/services/api/task-center";
-import { retryStoredCanvasVideo } from "@/services/canvas-video-retry";
+import { retryStoredCanvasVideo, shouldReuseStoredVideoTask } from "@/services/canvas-video-retry";
 import { resolveImageUrl } from "@/services/image-storage";
 import { resolveModelRequestConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import type { Asset } from "@/stores/use-asset-store";
@@ -93,7 +93,7 @@ export function useCanvasGenerationRetry({
                 message.warning("当前节点不能使用通用生成重试");
                 return;
             }
-            if (retryMode === "video" && node.metadata?.taskId && node.metadata.status === "error") {
+            if (retryMode === "video" && node.metadata?.taskId && node.metadata.status === "error" && shouldReuseStoredVideoTask(readNodeTaskOutcome(node.metadata))) {
                 const outcome = readNodeTaskOutcome(node.metadata);
                 if (isRegenerateBlocked(outcome)) {
                     message.warning(node.metadata?.errorDetails || taskOutcomeCopy(outcome).message);

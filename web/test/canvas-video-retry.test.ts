@@ -1,5 +1,5 @@
 import { expect, test, mock } from "bun:test";
-import { retryStoredCanvasVideo } from "../src/services/canvas-video-retry";
+import { retryStoredCanvasVideo, shouldReuseStoredVideoTask } from "../src/services/canvas-video-retry";
 import type { GenerationTask } from "../src/services/api/task-center";
 
 test("video retry reuses the persisted task without reading changed canvas inputs", async () => {
@@ -34,4 +34,10 @@ test("accepted or completed original videos are recovered instead of resubmitted
         });
         expect(retryGenerationTask).not.toHaveBeenCalled();
     }
+});
+
+test("confirmed uncertain video failures create a fresh task instead of replaying the old one", () => {
+    expect(shouldReuseStoredVideoTask({ phase: "failed", regenerate: "confirm", reason: "result_unrecoverable" })).toBe(false);
+    expect(shouldReuseStoredVideoTask({ phase: "failed", regenerate: "allowed", reason: "refunded" })).toBe(true);
+    expect(shouldReuseStoredVideoTask({ phase: "failed", regenerate: "blocked", reason: "submission_unknown" })).toBe(true);
 });
