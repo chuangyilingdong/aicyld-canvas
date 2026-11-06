@@ -4,6 +4,7 @@ import type { ViewportTransform } from "@/types/canvas";
 export function useCanvasViewportState(projectId: string, projectLoaded: boolean, savedViewport?: ViewportTransform) {
     const containerRef = useRef<HTMLDivElement>(null);
     const didInitialCenter = useRef(false);
+    const restoredProjectRef = useRef("");
     const [viewport, setCommittedViewport] = useState<ViewportTransform>({ x: 0, y: 0, k: 1 });
     const viewportRef = useRef(viewport);
     const [virtualizationViewport, setVirtualizationViewport] = useState<ViewportTransform | null>(null);
@@ -13,7 +14,24 @@ export function useCanvasViewportState(projectId: string, projectLoaded: boolean
         setCommittedViewport(next);
     }, []);
     useLayoutEffect(() => { viewportRef.current = viewport; }, [viewport]);
-    useEffect(() => { didInitialCenter.current = false; }, [projectId]);
+    useEffect(() => { didInitialCenter.current = false; restoredProjectRef.current = ""; }, [projectId]);
+    // Hosted projects can hydrate their saved viewport one render after the
+    // first project snapshot. Apply it once when that real value arrives.
+    useEffect(() => {
+        if (!projectLoaded || restoredProjectRef.current === projectId) return;
+        if (!savedViewport) return;
+        const valid = Number.isFinite(savedViewport.x)
+            && Number.isFinite(savedViewport.y)
+            && Number.isFinite(savedViewport.k)
+            && savedViewport.k > 0
+            && !(savedViewport.x === 0 && savedViewport.y === 0 && savedViewport.k === 1);
+        if (!valid) return;
+        restoredProjectRef.current = projectId;
+        didInitialCenter.current = true;
+        const restored = { x: savedViewport.x, y: savedViewport.y, k: savedViewport.k };
+        viewportRef.current = restored;
+        setViewport(restored);
+    }, [projectId, projectLoaded, savedViewport, setViewport]);
     useEffect(() => {
         if (!projectLoaded || !containerRef.current) return;
         const element = containerRef.current;
