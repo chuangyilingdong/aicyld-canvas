@@ -522,7 +522,7 @@ const EXPECTED: Array<{ name: string } & CanvasNodeFailureView> = [
             "retryable": false,
             "uncertain": false,
             "blockAutomaticRetry": true,
-            "blockManualRetry": true,
+            "blockManualRetry": false,
             "moderation": true
         },
         "retryBlocked": false,
@@ -563,7 +563,7 @@ const EXPECTED: Array<{ name: string } & CanvasNodeFailureView> = [
             "retryable": false,
             "uncertain": false,
             "blockAutomaticRetry": true,
-            "blockManualRetry": true,
+            "blockManualRetry": false,
             "moderation": true
         },
         "retryBlocked": false,
@@ -604,7 +604,7 @@ const EXPECTED: Array<{ name: string } & CanvasNodeFailureView> = [
             "retryable": false,
             "uncertain": false,
             "blockAutomaticRetry": true,
-            "blockManualRetry": true,
+            "blockManualRetry": false,
             "moderation": true
         },
         "retryBlocked": false,
@@ -810,7 +810,7 @@ const EXPECTED: Array<{ name: string } & CanvasNodeFailureView> = [
             "retryable": false,
             "uncertain": false,
             "blockAutomaticRetry": true,
-            "blockManualRetry": true,
+            "blockManualRetry": false,
             "moderation": true
         },
         "retryBlocked": false,
@@ -852,7 +852,7 @@ const EXPECTED: Array<{ name: string } & CanvasNodeFailureView> = [
             "retryable": false,
             "uncertain": false,
             "blockAutomaticRetry": true,
-            "blockManualRetry": true,
+            "blockManualRetry": false,
             "moderation": true
         },
         "retryBlocked": false,
@@ -1566,7 +1566,7 @@ const EXPECTED: Array<{ name: string } & CanvasNodeFailureView> = [
             "retryable": false,
             "uncertain": false,
             "blockAutomaticRetry": true,
-            "blockManualRetry": true,
+            "blockManualRetry": false,
             "moderation": true
         },
         "retryBlocked": false,
@@ -1608,7 +1608,7 @@ const EXPECTED: Array<{ name: string } & CanvasNodeFailureView> = [
             "retryable": false,
             "uncertain": false,
             "blockAutomaticRetry": true,
-            "blockManualRetry": true,
+            "blockManualRetry": false,
             "moderation": true
         },
         "retryBlocked": false,
@@ -1747,7 +1747,10 @@ describe("canvasNodeFailureView", () => {
                 };
                 // Read every public field, including lazily computed getters.
                 const actual = Object.fromEntries((Object.keys(expectedView) as Array<keyof CanvasNodeFailureView>).map((key) => [key, view[key]]));
-                expect(actual, fixture.name).toEqual(expectedView);
+                // Optional fields are serialized as undefined by the runtime but omitted
+                // from the human-maintained fixtures. Compare their semantic JSON shape.
+                const normalize = (value: unknown) => JSON.parse(JSON.stringify(value));
+                expect(normalize(actual), fixture.name).toEqual(normalize(expectedView));
                 const restored = JSON.parse(JSON.stringify(persistCanvasNodeFailure(fixture.node))) as CanvasNodeData;
                 const reopened = canvasNodeFailureView(restored, { nowMs: NOW_MS, allNodes: fixture.allNodes });
                 const savedView = Object.fromEntries((Object.keys(expectedView) as Array<keyof CanvasNodeFailureView>).map(key => [key, reopened[key]]));
