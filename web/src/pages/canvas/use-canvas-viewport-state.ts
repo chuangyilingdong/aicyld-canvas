@@ -21,17 +21,18 @@ export function useCanvasViewportState(projectId: string, projectLoaded: boolean
             const rect = element.getBoundingClientRect();
             setSize(current => current.width === rect.width && current.height === rect.height ? current : { width: rect.width, height: rect.height });
             if (didInitialCenter.current) return;
-            didInitialCenter.current = true;
             const current = viewportRef.current;
             if (current.x === 0 && current.y === 0 && current.k === 1) {
-                const saved = savedViewport;
-                const restored = saved
-                    && Number.isFinite(saved.x)
-                    && Number.isFinite(saved.y)
-                    && Number.isFinite(saved.k)
-                    && saved.k > 0
-                    && !(saved.x === 0 && saved.y === 0 && saved.k === 1)
-                    ? { x: saved.x, y: saved.y, k: saved.k }
+                // Wait until the loaded project exposes its saved viewport; the
+                // store can hydrate one render after projectLoaded flips true.
+                if (!savedViewport) return;
+                didInitialCenter.current = true;
+                const restored = Number.isFinite(savedViewport.x)
+                    && Number.isFinite(savedViewport.y)
+                    && Number.isFinite(savedViewport.k)
+                    && savedViewport.k > 0
+                    && !(savedViewport.x === 0 && savedViewport.y === 0 && savedViewport.k === 1)
+                    ? { x: savedViewport.x, y: savedViewport.y, k: savedViewport.k }
                     : null;
                 const next = restored || { x: rect.width / 2, y: rect.height / 2, k: 1 };
                 viewportRef.current = next;
