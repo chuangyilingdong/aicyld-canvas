@@ -36,6 +36,16 @@ func TestDefaultVideoTaskTimeoutIsOneHour(t *testing.T) {
 	}
 }
 
+func TestDefaultImageTaskTimeoutAllowsSlowAsyncImageJobs(t *testing.T) {
+	policy := defaultRuntimePolicy().Task
+	if policy.ImageTimeoutMinutes != 20 {
+		t.Fatalf("default image timeout = %d minutes, want 20", policy.ImageTimeoutMinutes)
+	}
+	if got := taskExecutionTimeoutWithPolicy("canvas_image", policy); got != 20*time.Minute {
+		t.Fatalf("image execution timeout = %s, want 20m", got)
+	}
+}
+
 func TestProviderPollingDeadlineDefaultsToOneHour(t *testing.T) {
 	startedAt := time.Now()
 	deadline := providerPollingDeadline(context.Background())

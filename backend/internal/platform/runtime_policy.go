@@ -113,7 +113,7 @@ func DefaultRuntimePolicy() RuntimePolicySetting {
 			WorkerConcurrency:        effectiveChannelConcurrencyLimit(envInt("CANVAS_WORKER_CONCURRENCY", TaskWorkerConcurrency)),
 			ChannelConcurrency:       defaultChannelConcurrencyLimit(),
 			ActiveTaskLimit:          5,
-			ImageTimeoutMinutes:      8,
+			ImageTimeoutMinutes:      20,
 			TextTimeoutMinutes:       8,
 			AudioTimeoutMinutes:      8,
 			VideoTimeoutMinutes:      60,

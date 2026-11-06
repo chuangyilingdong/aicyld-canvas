@@ -179,9 +179,9 @@ func ExtractProviderTaskID(body []byte) (string, error) {
 	return "", err
 }
 
-// queryProtocolAdapterVideoTask 只读取一次已有的声明式 Provider 任务。
+// QueryProtocolAdapterTask 只读取一次已有的声明式 Provider 任务。
 // 人工恢复走此路径，因此检查本地失败任务时绝不会创建第二个上游任务。
-func QueryProtocolAdapterVideoTask(ctx context.Context, input Input, adapter protocol.Adapter, taskID string) (map[string]interface{}, string, error) {
+func QueryProtocolAdapterTask(ctx context.Context, input Input, adapter protocol.Adapter, taskID string) (map[string]interface{}, string, error) {
 	request := ProtocolRequestFromInput(input)
 	pollContext := protocol.PollContext{BaseURL: input.Config.BaseURL, Model: request.Model, Request: request, TaskID: taskID}
 	spec, err := adapter.BuildPoll(ctx, pollContext)
@@ -208,6 +208,24 @@ func QueryProtocolAdapterVideoTask(ctx context.Context, input Input, adapter pro
 	default:
 		return nil, providerStatus, fmt.Errorf("声明式协议任务 %s 返回未知状态：%s", taskID, providerStatus)
 	}
+}
+
+// QueryDeclarativeProtocolTask resolves the installed adapter from the saved
+// interface type before querying an existing task. It never builds a create
+// request, so recovering a failed image cannot submit a second paid job.
+func QueryDeclarativeProtocolTask(ctx context.Context, input Input, taskID string) (map[string]interface{}, string, error) {
+	ctx = EnsureOfficialProtocolAdapter(ctx, input.Config.InterfaceType)
+	adapter, ok := DeclarativeProtocolAdapterForContext(ctx, input.Config.InterfaceType)
+	if !ok {
+		return nil, "", fmt.Errorf("接口类型 %s 未安装可恢复的声明式适配器", input.Config.InterfaceType)
+	}
+	return QueryProtocolAdapterTask(ctx, input, adapter, taskID)
+}
+
+// QueryProtocolAdapterVideoTask remains the existing video-facing name for
+// callers that already resolved an adapter.
+func QueryProtocolAdapterVideoTask(ctx context.Context, input Input, adapter protocol.Adapter, taskID string) (map[string]interface{}, string, error) {
+	return QueryProtocolAdapterTask(ctx, input, adapter, taskID)
 }
 
 // tryStreamingDeclarativeTextCreate 让已知文本线协议在 Resolve 后的 StreamText 真正到达 OnTextDelta。

@@ -189,11 +189,8 @@ func (s *Service) RecoverFailedImage(ctx context.Context, candidate model.Task) 
 
 func (s *Service) ResolveImageRecoveryConfig(task model.Task) (generation.Config, bool) {
 	var config generation.Config
-	if decrypted, err := s.secrets.DecryptInputJSON(task.InputJSON); err == nil && strings.TrimSpace(decrypted) != "" {
-		var input generation.Input
-		if json.Unmarshal([]byte(decrypted), &input) == nil {
-			config = input.Config
-		}
+	if input, ok := s.ResolveImageRecoveryInput(task); ok {
+		config = input.Config
 	}
 	if attempt, err := s.repo.LatestRouteAttempt(task.ID); err == nil && attempt != nil {
 		if config.ChannelID == "" && attempt.ChannelID != "" {
@@ -224,8 +221,36 @@ func (s *Service) ResolveImageRecoveryConfig(task model.Task) (generation.Config
 	return config, strings.TrimSpace(config.BaseURL) != ""
 }
 
+func (s *Service) ResolveImageRecoveryInput(task model.Task) (generation.Input, bool) {
+	var input generation.Input
+	decrypted, err := s.secrets.DecryptInputJSON(task.InputJSON)
+	if err != nil || strings.TrimSpace(decrypted) == "" {
+		return input, false
+	}
+	if json.Unmarshal([]byte(decrypted), &input) != nil {
+		return generation.Input{}, false
+	}
+	return input, true
+}
+
+func (s *Service) isDeclarativeImageRecoveryTask(ctx context.Context, task model.Task) bool {
+	if task.Type != "canvas_image" {
+		return false
+	}
+	input, ok := s.ResolveImageRecoveryInput(task)
+	if !ok {
+		return false
+	}
+	queryCtx := generation.EnsureOfficialProtocolAdapter(ctx, input.Config.InterfaceType)
+	_, ok = generation.DeclarativeProtocolAdapterForContext(queryCtx, input.Config.InterfaceType)
+	return ok
+}
+
 func (s *Service) SyncFailedImageBeefSettlement(ctx context.Context, task *model.Task) error {
 	if task == nil {
+		return nil
+	}
+	if s.isDeclarativeImageRecoveryTask(ctx, *task) {
 		return nil
 	}
 	if attempt, err := s.repo.LatestRouteAttempt(task.ID); err == nil && attempt != nil {
@@ -299,6 +324,12 @@ func (s *Service) FailedImageResult(ctx context.Context, task model.Task) ([]byt
 }
 
 func (s *Service) FailedImageResultWith(ctx context.Context, task model.Task, send func(*http.Request, func() error) ([]byte, string, error)) ([]byte, string, error) {
+	if result, outcome, handled, protocolErr := s.failedProtocolImageResult(ctx, task); handled {
+		if protocolErr != nil {
+			return nil, "", protocolErr
+		}
+		return result, outcome, nil
+	}
 	all, err := s.repo.ImageRecoveryEvidence([]string{task.ID})
 	if err != nil {
 		return nil, "", err
@@ -444,6 +475,38 @@ func (s *Service) FailedImageResultWith(ctx context.Context, task model.Task, se
 	}
 	result, err = json.Marshal(map[string]any{"mode": "image", "images": images})
 	return result, "", err
+}
+
+// failedProtocolImageResult recovers declarative async image tasks by their
+// saved provider task ID. This path deliberately does not build a create
+// request: a missing frozen submission must not turn an existing paid job into
+// a second submission.
+func (s *Service) failedProtocolImageResult(ctx context.Context, task model.Task) ([]byte, string, bool, error) {
+	if task.Type != "canvas_image" || strings.TrimSpace(task.ImageJobID) == "" {
+		return nil, "", false, nil
+	}
+	input, ok := s.ResolveImageRecoveryInput(task)
+	if !ok {
+		return nil, "", false, nil
+	}
+	queryCtx := generation.EnsureOfficialProtocolAdapter(ctx, input.Config.InterfaceType)
+	if _, ok := generation.DeclarativeProtocolAdapterForContext(queryCtx, input.Config.InterfaceType); !ok {
+		return nil, "", false, nil
+	}
+	result, status, err := generation.QueryDeclarativeProtocolTask(queryCtx, input, strings.TrimSpace(task.ImageJobID))
+	if err != nil {
+		switch strings.ToLower(strings.TrimSpace(status)) {
+		case "failed", "cancelled", "canceled", "expired":
+			return nil, localtask.RecoveryNoResult, true, nil
+		default:
+			return nil, "", true, err
+		}
+	}
+	if result == nil {
+		return nil, "", true, nil
+	}
+	body, err := json.Marshal(result)
+	return body, "", true, err
 }
 
 func ImageReceiptConclusion(statusCode int, body string) string {
