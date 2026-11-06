@@ -404,6 +404,16 @@ function classifyUnknown(error: unknown, context: GenerationFailureContext): Cla
         if (record.name === "ApiError" && record.reason === "quota_exceeded") {
             return { category: "quota_limit", reason: sanitizeProviderText(String(record.message || "工作区用量已达到上限")), action: "请清理不需要的任务记录或素材后重试", fromCode: true, retryable: false };
         }
+        if (record.name === "ApiError" && numericStatus(record.status) === 402 && /^(?:积分不足|积分余额不足|当前账号积分不足)$/u.test(String(record.message || "").trim())) {
+            return {
+                category: "quota_user",
+                status: 402,
+                reason: "当前账号积分余额不足",
+                action: "本次未创建任务、未扣积分；请充值，或降低视频时长、分辨率后重试",
+                fromCode: true,
+                retryable: false,
+            };
+        }
         if (record.reason === "stale_revision" || record.code === "canvas_conflict") {
             return { category: "canvas_conflict", fromCode: true, retryable: false };
         }
@@ -453,6 +463,15 @@ function backendTaskFailure(record: Record<string, unknown>): Classified | undef
     if (typeof category !== "string" || !BACKEND_FAILURE_CATEGORIES.has(category) || typeof record.message !== "string") return undefined;
     const text = record.message.trim();
     if (!text) return undefined;
+    if (category === "quota_unknown" && /(?:^|\s)积分不足(?:\s|$)/u.test(text)) {
+        return {
+            category: "quota_user",
+            reason: "当前账号积分余额不足",
+            action: "本次未创建任务、未扣积分；请充值，或降低视频时长、分辨率后重试",
+            fromCode: true,
+            retryable: false,
+        };
+    }
     // 回传给后端的排查编号会被 explainGenerationError 重新拼上，这里先拆下来。
     const preparation = category === "provider_unavailable" ? persistedReferencePreparation(text) : undefined;
     if (preparation) return preparation;
@@ -482,6 +501,14 @@ function classifyHttp(status: number | undefined, body: unknown): Classified {
     const fields = extractProviderFields(typeof body === "string" ? body : body && typeof body === "object" ? stringifyAllowlisted(body) : "");
     // Local API reasons are handled before this provider-response fallback.
     if (classified.category === "local_disk_full" || classified.category === "local_credential") classified = { category: "unknown", retryable: false };
+    if (status === 402 && /^(?:积分不足|积分余额不足|当前账号积分不足)$/u.test(fields.message.trim())) {
+        classified = {
+            category: "quota_user",
+            fromCode: true,
+            reason: "当前账号积分余额不足",
+            action: "本次未创建任务、未扣积分；请充值，或降低视频时长、分辨率后重试",
+        };
+    }
     if (status === 402 && fields.code === "video_reservation_failed" && fields.message.startsWith("insufficient balance for this video request")) {
         classified = { ...classified, category: "quota_user", fromCode: true, reason: undefined, action: undefined };
     }

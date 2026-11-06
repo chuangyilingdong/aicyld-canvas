@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { buildBackendGenerationTaskQuoteInput } from "@/services/api/generation-task";
+import { buildCanvasGenerationQuoteInput } from "@/lib/canvas/canvas-generation-quote-input";
 
 describe("buildBackendGenerationTaskQuoteInput", () => {
     test("keeps reference counts and resource identities without uploading media", () => {
@@ -44,11 +44,13 @@ describe("buildBackendGenerationTaskQuoteInput", () => {
             ],
         };
 
-        const input = buildBackendGenerationTaskQuoteInput({
+        const input = buildCanvasGenerationQuoteInput({
             projectId: "canvas-1",
             mode: "video",
             prompt: "参考图生成视频",
             config: config as any,
+            metadata: { videoEditOperation: "reference_to_video" },
+        }, {
             referenceImages: [
                 {
                     id: "image-1",
@@ -82,7 +84,6 @@ describe("buildBackendGenerationTaskQuoteInput", () => {
                     durationMs: 1800,
                 },
             ],
-            metadata: { videoEditOperation: "reference_to_video" },
         });
 
         expect(input.operation).toBe("reference_to_video");

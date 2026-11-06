@@ -24,7 +24,7 @@ import type { Skill } from "@/services/api/skills";
 import { skillRuntime } from "@/services/skill-runtime";
 import { loadWorkspaceAssetsForUse } from "@/services/workspace-asset-read";
 import { recordDiagnosticEvent } from "@/services/diagnostics/client-diagnostics";
-import { buildBackendGenerationTaskQuoteInput } from "@/services/api/generation-task";
+import { buildCanvasGenerationQuoteInput } from "@/lib/canvas/canvas-generation-quote-input";
 import { quoteGenerationTask } from "@/services/api/task-billing";
 import { findGenerationTaskByOperation, queryGenerationTask, waitForGenerationTask, type GenerationTask } from "@/services/api/task-center";
 import { useConfigStore, useEffectiveConfig, resolveModelRequestConfig } from "@/stores/use-config-store";
@@ -438,7 +438,7 @@ export function useCanvasGenerationExecutor({
                             const quoteMessageKey = `canvas-billing-quote-${nodeId}`;
                             message.loading({ key: quoteMessageKey, content: "正在计算本次生成所需积分", duration: 0 });
                             try {
-                                const quoteInput = buildBackendGenerationTaskQuoteInput({
+                                const quoteInput = buildCanvasGenerationQuoteInput({
                                     projectId,
                                     mode,
                                     prompt: effectivePrompt,
@@ -451,7 +451,7 @@ export function useCanvasGenerationExecutor({
                                         ...styleMetadata,
                                         ...skillExecution.metadata,
                                     },
-                                });
+                                }, generationContext);
                                 const quote = await quoteGenerationTask(quoteInput);
                                 message.destroy(quoteMessageKey);
                                 const confirmed = await confirmCanvasBillingQuote(modal, quote, {
