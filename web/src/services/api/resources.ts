@@ -297,6 +297,7 @@ async function runChunkedUpload(file: Blob, name: string, kind: "image" | "video
         // raw 二进制直传，与后端按裸 body 逐片落盘对齐（勿设手动 Content-Type，让 axios 处理）。
         await http.put<{ index: number }>(`/resources/uploads/${encodeURIComponent(session.uploadId)}/chunks/${index}`, blob, {
             headers: { "Content-Type": "application/octet-stream" },
+            timeout: 0,
             onUploadProgress: onProgress ? ({ loaded }) => onProgress(uploaded + Math.min(loaded, blob.size), file.size) : undefined,
         });
         uploaded += blob.size;
@@ -349,7 +350,13 @@ export async function importResourceFromUrl(url: string, kind: "image" | "video"
 
 function uploadConfig(idempotencyKey?: string): HttpRequestConfig {
     const value = idempotencyKey?.trim();
-    return value ? { headers: { "X-Idempotency-Key": value } } : {};
+    return {
+        // Media upload duration depends on file size and the user's upstream
+        // bandwidth. The shared 4 s JSON timeout would abort healthy uploads
+        // and leave a failed placeholder node before the bytes finish.
+        timeout: 0,
+        ...(value ? { headers: { "X-Idempotency-Key": value } } : {}),
+    };
 }
 
 function lookupAbortError(signal?: { aborted?: boolean }) {

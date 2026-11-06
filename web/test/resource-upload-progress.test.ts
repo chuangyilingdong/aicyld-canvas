@@ -6,8 +6,10 @@ import { uploadResourceFile } from "../src/services/api/resources";
 test("普通 multipart 将传输进度换算为文件字节，总量未知不伪造百分比", async () => {
     const adapter = apiClient.defaults.adapter;
     const progress: number[][] = [];
+    let requestTimeout: number | undefined;
     try {
         apiClient.defaults.adapter = async (config) => {
+            requestTimeout = config.timeout;
             config.onUploadProgress?.({ loaded: 100, total: undefined } as AxiosProgressEvent);
             config.onUploadProgress?.({ loaded: 250, total: 1000 } as AxiosProgressEvent);
             config.onUploadProgress?.({ loaded: 1000, total: 1000 } as AxiosProgressEvent);
@@ -15,6 +17,7 @@ test("普通 multipart 将传输进度换算为文件字节，总量未知不伪
         };
         await uploadResourceFile(new Blob([new Uint8Array(400)]), "file", undefined, (loaded, total) => progress.push([loaded, total]));
         expect(progress).toEqual([[100, 400], [400, 400]]);
+        expect(requestTimeout).toBe(0);
     } finally {
         apiClient.defaults.adapter = adapter;
     }
@@ -25,9 +28,11 @@ test("分片上传累加片内真实进度，传输 100% 后仍须等待合并�
     const size = 51 * 1024 * 1024;
     const chunkSize = 32 * 1024 * 1024;
     const progress: number[][] = [];
+    const timeouts: Array<number | undefined> = [];
     let merged = false;
     try {
         apiClient.defaults.adapter = async (config) => {
+            timeouts.push(config.timeout);
             let data: unknown;
             if (config.url === "/resources/uploads") data = { uploadId: "session", chunkSize, chunkCount: 2 };
             else if (config.url?.endsWith("/complete")) {
@@ -45,6 +50,7 @@ test("分片上传累加片内真实进度，传输 100% 后仍须等待合并�
         await uploadResourceFile(new Blob([new Uint8Array(size)]), "video", undefined, (loaded, total) => progress.push([loaded, total]));
         expect(progress).toEqual([[chunkSize / 2, size], [chunkSize, size], [chunkSize + (size - chunkSize) / 2, size], [size, size]]);
         expect(merged).toBe(true);
+        expect(timeouts.every((timeout) => timeout === 0)).toBe(true);
     } finally {
         apiClient.defaults.adapter = adapter;
     }
