@@ -134,7 +134,8 @@ function InfiniteCanvasPage() {
     const projectId = params.id || "";
     const readOnly = searchParams.get("readonly") === "1" || searchParams.get("mode") === "readonly";
     const [projectLoaded, setProjectLoaded] = useState(false);
-    const viewportState = useCanvasViewportState(projectId, projectLoaded);
+    const savedViewport = useCanvasStore((state) => state.projects.find((project) => project.id === projectId)?.viewport);
+    const viewportState = useCanvasViewportState(projectId, projectLoaded, savedViewport);
     const { containerRef, viewport, viewportRef, setViewport, virtualizationViewport, setVirtualizationViewport, size } = viewportState;
 
     const config = useConfigStore((state) => state.config);
