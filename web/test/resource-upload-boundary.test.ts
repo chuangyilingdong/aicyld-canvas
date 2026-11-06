@@ -3,6 +3,7 @@ import axios from "axios";
 
 import { apiClient } from "@/services/api/request";
 import { ResourceUploadError, uploadResourceFile } from "@/services/api/resources";
+import { retryWait } from "@/lib/retry-delay";
 
 type AdapterResult = { status: number; body: unknown };
 
@@ -77,5 +78,91 @@ describe("资源直传失败分类", () => {
             body: { code: 0, msg: "", data: { resource: { id: "res-1", kind: "image", status: "ready", publicUrl: "", size: 1 } } },
         });
         expect(resource.id).toBe("res-1");
+    });
+
+    test("瞬时连接失败会用同一幂等键自动重试并成功", async () => {
+        const previousAdapter = apiClient.defaults.adapter;
+        const previousDelay = retryWait.delay;
+        const keys: string[] = [];
+        let attempts = 0;
+        retryWait.delay = async () => {};
+        apiClient.defaults.adapter = async (config) => {
+            attempts += 1;
+            keys.push(String(config.headers.get("X-Idempotency-Key")));
+            if (attempts === 1) throw new Error("Network Error");
+            return {
+                config,
+                status: 200,
+                statusText: "OK",
+                headers: {},
+                data: { code: 0, msg: "", data: { resource: { id: "res-replayed", kind: "image", status: "ready", size: 1 } } },
+            };
+        };
+        try {
+            const resource = await uploadResourceFile(new Blob(["x"], { type: "image/png" }), "image", { fileName: "x.png" });
+            expect(resource.id).toBe("res-replayed");
+            expect(attempts).toBe(2);
+            expect(keys).toHaveLength(2);
+            expect(keys[0]).toMatch(/^resource-upload:/);
+            expect(keys[1]).toBe(keys[0]);
+        } finally {
+            retryWait.delay = previousDelay;
+            apiClient.defaults.adapter = previousAdapter;
+        }
+    });
+
+    test("服务端返回上传进行中时重试幂等请求", async () => {
+        const previousAdapter = apiClient.defaults.adapter;
+        const previousDelay = retryWait.delay;
+        let attempts = 0;
+        retryWait.delay = async () => {};
+        apiClient.defaults.adapter = async (config) => {
+            attempts += 1;
+            if (attempts === 1) {
+                throw new axios.AxiosError("Conflict", "ERR_BAD_RESPONSE", config, undefined, {
+                    data: { code: 409, data: null, msg: "相同素材正在上传，请稍后重试" },
+                    status: 409,
+                    statusText: "Conflict",
+                    headers: {},
+                    config,
+                });
+            }
+            return {
+                config,
+                status: 200,
+                statusText: "OK",
+                headers: {},
+                data: { code: 0, msg: "", data: { resource: { id: "res-after-conflict", kind: "image", status: "ready", size: 1 } } },
+            };
+        };
+        try {
+            const resource = await uploadResourceFile(new Blob(["x"], { type: "image/png" }), "image", { fileName: "x.png", idempotencyKey: "stable-key" });
+            expect(resource.id).toBe("res-after-conflict");
+            expect(attempts).toBe(2);
+        } finally {
+            retryWait.delay = previousDelay;
+            apiClient.defaults.adapter = previousAdapter;
+        }
+    });
+
+    test("永久失败不会无意义重试", async () => {
+        const previousAdapter = apiClient.defaults.adapter;
+        let attempts = 0;
+        apiClient.defaults.adapter = async (config) => {
+            attempts += 1;
+            throw new axios.AxiosError("Unauthorized", "ERR_BAD_REQUEST", config, undefined, {
+                data: { code: 401, data: null, msg: "登录已失效" },
+                status: 401,
+                statusText: "Unauthorized",
+                headers: {},
+                config,
+            });
+        };
+        try {
+            await expect(uploadResourceFile(new Blob(["x"]), "file", { fileName: "x.bin" })).rejects.toBeInstanceOf(ResourceUploadError);
+            expect(attempts).toBe(1);
+        } finally {
+            apiClient.defaults.adapter = previousAdapter;
+        }
     });
 });
