@@ -280,6 +280,7 @@ export function useCanvasMediaTools({
         beginMediaOperation,
         persistMediaNodes,
         message,
+        modal,
     });
 
     // 删除节点后，这些工具若还指向被删节点就一起关闭；状态归本 hook 所有，页面只调一次。

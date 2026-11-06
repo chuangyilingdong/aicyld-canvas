@@ -1,8 +1,37 @@
 import { describe, expect, test } from "bun:test";
 
-import { buildCanvasGenerationQuoteInput } from "@/lib/canvas/canvas-generation-quote-input";
+import { buildCanvasGenerationQuoteInput, quoteReferencesFromCanvasReferences } from "@/lib/canvas/canvas-generation-quote-input";
+import { buildGenerationQuotePlan, totalGenerationQuotePoints } from "@/lib/canvas/canvas-generation-quote-plan";
 
 describe("buildBackendGenerationTaskQuoteInput", () => {
+    test("image batches quote the same number of paid tasks that submission creates", () => {
+        const plan = buildGenerationQuotePlan("image", {
+            model: "zhenzhen-image-g-v2.5-lowprice",
+            imageModel: "zhenzhen-image-g-v2.5-lowprice",
+            count: "3",
+            channels: [],
+        } as any);
+        expect(plan.taskCount).toBe(3);
+        expect(plan.quoteConfig.count).toBe("1");
+        expect(totalGenerationQuotePoints(4, plan.taskCount)).toBe(12);
+    });
+
+    test("live composer quote references include every active media type", () => {
+        const refs = quoteReferencesFromCanvasReferences([
+            { id: "img-ref", nodeId: "image-1", kind: "image", label: "图片1", title: "参考图", storageKey: "resource:image-1", active: true },
+            { id: "video-ref", nodeId: "video-1", kind: "video", label: "视频1", title: "参考视频", storageKey: "resource:video-1", mediaUrl: "https://example.invalid/video.mp4", active: true },
+            { id: "audio-ref", nodeId: "audio-1", kind: "audio", label: "音频1", title: "参考音频", storageKey: "resource:audio-1", active: true },
+            { id: "text-ref", nodeId: "text-1", kind: "text", label: "文本1", title: "参考文本", active: true },
+        ], [
+            { id: "image-1", type: "image", metadata: { mimeType: "image/png", bytes: 128, naturalWidth: 720, naturalHeight: 1280 } },
+            { id: "video-1", type: "video", metadata: { mimeType: "video/mp4", bytes: 256, durationMs: 2000 } },
+            { id: "audio-1", type: "audio", metadata: { mimeType: "audio/mpeg", bytes: 64, durationMs: 1000 } },
+        ] as any);
+        expect(refs.referenceImages.map((item) => item.storageKey)).toEqual(["resource:image-1"]);
+        expect(refs.referenceVideos.map((item) => item.storageKey)).toEqual(["resource:video-1"]);
+        expect(refs.referenceAudios.map((item) => item.storageKey)).toEqual(["resource:audio-1"]);
+    });
+
     test("keeps reference counts and resource identities without uploading media", () => {
         const config = {
             channelMode: "remote",

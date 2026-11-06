@@ -15,7 +15,8 @@ import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
 import { useUserStore } from "@/stores/use-user-store";
 import { useCanvasBillingBalance } from "@/hooks/use-canvas-billing";
 import { useCanvasGenerationQuote } from "@/hooks/use-canvas-generation-quote";
-import { buildBackendGenerationTaskQuoteInput } from "@/services/api/generation-task";
+import { buildCanvasGenerationQuoteInput, quoteReferencesFromCanvasReferences } from "@/lib/canvas/canvas-generation-quote-input";
+import { buildGenerationQuotePlan, totalGenerationQuotePoints } from "@/lib/canvas/canvas-generation-quote-plan";
 import { CanvasCameraControlPopover } from "./canvas-camera-control-popover";
 import { CanvasImageSettingsPopover } from "./canvas-image-settings-popover";
 import { CanvasAudioSettingsPopover, type CanvasAudioSettingKey } from "./canvas-audio-settings-popover";
@@ -132,27 +133,32 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
         options: modelRequestOptions(config, mode),
         videoSeconds: mode === "video" ? config.videoSeconds : undefined,
     };
+    const billingQuoteReferences = useMemo(
+        () => quoteReferencesFromCanvasReferences(activeReferences, referenceNodes),
+        [activeReferences, referenceNodes],
+    );
+    const billingQuotePlan = useMemo(() => buildGenerationQuotePlan(mode, config), [config, mode]);
     const billingQuoteInput = useMemo(() => {
         if (mode === "text" || !prompt.trim()) return null;
         try {
-            return buildBackendGenerationTaskQuoteInput({
+            return buildCanvasGenerationQuoteInput({
                 projectId,
                 mode,
                 prompt: prompt.trim(),
-                config,
+                config: billingQuotePlan.quoteConfig,
                 metadata: {
                     sourceNodeId: node.id,
                     ...(node.metadata?.videoEditOperation ? { videoEditOperation: node.metadata.videoEditOperation } : {}),
                 },
-            });
+            }, billingQuoteReferences);
         } catch {
             return null;
         }
-    }, [config, mode, node.id, node.metadata?.videoEditOperation, projectId, prompt]);
+    }, [billingQuotePlan.quoteConfig, billingQuoteReferences, mode, node.id, node.metadata?.videoEditOperation, projectId, prompt]);
     const billingQuoteQuery = useCanvasGenerationQuote(billingQuoteInput);
     const billingBalanceQuery = useCanvasBillingBalance({ enabled: mode !== "text" });
     const availableBillingBalance = billingBalanceQuery.data?.enabled ? billingBalanceQuery.data.balance : billingQuoteQuery.quote?.balance;
-    const estimatedBillingPoints = billingQuoteQuery.quote?.enabled ? billingQuoteQuery.quote.points : 0;
+    const estimatedBillingPoints = billingQuoteQuery.quote?.enabled ? totalGenerationQuotePoints(billingQuoteQuery.quote.points, billingQuotePlan.taskCount) : 0;
     const billingPending = Boolean(billingQuoteInput) && (billingQuoteQuery.loading || (billingQuoteQuery.quote === undefined && !billingQuoteQuery.error));
     const insufficientBillingPoints = Boolean(mode !== "text" && billingQuoteQuery.quote?.enabled && estimatedBillingPoints > 0 && typeof availableBillingBalance === "number" && availableBillingBalance < estimatedBillingPoints);
     const billingQuoteUnavailable = Boolean(mode !== "text" && billingQuoteInput && billingQuoteQuery.error);

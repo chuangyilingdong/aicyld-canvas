@@ -26,6 +26,10 @@ import { IMAGE_PROMPT_REVERSE, VIDEO_PROMPT_REVERSE } from "@/lib/prompts";
 import { createPortraitTextureNode } from "@/lib/canvas/canvas-image-source";
 import { mediaResultMetadata } from "@/lib/canvas/canvas-node-semantics";
 import { generationErrorMessage } from "@/lib/generation-error";
+import { buildCanvasGenerationQuoteInput } from "@/lib/canvas/canvas-generation-quote-input";
+import { totalGenerationQuotePoints } from "@/lib/canvas/canvas-generation-quote-plan";
+import { confirmCanvasBillingQuote } from "@/components/canvas/canvas-billing-confirmation";
+import { quoteGenerationTask } from "@/services/api/task-billing";
 import { modelCapabilityConfigFor } from "@/lib/model-capabilities";
 import { defaultImageParamsForModel, normalizeMaskEditQuality, normalizeMaskEditSize, resolveMaskEditModel } from "@/lib/model-selection";
 import { canvasFeatureModel, resolveImageEditModel, withPlatformImageEditModel } from "@/lib/canvas/feature-models";
@@ -55,11 +59,12 @@ export type UseCanvasImageToolsOptions = {
     beginMediaOperation: () => ReturnType<typeof createCanvasMediaOperation>;
     persistMediaNodes: (mediaNodes: CanvasNodeData[], mediaConnections?: CanvasConnection[], options?: { signal?: AbortSignal }) => Promise<Map<string, string>>;
     message: useAppProps["message"];
+    modal: useAppProps["modal"];
 };
 
 export function useCanvasImageTools({
     pageUi, projectId, nodesRef, setNodes, setConnections, setRunningNodeId,
-    startGenerationRequest, finishGenerationRequest, bindGenerationTask, beginMediaOperation, persistMediaNodes, message,
+    startGenerationRequest, finishGenerationRequest, bindGenerationTask, beginMediaOperation, persistMediaNodes, message, modal,
 }: UseCanvasImageToolsOptions) {
     const effectiveConfig = useEffectiveConfig();
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
@@ -70,6 +75,30 @@ export function useCanvasImageTools({
     const [angleNodeId, setAngleNodeId] = useState<string | null>(null);
     const [lightingNodeId, setLightingNodeId] = useState<string | null>(null);
     const [emotionNodeId, setEmotionNodeId] = useState<string | null>(null);
+
+    const confirmImageToolQuote = useCallback(async (
+        request: ReturnType<typeof buildCanvasGenerationQuoteInput>,
+        taskCount = 1,
+    ) => {
+        try {
+            const quote = await quoteGenerationTask(request);
+            const aggregate = taskCount > 1 ? {
+                ...quote,
+                points: totalGenerationQuotePoints(quote.points, taskCount),
+                breakdown: {
+                    ...quote.breakdown,
+                    taskCount,
+                    aggregate: `${String(quote.breakdown?.billingMode || "fixed")}_x_tasks`,
+                },
+            } : quote;
+            return confirmCanvasBillingQuote(modal, aggregate, {
+                description: "提交后先预扣积分；任务失败、取消或确认未发出上游请求时，会按规则退回预扣积分。",
+            });
+        } catch (error) {
+            message.error(generationErrorMessage(error) || "获取积分报价失败，请稍后重试");
+            return false;
+        }
+    }, [message, modal]);
 
     const clearDeletedImageNodes = useCallback((removedIds: Set<string>) => {
         const clear = (current: string | null) => (current && removedIds.has(current) ? null : current);
@@ -280,6 +309,16 @@ export function useCanvasImageTools({
             const { prompt: effectivePrompt, metadata: styleMetadata } = styleExecution;
             const requestedCount = Math.max(1, Number(generationConfig.count) || 1);
             const generationMetadata = buildImageGenerationMetadata("edit", generationConfig, requestedCount, [source]);
+            const mask = { id: `${node.id}-mask`, name: "mask.png", type: "image/png", dataUrl: payload.maskDataUrl };
+            const confirmed = await confirmImageToolQuote(buildCanvasGenerationQuoteInput({
+                projectId,
+                mode: "image",
+                prompt: effectivePrompt,
+                config: { ...generationConfig, count: "1" },
+                mask,
+                metadata: { sourceNodeId: node.id, edit: "mask", ...styleMetadata },
+            }, { referenceImages: [source], referenceVideos: [], referenceAudios: [] }), requestedCount);
+            if (!confirmed) return;
             setMaskEditNodeId(null);
             const rootId = nanoid();
             const childIds = requestedCount > 1 ? Array.from({ length: requestedCount }, () => nanoid()) : [];
@@ -324,7 +363,7 @@ export function useCanvasImageTools({
                         const result = await operation.wait(runBackendCanvasGenerationTask({
                             projectId, nodeId: targetId, mode: "image", prompt: effectivePrompt,
                             config: { ...generationConfig, count: "1" }, referenceImages: [source],
-                            mask: { id: `${node.id}-mask`, name: "mask.png", type: "image/png", dataUrl: payload.maskDataUrl },
+                            mask,
                             signal: controller.signal, metadata: { sourceNodeId: node.id, edit: "mask", ...styleMetadata },
                             onTaskCreated: (task) => operation.run(() => bindGenerationTask(targetId, task)),
                         }));
@@ -388,7 +427,7 @@ export function useCanvasImageTools({
         } catch (error) {
             if (operation.isCurrent()) throw error;
         }
-    }, [beginMediaOperation, pageUi, bindGenerationTask, effectiveConfig, finishGenerationRequest, isAiConfigReady, message, nodesRef, persistMediaNodes, projectId, resolveImageEditStyle, setConnections, setNodes, setRunningNodeId, startGenerationRequest]);
+    }, [beginMediaOperation, pageUi, bindGenerationTask, effectiveConfig, finishGenerationRequest, isAiConfigReady, message, nodesRef, persistMediaNodes, projectId, resolveImageEditStyle, confirmImageToolQuote, setConnections, setNodes, setRunningNodeId, startGenerationRequest]);
 
     const upscaleImageNode = useCallback(async (node: CanvasNodeData, params: CanvasImageUpscaleParams) => {
         const operation = beginMediaOperation();
@@ -433,6 +472,14 @@ export function useCanvasImageTools({
         if (!styleExecution) return;
         const { prompt: effectivePrompt, metadata: styleMetadata } = styleExecution;
         const generationMetadata = buildImageGenerationMetadata("edit", generationConfig, 1, [source]);
+        const confirmed = await confirmImageToolQuote(buildCanvasGenerationQuoteInput({
+            projectId,
+            mode: "image",
+            prompt: effectivePrompt,
+            config: generationConfig,
+            metadata: { sourceNodeId: node.id, edit: "angle", ...styleMetadata },
+        }, { referenceImages: [source], referenceVideos: [], referenceAudios: [] }));
+        if (!confirmed) return;
         setAngleNodeId(null);
         setRunningNodeId(childId);
         setNodes((current) => [...current, { id: childId, type: CanvasNodeType.Image, title, position: { x: node.position.x + node.width + 96, y: node.position.y }, width: imageSpec.width, height: imageSpec.height, metadata: { prompt: effectivePrompt, status: NODE_STATUS_LOADING, ...generationMetadata, ...styleMetadata } }]);
@@ -462,7 +509,7 @@ export function useCanvasImageTools({
                 setRunningNodeId(null);
             }
         }
-    }, [beginMediaOperation, pageUi, bindGenerationTask, effectiveConfig, finishGenerationRequest, isAiConfigReady, nodesRef, persistMediaNodes, projectId, resolveImageEditStyle, setConnections, setNodes, setRunningNodeId, startGenerationRequest]);
+    }, [beginMediaOperation, pageUi, bindGenerationTask, effectiveConfig, finishGenerationRequest, isAiConfigReady, nodesRef, persistMediaNodes, projectId, resolveImageEditStyle, confirmImageToolQuote, setConnections, setNodes, setRunningNodeId, startGenerationRequest]);
 
     const generateLightingNode = useCallback((node: CanvasNodeData, options: CanvasImageLightingOptions, prompt: string) => {
         if (!node.metadata?.content) return;
@@ -510,6 +557,16 @@ export function useCanvasImageTools({
         const providerPrompt = normalizeEmotionPromptForProvider(effectivePrompt);
         const generationMetadata = { ...buildImageGenerationMetadata("edit", generationConfig, 1, [source]), size: `${payload.imageWidth}x${payload.imageHeight}` };
         const emotionEdit = { sourceNodeId: node.id, characterName: payload.characterName, presetId: payload.presetId, intimacy: payload.intimacy, arousal: payload.arousal, label: payload.label, faceBox: payload.faceBox, editRegion: payload.editRegion, sourceWidth: payload.imageWidth, sourceHeight: payload.imageHeight, providerSize, editMode: editPlan.mode };
+        const mask = emotionProviderMask(editPlan, { id: `${node.id}-emotion-mask`, name: "emotion-mask.png", type: "image/png", dataUrl: payload.maskDataUrl });
+        const confirmed = await confirmImageToolQuote(buildCanvasGenerationQuoteInput({
+            projectId,
+            mode: "image",
+            prompt: providerPrompt,
+            config: generationConfig,
+            mask,
+            metadata: { sourceNodeId: node.id, edit: "emotion", emotionEditMode: editPlan.mode, emotion: emotionEdit, ...styleMetadata },
+        }, { referenceImages: [editReference, characterReference], referenceVideos: [], referenceAudios: [] }));
+        if (!confirmed) return;
         if (editPlan.notice) message.info(editPlan.notice);
         setEmotionNodeId(null);
         setRunningNodeId(childId);
@@ -520,7 +577,6 @@ export function useCanvasImageTools({
         pageUi.getState().setDialogNodeId(childId);
         const controller = startGenerationRequest(childId, node.id, childId);
         try {
-            const mask = emotionProviderMask(editPlan, { id: `${node.id}-emotion-mask`, name: "emotion-mask.png", type: "image/png", dataUrl: payload.maskDataUrl });
             const result = await operation.wait(runBackendCanvasGenerationTask({ projectId, nodeId: childId, mode: "image", prompt: providerPrompt, config: generationConfig, referenceImages: [editReference, characterReference], mask, signal: controller.signal, metadata: { sourceNodeId: node.id, edit: "emotion", emotionEditMode: editPlan.mode, emotion: emotionEdit, ...styleMetadata }, onTaskCreated: (task) => operation.run(() => bindGenerationTask(childId, task)) }));
             const image = result.images?.[0];
             if (!image?.dataUrl) throw new Error("后端任务没有返回图片");
@@ -545,7 +601,7 @@ export function useCanvasImageTools({
                 setRunningNodeId(null);
             }
         }
-    }, [beginMediaOperation, pageUi, bindGenerationTask, effectiveConfig, finishGenerationRequest, isAiConfigReady, message, nodesRef, persistMediaNodes, projectId, resolveImageEditStyle, setConnections, setNodes, setRunningNodeId, startGenerationRequest]);
+    }, [beginMediaOperation, pageUi, bindGenerationTask, effectiveConfig, finishGenerationRequest, isAiConfigReady, message, nodesRef, persistMediaNodes, projectId, resolveImageEditStyle, confirmImageToolQuote, setConnections, setNodes, setRunningNodeId, startGenerationRequest]);
 
     return {
         clearDeletedImageNodes, angleNodeId, lightingNodeId, emotionNodeId, annotationNodeId,

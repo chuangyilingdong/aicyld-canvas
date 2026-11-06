@@ -22,6 +22,9 @@ const mocks: Record<string, string> = {
     "@/lib/model-selection": "export const defaultImageParamsForModel=()=>({size:'1024x1024',quality:'high',transparentBackground:'false'}); export const resolveMaskEditModel=(c)=>c?.imageModel||c?.model||''; export const normalizeMaskEditQuality=(q)=>q||'high'; export const normalizeMaskEditSize=(s)=>s||'1024x1024';",
     "@/stores/use-config-store": "export const defaultConfig={model:'fixture-model',imageModel:'fixture-model',count:'1',quality:'high',size:'1024x1024'}; export const useEffectiveConfig=()=>defaultConfig; export const useConfigStore=(select)=>select({isAiConfigReady:()=>true}); export const resolveModelRequestConfig=()=>({interfaceType:'openai-image'});",
     "@/lib/canvas/canvas-emotion": `${step} export * from ${JSON.stringify(root + "lib/canvas/canvas-emotion.ts")}; export const compositeEmotionImage=async()=>step('compositeEmotionImage',${JSON.stringify(image)});`,
+    "@/lib/canvas/canvas-generation-quote-input": "export const buildCanvasGenerationQuoteInput=()=>({}); export const quoteReferencesFromCanvasReferences=()=>({referenceImages:[],referenceVideos:[],referenceAudios:[]});",
+    "@/services/api/task-billing": "export const quoteGenerationTask=async()=>({enabled:true,points:4,balance:100});",
+    "@/components/canvas/canvas-billing-confirmation": "export const confirmCanvasBillingQuote=async()=>true;",
 };
 
 beforeAll(async () => {
