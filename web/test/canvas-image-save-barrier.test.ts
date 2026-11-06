@@ -14,6 +14,7 @@ import { CanvasBackendSubmitPausedError } from "@/services/canvas-revision-confl
 import type { GenerationTask } from "@/services/api/task-center";
 import { useCanvasStore, type CanvasProject } from "@/stores/canvas/use-canvas-store";
 import { createCanvasPageUiStore } from "@/stores/canvas/use-canvas-page-ui-store";
+import { useSyncProgressStore } from "@/stores/use-sync-progress-store";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 import { executeImageGeneration } from "@/pages/canvas/canvas-image-generation-executor";
 import { executeAudioGeneration, executeVideoGeneration } from "@/pages/canvas/canvas-media-generation-executors";
@@ -43,7 +44,10 @@ test("continuation manifest freezes split output identities before any image tas
     expect(new Set(manifest?.submissions.flatMap(item => item.outputNodeIds)).size).toBe(2);
 });
 
-beforeEach(() => useCanvasStore.setState({ projects: [structuredClone(project)] }));
+beforeEach(() => {
+    useCanvasStore.setState({ projects: [structuredClone(project)] });
+    useSyncProgressStore.getState().clearAll();
+});
 
 for (const [kind, execute] of [[CanvasNodeType.Image, executeImageGeneration], [CanvasNodeType.Video, executeVideoGeneration]] as const) {
     test(`${kind} manifest rejection or Stop during registration leaves no new output or task`, async () => {
@@ -145,6 +149,9 @@ for (const [error, guidance] of [
         })).rejects.toThrow(guidance);
         expect(submissions).toBe(0);
         expect(useCanvasStore.getState().projects[0]?.nodes.map((node) => node.id)).toEqual([input.nodeId]);
+        if (error instanceof CanvasBackendSubmitPausedError) {
+            expect(Object.values(useSyncProgressStore.getState().syncingProjects).some((progress) => progress.projectId === input.projectId && progress.phase === "conflict")).toBe(true);
+        }
     });
 }
 
