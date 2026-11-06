@@ -150,6 +150,9 @@ export async function imageToDataUrl(image: { url?: string; dataUrl?: string; st
     if (image.storageKey) {
         const blob = await getImageBlob(image.storageKey);
         if (blob) return blobToDataUrl(await normalizeImageBlob(blob, image.name || image.url));
+        if (!resourceIdFromStorageKey(image.storageKey)) {
+            throw new Error("参考图片只保存在原浏览器的临时缓存里，当前浏览器无法读取；请重新上传这张图片后再生成。");
+        }
     }
     const url = image.dataUrl || (await resolveImageUrl(image.storageKey, image.url || ""));
     if (!url) return url;
