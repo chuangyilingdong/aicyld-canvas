@@ -59,8 +59,17 @@ export function useCanvasNodeState() {
 export function useCanvasDocumentState(projectId: string) {
     const { nodes, nodesRef, setNodes, setNodesState, adoptNodes } = useCanvasNodeState();
     const content = useCanvasNodeContent({ canvasId: projectId, nodesRef, setNodesState });
-    const [connections, setConnections] = useState<CanvasConnection[]>([]);
+    const [connections, setCommittedConnections] = useState<CanvasConnection[]>([]);
     const connectionsRef = useRef(connections);
+    const setConnections = useCallback<Dispatch<SetStateAction<CanvasConnection[]>>>((value) => {
+        // Connection edits can immediately open or refresh a generation panel in
+        // the same task. Keep the ref current synchronously so reference
+        // validation never observes the previous graph while React renders the
+        // new one.
+        const next = typeof value === "function" ? value(connectionsRef.current) : value;
+        connectionsRef.current = next;
+        setCommittedConnections(next);
+    }, []);
     const [chatSessions, setChatSessions] = useState<CanvasAssistantSession[]>([]);
     const chatSessionsRef = useRef(chatSessions);
     const [activeChatId, setActiveChatId] = useState<string | null>(null);

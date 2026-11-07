@@ -36,7 +36,7 @@ export function CanvasProjectNodePrompt({ node: panelNode, projectId, videoModel
     renderModel, generation, nodeEditor, pageUi, referenceActions, onFocusNode: focusCanvasNode,
     onCreateReplacement: createGenerationReplacement, onNodeMouseDown: handleNodeMouseDown,
 }: Props) {
-    const { connections, nodesRef, connectionsRef } = document;
+    const { connections, nodes, nodesRef, connectionsRef } = document;
     const { configInputsById, mentionReferencesByNodeId, semanticNodes, skillMentionReferences } = renderModel;
     const { handleConfigNodeChange, handleNodePromptChange } = nodeEditor;
     const { handleGenerateNode, runningNodeId } = generation;
@@ -88,8 +88,8 @@ export function CanvasProjectNodePrompt({ node: panelNode, projectId, videoModel
         <CanvasNodePromptPanel
             projectId={projectId}
             node={panelNode}
-            referenceNodes={nodesRef.current}
-            referenceConnections={connectionsRef.current}
+            referenceNodes={nodes}
+            referenceConnections={connections}
             onLocateReferenceNode={focusCanvasNode}
             isRunning={isCanvasNodeGenerating(panelNode, runningNodeId)}
             mentionReferences={mentionReferences}
