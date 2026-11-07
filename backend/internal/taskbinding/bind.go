@@ -260,6 +260,7 @@ func receiptFor(req Request, patch NodePatch, result NodeBindResult) Receipt {
 		Revision:     result.Revision,
 		AlreadyBound: patch.AlreadyBound,
 		Node:         result.Node,
+		AlsoChanged:  result.AlsoChanged,
 	}
 }
 
