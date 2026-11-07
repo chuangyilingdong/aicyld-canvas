@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"path"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -50,19 +51,46 @@ func TestArchiveFromZipNormalizesWrapperAndNestedFiles(t *testing.T) {
 	}
 }
 
-func TestArchiveFromZipRejectsTraversalAndMultipleSkills(t *testing.T) {
-	for name, files := range map[string]map[string]string{
-		"traversal": {"../SKILL.md": "# Bad"},
-		"multiple": {
-			"one/SKILL.md": "# One\n\nFirst",
-			"two/SKILL.md": "# Two\n\nSecond",
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			if _, err := archiveFromZip(skillZip(t, files), ""); err == nil {
-				t.Fatal("expected package validation error")
-			}
-		})
+func TestArchiveFromZipRejectsTraversal(t *testing.T) {
+	if _, err := archiveFromZip(skillZip(t, map[string]string{"../SKILL.md": "# Bad"}), ""); err == nil {
+		t.Fatal("expected package validation error")
+	}
+}
+
+func TestArchiveFromZipBuildsRoutableBundleFromMultipleSkills(t *testing.T) {
+	files := map[string]string{
+		"repo-main/skills/story/SKILL.md":      "---\nname: 故事结构\ndescription: 规划故事主线与节拍\n---\n# 故事结构\n",
+		"repo-main/skills/story/reference.md":  "story reference",
+		"repo-main/skills/characters/SKILL.md": "---\nname: 人物冲突\ndescription: 设计人物关系与戏剧冲突\n---\n# 人物冲突\n",
+		"repo-main/README.md":                  "repository docs",
+		"repo-main/.agents/notes/design.md":    "implementation notes",
+	}
+	for index := 0; index < 520; index++ {
+		files[path.Join("repo-main/.agents/archive", strconv.Itoa(index)+".md")] = "notes"
+	}
+	archive, err := archiveFromZip(skillZip(t, files), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if archive.Metadata.Name != "repo" || !strings.Contains(archive.Metadata.Description, "多个子技能") {
+		t.Fatalf("bundle metadata = %#v", archive.Metadata)
+	}
+	if len(archive.Files) != 4 {
+		t.Fatalf("bundle files = %d, want root + 3 member files", len(archive.Files))
+	}
+	for _, filePath := range []string{"skills/story/SKILL.md", "skills/story/reference.md", "skills/characters/SKILL.md"} {
+		if _, ok := archive.Files[filePath]; !ok {
+			t.Fatalf("bundle lost member file %q", filePath)
+		}
+	}
+	if _, ok := archive.Files["README.md"]; ok {
+		t.Fatal("bundle retained unrelated repository documentation")
+	}
+	router := string(archive.Files["SKILL.md"])
+	for _, expected := range []string{"skills/story/SKILL.md", "规划故事主线与节拍", "skills/characters/SKILL.md", "设计人物关系与戏剧冲突", "不要一次加载全部子技能"} {
+		if !strings.Contains(router, expected) {
+			t.Fatalf("bundle router missing %q:\n%s", expected, router)
+		}
 	}
 }
 

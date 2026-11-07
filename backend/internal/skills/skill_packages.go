@@ -31,6 +31,7 @@ const (
 	maxSkillPackageBytes       = 20 << 20
 	maxSkillFileBytes          = 8 << 20
 	maxSkillPackageFiles       = 512
+	maxSkillBundleSourceFiles  = 4_000
 	maxSkillPreviewBytes       = 512 << 10
 	SkillPackageUploadMaxBytes = maxSkillPackageBytes + (1 << 20)
 )

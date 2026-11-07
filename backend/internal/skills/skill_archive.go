@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"infinite-canvas/backend/internal/kernel"
 	"io"
 	"os"
@@ -53,8 +54,8 @@ func archiveFromZip(data []byte, subdir string) (skillPackageArchive, error) {
 	if err != nil {
 		return skillPackageArchive{}, kernel.BadAuthRequest("ZIP 文件无法解析")
 	}
-	if len(reader.File) > maxSkillPackageFiles+64 {
-		return skillPackageArchive{}, kernel.BadAuthRequest("技能包文件数量不能超过 512 个")
+	if len(reader.File) > maxSkillBundleSourceFiles {
+		return skillPackageArchive{}, kernel.BadAuthRequest("压缩包文件数量过多，无法安全导入")
 	}
 	raw := make(map[string][]byte)
 	var total int64
@@ -70,6 +71,9 @@ func archiveFromZip(data []byte, subdir string) (skillPackageArchive, error) {
 			return skillPackageArchive{}, err
 		}
 		if strings.HasPrefix(entryPath, "__MACOSX/") || path.Base(entryPath) == ".DS_Store" {
+			continue
+		}
+		if ignoredSkillRepositoryPath(entryPath) {
 			continue
 		}
 		if _, exists := raw[entryPath]; exists {
@@ -111,6 +115,7 @@ func normalizeSkillArchiveRoot(raw map[string][]byte, subdir string) (map[string
 	if len(raw) == 0 {
 		return nil, kernel.BadAuthRequest("技能包为空")
 	}
+	wrapperName := ""
 	paths := sortedSkillPaths(raw)
 	firstParts := strings.SplitN(paths[0], "/", 2)
 	if len(firstParts) == 2 {
@@ -123,6 +128,7 @@ func normalizeSkillArchiveRoot(raw map[string][]byte, subdir string) (map[string
 			}
 		}
 		if allWrapped {
+			wrapperName = strings.TrimSuffix(firstParts[0], "/")
 			next := make(map[string][]byte, len(raw))
 			for filePath, content := range raw {
 				next[strings.TrimPrefix(filePath, wrapper)] = content
@@ -148,8 +154,8 @@ func normalizeSkillArchiveRoot(raw map[string][]byte, subdir string) (map[string
 		}
 		raw = filtered
 	}
-	skillRoots := make([]string, 0, 2)
-	for filePath := range raw {
+	skillRoots := make([]string, 0, 4)
+	for _, filePath := range sortedSkillPaths(raw) {
 		if filePath == "SKILL.md" {
 			skillRoots = []string{""}
 			break
@@ -162,7 +168,7 @@ func normalizeSkillArchiveRoot(raw map[string][]byte, subdir string) (map[string
 		return nil, kernel.BadAuthRequest("技能包中缺少 SKILL.md")
 	}
 	if len(skillRoots) > 1 {
-		return nil, kernel.BadAuthRequest("技能包包含多个 SKILL.md，请指定单个技能目录")
+		return bundleSkillArchiveFiles(raw, skillRoots, wrapperName)
 	}
 	root := skillRoots[0]
 	files := make(map[string][]byte)
@@ -180,6 +186,114 @@ func normalizeSkillArchiveRoot(raw map[string][]byte, subdir string) (map[string
 		return nil, kernel.BadAuthRequest("技能包文件数量不能超过 512 个")
 	}
 	return files, nil
+}
+
+// bundleSkillArchiveFiles keeps a multi-skill repository as one installable
+// bundle. The generated root SKILL.md is the router: it lists the member
+// skills, and the runtime only loads the member whose description best matches
+// the user's task.
+func bundleSkillArchiveFiles(raw map[string][]byte, roots []string, wrapperName string) (map[string][]byte, error) {
+	selected := make(map[string][]byte)
+	for filePath, content := range raw {
+		for _, root := range roots {
+			if strings.HasPrefix(filePath, root+"/") {
+				selected[filePath] = content
+				break
+			}
+		}
+	}
+	if len(selected)+1 > maxSkillPackageFiles {
+		return nil, kernel.BadAuthRequest("技能包内各技能文件合计不能超过 512 个")
+	}
+
+	name, description := bundleSkillMetadata(raw, wrapperName)
+	if name == "" {
+		name = "技能合集"
+	}
+	if description == "" {
+		description = "这是一个包含多个子技能的整体技能包，根据用户任务选择最匹配的子技能。"
+	}
+	description = fitRunes(description, maxSkillDescriptionRunes)
+	name = fitRunes(name, maxSkillNameRunes)
+
+	var body strings.Builder
+	body.WriteString("---\nname: ")
+	body.WriteString(strconv.Quote(name))
+	body.WriteString("\ndescription: ")
+	body.WriteString(strconv.Quote(description))
+	body.WriteString("\n---\n\n# ")
+	body.WriteString(name)
+	body.WriteString("\n\n这是一个整体技能包，内部分为 ")
+	body.WriteString(strconv.Itoa(len(roots)))
+	body.WriteString(" 个可路由的子技能。先根据用户任务选择最匹配的子技能，再只读取该子技能的 `SKILL.md`；不要一次加载全部子技能。\n\n## 子技能路由\n\n")
+	for _, root := range roots {
+		member := parseSkillPackageMetadata(raw[root+"/SKILL.md"])
+		memberName := strings.TrimSpace(member.Name)
+		if memberName == "" {
+			memberName = path.Base(root)
+		}
+		memberDescription := strings.Join(strings.Fields(member.Description), " ")
+		memberDescription = fitRunes(memberDescription, 180)
+		body.WriteString("- `")
+		body.WriteString(root)
+		body.WriteString("/SKILL.md` — ")
+		body.WriteString(memberName)
+		if memberDescription != "" {
+			body.WriteString("：")
+			body.WriteString(memberDescription)
+		}
+		body.WriteString("\n")
+	}
+	body.WriteString("\n## 执行规则\n\n")
+	body.WriteString("1. 从上面的名称和简介中选出与用户任务最匹配的一个子技能。\n")
+	body.WriteString("2. 读取该子技能的 `SKILL.md`，并遵循它的流程和约束。\n")
+	body.WriteString("3. 只在子技能明确引用时读取它目录下的参考文件；不要读取其他无关子技能。\n")
+	body.WriteString("4. 如果两个子技能都明显相关，先读取覆盖面更完整的那个，再按它的指引加载配套技能。\n")
+	body.WriteString("5. 如果确实无法判断，先向用户确认目标，不要凭空选择或伪造执行结果。\n")
+	selected["SKILL.md"] = []byte(body.String())
+	return selected, nil
+}
+
+func bundleSkillMetadata(raw map[string][]byte, wrapperName string) (string, string) {
+	for filePath, content := range raw {
+		base := path.Base(filePath)
+		if base != "plugin.json" || (!strings.Contains(filePath, ".codex-plugin/") && !strings.Contains(filePath, ".claude-plugin/")) {
+			continue
+		}
+		var doc struct {
+			Name        string `json:"name"`
+			Description string `json:"description"`
+			Interface   struct {
+				DisplayName string `json:"displayName"`
+			} `json:"interface"`
+		}
+		if json.Unmarshal(content, &doc) != nil {
+			continue
+		}
+		name := strings.TrimSpace(doc.Interface.DisplayName)
+		if name == "" {
+			name = strings.TrimSpace(doc.Name)
+		}
+		if name != "" || strings.TrimSpace(doc.Description) != "" {
+			return name, strings.TrimSpace(doc.Description)
+		}
+	}
+	name := strings.TrimSpace(wrapperName)
+	for _, suffix := range []string{"-main", "_main", ".zip"} {
+		name = strings.TrimSuffix(name, suffix)
+	}
+	name = strings.TrimSpace(strings.NewReplacer("-", " ", "_", " ").Replace(name))
+	return name, ""
+}
+
+func ignoredSkillRepositoryPath(filePath string) bool {
+	for _, part := range strings.Split(filePath, "/") {
+		switch part {
+		case ".git", "node_modules", "__pycache__", ".cache":
+			return true
+		}
+	}
+	return false
 }
 
 func finalizeSkillArchive(files map[string][]byte, metadata skillPackageMetadata) (skillPackageArchive, error) {

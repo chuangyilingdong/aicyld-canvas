@@ -94,7 +94,7 @@ export function SkillInstallModal({ open, onClose, onInstalled, onManualCreate }
                 </div>
             )}
         >
-            <p className="mb-4 text-sm leading-6 text-foreground/55">支持标准 <code>SKILL.md</code> 或包含多层目录的 ZIP 技能包。名称和简介会优先从技能入口自动读取。</p>
+            <p className="mb-4 text-sm leading-6 text-foreground/55">支持单个技能，也支持包含多个 <code>SKILL.md</code> 的整体技能包。多技能包会自动生成路由入口，运行时再按用户任务选择子技能。</p>
             <SegmentedControl className="skill-install-mode" block options={availableModeOptions} value={mode} onChange={(value) => { setMode(value as InstallMode); setFileList([]); }} />
 
             <Form form={form} layout="vertical" requiredMark="optional" className="skill-install-form">
@@ -126,7 +126,7 @@ export function SkillInstallModal({ open, onClose, onInstalled, onManualCreate }
                         >
                             <UploadCloud className="mx-auto mb-3 size-8 text-foreground/38" />
                             <div className="text-sm font-medium">拖入或选择 {mode === "zip" ? "ZIP 技能包" : "Markdown 文件"}</div>
-                            <div className="mt-1 text-xs text-foreground/45">{mode === "zip" ? "根目录或唯一子目录中必须包含 SKILL.md" : "普通 .md 会作为技能入口 SKILL.md 安装"}</div>
+                            <div className="mt-1 text-xs text-foreground/45">{mode === "zip" ? "单个或多个 SKILL.md 均可；多个会自动识别为一个整体技能包" : "普通 .md 会作为技能入口 SKILL.md 安装"}</div>
                         </Upload.Dragger>
                         <div className="mt-4 grid gap-x-3 sm:grid-cols-2">
                             <Form.Item name="name" label="覆盖名称" extra="可选，留空时自动读取"><Input maxLength={80} autoComplete="off" /></Form.Item>
