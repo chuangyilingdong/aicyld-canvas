@@ -34,3 +34,17 @@ test("save-conflict cleanup keeps the existing target's reference edges", () => 
     const cleaned = cleanupPendingGenerationConnections(connections, "video-target", ["video-target", "temporary-output"]);
     expect(cleaned.map((connection) => connection.id)).toEqual(["ref-1", "ref-2"]);
 });
+
+test("a new submission clears the prior task identity before acceptance", () => {
+    const generation = readFileSync(new URL("../src/lib/canvas/canvas-project-generation.ts", import.meta.url), "utf8");
+    expect(generation).toContain('...(state === "submitting" ? {');
+    expect(generation).toContain("taskId: undefined");
+    expect(generation).toContain("taskClientOperationId: input.clientOperationId");
+});
+
+test("recovery prefers the operation receipt over a stale old task id", () => {
+    const generation = readFileSync(new URL("../src/pages/canvas/use-canvas-generation.ts", import.meta.url), "utf8");
+    expect(generation).toContain("node.metadata?.generationSubmissionState === \"submitting\"");
+    expect(generation).toContain("node.metadata?.generationSubmissionState === \"unknown\"");
+    expect(generation).toContain("const taskId = discoveredTask?.id || node.metadata?.taskId");
+});

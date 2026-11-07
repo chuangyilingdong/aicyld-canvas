@@ -479,16 +479,25 @@ export function useCanvasGeneration({ projectId, domainProjectId, projectLoaded,
                     try {
                         let discoveredTask = projectTasks.find((task) => generationTaskNodeId(task) === node.id);
                         let operationLookupFailed = false;
-                        if (!node.metadata?.taskId && node.metadata?.taskClientOperationId) {
+                        const operationId = node.metadata?.taskClientOperationId;
+                        const lookupByOperation = Boolean(operationId) && (
+                            !node.metadata?.taskId ||
+                            node.metadata?.generationSubmissionState === "submitting" ||
+                            node.metadata?.generationSubmissionState === "unknown"
+                        );
+                        if (lookupByOperation) {
                             try {
-                                discoveredTask = await findGenerationTaskByOperation(node.metadata.taskClientOperationId, startedProjectId, signal);
+                                discoveredTask = await findGenerationTaskByOperation(operationId!, startedProjectId, signal);
                                 if (discoveredTask && generationTaskNodeId(discoveredTask) !== node.id) discoveredTask = undefined;
                             } catch {
                                 // A failed lookup cannot prove that the paid submission was rejected.
                                 operationLookupFailed = true;
                             }
                         }
-                        const taskId = node.metadata?.taskId || node.metadata?.agentGenerationContinuation?.taskId || discoveredTask?.id;
+                        // An operation receipt is the new attempt's identity. The
+                        // node may still carry the prior failed taskId until the
+                        // accepted task is bound back to the canvas.
+                        const taskId = discoveredTask?.id || node.metadata?.taskId || node.metadata?.agentGenerationContinuation?.taskId;
                         if (!taskId) {
                             if (!owns()) return;
                             setNodes((current) =>

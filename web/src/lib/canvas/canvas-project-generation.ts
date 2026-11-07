@@ -121,7 +121,7 @@ export async function runCanvasGenerationTaskToConsumer(
         runTask?: (options: Parameters<typeof runBackendCanvasGenerationTask>[0]) => ReturnType<typeof runBackendCanvasGenerationTask>;
         prepareTarget?: typeof persistCanvasGenerationTarget;
         isCurrent?: () => boolean;
-        onSubmission?: (metadata: Pick<CanvasNodeMetadata, "taskClientOperationId" | "generationSubmissionState" | "taskStage">) => void;
+        onSubmission?: (metadata: Partial<CanvasNodeMetadata>) => void;
     },
 ) {
     input = { ...input, clientOperationId: input.clientOperationId || createClientId() };
@@ -129,7 +129,37 @@ export async function runCanvasGenerationTaskToConsumer(
         const isCurrent = () => !input.signal?.aborted && (dependencies.isCurrent ? dependencies.isCurrent() : true);
         const submission = (state: NonNullable<CanvasNodeMetadata["generationSubmissionState"]>) => {
             if (!isCurrent()) return;
-            const metadata = { taskClientOperationId: input.clientOperationId, generationSubmissionState: state, taskStage: state === "submitting" ? "正在提交生成任务" : state === "unknown" ? "提交结果待确认，请查询原任务" : undefined };
+            const metadata: Partial<CanvasNodeMetadata> = {
+                taskClientOperationId: input.clientOperationId,
+                generationSubmissionState: state,
+                taskStage: state === "submitting" ? "正在提交生成任务" : state === "unknown" ? "提交结果待确认，请查询原任务" : undefined,
+                // A new attempt must not inherit the previous task identity. If
+                // the response is lost, recovery has to look up this attempt's
+                // operation instead of polling the old failed task forever.
+                ...(state === "submitting" ? {
+                    taskId: undefined,
+                    taskType: undefined,
+                    taskStatus: undefined,
+                    taskProgress: undefined,
+                    taskProvider: undefined,
+                    taskErrorCode: undefined,
+                    taskFailureDiagnostics: undefined,
+                    taskOutcome: undefined,
+                    taskProviderRequestId: undefined,
+                    taskCreatedAt: undefined,
+                    taskUpdatedAt: undefined,
+                    taskStartedAt: undefined,
+                    taskCompletedAt: undefined,
+                    taskDurationMs: undefined,
+                    generationFailure: undefined,
+                    errorDetails: undefined,
+                    generationErrorCode: undefined,
+                    generationErrorSummary: undefined,
+                    generationProviderCode: undefined,
+                    failedPromptFingerprint: undefined,
+                    failedInputFingerprint: undefined,
+                } : {}),
+            };
             // Editor and store are one writer here. Advance the editor's live
             // refs before publishing the store change can trigger persistence.
             dependencies.onSubmission?.(metadata);
