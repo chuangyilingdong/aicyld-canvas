@@ -255,27 +255,15 @@ func bundleSkillArchiveFiles(raw map[string][]byte, roots []string, wrapperName 
 }
 
 func bundleSkillMetadata(raw map[string][]byte, wrapperName string) (string, string) {
-	for filePath, content := range raw {
-		base := path.Base(filePath)
-		if base != "plugin.json" || (!strings.Contains(filePath, ".codex-plugin/") && !strings.Contains(filePath, ".claude-plugin/")) {
-			continue
-		}
-		var doc struct {
-			Name        string `json:"name"`
-			Description string `json:"description"`
-			Interface   struct {
-				DisplayName string `json:"displayName"`
-			} `json:"interface"`
-		}
-		if json.Unmarshal(content, &doc) != nil {
-			continue
-		}
-		name := strings.TrimSpace(doc.Interface.DisplayName)
-		if name == "" {
-			name = strings.TrimSpace(doc.Name)
-		}
-		if name != "" || strings.TrimSpace(doc.Description) != "" {
-			return name, strings.TrimSpace(doc.Description)
+	paths := sortedSkillPaths(raw)
+	for _, marker := range []string{".codex-plugin/", ".claude-plugin/"} {
+		for _, filePath := range paths {
+			if path.Base(filePath) != "plugin.json" || !strings.Contains(filePath, marker) {
+				continue
+			}
+			if name, description := pluginBundleMetadata(raw[filePath]); name != "" || description != "" {
+				return name, description
+			}
 		}
 	}
 	name := strings.TrimSpace(wrapperName)
@@ -284,6 +272,24 @@ func bundleSkillMetadata(raw map[string][]byte, wrapperName string) (string, str
 	}
 	name = strings.TrimSpace(strings.NewReplacer("-", " ", "_", " ").Replace(name))
 	return name, ""
+}
+
+func pluginBundleMetadata(content []byte) (string, string) {
+	var doc struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		Interface   struct {
+			DisplayName string `json:"displayName"`
+		} `json:"interface"`
+	}
+	if json.Unmarshal(content, &doc) != nil {
+		return "", ""
+	}
+	name := strings.TrimSpace(doc.Interface.DisplayName)
+	if name == "" {
+		name = strings.TrimSpace(doc.Name)
+	}
+	return name, strings.TrimSpace(doc.Description)
 }
 
 func ignoredSkillRepositoryPath(filePath string) bool {

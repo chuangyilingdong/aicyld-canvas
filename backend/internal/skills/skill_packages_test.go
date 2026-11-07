@@ -59,11 +59,12 @@ func TestArchiveFromZipRejectsTraversal(t *testing.T) {
 
 func TestArchiveFromZipBuildsRoutableBundleFromMultipleSkills(t *testing.T) {
 	files := map[string]string{
-		"repo-main/skills/story/SKILL.md":      "---\nname: 故事结构\ndescription: 规划故事主线与节拍\n---\n# 故事结构\n",
-		"repo-main/skills/story/reference.md":  "story reference",
-		"repo-main/skills/characters/SKILL.md": "---\nname: 人物冲突\ndescription: 设计人物关系与戏剧冲突\n---\n# 人物冲突\n",
-		"repo-main/README.md":                  "repository docs",
-		"repo-main/.agents/notes/design.md":    "implementation notes",
+		"repo-main/skills/story/SKILL.md":            "---\nname: 故事结构\ndescription: 规划故事主线与节拍\n---\n# 故事结构\n",
+		"repo-main/skills/story/reference.md":        "story reference",
+		"repo-main/skills/characters/SKILL.md":       "---\nname: 人物冲突\ndescription: 设计人物关系与戏剧冲突\n---\n# 人物冲突\n",
+		"repo-main/plugin/.codex-plugin/plugin.json": `{"name":"bundle","description":"整体编剧插件","interface":{"displayName":"编剧技能包"}}`,
+		"repo-main/README.md":                        "repository docs",
+		"repo-main/.agents/notes/design.md":          "implementation notes",
 	}
 	for index := 0; index < 520; index++ {
 		files[path.Join("repo-main/.agents/archive", strconv.Itoa(index)+".md")] = "notes"
@@ -72,7 +73,7 @@ func TestArchiveFromZipBuildsRoutableBundleFromMultipleSkills(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if archive.Metadata.Name != "repo" || !strings.Contains(archive.Metadata.Description, "多个子技能") {
+	if archive.Metadata.Name != "编剧技能包" || archive.Metadata.Description != "整体编剧插件" {
 		t.Fatalf("bundle metadata = %#v", archive.Metadata)
 	}
 	if len(archive.Files) != 4 {
