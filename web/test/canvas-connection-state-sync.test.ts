@@ -16,3 +16,10 @@ test("connection updates advance the ref synchronously before React commits", ()
     expect(document).toContain("connectionsRef.current = next;");
     expect(document).toContain("setCommittedConnections(next);");
 });
+
+test("video retry rebuilds missing references from current canvas connections", () => {
+    const retry = readFileSync(new URL("../src/pages/canvas/use-canvas-generation-retry.ts", import.meta.url), "utf8");
+    expect(retry).toContain("buildNodeGenerationInputs(node.id, nodesRef.current, connectionsRef.current)");
+    expect(retry.indexOf("connectedVideoImages.length")).toBeLessThan(retry.indexOf("await resolveStoredReferenceImages(node.metadata?.references)"));
+    expect(retry).toContain("connectedVideoImages.length\n                    ? connectedVideoImages");
+});

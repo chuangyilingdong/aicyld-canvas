@@ -2,7 +2,7 @@ import { createClientId } from "@/lib/client-id";
 import { useCallback, useRef, type Dispatch, type SetStateAction } from "react";
 import { App } from "antd";
 
-import { compileNodeGenerationReferences, buildNodeGenerationContext, hydrateNodeGenerationContext } from "@/components/canvas/canvas-node-generation";
+import { compileNodeGenerationReferences, buildNodeGenerationContext, buildNodeGenerationInputs, hydrateNodeGenerationContext } from "@/components/canvas/canvas-node-generation";
 import type { CanvasNodeGenerationMode } from "@/components/canvas/canvas-node-prompt-panel";
 import { buildEmotionImageArtifacts, emotionGenerationSize, emotionProviderMask, normalizeEmotionPromptForProvider, resolveEmotionEditPlan } from "@/lib/canvas/canvas-emotion";
 import {
@@ -259,7 +259,19 @@ export function useCanvasGenerationRetry({
                 return;
             }
             const retryImages = retryReferenceImages || [];
-            const storedVideoImages = node.type === CanvasNodeType.Video && !context?.referenceImages.length ? await resolveStoredReferenceImages(node.metadata?.references) : [];
+            // A failed task must be retryable from the graph the user can still
+            // see. Prefer the current connected image nodes before replaying the
+            // stored reference list, otherwise a stale task snapshot can report
+            // valid canvas references as missing.
+            const connectedVideoImages = node.type === CanvasNodeType.Video && !context?.referenceImages.length
+                ? buildNodeGenerationInputs(node.id, nodesRef.current, connectionsRef.current)
+                    .flatMap((input) => input.image ? [input.image] : [])
+                : [];
+            const storedVideoImages = node.type === CanvasNodeType.Video && !context?.referenceImages.length
+                ? connectedVideoImages.length
+                    ? connectedVideoImages
+                    : await resolveStoredReferenceImages(node.metadata?.references)
+                : [];
             if (storedVideoImages === null) {
                 markMissingReferences(node.id, setNodes);
                 message.error("参考图片已丢失，无法继续重试");
