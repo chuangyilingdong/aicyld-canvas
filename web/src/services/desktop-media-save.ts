@@ -13,6 +13,30 @@ export function isWailsNativeShell() {
     return window.location?.protocol === "wails:" || typeof window.go?.main?.DesktopApp?.SaveOwnedMedia === "function" || typeof window.go?.main?.DesktopApp?.SaveOwnedArtifact === "function";
 }
 
+/** Same-origin resources can stream through the browser's native downloader. */
+export function canUseNativeBrowserDownload(url: string, pageUrl?: string) {
+    const value = url.trim();
+    if (!value) return false;
+    if (/^(?:blob:|data:)/i.test(value)) return true;
+    const base = pageUrl || (typeof window !== "undefined" ? window.location.href : "http://localhost/");
+    try {
+        return new URL(value, base).origin === new URL(base).origin;
+    } catch {
+        return false;
+    }
+}
+
+function triggerNativeBrowserDownload(url: string, fileName: string) {
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = fileName;
+    link.rel = "noopener";
+    link.style.display = "none";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+}
+
 export async function downloadOwnedOrBrowserMedia(options: { fileName: string; resourceId?: string; browserUrl?: string }): Promise<OwnedMediaSaveResult> {
     const fileName = sanitizeDownloadFileName(options.fileName);
     if (isWailsNativeShell()) {
@@ -26,6 +50,10 @@ export async function downloadOwnedOrBrowserMedia(options: { fileName: string; r
     const browserUrl = options.browserUrl?.trim()
         || (options.resourceId?.trim() ? resourceFileUrl(options.resourceId.trim()) : "");
     if (!browserUrl) throw new Error("没有可导出的文件");
+    if (canUseNativeBrowserDownload(browserUrl)) {
+        triggerNativeBrowserDownload(browserUrl, fileName);
+        return "saved";
+    }
     const blob = await fetchMediaDownloadBlob(browserUrl);
     saveAs(blob, fileName);
     return "saved";
@@ -115,7 +143,7 @@ function bytesToBase64(bytes: Uint8Array) {
 export function reportOwnedMediaSave(message: { success: (text: string) => void; error: (text: string) => void }, result: Promise<OwnedMediaSaveResult>) {
     return result
         .then((status) => {
-            if (status === "saved" && isWailsNativeShell()) message.success("已保存到所选位置");
+            if (status === "saved") message.success(isWailsNativeShell() ? "已保存到所选位置" : "已开始下载");
         })
         .catch((error) => {
             message.error(error instanceof Error && error.message.trim() ? error.message : "保存没有完成，请再试一次");

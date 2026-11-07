@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { buildImageGenerationNodeTitle } from "@/lib/canvas/canvas-generation-title";
 import { buildCanvasMediaDownloadFileName, canvasMediaFileExtension, mediaFileExtension, sanitizeDownloadFileName } from "@/lib/canvas/canvas-media-download";
+import { canUseNativeBrowserDownload, reportOwnedMediaSave } from "@/services/desktop-media-save";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 
 function mediaNode(overrides: Partial<CanvasNodeData> = {}): CanvasNodeData {
@@ -18,6 +19,18 @@ function mediaNode(overrides: Partial<CanvasNodeData> = {}): CanvasNodeData {
 }
 
 describe("canvas media download", () => {
+    test("same-origin media uses the native streaming download path", () => {
+        expect(canUseNativeBrowserDownload("/api/resources/resource/file", "https://hb.aicyld.com.cn/canvas")).toBe(true);
+        expect(canUseNativeBrowserDownload("https://hb.aicyld.com.cn/api/resources/resource/file", "https://hb.aicyld.com.cn/canvas")).toBe(true);
+        expect(canUseNativeBrowserDownload("https://cdn.example.com/video.mp4", "https://hb.aicyld.com.cn/canvas")).toBe(false);
+        expect(canUseNativeBrowserDownload("blob:https://hb.aicyld.com.cn/id", "https://hb.aicyld.com.cn/canvas")).toBe(true);
+    });
+
+    test("browser download reports that the download has started", async () => {
+        const messages: string[] = [];
+        await reportOwnedMediaSave({ success: value => messages.push(value), error: value => messages.push(value) }, Promise.resolve("saved"));
+        expect(messages).toEqual(["已开始下载"]);
+    });
     test("素材库 MIME 别名经过文件名清理后仍保留真实格式后缀", () => {
         for (const [mime, extension] of [["video/quicktime", "mov"], ["image/svg+xml", "svg"], ["audio/x-wav", "wav"], ["audio/mpeg", "mp3"], ["audio/mp4", "m4a"], ["image/jpeg; charset=utf-8", "jpg"]]) {
             const name = sanitizeDownloadFileName(`中文素材.${mediaFileExtension(mime)}`);
