@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import { cleanupPendingGenerationConnections } from "../src/lib/canvas/canvas-generation-connection-cleanup";
 
 test("reference validation consumes the same committed graph as the editor", () => {
     const prompt = readFileSync(new URL("../src/pages/canvas/canvas-project-node-prompt.tsx", import.meta.url), "utf8");
@@ -22,4 +23,14 @@ test("video retry rebuilds missing references from current canvas connections", 
     expect(retry).toContain("buildNodeGenerationInputs(node.id, nodesRef.current, connectionsRef.current)");
     expect(retry.indexOf("connectedVideoImages.length")).toBeLessThan(retry.indexOf("await resolveStoredReferenceImages(node.metadata?.references)"));
     expect(retry).toContain("connectedVideoImages.length\n                    ? connectedVideoImages");
+});
+
+test("save-conflict cleanup keeps the existing target's reference edges", () => {
+    const connections = [
+        { id: "ref-1", fromNodeId: "image-1", toNodeId: "video-target" },
+        { id: "ref-2", fromNodeId: "image-2", toNodeId: "video-target" },
+        { id: "temp", fromNodeId: "video-target", toNodeId: "temporary-output" },
+    ];
+    const cleaned = cleanupPendingGenerationConnections(connections, "video-target", ["video-target", "temporary-output"]);
+    expect(cleaned.map((connection) => connection.id)).toEqual(["ref-1", "ref-2"]);
 });

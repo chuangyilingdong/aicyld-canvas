@@ -32,6 +32,7 @@ import { useConfigStore, useEffectiveConfig, resolveModelRequestConfig } from "@
 import { seedanceReferenceRatioWarning } from "@/lib/seedance-channel-warning";
 import { useAssetStore, type Asset } from "@/stores/use-asset-store";
 import { CanvasGenerationTargetSaveError } from "@/services/canvas-generation-errors";
+import { cleanupPendingGenerationConnections } from "@/lib/canvas/canvas-generation-connection-cleanup";
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData } from "@/types/canvas";
 
 import { executeImageGeneration } from "./canvas-image-generation-executor";
@@ -614,7 +615,7 @@ export function useCanvasGenerationExecutor({
                                         };
                                         return { ...node, metadata };
                                     }));
-                                setConnections((current) => current.filter((connection) => !pending.has(connection.fromNodeId) && !pending.has(connection.toNodeId)));
+                                setConnections((current) => cleanupPendingGenerationConnections(current, nodeId, [...pending]));
                                 message.warning(error.message);
                                 return;
                             }
