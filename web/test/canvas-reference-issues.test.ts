@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { canvasReferenceIssues, replaceCanvasReferenceToken } from "../src/lib/canvas/canvas-reference-issues";
 import type { CanvasResourceReference } from "../src/lib/canvas/canvas-resource-references";
-import { inspectNodeGenerationMentions } from "../src/components/canvas/canvas-node-generation";
+import { buildNodeGenerationContext, inspectNodeGenerationMentions } from "../src/components/canvas/canvas-node-generation";
 import { CanvasNodeType, type CanvasNodeData } from "../src/types/canvas";
 import type { Asset } from "../src/stores/use-asset-store";
 
@@ -16,10 +16,17 @@ test("UI issue descriptions consume the same unresolved bindings as submission",
     const asset: Asset = { id: "a", kind: "image", title: "素材库图片", status: "confirmed", coverUrl: "", tags: [], createdAt: "", updatedAt: "", data: { dataUrl: "data:image/png;base64,AA", width: 1, height: 1, mimeType: "image/png", bytes: 1 } };
     expect(inspectNodeGenerationMentions("target", nodes, connections, "使用 @[node:image]、@图片1 和 @[asset:a]。", [asset]).unresolved).toEqual([]);
     const unresolved = inspectNodeGenerationMentions("target", nodes, [], "使用 @[node:image] 和 @图片9。", []).unresolved;
+    expect(unresolved).toEqual(["@图片9"]);
     const issues = canvasReferenceIssues(unresolved, [{ ...image, active: false }], nodes);
-    expect(issues.map((issue) => issue.title)).toEqual(["人物照片", "图片9"]);
-    expect(issues[0].nodeId).toBe("image");
-    expect(issues[0].reason).toBe("未连接到当前生成节点");
+    expect(issues.map((issue) => issue.title)).toEqual(["图片9"]);
+    expect(canvasReferenceIssues(["@[node:missing]"], [], nodes)[0].reason).toBe("引用的素材不可用，请重新选择");
+});
+
+test("explicit node IDs remain usable when the edge snapshot is stale", () => {
+    const prompt = "参考 @[node:image]，保持人物一致";
+    expect(inspectNodeGenerationMentions("target", nodes, [], prompt, []).unresolved).toEqual([]);
+    const context = buildNodeGenerationContext("target", nodes, [], prompt, [], true, { preserveMediaBindings: true });
+    expect(context.referenceImages.map((item) => item.id)).toEqual(["image"]);
 });
 
 test("missing IDs get deduplicated readable labels without leaking IDs", () => {

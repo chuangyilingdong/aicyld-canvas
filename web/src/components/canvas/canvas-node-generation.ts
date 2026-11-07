@@ -99,7 +99,7 @@ export function buildNodeGenerationContext(nodeId: string, nodes: CanvasNodeData
     }
     // 显式 @ 引用必须与提示词面板展示的资源集合一致；默认自动输入仍只取入边，
     // 避免已有图片在没有 @图片N 时被悄悄当作自身参考图。
-    const mentionInputs = nodeGenerationMentionInputs(nodeId, nodes, connections, assets);
+    const mentionInputs = nodeGenerationMentionInputs(nodeId, nodes, connections, assets, prompt);
     const storyboardInputs = getConnectedStoryboardRows(nodeId, nodes, connections);
     assertResolvableGenerationMentions(prompt, mentionInputs);
     const hasExplicitResourceMention = hasResolvableGenerationMention(prompt, mentionInputs);
@@ -358,10 +358,10 @@ function hasResolvableGenerationMention(prompt: string, inputs: NodeGenerationIn
 
 /** The prompt UI and the submit path share resource eligibility, not preview availability. */
 export function inspectNodeGenerationMentions(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[], prompt: string, assets: Asset[]) {
-    return inspectGenerationMentions(prompt, nodeGenerationMentionInputs(nodeId, nodes, connections, assets));
+    return inspectGenerationMentions(prompt, nodeGenerationMentionInputs(nodeId, nodes, connections, assets, prompt));
 }
 
-function nodeGenerationMentionInputs(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[], assets: Asset[]) {
+function nodeGenerationMentionInputs(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[], assets: Asset[], prompt: string) {
     const sourceNode = nodes.find((node) => node.id === nodeId);
     const portraitTextureInput = sourceNode?.type === CanvasNodeType.Image && sourceNode.metadata?.content && sourceNode.metadata?.portraitTexture
         ? (() => {
@@ -369,7 +369,13 @@ function nodeGenerationMentionInputs(nodeId: string, nodes: CanvasNodeData[], co
               return image ? [{ nodeId: sourceNode.id, type: "image" as const, title: sourceNode.title, image }] : [];
           })()
         : [];
-    return withArkAssetReferenceInputs(mergeGenerationInputs(buildNodeMentionGenerationInputs(nodeId, nodes, connections), portraitTextureInput, buildAssetGenerationInputs(assets)), nodes, assets);
+    // Explicit @[node:id] bindings are authoritative. A stale render/store can
+    // temporarily report an edge as missing even though the referenced node is
+    // still present and usable; never drop those references or the retry would
+    // submit fewer images than the prompt says.
+    const explicitNodeIds = new Set(Array.from(prompt.matchAll(/@\[node:([^\]]+)\]/g), (match) => match[1]!));
+    const explicitInputs = buildGenerationInputs(nodes.filter((node) => explicitNodeIds.has(node.id)), nodes, connections);
+    return withArkAssetReferenceInputs(mergeGenerationInputs(buildNodeMentionGenerationInputs(nodeId, nodes, connections), explicitInputs, portraitTextureInput, buildAssetGenerationInputs(assets)), nodes, assets);
 }
 
 function assertResolvableGenerationMentions(prompt: string, inputs: NodeGenerationInput[]) {
