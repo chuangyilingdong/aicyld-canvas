@@ -15,6 +15,7 @@ export function moderationErrorCopy(code: string, message: string): ModerationCo
     let media = match?.[2];
     let cause = match?.[3] || "";
     if (!direction) {
+        if (/generated result did not pass the content review|result failed the content review|content review failed/i.test(message)) return { category: "moderation_output", reason: "生成结果未通过内容安全审核", action: "请调整提示词或参考素材后重新生成" };
         if (/prompt\s+or\s+(?:reference|input)\s+/i.test(message)) return;
         if (/content security audit did not pass|内容安全审查未通过|内容安全审核未通过/i.test(message)) return { category: "moderation_output", reason: "生成结果未通过内容安全审核", action: "请调整提示词或参考素材后重新生成" };
         if (/\boutput may contain sensitive information\b/i.test(message)) return { category: "moderation_output", reason: "生成结果未通过内容安全审核", action: "请调整提示词或参考素材后重新生成" };

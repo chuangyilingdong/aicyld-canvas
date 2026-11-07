@@ -466,6 +466,9 @@ function containsContentSafety(normalized: string) {
         normalized.includes("sensitive_words_detected") ||
         normalized.includes("content policy") ||
         normalized.includes("content safety") ||
+        normalized.includes("did not pass the content review") ||
+        normalized.includes("failed the content review") ||
+        (normalized.includes("content review") && (normalized.includes("result") || normalized.includes("output") || normalized.includes("image") || normalized.includes("video"))) ||
         normalized.includes("safety policy") ||
         normalized.includes("data inspection") ||
         normalized.includes("prohibited_content") ||
@@ -477,7 +480,11 @@ function containsContentSafety(normalized: string) {
 export function moderationCategoryFromMessage(normalized: string): GenerationErrorCategory {
     if (/prompt\s+(?:or|and)\s+(?:reference|input)/.test(normalized)) return "moderation_input";
     if (normalized.includes("reference image") || normalized.includes("input image")) return "moderation_reference";
-    if (normalized.includes("output") && (normalized.includes("image") || normalized.includes("video") || normalized.includes("result"))) return "moderation_output";
+    if (
+        normalized.includes("generated result") ||
+        (normalized.includes("output") && (normalized.includes("image") || normalized.includes("video") || normalized.includes("result")))
+    )
+        return "moderation_output";
     return "moderation_input";
 }
 

@@ -66,3 +66,11 @@ test("content security audit is moderation_output and permits manual retry after
     expect(failure.blockManualRetry).toBe(false);
     expect(explainGenerationError({ error: { code: "1501", message: "Content security audit did not pass | 内容安全审查未通过" } }).category).toBe("moderation_output");
 });
+
+test("declarative content review failure is moderation_output", () => {
+    const failure = explainGenerationError("声明式协议任务失败（任务 task_wfqrhLOrpN0sUUTDPYzuosFNkfT3v37s）：The generated result did not pass the content review. Adjust the prompt or reference materials and try again");
+    expect(failure.category).toBe("moderation_output");
+    expect(failure.reason).toBe("生成结果未通过内容安全审核");
+    expect(failure.moderation).toBe(true);
+    expect(failure.blockManualRetry).toBe(false);
+});

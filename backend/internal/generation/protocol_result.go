@@ -353,7 +353,25 @@ func ProtocolResultError(message, taskID string, bodies ...[]byte) error {
 		message = "上游返回失败状态"
 	}
 	if taskID == "" {
-		return errors.New(message)
+		return &ProtocolTaskError{Message: message}
 	}
-	return fmt.Errorf("声明式协议任务失败（任务 %s）：%s", taskID, message)
+	return &ProtocolTaskError{TaskID: taskID, Message: message}
+}
+
+// ProtocolTaskError marks a terminal failure reported by a declarative
+// provider task. It is not an unknown submission and must not remain eligible
+// for image result recovery.
+type ProtocolTaskError struct {
+	TaskID  string
+	Message string
+}
+
+func (e *ProtocolTaskError) Error() string {
+	if e == nil {
+		return ""
+	}
+	if strings.TrimSpace(e.TaskID) == "" {
+		return e.Message
+	}
+	return fmt.Sprintf("声明式协议任务失败（任务 %s）：%s", e.TaskID, e.Message)
 }

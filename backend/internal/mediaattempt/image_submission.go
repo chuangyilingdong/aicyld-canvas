@@ -208,12 +208,14 @@ func ImageTaskEnded(err error) bool {
 
 func imageTaskEnded(err error) bool {
 	var media *beefapi.MediaTaskError
+	var protocol *generation.ProtocolTaskError
+	var payload generation.PayloadError
 	var preparation generation.RequestPreparationError
 	var notSent generation.RequestNotSentError
 	if errors.As(err, &media) {
 		return !media.Pending()
 	}
-	return errors.As(err, &preparation) || errors.As(err, &notSent) || beefapi.IsDefiniteMediaRejection(err)
+	return errors.As(err, &protocol) || errors.As(err, &payload) || errors.As(err, &preparation) || errors.As(err, &notSent) || beefapi.IsDefiniteMediaRejection(err)
 }
 
 func (s *Service) DeferImageRecovery(task model.Task) error {
