@@ -12,13 +12,31 @@ type Service struct {
 	dataDir       string
 	runWorkerLoop func(func(context.Context)) bool
 	localSource   bool
+	scriptState   *scriptRuntimeState
 }
 
 func New(repo *repository.Repository, dataDir string, runWorkerLoop func(func(context.Context)) bool) *Service {
 	if runWorkerLoop == nil {
 		runWorkerLoop = func(func(context.Context)) bool { return false }
 	}
-	return &Service{repo: repo, dataDir: dataDir, runWorkerLoop: runWorkerLoop}
+	return &Service{
+		repo:          repo,
+		dataDir:       dataDir,
+		runWorkerLoop: runWorkerLoop,
+		scriptState:   newScriptRuntimeState(),
+	}
+}
+
+func (s *Service) WithRepo(repo *repository.Repository) *Service {
+	if s == nil {
+		return New(repo, "", nil)
+	}
+	clone := *s
+	clone.repo = repo
+	if clone.scriptState == nil {
+		clone.scriptState = newScriptRuntimeState()
+	}
+	return &clone
 }
 
 // SetLocalSourceEnabled controls whether this runtime may read the host user's
