@@ -366,6 +366,8 @@ async function generationOutputAsset(input: Parameters<MaterializeGenerationTask
         conversationId: input.task.clientContext?.conversationId,
         messageId: input.task.clientContext?.messageId,
         batchIndex: input.task.clientContext?.batchIndex,
+        prompt: input.task.prompt,
+        model: input.task.model,
     };
 
     if (input.output.mediaType === "image") {

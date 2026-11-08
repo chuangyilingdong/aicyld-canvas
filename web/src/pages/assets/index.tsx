@@ -73,6 +73,16 @@ type AssetFormValues = {
 
 type ImageDraft = ImageAsset["data"] | null;
 
+function resolveAssetGenerationPrompt(asset: LibraryAsset | null | undefined): string {
+    if (!asset) return "";
+    const metadataPrompt = typeof asset.metadata?.prompt === "string" ? asset.metadata.prompt.trim() : "";
+    if (metadataPrompt) return metadataPrompt;
+    const raw = asset as LibraryAsset & { description?: unknown; contentText?: unknown };
+    if (typeof raw.description === "string" && raw.description.trim()) return raw.description.trim();
+    if (typeof raw.contentText === "string" && raw.contentText.trim()) return raw.contentText.trim();
+    return asset.kind === "text" ? asset.data.content.trim() : "";
+}
+
 const kindOptions = [
     { label: "全部", value: "all" },
     { label: "文本", value: "text" },
@@ -809,7 +819,7 @@ export default function AssetsPage() {
             <input
                 ref={assetUploadInputRef}
                 type="file"
-                accept="image/*,video/*"
+                accept="image/*,video/*,audio/*"
                 multiple
                 className="hidden"
                 onChange={(event) => {
@@ -1820,6 +1830,7 @@ export function AssetVideoPreview({ storageKey, url, title, className }: { stora
 }
 
 function AssetDrawer({ asset, onClose, onCopy, onDownload }: { asset: LibraryAsset | null; onClose: () => void; onCopy: (asset: LibraryAsset) => void; onDownload: (asset: LibraryAsset) => void }) {
+    const copyText = useCopyText();
     const [playable, setPlayable] = useState<{ asset: LibraryAsset; url: string } | null>(null);
     useEffect(() => {
         if (!asset || asset.kind !== "audio") {
@@ -1838,6 +1849,7 @@ function AssetDrawer({ asset, onClose, onCopy, onDownload }: { asset: LibraryAss
     }, [asset]);
     const mediaUrl = playable?.asset === asset ? playable?.url : undefined;
     const facts = asset ? assetArchiveFacts(asset) : [];
+    const generationPrompt = resolveAssetGenerationPrompt(asset);
     return (
         <Drawer className="library-drawer asset-detail-drawer" title={null} closable={false} open={Boolean(asset)} size="large" onClose={onClose}>
             {asset ? (
@@ -1884,6 +1896,21 @@ function AssetDrawer({ asset, onClose, onCopy, onDownload }: { asset: LibraryAss
                             </div>
                         ))}
                     </div>
+                    {generationPrompt ? (
+                        <div className="asset-archive-section" data-testid="asset-generation-prompt-section">
+                            <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+                                <span className="asset-archive-section-title">生成提示词</span>
+                                <Button
+                                    size="small"
+                                    icon={<Copy className="size-3.5" />}
+                                    onClick={() => copyText(generationPrompt, "已复制生成提示词")}
+                                >
+                                    复制提示词
+                                </Button>
+                            </div>
+                            <div className="asset-archive-section-body whitespace-pre-wrap break-words select-text">{generationPrompt}</div>
+                        </div>
+                    ) : null}
                     {asset.note ? (
                         <div className="asset-archive-section">
                             <span className="asset-archive-section-title">备注</span>

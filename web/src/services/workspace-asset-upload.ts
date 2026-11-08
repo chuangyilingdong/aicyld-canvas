@@ -8,8 +8,8 @@ import { startOperation } from "@/stores/use-operation-progress";
 
 /** A picker submission owns its batch until settlement, independently of React views. */
 export async function uploadWorkspaceAssetFiles(files: File[], folderId: string) {
-    const media = files.filter((file) => file.type.startsWith("image/") || file.type.startsWith("video/"));
-    if (!media.length) throw new Error("请选择图片或视频文件");
+    const media = files.filter((file) => file.type.startsWith("image/") || file.type.startsWith("video/") || file.type.startsWith("audio/"));
+    if (!media.length) throw new Error("请选择图片、视频或音频文件");
     let cursor = 0;
     let completed = 0;
     let failed = 0;
@@ -22,6 +22,9 @@ export async function uploadWorkspaceAssetFiles(files: File[], folderId: string)
                 if (file.type.startsWith("video/")) {
                     const uploaded = await uploadMediaFile(file, "video");
                     useAssetStore.getState().addAsset({ ...common, kind: "video", coverUrl: uploaded.preview?.url || "", data: { url: uploaded.url, storageKey: uploaded.storageKey, width: uploaded.width || 0, height: uploaded.height || 0, durationMs: uploaded.durationMs, hasAudio: uploaded.hasAudio, bytes: uploaded.bytes, mimeType: uploaded.mimeType } });
+                } else if (file.type.startsWith("audio/")) {
+                    const uploaded = await uploadMediaFile(file, "audio");
+                    useAssetStore.getState().addAsset({ ...common, kind: "audio", coverUrl: "", data: { url: uploaded.url, storageKey: uploaded.storageKey, durationMs: uploaded.durationMs, bytes: uploaded.bytes, mimeType: uploaded.mimeType } });
                 } else {
                     const uploaded = await uploadImage(file);
                     const meta = await readImageMeta(uploaded.url).catch(() => ({ width: uploaded.width, height: uploaded.height }));

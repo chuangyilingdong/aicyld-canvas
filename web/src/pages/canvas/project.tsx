@@ -763,6 +763,7 @@ function InfiniteCanvasPage() {
         deleteConnection,
         deleteNodes,
         duplicateNode,
+        duplicateNodesByDelta,
         hasCopiedNodes,
         pasteCopiedNodes,
         restoreCopiedNodesFromText,
@@ -861,6 +862,7 @@ function InfiniteCanvasPage() {
         onNodeInteractionStart: handleNodeInteractionStart,
         onNodeBringToFront: handleNodeBringToFront,
         onNodeClick: handleSelectedNodeClick,
+        onAltDragDuplicate: duplicateNodesByDelta,
         onNodeDragEnd: handleNodeDragEnd,
         onBatchConnectionTarget: handleBatchConnectionTargetClick,
         onLinkedFolderDrop: archiveNodesToLinkedFolder,
@@ -1882,6 +1884,8 @@ function InfiniteCanvasPage() {
                             canUndo={historyState.canUndo}
                             canRedo={historyState.canRedo}
                             canPaste={hasCopiedNodes || Boolean(navigator.clipboard)}
+                            nodes={nodes}
+                            selectedNodeIds={selectedNodeIds}
                             selectedCount={selectedNodeIds.size}
                             screenToCanvas={screenToCanvas}
                             onClose={() => setContextMenu(null)}
