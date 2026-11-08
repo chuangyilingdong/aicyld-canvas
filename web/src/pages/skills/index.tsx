@@ -7,6 +7,7 @@ import type { LucideIcon } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
 import { PageHeader, PaginationBar, WorkspacePage } from "@/components/layout/workspace-page";
+import { LocalSkillSourceButton } from "./local-skill-source";
 import { WorkspaceErrorState, WorkspaceState } from "@/components/layout/workspace-state";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { fallbackSkillCategories, formatSkillCount, groupSkills, skillCategoryLabel } from "@/pages/skills/skill-catalog";
@@ -238,7 +239,7 @@ export default function SkillsPage() {
     return (
         <>
             <WorkspacePage className="library-page skills-library-page" grid>
-                <PageHeader title="技能市场" description="在这里发现、创建、投稿和管理创作技能。" actions={<div className="flex gap-2"><Button icon={<Send className="size-4" />} onClick={() => { setScope("created"); message.info("选择你创建的技能，点击“投稿”查看状态或准备送审"); }}>投稿管理</Button>{isAdmin ? <Button icon={<ShieldCheck className="size-4" />} onClick={() => setReviewOpen(true)}>审核台</Button> : null}<Button type="primary" icon={<Plus className="size-4" />} onClick={() => setInstallOpen(true)}>创建 / 导入</Button></div>} />
+                <PageHeader title="技能市场" description="在这里发现、创建、投稿和管理创作技能。" actions={<div className="flex gap-2"><LocalSkillSourceButton onChanged={reload} /><Button icon={<Send className="size-4" />} onClick={() => { setScope("created"); message.info("选择你创建的技能，点击“投稿”查看状态或准备送审"); }}>投稿管理</Button>{isAdmin ? <Button icon={<ShieldCheck className="size-4" />} onClick={() => setReviewOpen(true)}>审核台</Button> : null}<Button type="primary" icon={<Plus className="size-4" />} onClick={() => setInstallOpen(true)}>创建 / 导入</Button></div>} />
 
                 <div className="skills-browse-bar sticky top-0" style={{ zIndex: "var(--z-toolbar)", background: "var(--user-page-bg, var(--background))" }}>
                 <div className="skills-navigation">
@@ -348,7 +349,7 @@ function SkillCard({ skill, categories, loading, style, onOpen, onAdd, onLike, o
                 <button type="button" className="skill-card-title-button" onClick={onOpen}>
                     <h3>{skill.skillName}</h3>
                 </button>
-                {skill.isOwner ? (
+                {skill.isOwner && !["local", "plugin"].includes(skill.sourceType) ? (
                     <Dropdown
                         trigger={["click"]}
                         menu={{

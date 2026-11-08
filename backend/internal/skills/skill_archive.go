@@ -28,7 +28,7 @@ func archiveFromMarkdown(data []byte, fallbackName string, fallbackDescription s
 }
 
 func archiveFromMarkdownWithFiles(data []byte, fallbackName string, fallbackDescription string, extraFiles map[string][]byte) (skillPackageArchive, error) {
-	if len(data) == 0 || len(data) > maxSkillFileBytes || !utf8.Valid(data) {
+	if len(data) == 0 || len(data) > maxSkillPackageBytes || !utf8.Valid(data) {
 		return skillPackageArchive{}, kernel.BadAuthRequest("Markdown 文件为空、过大或不是 UTF-8")
 	}
 	metadata := parseSkillPackageMetadata(data)
@@ -54,9 +54,6 @@ func archiveFromZip(data []byte, subdir string) (skillPackageArchive, error) {
 	if err != nil {
 		return skillPackageArchive{}, kernel.BadAuthRequest("ZIP 文件无法解析")
 	}
-	if len(reader.File) > maxSkillBundleSourceFiles {
-		return skillPackageArchive{}, kernel.BadAuthRequest("压缩包文件数量过多，无法安全导入")
-	}
 	raw := make(map[string][]byte)
 	var total int64
 	for _, entry := range reader.File {
@@ -79,14 +76,11 @@ func archiveFromZip(data []byte, subdir string) (skillPackageArchive, error) {
 		if _, exists := raw[entryPath]; exists {
 			return skillPackageArchive{}, kernel.BadAuthRequest("技能包包含重复文件路径")
 		}
-		if entry.UncompressedSize64 > maxSkillFileBytes {
-			return skillPackageArchive{}, kernel.BadAuthRequest("技能包中单个文件不能超过 8MB")
-		}
 		file, err := entry.Open()
 		if err != nil {
 			return skillPackageArchive{}, err
 		}
-		content, readErr := io.ReadAll(io.LimitReader(file, maxSkillFileBytes+1))
+		content, readErr := io.ReadAll(io.LimitReader(file, maxSkillPackageBytes-total+1))
 		closeErr := file.Close()
 		if readErr != nil {
 			return skillPackageArchive{}, readErr
@@ -94,12 +88,9 @@ func archiveFromZip(data []byte, subdir string) (skillPackageArchive, error) {
 		if closeErr != nil {
 			return skillPackageArchive{}, closeErr
 		}
-		if len(content) > maxSkillFileBytes {
-			return skillPackageArchive{}, kernel.BadAuthRequest("技能包中单个文件不能超过 8MB")
-		}
 		total += int64(len(content))
 		if total > maxSkillPackageBytes {
-			return skillPackageArchive{}, kernel.BadAuthRequest("技能包解压后不能超过 20MB")
+			return skillPackageArchive{}, kernel.BadAuthRequest("技能包解压后不能超过 200MB")
 		}
 		raw[entryPath] = content
 	}
@@ -182,9 +173,6 @@ func normalizeSkillArchiveRoot(raw map[string][]byte, subdir string) (map[string
 		}
 		files[filePath] = content
 	}
-	if len(files) > maxSkillPackageFiles {
-		return nil, kernel.BadAuthRequest("技能包文件数量不能超过 512 个")
-	}
 	return files, nil
 }
 
@@ -202,10 +190,6 @@ func bundleSkillArchiveFiles(raw map[string][]byte, roots []string, wrapperName 
 			}
 		}
 	}
-	if len(selected)+1 > maxSkillPackageFiles {
-		return nil, kernel.BadAuthRequest("技能包内各技能文件合计不能超过 512 个")
-	}
-
 	name, description := bundleSkillMetadata(raw, wrapperName)
 	if name == "" {
 		name = "技能合集"
@@ -321,7 +305,7 @@ func finalizeSkillArchive(files map[string][]byte, metadata skillPackageMetadata
 		content := files[filePath]
 		total += int64(len(content))
 		if total > maxSkillPackageBytes {
-			return skillPackageArchive{}, kernel.BadAuthRequest("技能包解压后不能超过 20MB")
+			return skillPackageArchive{}, kernel.BadAuthRequest("技能包解压后不能超过 200MB")
 		}
 		hash.Write([]byte(filePath))
 		hash.Write([]byte{0})
@@ -329,6 +313,10 @@ func finalizeSkillArchive(files map[string][]byte, metadata skillPackageMetadata
 		hash.Write([]byte{0})
 	}
 	return skillPackageArchive{Files: files, Metadata: metadata, ContentHash: hex.EncodeToString(hash.Sum(nil)), TotalBytes: total}, nil
+}
+
+func errSkillPackageTooLarge() error {
+	return kernel.BadAuthRequest("技能包解压后不能超过 200MB")
 }
 
 func encodeSkillArchive(files map[string][]byte) ([]byte, error) {

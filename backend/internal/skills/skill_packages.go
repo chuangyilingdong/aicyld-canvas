@@ -28,10 +28,8 @@ import (
 )
 
 const (
-	maxSkillPackageBytes       = 20 << 20
-	maxSkillFileBytes          = 8 << 20
-	maxSkillPackageFiles       = 512
-	maxSkillBundleSourceFiles  = 4_000
+	// 只防压缩炸弹，不限单个文件大小和文件数：技能标准没有这些限制。
+	maxSkillPackageBytes       = 200 << 20
 	maxSkillPreviewBytes       = 512 << 10
 	SkillPackageUploadMaxBytes = maxSkillPackageBytes + (1 << 20)
 )
@@ -113,6 +111,10 @@ func (s *Service) EnsureSkillPackages() error {
 	}
 	for index := range skills {
 		skill := &skills[index]
+		// 插件和本机技能的文件在各自目录里，由同步负责；这里只有 SKILL.md，重建会丢文件。
+		if skill.SourceType == "plugin" || skill.SourceType == "local" {
+			continue
+		}
 		var extraFiles map[string][]byte
 		if skill.Source != skillSourceUser {
 			extraFiles = builtinFiles[skill.ID]
@@ -260,7 +262,7 @@ func readSkillPackageUpload(sourceType string, header *multipart.FileHeader, nam
 		return "", skillPackageArchive{}, kernel.BadAuthRequest("技能文件仅支持 Markdown 或 ZIP")
 	}
 	if header == nil || header.Size <= 0 || header.Size > maxSkillPackageBytes {
-		return "", skillPackageArchive{}, kernel.BadAuthRequest("技能文件大小必须在 1B-20MB 之间")
+		return "", skillPackageArchive{}, kernel.BadAuthRequest("技能文件大小必须在 1B-200MB 之间")
 	}
 	file, err := header.Open()
 	if err != nil {
@@ -272,7 +274,7 @@ func readSkillPackageUpload(sourceType string, header *multipart.FileHeader, nam
 		return "", skillPackageArchive{}, err
 	}
 	if len(data) > maxSkillPackageBytes {
-		return "", skillPackageArchive{}, kernel.BadAuthRequest("技能文件不能超过 20MB")
+		return "", skillPackageArchive{}, kernel.BadAuthRequest("技能文件不能超过 200MB")
 	}
 	var archive skillPackageArchive
 	if sourceType == "markdown" {
@@ -746,7 +748,7 @@ func (s *Service) readSkillArchiveEntry(version *model.SkillVersion, filePath st
 			return nil, err
 		}
 		defer file.Close()
-		return io.ReadAll(io.LimitReader(file, maxSkillFileBytes+1))
+		return io.ReadAll(io.LimitReader(file, maxSkillPackageBytes+1))
 	}
 	return nil, kernel.BadAuthRequest("技能文件不存在")
 }

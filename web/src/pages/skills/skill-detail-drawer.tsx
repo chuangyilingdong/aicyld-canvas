@@ -145,9 +145,9 @@ export function SkillDetailModal({ skill, loading, mutating, categories, onClose
                             {skill.isAdded && !skill.isOwner && versions.length > 1 ? <Dropdown trigger={["click"]} menu={{ items: versions.map((version) => ({ key: version.id, label: `${version.versionLabel}${version.id === skill.installedVersionId ? "（当前）" : ""}`, disabled: version.id === skill.installedVersionId, onClick: () => void rollbackSkillVersion(skill.skillId, version.id).then(({ skill: next }) => { onChanged(next); message.success(`已切换到 ${version.versionLabel}`); }).catch((error) => message.error(error instanceof Error ? error.message : "版本切换失败")) })) }}><Button icon={<History className="size-4" />}>版本</Button></Dropdown> : null}
                             {!localRuntime && skill.sourceType === "github" && skill.isOwner ? <Tooltip title={skill.syncError || "从 GitHub 检查并同步最新提交"}><Button loading={mutating} icon={<RefreshCw className="size-4" />} onClick={() => onSync(skill)}>同步</Button></Tooltip> : null}
                             {skill.sourceType === "zip" && skill.isOwner ? <><input ref={packageInputRef} type="file" accept=".zip,application/zip" hidden onChange={(event) => void replacePackage(event)} /><Button loading={replacingPackage} disabled={skill.reviewStatus === "in_review"} icon={<UploadCloud className="size-4" />} onClick={() => packageInputRef.current?.click()}>替换包</Button></> : null}
-                            {skill.isOwner && onPublish ? <Button icon={<Send className="size-4" />} onClick={() => onPublish(skill)}>投稿</Button> : null}
+                            {skill.isOwner && !["local", "plugin"].includes(skill.sourceType) && onPublish ? <Button icon={<Send className="size-4" />} onClick={() => onPublish(skill)}>投稿</Button> : null}
                             {skill.sourceType === "zip" && skill.isOwner ? <><input ref={packageInputRef} type="file" accept=".zip,application/zip" hidden onChange={(event) => void replacePackage(event)} /><Button loading={replacingPackage} disabled={skill.reviewStatus === "in_review"} icon={<UploadCloud className="size-4" />} onClick={() => packageInputRef.current?.click()}>替换包</Button></> : null}
-                            {skill.isOwner ? <Button icon={<Pencil className="size-4" />} onClick={() => onEdit(skill)}>编辑</Button> : null}
+                            {skill.isOwner && !["local", "plugin"].includes(skill.sourceType) ? <Button icon={<Pencil className="size-4" />} onClick={() => onEdit(skill)}>编辑</Button> : null}
                             <Button loading={mutating} icon={<Heart className={`size-4 ${skill.isLike ? "fill-current text-rose-500" : ""}`} />} onClick={() => onLike(skill)}>{skill.isLike ? "已收藏" : "收藏"}</Button>
                             <Button type={skill.isAdded ? "default" : "primary"} loading={mutating} disabled={skill.isOwner} icon={skill.isAdded ? <Check className="size-4" /> : <Plus className="size-4" />} onClick={() => onAdd(skill)}>{skill.isOwner ? "我的技能" : skill.isAdded ? "已加入" : "加入技能"}</Button>
                         </div> : null}
@@ -311,6 +311,8 @@ function sourceLabel(source: string) {
     if (source === "github") return "GitHub";
     if (source === "zip") return "ZIP 技能包";
     if (source === "builtin") return "平台技能";
+    if (source === "local") return "本机技能";
+    if (source === "plugin") return "插件";
     return "Markdown";
 }
 

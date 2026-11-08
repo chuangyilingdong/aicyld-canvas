@@ -23,7 +23,7 @@ export type Skill = {
     contentHash: string;
     fileCount: number;
     totalBytes: number;
-    sourceType: "builtin" | "markdown" | "zip" | "github" | string;
+    sourceType: "builtin" | "markdown" | "zip" | "github" | "plugin" | "local" | string;
     sourceUrl: string;
     sourceRef: string;
     sourceSubdir: string;
@@ -57,6 +57,8 @@ export type Skill = {
     isOwner: boolean;
     reviewSummary?: SkillReviewSummary;
 };
+
+export type LocalSkillSource = { enabled: boolean; directory: string };
 
 export type SkillReviewTrial = {
     scenario: string;
@@ -267,6 +269,18 @@ export function getSkillBundle(id: string) {
 
 export function searchSkillFiles(id: string, query: string) {
     return http.get<{ results: SkillFileSearchResult[] }>(`/skills/${encodeURIComponent(id)}/search`, { params: { q: query } });
+}
+
+export function getLocalSkillSource() {
+    return http.get<LocalSkillSource>("/skills/local-source");
+}
+
+export function setLocalSkillSource(enabled: boolean) {
+    return http.put<LocalSkillSource>("/skills/local-source", { enabled }).finally(invalidateAddedSkillsCache);
+}
+
+export function syncLocalSkills() {
+    return http.post<{ synced: boolean }>("/skills/local-source/sync").finally(invalidateAddedSkillsCache);
 }
 
 export function syncSkill(id: string) {
