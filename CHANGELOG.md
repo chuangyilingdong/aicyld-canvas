@@ -4,6 +4,11 @@ All notable public changes to BeefTV are documented in this file.
 
 ## Unreleased
 
+- Canvas interaction: insert references at the caret, double-click previews, pick-connect/Alt connection, Alt-drag duplication, and multi-select batch downloads.
+- Assets and scripts: MP3 upload, generated-prompt copy, and `.docx/.txt/.md` script import for script nodes.
+- Assistant and timeline: session deletion, voice preview, reliable tail-frame concat, and cancellation before task identity is assigned.
+- Skills: remove per-file and file-count limits while keeping a 200 MB package guard; optionally sync `~/.agents/skills`.
+
 ## v2.1.3
 
 - 生成任务与素材处理：修正媒体错误分类并保留 TaskID，非视频任务不再执行 Seedance 预上传，参考素材链接统一走 URL 安全校验。
