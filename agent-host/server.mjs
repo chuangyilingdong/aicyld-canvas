@@ -437,6 +437,36 @@ const server = http.createServer(async (req, res) => {
       respond(res, 200, { sessionId });
       return;
     }
+    if (req.method === 'DELETE' && (url.pathname === '/sessions' || url.pathname.startsWith('/sessions/'))) {
+      const body = JSON.parse((await readBody(req)) || '{}');
+      const canvasId = String(body.canvasId || url.searchParams.get('canvasId') || '').trim();
+      const pathSessionId = url.pathname.startsWith('/sessions/') ? decodeURIComponent(url.pathname.slice('/sessions/'.length)) : '';
+      const sessionId = String(body.sessionId || pathSessionId || '').trim();
+      if (!canvasId || !sessionId) { respond(res, 400, { code: 400, reason: 'invalid_request' }); return; }
+      if (liveEntry(canvasId)?.busy) { respond(res, 409, { code: 409, reason: 'session_busy' }); return; }
+      if (isDurableSessionId(sessionId)) {
+        await durable.deleteSession(canvasId, sessionId);
+      } else {
+        legacy.deleteSession(canvasId, sessionId);
+      }
+      let nextActive = currentId(canvasId) || null;
+      if (nextActive === sessionId) {
+        const list = [...await legacy.listCanvasSessions(canvasId), ...await durable.listCanvasSessions(canvasId)]
+          .sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
+        nextActive = list[0]?.sessionId || null;
+        if (nextActive) {
+          if (isDurableSessionId(nextActive)) {
+            const entry = await durable.activateSession(canvasId, nextActive);
+            const submission = await durable.recover(entry);
+            if (submission) followDurable(entry, submission);
+          } else {
+            legacy.writeCurrentSessionId(canvasId, nextActive);
+          }
+        }
+      }
+      respond(res, 200, { deleted: true, sessionId, currentSessionId: nextActive });
+      return;
+    }
     if (req.method === 'GET' && url.pathname === '/history') {
       const canvasId = String(url.searchParams.get('canvasId') || '').trim();
       const requested = String(url.searchParams.get('sessionId') || '').trim();

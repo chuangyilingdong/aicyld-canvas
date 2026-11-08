@@ -329,6 +329,13 @@ export async function activateAssistantSession(canvasId: string, sessionId: stri
     return data.sessionId;
 }
 
+export async function deleteAssistantSession(canvasId: string, sessionId: string): Promise<{ deleted: boolean; sessionId: string; currentSessionId: string | null }> {
+    return http.delete<{ deleted: boolean; sessionId: string; currentSessionId: string | null }>(
+        `/assistant/sessions/${encodeURIComponent(sessionId)}?canvasId=${encodeURIComponent(canvasId)}`,
+        await uiSessionConfig(),
+    );
+}
+
 export async function getAssistantHistory(canvasId: string, sessionId?: string): Promise<AssistantHistory> {
     const query = new URLSearchParams({ canvasId });
     if (sessionId) query.set("sessionId", sessionId);

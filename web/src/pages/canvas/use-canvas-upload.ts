@@ -16,6 +16,7 @@ import { mediaResultMetadata } from "@/lib/canvas/canvas-node-semantics";
 import { isAudioFile } from "@/lib/canvas/canvas-project-generation";
 import { fitNodeSize, VIDEO_NODE_MAX_SIZE } from "@/lib/canvas/canvas-node-size";
 import { CANVAS_UPLOAD_ACCEPT, createFileUploadPlaceholder, uploadNodeType, uploadPercent } from "@/lib/canvas/canvas-file-upload";
+import { createScriptDocumentUploadPlaceholder, extractScriptDocumentText, isScriptDocumentFile, resolveScriptOrUploadNodeType, SCRIPT_DOCUMENT_ACCEPT } from "@/lib/canvas/script-document-import";
 import { canvasNodesMissingResourceAssetBinding } from "@/lib/canvas/canvas-node-asset";
 import { resourceIdFromStorageKey } from "@/services/api/resources";
 import { isReferenceHTTPSLink } from "@/services/api/reference-link-replacement";
@@ -223,7 +224,7 @@ export function useCanvasUpload({
         activeUploadsRef.current.add(id);
         const progress = startUploadStatus(replaceId ? "替换文件" : "上传文件", "读取文件信息", domainProjectId ? 4 : 3);
         try {
-            const placeholder = await createFileUploadPlaceholder(id, file, position);
+            const placeholder = await createScriptDocumentUploadPlaceholder(id, file, position, () => createFileUploadPlaceholder(id, file, position));
             if (!guard.alive()) return null;
             const uploadPlaceholder = placeholder.type === CanvasNodeType.Image || placeholder.type === CanvasNodeType.Video || placeholder.type === CanvasNodeType.Audio
                 ? { ...placeholder, metadata: mediaResultMetadata("upload", placeholder.metadata) }
@@ -250,8 +251,9 @@ export function useCanvasUpload({
             if (placeholder.type === CanvasNodeType.Image) {
                 metadata = imageMetadata(await uploadImage(file, onProgress));
             } else if (placeholder.type === CanvasNodeType.Text) {
-                const content = await file.text();
+                const { title: docTitle, content } = await extractScriptDocumentText(file);
                 if (!guard.alive()) return null;
+                if (docTitle) placeholder.title = docTitle;
                 const uploaded = await uploadMediaFile(file, "file", onProgress);
                 metadata = { content, prompt: content, storageKey: uploaded.storageKey, mimeType: uploaded.mimeType || file.type || "text/plain", bytes: uploaded.bytes, status: "success" };
             } else {
@@ -269,7 +271,7 @@ export function useCanvasUpload({
                 ? fitNodeSize(metadata.naturalWidth, metadata.naturalHeight)
                 : null;
             const node: CanvasNodeData = {
-                ...currentNode, type: placeholder.type,
+                ...currentNode, type: placeholder.type, title: placeholder.type === CanvasNodeType.Text && placeholder.title ? placeholder.title : currentNode.title,
                 ...(videoSize ? { ...videoSize, position: {
                     x: currentNode.position.x + (currentNode.width - videoSize.width) / 2,
                     y: currentNode.position.y + (currentNode.height - videoSize.height) / 2,
@@ -290,7 +292,7 @@ export function useCanvasUpload({
                     } : {}),
                 }),
             };
-            const applyUploadedNode = (current: CanvasNodeData[]) => current.map((item) => item.id === id ? { ...item, type: node.type, width: node.width, height: node.height, position: node.position, metadata: node.metadata } : item);
+            const applyUploadedNode = (current: CanvasNodeData[]) => current.map((item) => item.id === id ? { ...item, title: node.title, type: node.type, width: node.width, height: node.height, position: node.position, metadata: node.metadata } : item);
             nodesRef.current = applyUploadedNode(nodesRef.current);
             setNodes(applyUploadedNode);
             if (domainProjectId) progress.update("写入项目资产", 4);
@@ -458,7 +460,7 @@ export function useCanvasUpload({
                   ? "video/*"
                   : target?.type === CanvasNodeType.Audio
                     ? "audio/*,.mp3,.wav"
-                    : target?.type === CanvasNodeType.Text ? "text/plain,text/markdown,.txt,.md,.markdown" : CANVAS_UPLOAD_ACCEPT;
+                    : target?.type === CanvasNodeType.Text || target?.type === CanvasNodeType.Script ? SCRIPT_DOCUMENT_ACCEPT : `${CANVAS_UPLOAD_ACCEPT},.docx`;
             imageInputRef.current.multiple = !nodeId;
         }
         if(nodeId) imageInputRef.current?.click();
@@ -485,9 +487,9 @@ export function useCanvasUpload({
         const uploadTarget = uploadTargetRef.current;
         const supportedFiles = files.filter((file) => uploadTarget?.referenceToNodeId
             ? uploadNodeType(file) === CanvasNodeType.Image
-            : Boolean(uploadNodeType(file)));
+            : Boolean(resolveScriptOrUploadNodeType(file, uploadNodeType(file))));
         if (!supportedFiles.length) {
-            message.warning(uploadTarget?.referenceToNodeId ? "请选择图片作为导演台参考素材" : "请选择图片、视频、音频或 TXT / Markdown 文件");
+            message.warning(uploadTarget?.referenceToNodeId ? "请选择图片作为导演台参考素材" : "请选择图片、视频、音频或剧本/文档文件 (.docx/.txt/.md)");
             return false;
         }
         const center = uploadTarget?.position || getCanvasCenter();
@@ -804,16 +806,17 @@ export function useCanvasUpload({
             void createImageAssetNode(asset, screenToCanvas(event.clientX, event.clientY));
             return;
         }
-        const files = Array.from(event.dataTransfer.files).filter((item) => uploadNodeType(item));
+        const files = Array.from(event.dataTransfer.files).filter((item) => resolveScriptOrUploadNodeType(item, uploadNodeType(item)));
         if (!files.length) return;
         if (files.length > 1) {
             void handleUploadFiles(files);
             return;
         }
         const file = files[0];
+        const fileNodeType = resolveScriptOrUploadNodeType(file, uploadNodeType(file));
         const position = screenToCanvas(event.clientX, event.clientY);
         const target = [...nodesRef.current].reverse().find((node) => {
-            const compatible = node.type === uploadNodeType(file);
+            const compatible = node.type === fileNodeType || (node.type === CanvasNodeType.Script && isScriptDocumentFile(file));
             return compatible && position.x >= node.position.x && position.x <= node.position.x + node.width && position.y >= node.position.y && position.y <= node.position.y + node.height;
         });
         if (target) {

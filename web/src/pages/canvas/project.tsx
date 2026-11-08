@@ -1250,7 +1250,14 @@ function InfiniteCanvasPage() {
     const handleCancelNodeTask = useCallback(
         async (node: CanvasNodeData) => {
             const taskId = node.metadata?.taskId;
-            if (!taskId) return;
+            if (!taskId) {
+                const controller = startGenerationRequest(node.id, node.id);
+                controller.abort();
+                finishGenerationRequest(node.id, controller);
+                setRunningNodeId((id) => (id === node.id ? null : id));
+                setNodes((list) => list.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, status: item.metadata?.content || item.metadata?.storageKey ? "success" : "idle", taskStage: undefined } } : item)));
+                return;
+            }
             try {
                 const task = activeTasksRef.current.find((item) => item.id === taskId) ?? (await queryGenerationTask(taskId));
                 cancelCanvasTask(task);
@@ -1258,7 +1265,7 @@ function InfiniteCanvasPage() {
                 message.error(error instanceof Error ? error.message : "读取任务失败");
             }
         },
-        [cancelCanvasTask, message],
+        [cancelCanvasTask, finishGenerationRequest, message, setNodes, setRunningNodeId, startGenerationRequest],
     );
     const openCanvasNodeVersions = useCallback((node: CanvasNodeData) => setVersionCompareRootId(node.metadata?.versionOfNodeId || node.id), []);
     const viewCanvasNodeImage = useCallback((node: CanvasNodeData) => setPreviewNodeId(node.id), []);

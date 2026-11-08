@@ -187,7 +187,7 @@ function lowerVisual(segment: CanonicalSegment, index: number, fileName: string,
         : ["-i", fileName, "-f", "lavfi", "-i", anullsrc, "-ss", String((segment.sourceStartMs || 0) / 1000), "-t", String(durationSec), "-map", "0:v:0", "-map", audioMap];
     args.push(
         "-vf", `scale=${cfg.width}:${cfg.height}:force_original_aspect_ratio=decrease,pad=${cfg.width}:${cfg.height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${cfg.fps},format=yuv420p`,
-        "-af", `aresample=${cfg.sampleRate},aformat=channel_layouts=stereo,volume=${volume}${audioFadeFilter(segment)},apad`,
+        "-af", `aresample=${cfg.sampleRate},aformat=channel_layouts=stereo,volume=${volume}${audioFadeFilter(segment)},apad=whole_dur=${durationSec}`,
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-c:a", "aac", "-b:a", "128k", output,
     );
     return {
@@ -241,7 +241,7 @@ export function lowerCanonicalPlan(plan: CanonicalTimelinePlan, sources: Timelin
         steps.push({
             kind: "concat",
             output: concatOutput,
-            args: ["-f", "concat", "-safe", "0", "-i", "concat.txt", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-c:a", "aac", concatOutput],
+            args: ["-fflags", "+genpts", "-f", "concat", "-safe", "0", "-i", "concat.txt", "-c", "copy", "-movflags", "+faststart", concatOutput],
             description: "拼接视频轨",
         });
     }

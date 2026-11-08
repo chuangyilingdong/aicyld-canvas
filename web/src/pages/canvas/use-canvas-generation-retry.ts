@@ -93,6 +93,8 @@ export function useCanvasGenerationRetry({
                 message.warning("当前节点不能使用通用生成重试");
                 return;
             }
+            let storedVideoFallbackError: unknown;
+            let confirmedStoredVideoRetry = false;
             if (retryMode === "video" && node.metadata?.taskId && node.metadata.status === "error" && shouldReuseStoredVideoTask(readNodeTaskOutcome(node.metadata))) {
                 const outcome = readNodeTaskOutcome(node.metadata);
                 if (isRegenerateBlocked(outcome)) {
@@ -105,6 +107,7 @@ export function useCanvasGenerationRetry({
                 const requestProjectId = projectId;
                 const controller = startGenerationRequest(node.id, node.id);
                 setRunningNodeId(node.id);
+                let taskUpdated = false;
                 try {
                     if (isRegenerateConfirm(outcome) && modal?.confirm) {
                         const copy = taskOutcomeCopy(outcome);
@@ -121,21 +124,29 @@ export function useCanvasGenerationRetry({
                             controller.signal,
                         );
                         if (!confirmed) return;
+                        confirmedStoredVideoRetry = true;
                     }
                     const task = await retryStoredCanvasVideo(taskId, controller.signal, (update) => {
+                        taskUpdated = true;
                         if (projectIdRef.current === requestProjectId) bindGenerationTask(node.id, update);
                     });
                     if (projectIdRef.current === requestProjectId && !controller.signal.aborted) await applyGenerationTaskResult(node.id, task);
                 } catch (error) {
-                    if (!isGenerationCanceled(error) && projectIdRef.current === requestProjectId) {
-                        message.error(error instanceof Error ? error.message : "原视频任务重试失败");
+                    if (isGenerationCanceled(error) || projectIdRef.current !== requestProjectId) return;
+                    if (!taskUpdated) {
+                        storedVideoFallbackError = error;
+                    } else {
+                        const reason = error instanceof Error ? error.message : "原视频任务重试失败";
+                        const failure = canvasGenerationFailureMetadata(error, { mode: "video", prompt: node.metadata?.prompt || "" });
+                        message.error(reason);
+                        setNodes((current) => current.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_ERROR, ...failure, generationErrorSummary: failure.generationErrorSummary || reason, generationFailure: undefined } } : item)));
+                        return;
                     }
                 } finally {
                     retryingVideos.current.delete(taskId);
                     finishGenerationRequest(node.id, controller);
                     if (projectIdRef.current === requestProjectId) setRunningNodeId(null);
                 }
-                return;
             }
             const batchRoot = node.metadata?.batchRootId ? nodesRef.current.find((item) => item.id === node.metadata?.batchRootId) : null;
             const originalSourceId = node.metadata?.generatedFromNodeId || batchRoot?.metadata?.generatedFromNodeId;
@@ -213,7 +224,10 @@ export function useCanvasGenerationRetry({
             }
             const prompt = (context?.prompt || savedImageMetadata?.prompt || "").trim();
             if (!prompt) {
-                message.warning("找不到提示词，无法重试");
+                const reason = storedVideoFallbackError instanceof Error ? storedVideoFallbackError.message : "找不到提示词，无法重试";
+                if (storedVideoFallbackError) message.error(reason);
+                else message.warning(reason);
+                surfaceRetryFailure(node.id, reason, setNodes);
                 return;
             }
             let mediaPrompt = prompt;
@@ -304,7 +318,7 @@ export function useCanvasGenerationRetry({
                     message.warning(node.metadata?.errorDetails || taskOutcomeCopy(outcome).message);
                     return;
                 }
-                if (isRegenerateConfirm(outcome) && modal?.confirm) {
+                if (!confirmedStoredVideoRetry && isRegenerateConfirm(outcome) && modal?.confirm) {
                     const copy = taskOutcomeCopy(outcome);
                     const confirmed = await confirmCanvasGeneration(
                         (callbacks) =>
@@ -321,7 +335,7 @@ export function useCanvasGenerationRetry({
                     if (!confirmed) return;
                 }
                 // Edited input after a non-retryable failure is a new submission, not replay of the old retry operation.
-                const retryContext = node.metadata?.taskId && isRegenerateAllowed(outcome)
+                const retryContext = !storedVideoFallbackError && node.metadata?.taskId && isRegenerateAllowed(outcome)
                     ? await createGenerationRetryContext(node.metadata.taskId, node.metadata.attemptGroupId)
                     : node.metadata?.taskClientOperationId && !node.metadata?.taskId
                       ? { clientOperationId: node.metadata.taskClientOperationId }
@@ -515,4 +529,23 @@ function retryModeForNode(type: CanvasNodeTypeId): CanvasNodeGenerationMode | nu
 
 function markMissingReferences(nodeId: string, setNodes: Dispatch<SetStateAction<CanvasNodeData[]>>) {
     setNodes((current) => current.map((item) => (item.id === nodeId ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_ERROR, errorDetails: "参考图片已丢失，无法继续重试" } } : item)));
+}
+
+function surfaceRetryFailure(nodeId: string, reason: string, setNodes: Dispatch<SetStateAction<CanvasNodeData[]>>) {
+    setNodes((current) =>
+        current.map((item) =>
+            item.id === nodeId
+                ? {
+                      ...item,
+                      metadata: {
+                          ...item.metadata,
+                          status: NODE_STATUS_ERROR,
+                          errorDetails: reason,
+                          generationErrorSummary: reason,
+                          generationFailure: undefined,
+                      },
+                  }
+                : item,
+        ),
+    );
 }
