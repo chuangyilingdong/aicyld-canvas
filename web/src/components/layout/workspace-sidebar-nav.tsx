@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Home, Plug, Plus, Settings2, HardDrive, Sun, Moon } from "lucide-react";
+import { ChevronLeft, ChevronRight, Home, Plug, Plus, Settings2, HardDrive, Sun, Moon, Bot } from "lucide-react";
 import { LayoutGroup, motion, useReducedMotion } from "motion/react";
 import { useEffect, useMemo, useRef, useState, type ComponentType, type CSSProperties } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
@@ -58,6 +58,7 @@ function buildNav(features: FeatureAvailability): { groups: WorkspaceNavGroup[];
                 { id: "settings:channels", title: "模型配置", icon: Settings2, to: "/settings?section=channels" },
                 ...(showStorageSettings ? [{ id: "settings:storage", title: "存储设置", icon: HardDrive, to: "/settings?section=storage" }] : []),
                 { id: "agents", title: "灵动TV MCP", icon: Plug, to: "/agents" },
+                { id: "settings:assistant", title: "助手设置", icon: Bot, to: "/settings?section=assistant" },
             ],
         },
     ];
