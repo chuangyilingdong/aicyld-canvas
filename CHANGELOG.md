@@ -2,6 +2,12 @@
 
 All notable public changes to BeefTV are documented in this file.
 
+## v2.1.3-aicyld.51
+
+- 助手节点配置工具补齐图片数量、质量、透明背景，视频水印、编辑模式，以及音频格式、语速、音高、音量和声音指令参数。
+- 时间线工具移除根级 `oneOf`，兼容严格 OpenAI-compatible Schema 端点，避免整组工具被拒绝后助手只能回复文字。
+- 助手首个输出超过 12 秒时提示检查系统代理或 VPN，开始输出后提示自动消失。
+
 ## v2.1.3-aicyld.50
 
 - 助手完整制作方案以确认时的节点、模型和参数为准；之后修改全局生成设置不再让方案失效。
