@@ -180,6 +180,7 @@ func newService(repo *repository.Repository, dataDir string, options serviceOpti
 	service.taskWorkerCoordinator = newTaskWorkerCoordinator(service)
 	service.taskLifecycleCoordinator = newTaskLifecycleCoordinator(service)
 	service.skills = skills.New(service.repo, service.dataDir, service.runWorkerLoop)
+	service.skills.SetLocalSourceEnabled(service.IsLocalMode())
 	service.prompts = prompts.New(service.repo, newPromptAdminGate(service))
 	service.projects = localproject.New(repo, localproject.Dependencies{})
 	service.canvas = canvas.New(service.repo, newCanvasHost(service))

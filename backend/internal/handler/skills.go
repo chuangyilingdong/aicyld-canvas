@@ -90,6 +90,10 @@ func registerSkillRoutes(r *gin.RouterGroup, owners workspaceOwners, skillsDomai
 	}
 
 	r.GET("/skills/local-source", func(c *gin.Context) {
+		if _, err := currentUser(c, owners); err != nil {
+			failService(c, err)
+			return
+		}
 		source, err := skillsDomain.LocalSkillSource()
 		if err != nil {
 			failService(c, err)
@@ -98,6 +102,10 @@ func registerSkillRoutes(r *gin.RouterGroup, owners workspaceOwners, skillsDomai
 		ok(c, source)
 	})
 	r.PUT("/skills/local-source", func(c *gin.Context) {
+		if _, err := currentUser(c, owners); err != nil {
+			failService(c, err)
+			return
+		}
 		var req struct {
 			Enabled bool `json:"enabled"`
 		}
@@ -113,6 +121,10 @@ func registerSkillRoutes(r *gin.RouterGroup, owners workspaceOwners, skillsDomai
 		ok(c, source)
 	})
 	r.POST("/skills/local-source/sync", func(c *gin.Context) {
+		if _, err := currentUser(c, owners); err != nil {
+			failService(c, err)
+			return
+		}
 		if err := skillsDomain.SyncLocalSkills(); err != nil {
 			failService(c, err)
 			return

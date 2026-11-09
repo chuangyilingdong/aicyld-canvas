@@ -11,6 +11,7 @@ type Service struct {
 	repo          *repository.Repository
 	dataDir       string
 	runWorkerLoop func(func(context.Context)) bool
+	localSource   bool
 }
 
 func New(repo *repository.Repository, dataDir string, runWorkerLoop func(func(context.Context)) bool) *Service {
@@ -18,4 +19,12 @@ func New(repo *repository.Repository, dataDir string, runWorkerLoop func(func(co
 		runWorkerLoop = func(func(context.Context)) bool { return false }
 	}
 	return &Service{repo: repo, dataDir: dataDir, runWorkerLoop: runWorkerLoop}
+}
+
+// SetLocalSourceEnabled controls whether this runtime may read the host user's
+// shared ~/.agents/skills directory. Hosted multi-user servers must leave it off.
+func (s *Service) SetLocalSourceEnabled(enabled bool) {
+	if s != nil {
+		s.localSource = enabled
+	}
 }

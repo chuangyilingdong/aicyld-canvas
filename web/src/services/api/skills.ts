@@ -58,7 +58,7 @@ export type Skill = {
     reviewSummary?: SkillReviewSummary;
 };
 
-export type LocalSkillSource = { enabled: boolean; directory: string };
+export type LocalSkillSource = { enabled: boolean; directory: string; available: boolean; reason?: string };
 
 export type SkillReviewTrial = {
     scenario: string;

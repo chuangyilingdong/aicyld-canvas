@@ -21,19 +21,30 @@ const (
 type LocalSkillSource struct {
 	Enabled   bool   `json:"enabled"`
 	Directory string `json:"directory"`
+	Available bool   `json:"available"`
+	Reason    string `json:"reason,omitempty"`
 }
 
 func (s *Service) LocalSkillSource() (*LocalSkillSource, error) {
+	if s == nil || !s.localSource {
+		return &LocalSkillSource{
+			Enabled: false, Directory: "", Available: false,
+			Reason: "托管环境不读取服务器用户目录；本机技能源仅用于桌面版",
+		}, nil
+	}
 	enabled, err := s.localSkillsEnabled()
 	if err != nil {
 		return nil, err
 	}
-	return &LocalSkillSource{Enabled: enabled, Directory: localSkillsDirectory}, nil
+	return &LocalSkillSource{Enabled: enabled, Directory: localSkillsDirectory, Available: true}, nil
 }
 
 // SetLocalSkillSource 保存开关并立刻同步：打开时读进来，关闭时把读进来的技能从技能库拿掉。
 // 只动技能库里的记录，不碰用户电脑上的目录。
 func (s *Service) SetLocalSkillSource(enabled bool) (*LocalSkillSource, error) {
+	if s == nil || !s.localSource {
+		return nil, errors.New("托管环境不支持本机技能源")
+	}
 	value, err := json.Marshal(enabled)
 	if err != nil {
 		return nil, err
@@ -64,6 +75,9 @@ func (s *Service) SyncLocalSkills() error {
 	if s == nil || s.repo == nil || s.repo.DB() == nil {
 		return nil
 	}
+	if !s.localSource {
+		return s.removeLocalSourceSkills()
+	}
 	enabled, err := s.localSkillsEnabled()
 	if err != nil {
 		return err
@@ -81,6 +95,20 @@ func (s *Service) SyncLocalSkills() error {
 		sourceType: skillSourceTypeLocal, sourceURL: localSkillsSourceURL, idPrefix: "local-", ownerFallback: "local",
 		authorName: "本机", fallbackDescription: "本机技能", private: true, skipBroken: true, keepUnseen: !complete,
 	}, dirs)
+}
+
+func (s *Service) removeLocalSourceSkills() error {
+	var existingRows []model.Skill
+	if err := s.repo.DB().Where("source_type = ? AND source_url = ?", skillSourceTypeLocal, localSkillsSourceURL).Find(&existingRows).Error; err != nil {
+		return err
+	}
+	for _, row := range existingRows {
+		if err := s.repo.DeleteSkill(row.ID); err != nil {
+			return err
+		}
+		_ = os.RemoveAll(filepath.Join(s.dataDir, "skill-packages", row.ID))
+	}
+	return nil
 }
 
 // SyncLocalSkillsAtStartup 不让本机目录的问题挡住应用启动。

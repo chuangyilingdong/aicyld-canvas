@@ -26,7 +26,7 @@ export function LocalSkillSourceButton({ onChanged }: { onChanged: () => void })
         }
     };
 
-    if (!source) return null;
+    if (!source?.available) return null;
     return (
         <Popover
             trigger="click"
@@ -37,7 +37,7 @@ export function LocalSkillSourceButton({ onChanged }: { onChanged: () => void })
                         <span className="text-sm font-medium">显示其他工具的技能</span>
                         <Switch aria-label="显示其他工具的技能" checked={source.enabled} loading={saving} onChange={(checked) => void toggle(checked)} />
                     </div>
-                    <div className="text-[var(--fs-label)] leading-5 text-foreground/58">会读取画布后端主机上的共用技能目录；托管环境下这是服务器用户目录，不是访问者自己的电脑。要修改技能，请改这个目录里的文件：</div>
+                    <div className="text-[var(--fs-label)] leading-5 text-foreground/58">仅桌面版读取本机用户目录。Codex、Claude Code 等工具装到这个目录里的技能会同步到「我的技能」：</div>
                     <div className="break-all font-mono text-[var(--fs-label)] text-foreground/58">{source.directory}</div>
                 </div>
             )}
