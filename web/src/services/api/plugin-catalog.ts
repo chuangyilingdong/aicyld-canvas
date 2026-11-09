@@ -15,6 +15,8 @@ type PluginProviderCatalogItem = {
     unavailableReason?: string;
     baseUrl?: string;
     authType?: string;
+    // 这一版已经不再附带、只为已保存的配置保留的接口：照常执行，但不再给新的选择。
+    retired?: boolean;
     workflows?: Array<{
         id: string;
         label: string;
@@ -48,7 +50,7 @@ const BUILTIN_OPENAI_PROTOCOLS: ModelProtocolDefinition[] = [
     { value: "newapi", label: "OpenAI Videos", vendor: "OpenAI compatible", capability: "video", create: "POST /v1/videos", poll: "GET /v1/videos/{task_id}", contentType: "multipart/form-data", media: "内置协议", enabled: true },
 ];
 
-function toProviderDefinition(item: PluginProviderCatalogItem): ModelProtocolDefinition {
+export function toProviderDefinition(item: PluginProviderCatalogItem): ModelProtocolDefinition {
     return {
         value: item.id,
         label: item.name,
@@ -58,7 +60,7 @@ function toProviderDefinition(item: PluginProviderCatalogItem): ModelProtocolDef
         poll: item.poll,
         contentType: item.contentType || "application/json",
         media: `${item.vendor} · ${item.version}`,
-        enabled: item.enabled && !item.unavailableReason,
+        enabled: item.enabled && !item.unavailableReason && !item.retired,
         baseUrl: item.baseUrl,
         authType: item.authType,
         workflows: item.workflows || [],

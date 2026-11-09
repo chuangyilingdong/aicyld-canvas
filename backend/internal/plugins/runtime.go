@@ -114,6 +114,7 @@ func (c *Runtime) open() error {
 		}
 	}
 	c.publishLive(plugins, registry)
+	c.sweepStartupLeftovers(next)
 	return nil
 }
 

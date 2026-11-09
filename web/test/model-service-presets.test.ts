@@ -5,7 +5,8 @@ import { applyFetchedChannelModelCatalog, modelConfigChannelStatusLabel } from "
 import { backendProviderConfig } from "../src/services/api/generation-task";
 import { configWithoutCachedSecrets, createModelChannel, defaultConfig } from "../src/stores/use-config-store";
 import { defaultModelCapabilityConfig } from "../src/lib/model-capabilities";
-import type { ModelProtocolDefinition } from "../src/lib/model-protocols";
+import { defaultProtocolForCapability, modelProtocolDefinition, type ModelProtocolDefinition } from "../src/lib/model-protocols";
+import { toProviderDefinition } from "../src/services/api/plugin-catalog";
 import { currentModelConnectionReceipt, useModelConnectionTests } from "../src/stores/use-model-connection-tests";
 
 const protocols = [
@@ -196,4 +197,11 @@ test("official OpenAI and Gemini presets stop advertising discontinued video API
     }
     expect(presets.get("compatible")).toContain("中转");
     expect(presets.get("ark")).toContain("Seedance 视频");
+});
+test("a retired interface is not offered again but still names a saved choice", () => {
+    const item = { id: "old-video", version: "1.0.0", name: "旧视频接口", vendor: "Test", categories: ["video"], scopes: ["user.custom-channel"], enabled: true, retired: true, create: "POST /v1/old" };
+    const definition = toProviderDefinition(item);
+    expect(definition.enabled).toBe(false);
+    expect(defaultProtocolForCapability("video", [definition])).not.toBe("old-video");
+    expect(modelProtocolDefinition("old-video", [definition])?.label).toBe("旧视频接口");
 });
