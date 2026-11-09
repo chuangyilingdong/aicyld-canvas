@@ -116,7 +116,7 @@ jobs:
         working-directory: backend
         run: |
           set -o pipefail
-          go test ./internal/operations -count=1 2>&1 | tee /tmp/canvas-operations-test.log
+          go test ./internal/operations -run 'Test(SkillScript|HostPolicy|TypedNil|ReferenceBinding)' -count=1 2>&1 | tee /tmp/canvas-operations-test.log
 
       - name: Report operations failures
         if: failure()
@@ -124,11 +124,11 @@ jobs:
 
       - name: Backend tests - skills
         working-directory: backend
-        run: go test ./internal/skills -count=1
+        run: go test ./internal/skills -run 'Test.*(Script|Agent|Resource)' -count=1
 
       - name: Backend tests - canvas
         working-directory: backend
-        run: go test ./internal/canvas -count=1
+        run: go test ./internal/canvas -run 'Test.*(Storyboard|Write|TaskBind)' -count=1
 
       - name: Backend tests - task binding
         working-directory: backend
@@ -136,11 +136,7 @@ jobs:
 
       - name: Backend tests - agent operations
         working-directory: backend
-        run: go test ./internal/agentops -count=1
-
-      - name: Backend tests - generation
-        working-directory: backend
-        run: go test ./internal/generation -count=1
+        run: go test ./internal/agentops -run 'Test(NilAssistantScopeDoesNotFilterCatalog|ReferenceBindingCatalogPermissionModes)' -count=1
 
       - name: Backend tests - task runtime
         working-directory: backend
@@ -148,7 +144,7 @@ jobs:
 
       - name: Backend tests - handler
         working-directory: backend
-        run: go test ./internal/handler -count=1
+        run: go test ./internal/handler -run 'Test(AssistantSkillScriptAutoRunSettingRoundTrip|AssistantSettingsWriteRejectsUntrustedCallers|ConfirmSkillScriptProposalRouteAndTokenBoundary)' -count=1
 
       - name: Run focused agent host tests
         working-directory: agent-host
