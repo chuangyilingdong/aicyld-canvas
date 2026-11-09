@@ -654,11 +654,12 @@ function markGenerationRecoveryRestore(node: CanvasNodeData): CanvasNodeData {
     return { ...node, metadata };
 }
 
-export function resetInterruptedGeneration(nodes: CanvasNodeData[]) {
+export function resetInterruptedGeneration(nodes: CanvasNodeData[] = []) {
+    const sourceNodes = Array.isArray(nodes) ? nodes : [];
     const configWidth = NODE_DEFAULT_SIZE[CanvasNodeType.Config].width;
     const configHeight = NODE_DEFAULT_SIZE[CanvasNodeType.Config].height;
     let changed = false;
-    const reset = nodes.map((node) => {
+    const reset = sourceNodes.map((node) => {
         const mediaNode = ensureMediaNodeMinimumSize(interruptFileUpload(node));
         const resizedNode =
             mediaNode.type === CanvasNodeType.Config && (mediaNode.width < configWidth || mediaNode.height < configHeight)
@@ -670,7 +671,7 @@ export function resetInterruptedGeneration(nodes: CanvasNodeData[]) {
         if (restoredNode !== node) changed = true;
         return restoredNode;
     });
-    return repairOverlappingImageBatches(changed ? reset : nodes);
+    return repairOverlappingImageBatches(changed ? reset : sourceNodes);
 }
 
 export function isGenerationCanceled(error: unknown) {
