@@ -15,7 +15,7 @@ on:
       - "v*"
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: canvas-production-release-${{ github.ref }}
@@ -24,6 +24,7 @@ concurrency:
 jobs:
   release:
     name: Linux amd64 release bundle
+    if: github.event_name != 'push' || github.ref_type == 'branch'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -236,3 +237,15 @@ jobs:
             out/aicyld-canvas-*.tar.gz.sha256
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish downloadable release bundle
+        if: github.ref_type == 'branch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.value }}
+          name: AICYLD Canvas ${{ steps.version.outputs.value }}
+          files: |
+            out/aicyld-canvas-*.tar.gz
+            out/aicyld-canvas-*.tar.gz.sha256
+          fail_on_unmatched_files: true
+          make_latest: false
