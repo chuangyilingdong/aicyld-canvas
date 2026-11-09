@@ -10,7 +10,7 @@ import { CanvasNodeType } from "@/types/canvas";
 import { mentionMenuPosition, referencePreviewUrl } from "./canvas-mention-editable-dom";
 import { useResolvedCanvasResourceReferences } from "./use-resolved-canvas-resource-references";
 
-export function MentionMenu({ anchor, connectedReferences, assetReferences, filteredReferences, query, cursorOffset, activeReferenceId, preferredWidth, onQueryChange, onClose, onSelect, onNavigate, nodeSectionLabel, replacing }: {
+export function MentionMenu({ anchor, connectedReferences, assetReferences, filteredReferences, query, cursorOffset, activeReferenceId, preferredWidth, onQueryChange, onClose, onSelect, onNavigate, onBrowseAssets, nodeSectionLabel, replacing }: {
     replacing?: boolean;
     nodeSectionLabel: string;
     anchor: HTMLElement;
@@ -25,6 +25,7 @@ export function MentionMenu({ anchor, connectedReferences, assetReferences, filt
     onClose: () => void;
     onSelect: (reference: CanvasResourceReference) => void;
     onNavigate?: (direction: "up" | "down") => void;
+    onBrowseAssets?: () => void;
 }) {
     const menuRef = useRef<HTMLDivElement | null>(null);
     const selectedRef = useRef(false);
@@ -70,6 +71,28 @@ export function MentionMenu({ anchor, connectedReferences, assetReferences, filt
         : category
           ? assetReferences
           : [];
+    const browseAllAssets = onBrowseAssets ? (
+        <section className="canvas-resource-mention-section">
+            <button
+                type="button"
+                className="canvas-resource-mention-folder"
+                onPointerDown={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                }}
+                onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onBrowseAssets();
+                }}
+            >
+                <ImageIcon aria-hidden />
+                <span>浏览全部素材</span>
+                <small>缩略图</small>
+                <ChevronRight aria-hidden />
+            </button>
+        </section>
+    ) : null;
 
     useLayoutEffect(() => {
         const closeOnOutsidePointer = (event: globalThis.PointerEvent) => {
@@ -165,6 +188,7 @@ export function MentionMenu({ anchor, connectedReferences, assetReferences, filt
                             <small>{visibleReferences.length}</small>
                         </button>
                         <MentionReferenceList references={visibleReferences} activeReferenceId={activeReferenceId} onSelect={selectReference} />
+                        {browseAllAssets}
                     </>
                 ) : (
                     <>
@@ -202,6 +226,7 @@ export function MentionMenu({ anchor, connectedReferences, assetReferences, filt
                                     </button>
                             </section>
                         ) : null}
+                        {browseAllAssets}
                     </>
                 )}
             </div>

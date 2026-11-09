@@ -13,3 +13,15 @@ test("canvas mentions load a bounded recent window and search older assets on de
     expect(editor).toContain("usePersonalAssetLibrarySearch(mentionQuery");
     expect(editor).toContain("buildAssetMentionReferences(mentionAssets)");
 });
+
+test("canvas mentions expose a visual full-library picker instead of requiring a remembered filename", async () => {
+    const editor = await Bun.file(new URL("../src/components/canvas/canvas-resource-mention-textarea.tsx", import.meta.url)).text();
+    const menu = await Bun.file(new URL("../src/components/canvas/canvas-resource-mention-menu.tsx", import.meta.url)).text();
+    expect(menu).toContain("浏览全部素材");
+    expect(menu).toContain("onBrowseAssets");
+    expect(editor).toContain("onBrowseAssets={includeAssetLibrary ? openAssetLibrary : undefined}");
+    expect(editor).toContain("<AssetLibraryPickerModal");
+    expect(editor).toContain("remoteLibrary");
+    expect(editor).toContain("confirmAssetLibrarySelection");
+    expect(editor).toContain("getWorkspaceAsset(id)");
+});

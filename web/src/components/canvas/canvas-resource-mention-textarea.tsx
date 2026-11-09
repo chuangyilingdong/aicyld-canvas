@@ -3,8 +3,12 @@ import type { CSSProperties, ClipboardEvent, DragEvent, FocusEvent, KeyboardEven
 import { createPortal } from "react-dom";
 
 import { canvasThemes } from "@/lib/canvas-theme";
+import { AssetLibraryPickerModal, type AssetLibraryPickerItem } from "@/components/assets/asset-library-picker-modal";
+import { ASSET_CATEGORY_LABELS, normalizeAssetCategory } from "@/lib/asset-category";
 import { usePersonalAssetLibrary, usePersonalAssetLibrarySearch } from "@/hooks/use-personal-asset-library";
 import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
+import { getWorkspaceAsset } from "@/services/api/workspace-data";
+import type { Asset } from "@/stores/use-asset-store";
 import { buildAssetMentionReferences, canvasResourceDisplayName, canvasResourceMentionToken, canvasResourceReferenceInsertText, findCanvasResourceAutoLinkMatch, referencedAssetIdsInPrompt, type CanvasResourceAutoLinkMatch, type CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import { replaceCanvasReferenceToken, type CanvasReferenceAction, type CanvasReferenceIssue } from "@/lib/canvas/canvas-reference-issues";
 import {
@@ -60,6 +64,24 @@ type Props = Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "onChange" | "val
 const EMPTY_ISSUES: CanvasReferenceIssue[] = [];
 const EMPTY_REFERENCES: CanvasResourceReference[] = [];
 
+function assetPickerItem(asset: Asset): AssetLibraryPickerItem | null {
+    if (asset.kind === "model" || asset.kind === "entity") return null;
+    const imageUrl = asset.coverUrl || (asset.kind === "image" ? asset.data.dataUrl : undefined);
+    const imageStorageKey = asset.kind === "image" ? asset.data.storageKey : undefined;
+    return {
+        id: asset.id,
+        title: asset.title,
+        category: normalizeAssetCategory(asset.category),
+        archived: asset.status === "archived",
+        kindLabel: asset.kind === "image" ? "图片" : asset.kind === "video" ? "视频" : asset.kind === "audio" ? "音频" : "文本",
+        mediaKind: asset.kind,
+        asset,
+        imageUrl,
+        imageStorageKey,
+        searchText: (asset.tags || []).join(" "),
+    };
+}
+
 export const CanvasResourceMentionTextarea = forwardRef<HTMLTextAreaElement, Props>(function CanvasResourceMentionTextarea(
     { value, references, onSelectReference, onChange, onSubmit, onKeyDown, className, containerClassName, style, highlightLabels = true, mentionMenuWidth = 320, sendOnEnter = true, onContentSizeChange, includeAssetLibrary = false, activeDropReferenceId, onReferenceFilesDrop, autoLinkEnabled = false, nodeSectionLabel = "画布节点", referenceIssues = EMPTY_ISSUES, selectedAssetReferences = EMPTY_REFERENCES, referenceAction, onReferenceActionHandled, onSelectionRangeChange, caretRequest, ...props },
     forwardedRef,
@@ -90,6 +112,8 @@ export const CanvasResourceMentionTextarea = forwardRef<HTMLTextAreaElement, Pro
     const [autoLinkPosition, setAutoLinkPosition] = useState<{ left: number; top: number } | null>(null);
     const [nativeDropReferenceId, setNativeDropReferenceId] = useState<string | null>(null);
     const [previewReference, setPreviewReference] = useState<CanvasResourceReference | null>(null);
+    const [assetLibraryOpen, setAssetLibraryOpen] = useState(false);
+    const assetLibraryInsertRangeRef = useRef<MentionState | null>(null);
 
     useLayoutEffect(() => {
         const handleGlobalPointerDown = (event: globalThis.PointerEvent) => {
@@ -131,6 +155,10 @@ export const CanvasResourceMentionTextarea = forwardRef<HTMLTextAreaElement, Pro
     const canvasReferences = useResolvedCanvasResourceReferences(references);
     const activeAssetIdsKey = includeAssetLibrary && highlightLabels ? referencedAssetIdsInPrompt(value).join("\x00") : "";
     const mentionAssets = useMemo(() => [...new Map([...assets, ...searchedAssets].map((asset) => [asset.id, asset])).values()], [assets, searchedAssets]);
+    const assetPickerItems = useMemo(() => mentionAssets.flatMap((asset) => {
+        const item = assetPickerItem(asset);
+        return item ? [item] : [];
+    }), [mentionAssets]);
     const rawAssetReferences = useMemo(() => {
         if (!includeAssetLibrary) return EMPTY_REFERENCES;
         const activeIds = new Set(activeAssetIdsKey ? activeAssetIdsKey.split("\x00") : []);
@@ -293,6 +321,38 @@ export const CanvasResourceMentionTextarea = forwardRef<HTMLTextAreaElement, Pro
         const next = replacement ? replaceCanvasReferenceToken(value, replacement, insertText) : `${value.slice(0, mention.start)}${insertText}${value.slice(mention.end)}`;
         closeMention();
         updateValue(next, mention.start + insertText.length);
+    };
+
+    const insertReferences = (referencesToInsert: CanvasResourceReference[], range: MentionState | null) => {
+        if (!referencesToInsert.length) return;
+        const selected = referencesToInsert
+            .map((reference) => onSelectReference ? onSelectReference(reference) : reference)
+            .filter((reference): reference is CanvasResourceReference => Boolean(reference));
+        if (!selected.length) return;
+        const insertText = selected.map((reference) => canvasResourceReferenceInsertText(reference, range?.query || "").trim()).join(" ");
+        const next = range
+            ? `${value.slice(0, range.start)}${insertText}${value.slice(range.end)}`
+            : `${value}${value && !/\s$/.test(value) ? " " : ""}${insertText} `;
+        if (range) closeMention();
+        assetLibraryInsertRangeRef.current = null;
+        setAssetLibraryOpen(false);
+        updateValue(next, range ? range.start + insertText.length : next.length);
+    };
+
+    const openAssetLibrary = () => {
+        assetLibraryInsertRangeRef.current = mention;
+        setAssetLibraryOpen(true);
+    };
+
+    const confirmAssetLibrarySelection = async (ids: string[]) => {
+        const localAssets = new Map(assetPickerItems.flatMap((item) => item.asset ? [[item.id, item.asset] as const] : []));
+        const references = await Promise.all(ids.map(async (id) => {
+            const asset = localAssets.get(id) ?? (await getWorkspaceAsset(id)).asset;
+            const reference = buildAssetMentionReferences([asset])[0];
+            if (!reference) throw new Error(`“${asset.title}”不能作为画布引用`);
+            return reference;
+        }));
+        insertReferences(references, assetLibraryInsertRangeRef.current);
     };
 
     useEffect(() => {
@@ -470,6 +530,26 @@ export const CanvasResourceMentionTextarea = forwardRef<HTMLTextAreaElement, Pro
             onClose={closeMention}
             onSelect={insertReference}
             onNavigate={handleMenuNavigate}
+            onBrowseAssets={includeAssetLibrary ? openAssetLibrary : undefined}
+        />
+    ) : null;
+    const assetLibraryModal = assetLibraryOpen ? (
+        <AssetLibraryPickerModal
+            remoteLibrary
+            open={assetLibraryOpen}
+            mediaKinds={["image", "video", "audio", "text"]}
+            items={assetPickerItems}
+            categoryLabels={{ all: "全部素材", ...ASSET_CATEGORY_LABELS }}
+            multiple
+            title="选择要引用的素材"
+            eyebrow="画布引用"
+            confirmLabel={(count) => `插入引用${count ? `（${count}）` : ""}`}
+            emptyDescription="素材库中还没有可引用的图片、视频、音频或文本。"
+            onClose={() => {
+                assetLibraryInsertRangeRef.current = null;
+                setAssetLibraryOpen(false);
+            }}
+            onConfirm={confirmAssetLibrarySelection}
         />
     ) : null;
 
@@ -591,6 +671,7 @@ export const CanvasResourceMentionTextarea = forwardRef<HTMLTextAreaElement, Pro
                 </div>
                 {autoLinkSuggestion}
                 {menu}
+                {assetLibraryModal}
                 {previewReference ? <InlineReferencePreview reference={previewReference} onClose={() => setPreviewReference(null)} /> : null}
             </div>
         );
@@ -656,6 +737,7 @@ export const CanvasResourceMentionTextarea = forwardRef<HTMLTextAreaElement, Pro
             />
             {autoLinkSuggestion}
             {menu}
+            {assetLibraryModal}
         </div>
     );
 });
