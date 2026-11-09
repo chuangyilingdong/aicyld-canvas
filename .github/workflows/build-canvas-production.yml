@@ -11,6 +11,7 @@ on:
     branches:
       - codex/canvas-billing-ui-20261104
       - codex/canvas-gpt-image-26-20261106
+      - codex/canvas-beef-remaining-20261109
     tags:
       - "v*"
 
@@ -95,6 +96,9 @@ jobs:
           test/assistant-production-card.test.tsx
           test/canvas-agent-assistant-stream.test.ts
           test/image2-default-quality.test.ts
+          test/model-service-presets.test.ts
+          test/canvas-storage-revision.test.ts
+          test/local-workspace-stale-backend.test.ts
           test/script-document-import.test.ts
           test/voice-preview-player.test.ts
 
@@ -117,11 +121,15 @@ jobs:
         working-directory: backend
         run: |
           set -o pipefail
-          go test ./internal/operations -run 'Test(SkillScript|HostPolicy|TypedNil|ReferenceBinding)' -count=1 2>&1 | tee /tmp/canvas-operations-test.log
+          go test ./internal/operations -run 'Test(SkillScript|HostPolicy|TypedNil|ReferenceBinding|CanvasCreate|ConfigureVideoResolution|DocumentCommit|AssistantCannotUseWorkspaceWideOps)' -count=1 2>&1 | tee /tmp/canvas-operations-test.log
 
       - name: Report operations failures
         if: failure()
         run: grep -E '^(--- FAIL|FAIL|panic:)' /tmp/canvas-operations-test.log | head -80 | sed 's/^/::error::/' || true
+
+      - name: Backend tests - generation
+        working-directory: backend
+        run: go test ./internal/generation -count=1
 
       - name: Backend tests - skills
         working-directory: backend
@@ -152,6 +160,7 @@ jobs:
         run: |
           bun install --frozen-lockfile
           bun test canvas-turn.test.mjs skill-resource.test.mjs operation-policy.test.mjs operation-bridge.test.mjs
+          bun test eval/scenarios.test.mjs eval/run-external-eval.test.mjs eval/request-efficiency-gate.test.mjs eval/sim-go.test.mjs
 
       - name: Build Linux backend
         working-directory: backend

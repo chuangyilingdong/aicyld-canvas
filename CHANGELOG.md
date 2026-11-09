@@ -2,6 +2,14 @@
 
 All notable public changes to BeefTV are documented in this file.
 
+## v2.1.3-aicyld.46
+
+- 视频生成：节点关闭声音、指定画幅和分辨率后会真正送达上游；助手可以直接设置视频分辨率，并在写草稿前按模型目录校验。
+- 文本接口与本地安全：文本请求只按选定接口发送一次，退役接口不再作为新选项；客户端登记与本地凭据收紧为仅当前用户可读，并清理无引用旧插件包。
+- 内置助手：升级 pi 1.5.0，按会话启用提示词缓存亲和，改善长对话的缓存命中、恢复语义和成本控制。
+- 画布与外部 Agent：新增 `canvas.create`、创建回执与撤销；旧画布缺失节点、连线或视口时自动归一，避免保存失败。
+- 验收：加入真实生成 E2E、S8–S11 失败场景和外部 Agent 对照评测，覆盖分镜、首帧、视频和成片链路。
+
 ## Unreleased
 
 - Canvas references: dragging a connection now inserts the same `@reference` token as pick-connect/Alt-click, so a connected resource no longer leaves the generation button grey solely because the prompt stayed empty.
@@ -17,7 +25,9 @@ All notable public changes to BeefTV are documented in this file.
 - 模型参数：Seedance 2.0 Fast/Mini 仅保留 480p/720p，默认优先 720p；Seedream 未显式选择时默认关闭水印。
 - 画布容量与保存：单画布默认上限提升至 64 MB，管理员可在 0–512 MB 范围调整，普通用户只读；加入保存自愈、轮询假冲突修复和 IndexedDB 项目封面迁移。
 - 性能与稳定性：GORM 启用参数化查询，降低大画布保存时的 SQL 转义与慢日志开销。
-- 技能市场：筛选区滚动吸顶，单页分类隐藏无意义分页，分类数量变化时自动收敛页码。`r`n`r`n## v2.1.2
+- 技能市场：筛选区滚动吸顶，单页分类隐藏无意义分页，分类数量变化时自动收敛页码。
+
+## v2.1.2
 
 - 画布视频预览、取帧与参考素材上传：浏览器解码失败的视频在播放与自动首帧生成时均支持按需转码 H.264（yuv420p）兼容副本，修复提取首尾帧黑屏与视频节点一直无预览图的问题；延长本地文件上传确认等待并忽略已取消请求，消除大视频入库与切换画布时的误报；本地媒体文件缺失时返回明确 404 且不写入缓存头。
 - 项目与画布备份导出：项目列表卡片、文件夹菜单、画布顶栏菜单与保存状态弹窗新增「导出项目」「导出当前画布」「导出文件夹」入口；支持自动跳过已丢失或损坏的历史素材与画板并在备份清单中记录，确保有效画布与素材完整打包并可导入恢复。
