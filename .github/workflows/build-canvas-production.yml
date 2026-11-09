@@ -104,11 +104,37 @@ jobs:
           VITE_BUILD_COMMIT: ${{ github.sha }}
         run: bun --bun ./node_modules/vite/bin/vite.js build
 
-      - name: Run focused backend regression tests
+      - name: Backend tests - operations
         working-directory: backend
-        run: |
-          go test ./internal/operations ./internal/skills ./internal/canvas ./internal/taskbinding ./internal/agentops ./internal/generation ./internal/taskruntime -count=1
-          go test ./internal/handler -count=1
+        run: go test ./internal/operations -count=1
+
+      - name: Backend tests - skills
+        working-directory: backend
+        run: go test ./internal/skills -count=1
+
+      - name: Backend tests - canvas
+        working-directory: backend
+        run: go test ./internal/canvas -count=1
+
+      - name: Backend tests - task binding
+        working-directory: backend
+        run: go test ./internal/taskbinding -count=1
+
+      - name: Backend tests - agent operations
+        working-directory: backend
+        run: go test ./internal/agentops -count=1
+
+      - name: Backend tests - generation
+        working-directory: backend
+        run: go test ./internal/generation -count=1
+
+      - name: Backend tests - task runtime
+        working-directory: backend
+        run: go test ./internal/taskruntime -count=1
+
+      - name: Backend tests - handler
+        working-directory: backend
+        run: go test ./internal/handler -count=1
 
       - name: Run focused agent host tests
         working-directory: agent-host
