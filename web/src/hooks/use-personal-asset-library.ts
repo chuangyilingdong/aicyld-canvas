@@ -12,9 +12,9 @@ const PERSONAL_ASSET_SEARCH_PAGE_SIZE = 30;
 /** Canvas entry points share the personal library's canonical read boundary. */
 export function usePersonalAssetLibrary(enabled = true) {
     const hydrated = useAssetStore((state) => state.hydrated);
-    const revision = useAssetStore((state) => state.assets.map((asset) => `${asset.id}:${asset.updatedAt}:${asset.status}`).join("|"));
+    const localAssets = useAssetStore((state) => state.assets);
     const query = useQuery({
-        queryKey: assetLibraryQueryKey("canvas-personal-library", revision),
+        queryKey: assetLibraryQueryKey("canvas-personal-library"),
         enabled: hydrated && enabled,
         queryFn: async ({ signal }) => {
             const first = await loadWorkspaceAssetLibraryPage({ page: 1, pageSize: PERSONAL_ASSET_PAGE_SIZE, status: "active", signal });
@@ -29,7 +29,8 @@ export function usePersonalAssetLibrary(enabled = true) {
         refetchOnMount: false,
         retry: 1,
     });
-    return query.data ?? EMPTY_ASSETS;
+    return [...new Map([...localAssets.slice(0, PERSONAL_ASSET_PAGE_SIZE * PERSONAL_ASSET_INITIAL_PAGES), ...(query.data ?? EMPTY_ASSETS)].map((asset) => [asset.id, asset])).values()]
+        .filter((asset) => asset.status !== "archived" && asset.kind !== "entity");
 }
 
 /** Server-backed search keeps older assets reachable without loading the whole library. */
