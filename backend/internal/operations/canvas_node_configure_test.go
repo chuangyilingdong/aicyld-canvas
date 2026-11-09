@@ -16,6 +16,38 @@ type configureProbe struct {
 	writes int
 }
 
+func TestCanvasNodeConfigureSchemaExposesAllSupportedDraftParameters(t *testing.T) {
+	registry := NewRegistry(nil, nil)
+	registerCanvasNodeConfigureOps(registry)
+	op := registry.ops["canvas.node.configure"]
+	if op == nil {
+		t.Fatal("canvas.node.configure was not registered")
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(op.Params, &schema); err != nil {
+		t.Fatal(err)
+	}
+	properties := schema["properties"].(map[string]any)
+	patchSchema := properties["patch"].(map[string]any)
+	if patchSchema["additionalProperties"] != false {
+		t.Fatal("patch schema must reject unsupported fields before tool dispatch")
+	}
+	fields := patchSchema["properties"].(map[string]any)
+	for _, name := range []string{
+		"model", "prompt", "size", "quality", "count", "transparentBackground",
+		"seconds", "vquality", "generateAudio", "watermark", "videoEditOperation",
+		"audioVoice", "audioFormat", "audioSpeed", "audioPitch", "audioVolume", "audioInstructions",
+	} {
+		if _, ok := fields[name]; !ok {
+			t.Errorf("canvas.node.configure schema is missing %s", name)
+		}
+	}
+	count := fields["count"].(map[string]any)
+	if count["type"] != "integer" || count["minimum"] != float64(1) || count["maximum"] != float64(8) {
+		t.Fatalf("count schema must be an integer in 1..8: %#v", count)
+	}
+}
+
 func (p *configureProbe) UpdateUserCanvasNodeFields(_ string, _ string, nodeID string, patch map[string]any, expected int64) (canvas.UserDataSummary, error) {
 	var doc map[string]any
 	json.Unmarshal(p.doc, &doc)
@@ -37,7 +69,7 @@ func configureFixture(t *testing.T, kind string) *configureProbe {
 func TestConfigurePreservesExistingMediaAndValidatesModelSelection(t *testing.T) {
 	for kind, patch := range map[string]map[string]any{
 		"image": {"model": "chosen", "size": "16:9", "quality": "high", "count": 2, "transparentBackground": "false"},
-		"video": {"model": "chosen", "size": "16:9", "seconds": "10", "vquality": "720p", "generateAudio": "true", "watermark": "false"},
+		"video": {"model": "chosen", "size": "16:9", "seconds": "10", "vquality": "720p", "generateAudio": "true", "watermark": "false", "videoEditOperation": "image_to_video"},
 		"audio": {"model": "chosen", "audioVoice": "narrator", "audioFormat": "wav", "audioSpeed": "1.25", "audioPitch": "-2", "audioVolume": "0", "audioInstructions": "warm"},
 	} {
 		t.Run(kind, func(t *testing.T) {

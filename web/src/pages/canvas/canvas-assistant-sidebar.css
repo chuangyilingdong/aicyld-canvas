@@ -169,6 +169,18 @@
 .canvas-assistant-working-dots > span:nth-child(3) {
     animation-delay: 0.36s;
 }
+.canvas-assistant-slow-response {
+    align-self: flex-start;
+    max-width: 92%;
+    margin: -2px 0 0;
+    padding: 6px 10px;
+    border: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--muted) 65%, transparent);
+    color: var(--muted-foreground);
+    font-size: 12px;
+    line-height: 1.6;
+}
 @keyframes canvas-assistant-pulse {
     0%, 100% { opacity: 0.4; transform: scale(0.9); }
     50% { opacity: 1; transform: scale(1.1); }

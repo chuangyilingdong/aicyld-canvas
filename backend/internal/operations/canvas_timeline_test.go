@@ -15,6 +15,23 @@ type timelineDomain struct {
 	commits int
 }
 
+func TestTimelineUpdateSchemaAvoidsRootLevelOneOfForStrictEndpoints(t *testing.T) {
+	raw := timelineUpdateSchema(json.RawMessage(`{"type":"object","properties":{"canvasId":{"type":"string"},"expectedRevision":{"type":"integer"},"timeline":{"type":"object"}},"required":["canvasId","expectedRevision","timeline"]}`))
+	var schema map[string]any
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := schema["oneOf"]; ok {
+		t.Fatal("root-level oneOf breaks strict OpenAI-compatible schema endpoints")
+	}
+	properties := schema["properties"].(map[string]any)
+	for _, name := range []string{"timeline", "refreshNodeIds"} {
+		if _, ok := properties[name]; !ok {
+			t.Errorf("timeline schema is missing %s", name)
+		}
+	}
+}
+
 func (d *timelineDomain) UserCanvasProject(user, id string) (json.RawMessage, error) {
 	if user != "owner" || id != "canvas" {
 		return nil, PermissionDenied("foreign_canvas", "foreign")

@@ -416,10 +416,37 @@
           "type": "string"
         },
         "patch": {
+          "additionalProperties": false,
           "minProperties": 1,
           "properties": {
+            "audioFormat": {
+              "description": "音频输出格式，取自模型目录",
+              "type": "string"
+            },
+            "audioInstructions": {
+              "description": "声音风格、情绪和表达要求",
+              "type": "string"
+            },
+            "audioPitch": {
+              "description": "音高调整，-12–12",
+              "type": "string"
+            },
+            "audioSpeed": {
+              "description": "语速倍率，0.25–4",
+              "type": "string"
+            },
             "audioVoice": {
               "type": "string"
+            },
+            "audioVolume": {
+              "description": "音量，0–1",
+              "type": "string"
+            },
+            "count": {
+              "description": "图片生成数量；最终仍按模型能力校验",
+              "maximum": 8,
+              "minimum": 1,
+              "type": "integer"
             },
             "generateAudio": {
               "enum": [
@@ -434,14 +461,36 @@
             "prompt": {
               "type": "string"
             },
+            "quality": {
+              "description": "图片质量档位，取自模型目录",
+              "type": "string"
+            },
             "seconds": {
               "type": "string"
             },
             "size": {
               "type": "string"
             },
+            "transparentBackground": {
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            },
+            "videoEditOperation": {
+              "description": "视频生成或编辑模式，例如 text_to_video、image_to_video、reference_to_video",
+              "type": "string"
+            },
             "vquality": {
               "description": "分辨率档位，取自模型目录",
+              "type": "string"
+            },
+            "watermark": {
+              "enum": [
+                "true",
+                "false"
+              ],
               "type": "string"
             }
           },
@@ -1131,18 +1180,6 @@
     "readOnly": false,
     "scope": "canvas",
     "params": {
-      "oneOf": [
-        {
-          "required": [
-            "timeline"
-          ]
-        },
-        {
-          "required": [
-            "refreshNodeIds"
-          ]
-        }
-      ],
       "properties": {
         "canvasId": {
           "type": "string"

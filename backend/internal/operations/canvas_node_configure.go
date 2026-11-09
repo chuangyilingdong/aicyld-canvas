@@ -13,18 +13,28 @@ import (
 
 func registerCanvasNodeConfigureOps(r *Registry) {
 	properties := map[string]any{
-		"model":         map[string]any{"type": "string"},
-		"prompt":        map[string]any{"type": "string"},
-		"size":          map[string]any{"type": "string"},
-		"seconds":       map[string]any{"type": "string"},
-		"vquality":      map[string]any{"type": "string", "description": "分辨率档位，取自模型目录"},
-		"generateAudio": map[string]any{"type": "string", "enum": []string{"true", "false"}},
-		"audioVoice":    map[string]any{"type": "string"},
+		"model":                 map[string]any{"type": "string"},
+		"prompt":                map[string]any{"type": "string"},
+		"size":                  map[string]any{"type": "string"},
+		"quality":               map[string]any{"type": "string", "description": "图片质量档位，取自模型目录"},
+		"count":                 map[string]any{"type": "integer", "minimum": 1, "maximum": 8, "description": "图片生成数量；最终仍按模型能力校验"},
+		"transparentBackground": map[string]any{"type": "string", "enum": []string{"true", "false"}},
+		"seconds":               map[string]any{"type": "string"},
+		"vquality":              map[string]any{"type": "string", "description": "分辨率档位，取自模型目录"},
+		"generateAudio":         map[string]any{"type": "string", "enum": []string{"true", "false"}},
+		"watermark":             map[string]any{"type": "string", "enum": []string{"true", "false"}},
+		"videoEditOperation":    map[string]any{"type": "string", "description": "视频生成或编辑模式，例如 text_to_video、image_to_video、reference_to_video"},
+		"audioVoice":            map[string]any{"type": "string"},
+		"audioFormat":           map[string]any{"type": "string", "description": "音频输出格式，取自模型目录"},
+		"audioSpeed":            map[string]any{"type": "string", "description": "语速倍率，0.25–4"},
+		"audioPitch":            map[string]any{"type": "string", "description": "音高调整，-12–12"},
+		"audioVolume":           map[string]any{"type": "string", "description": "音量，0–1"},
+		"audioInstructions":     map[string]any{"type": "string", "description": "声音风格、情绪和表达要求"},
 	}
 	params, _ := json.Marshal(map[string]any{"type": "object", "additionalProperties": false,
 		"properties": map[string]any{"canvasId": map[string]any{"type": "string"}, "nodeId": map[string]any{"type": "string"},
 			"kind": map[string]any{"type": "string", "enum": []string{"image", "video", "audio"}}, "expectedRevision": map[string]any{"type": "integer", "minimum": 1},
-			"patch": map[string]any{"type": "object", "minProperties": 1, "properties": properties}},
+			"patch": map[string]any{"type": "object", "minProperties": 1, "additionalProperties": false, "properties": properties}},
 		"required": []string{"canvasId", "nodeId", "kind", "expectedRevision", "patch"}})
 	r.Register(Op{ReplaySafe: true, AssistantCanvas: true, ID: "canvas.node.configure", Summary: "设置媒体节点的提示词草稿与生成参数；不启动生成", Scope: ScopeCanvas, Params: params, Handler: opCanvasNodeConfigure})
 }
@@ -226,7 +236,7 @@ func validateDraftValue(name, value string) error {
 		if !strings.Contains("|mp3|wav|pcm|flac|aac|opus|ogg|m4a|", "|"+value+"|") {
 			return invalid()
 		}
-	case "size", "quality", "vquality", "audioVoice":
+	case "size", "quality", "vquality", "audioVoice", "videoEditOperation":
 		if strings.TrimSpace(value) == "" {
 			return invalid()
 		}

@@ -35,9 +35,27 @@ type Props = {
     runningProposalIds?: ReadonlySet<string>;
     nodes?: CanvasNodeData[];
     continuation?: { pending: boolean; notice: string; stop: () => Promise<void>; refresh: () => void };
+    /** 测试或嵌入场景可缩短等待；生产默认 12 秒。 */
+    slowResponseDelayMs?: number;
 };
 
 const PLAN_STATUS_TEXT: Record<AssistantPlan["items"][number]["status"], string> = { todo: "待做", doing: "进行中", done: "已完成", needs_user: "等待确认", blocked: "需要处理" };
+
+export const ASSISTANT_SLOW_RESPONSE_DELAY_MS = 12_000;
+
+export function AssistantSlowResponseNotice({ active, delayMs = ASSISTANT_SLOW_RESPONSE_DELAY_MS }: { active: boolean; delayMs?: number }) {
+    const [visible, setVisible] = useState(false);
+    useEffect(() => {
+        if (!active) {
+            setVisible(false);
+            return;
+        }
+        const timer = window.setTimeout(() => setVisible(true), Math.max(0, delayMs));
+        return () => window.clearTimeout(timer);
+    }, [active, delayMs]);
+    if (!active || !visible) return null;
+    return <p className="canvas-assistant-slow-response" role="status">思考耗时较长，若开启了系统代理或 VPN 请检查网络连通性，也可停止后重试。</p>;
+}
 
 export function CanvasAssistantPlan({ plan }: { plan: AssistantPlan | null | undefined }) {
     if (!plan?.items.length) return null;
@@ -73,6 +91,7 @@ export function CanvasAssistantSidebar(props: Props) {
     const [skillsError, setSkillsError] = useState("");
     const inputGeneration = useRef(0);
     const draftIdentity = assistant.canvasId;
+    const hasLiveAssistantOutput = Boolean(assistant.lifecycleNotice) || assistant.reasoning.some(segment => segment.text.trim()) || Boolean(assistantVisibleReply(assistant.streamed || ""));
     const [selectionAttached, setSelectionAttached] = useState(true);
     const [resultSelection, setResultSelection] = useState<AssistantInputDraft["resultSelection"]>(null);
     const resultNodeIds = assistant.sessionId && resultSelection?.sessionId === assistant.sessionId ? resultSelection.nodeIds : [];
@@ -314,7 +333,7 @@ export function CanvasAssistantSidebar(props: Props) {
                             <CanvasAssistantAttachments attachments={item.attachments || []} />
                             <p className="canvas-assistant-meta" role="status">{item.status === "accepted" ? "助手已收到补充要求。" : item.status === "sending" ? "正在发送补充要求…" : "未能确认收到补充要求。请查看最新回复后再决定是否发送。"}</p>
                         </div>)}
-                        {assistant.streaming ? (
+                        {assistant.streaming ? <>
                             <div className="canvas-assistant-working" role="status" aria-live="polite">
                                 <span className="canvas-assistant-working-dots" aria-hidden="true">
                                     <span />
@@ -323,7 +342,8 @@ export function CanvasAssistantSidebar(props: Props) {
                                 </span>
                                 <span className="canvas-assistant-working-text">{assistant.lifecycleNotice || "助手正在处理…"}</span>
                             </div>
-                        ) : null}
+                            <AssistantSlowResponseNotice active={!hasLiveAssistantOutput} delayMs={props.slowResponseDelayMs} />
+                        </> : null}
                     </div>
                 ) : null}
 

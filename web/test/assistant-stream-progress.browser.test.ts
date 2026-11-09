@@ -98,6 +98,13 @@ async function settledEmptyThinkingTurn(line: Line) {
     line({ type: "turn_end", reply: "已经重新看过画布。", toolCalls: [], reasoning: [], error: null, cancelled: false });
 }
 
+async function slowStartTurn(line: Line) {
+    await new Promise((resolve) => setTimeout(resolve, 1600));
+    line({ type: "text_snapshot", text: "终于开始了。" });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    line({ type: "turn_end", reply: "终于开始了。", toolCalls: [], error: null, cancelled: false });
+}
+
 beforeAll(async () => {
     const build = await Bun.build({
         entrypoints: [import.meta.dir + "/fixtures/assistant-stream-harness.tsx"],
@@ -133,6 +140,7 @@ beforeAll(async () => {
                 // 面板按钮决定脚本：思考用例走带思考分片的慢速替身。
                 const body = await req.json().catch(() => null) as { message?: string } | null;
                 const message = String(body?.message || "");
+                if (message.includes("慢响应")) return ndjsonStream(slowStartTurn);
                 if (message.includes("清空")) return ndjsonStream(clearedThinkingTurn);
                 if (message.includes("终态")) return ndjsonStream(settledEmptyThinkingTurn);
                 return ndjsonStream(message.includes("想") ? slowThinkingTurn : slowTextTurn);
@@ -280,3 +288,19 @@ test("终态权威空思考清掉流里显示过的旧内容", async () => {
         expect(chatRequests).toBe(requestsBefore + 1);
     } finally { await page.close(); }
 }, 40000);
+
+test("首 token 超过等待阈值时显示网络提示，开始输出后自动移除", async () => {
+    const page = await browser.newPage();
+    try {
+        await page.goto(server.url.toString());
+        await page.getByRole("button", { name: "慢响应", exact: true }).click();
+        const notice = page.locator(".canvas-assistant-slow-response");
+        await page.waitForTimeout(700);
+        expect(await notice.count()).toBe(0);
+        await notice.waitFor({ timeout: 4000 });
+        expect(await notice.innerText()).toContain("若开启了系统代理或 VPN 请检查网络连通性");
+        // 首个片段到达后提示必须撤掉，不能一直留在已完成内容旁边。
+        await notice.waitFor({ state: "detached", timeout: 4000 });
+        await page.waitForFunction(() => document.querySelector('[data-testid="streaming"]')?.textContent === "false", undefined, { timeout: 4000 });
+    } finally { await page.close(); }
+}, 15000);

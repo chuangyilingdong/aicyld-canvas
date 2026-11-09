@@ -84,6 +84,29 @@ describe('操作桥', () => {
     expect(scopedSchema(params, true).properties.operationId).toBeUndefined();
   });
 
+  test('时间线工具 schema 不再使用根级 oneOf，兼容严格 Schema 端点', () => {
+    const descriptor = descriptors.find((item) => item.id === 'canvas.timeline.update');
+    expect(descriptor).toBeDefined();
+    expect(descriptor.params.oneOf).toBeUndefined();
+    expect(descriptor.params.properties.timeline).toBeDefined();
+    expect(descriptor.params.properties.refreshNodeIds).toBeDefined();
+  });
+
+  test('节点配置工具 schema 暴露图片、视频和音频的全部草稿参数', () => {
+    const descriptor = descriptors.find((item) => item.id === 'canvas.node.configure');
+    expect(descriptor).toBeDefined();
+    const patch = descriptor.params.properties.patch;
+    expect(patch.additionalProperties).toBe(false);
+    for (const name of [
+      'model', 'prompt', 'size', 'quality', 'count', 'transparentBackground',
+      'seconds', 'vquality', 'generateAudio', 'watermark', 'videoEditOperation',
+      'audioVoice', 'audioFormat', 'audioSpeed', 'audioPitch', 'audioVolume', 'audioInstructions',
+    ]) {
+      expect(patch.properties[name], name).toBeDefined();
+    }
+    expect(patch.properties.count).toMatchObject({ type: 'integer', minimum: 1, maximum: 8 });
+  });
+
   test('真实 HTTP：凭据与回合头到达 ops，写入 identity 绑定会话', async () => {
     const seen = [];
     const opsServer = createServer(async (req, res) => {

@@ -21,10 +21,6 @@ func timelineUpdateSchema(raw json.RawMessage) json.RawMessage {
 		"description": "仅刷新指定节点素材引用（与 timeline 二选一）",
 	}
 	schema["required"] = []string{"canvasId", "expectedRevision"}
-	schema["oneOf"] = []any{
-		map[string]any{"required": []string{"timeline"}},
-		map[string]any{"required": []string{"refreshNodeIds"}},
-	}
 	encoded, _ := json.Marshal(schema)
 	return encoded
 }

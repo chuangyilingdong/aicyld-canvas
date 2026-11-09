@@ -78,7 +78,7 @@ const NODE_CAPABILITIES = {
   video: {
     defaultWidth: 720, defaultHeight: 405, inputKind: 'video', generationMode: 'video',
     canSource: true, canTarget: true, acceptedInputKinds: ['text', 'image', 'video', 'audio'], maxInputCount: 0,
-    patchFields: new Set(['title', 'content', 'prompt', 'model', 'size', 'seconds', 'vquality', 'generateAudio', 'watermark']),
+    patchFields: new Set(['title', 'content', 'prompt', 'model', 'size', 'seconds', 'vquality', 'generateAudio', 'watermark', 'videoEditOperation']),
   },
   audio: {
     defaultWidth: 340, defaultHeight: 120, inputKind: 'audio', generationMode: 'audio',
@@ -1628,7 +1628,7 @@ export function createSimGo(options = {}) {
           const meta = node?.metadata || {};
           const prompt = String(meta.composerContent || meta.prompt || '');
           const parameters = {};
-          for (const key of ['size', 'quality', 'count', 'transparentBackground', 'seconds', 'vquality', 'generateAudio', 'watermark', 'audioVoice', 'audioFormat', 'audioSpeed', 'audioInstructions', 'videoStartFrameNodeId', 'videoEndFrameNodeId', 'videoMiddleFrameNodeId']) {
+          for (const key of ['size', 'quality', 'count', 'transparentBackground', 'seconds', 'vquality', 'generateAudio', 'watermark', 'videoEditOperation', 'audioVoice', 'audioFormat', 'audioSpeed', 'audioPitch', 'audioVolume', 'audioInstructions', 'videoStartFrameNodeId', 'videoEndFrameNodeId', 'videoMiddleFrameNodeId']) {
             if (meta[key] !== undefined && meta[key] !== null && String(meta[key]) !== '') {
               parameters[key] = String(meta[key]);
             }
