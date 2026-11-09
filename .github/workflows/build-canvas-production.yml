@@ -1,15 +1,16 @@
-name: Build Canvas production artifacts
+name: Build Canvas production release
 
 on:
   workflow_dispatch:
     inputs:
       build_version:
-        description: "Build version (default: VERSION + -ci)"
+        description: "Build version (default: RELEASE_VERSION or VERSION-ci)"
         required: false
         type: string
   push:
     branches:
       - codex/canvas-billing-ui-20261104
+      - codex/canvas-gpt-image-26-20261106
     tags:
       - "v*"
 
@@ -17,12 +18,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: canvas-production-build-${{ github.ref }}
+  group: canvas-production-release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  build:
-    name: Linux amd64 backend and hosted web
+  release:
+    name: Linux amd64 release bundle
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -31,7 +32,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Resolve build version
+      - name: Resolve build metadata
         id: version
         shell: bash
         run: |
@@ -44,6 +45,7 @@ jobs:
           fi
           printf 'value=%s\n' "$version" >> "$GITHUB_OUTPUT"
           printf 'time=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+          printf 'short=%s\n' "${GITHUB_SHA:0:8}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -58,6 +60,11 @@ jobs:
         with:
           bun-version: 1.3.9
 
+      - name: Set up Agent Host Node runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.1'
+
       - name: Install web dependencies
         working-directory: web
         run: bun install --frozen-lockfile
@@ -68,7 +75,17 @@ jobs:
 
       - name: Run focused web regression tests
         working-directory: web
-        run: bun test test/moderation-error.test.ts test/generation-failure-actions.test.tsx test/task-outcome.test.ts test/canvas-generation-failure.test.ts
+        run: >-
+          bun test
+          test/moderation-error.test.ts
+          test/generation-failure-actions.test.tsx
+          test/task-outcome.test.ts
+          test/canvas-generation-failure.test.ts
+          test/canvas-batch-download.test.ts
+          test/canvas-text-mention.test.ts
+          test/canvas-connection-state-sync.test.ts
+          test/script-document-import.test.ts
+          test/voice-preview-player.test.ts
 
       - name: Build hosted web
         working-directory: web
@@ -79,7 +96,9 @@ jobs:
 
       - name: Run focused backend regression tests
         working-directory: backend
-        run: go test ./internal/generation ./internal/task ./internal/app -run 'TestContentSecurityAuditFailureIsModerationOutput|TestContentSecurityAuditOutcomeRequiresConfirmation|TestTaskForOutputProjectsLegacyContentSecurityDiagnostics'
+        run: |
+          go test ./internal/skills ./internal/taskruntime -count=1
+          go test ./internal/handler -run '^$' -count=1
 
       - name: Build Linux backend
         working-directory: backend
@@ -89,40 +108,49 @@ jobs:
           GOARCH: amd64
         shell: bash
         run: |
+          set -euo pipefail
           mkdir -p ../out
           ldflags="-s -w -X infinite-canvas/backend/internal/buildinfo.Version=${{ steps.version.outputs.value }} -X infinite-canvas/backend/internal/buildinfo.Commit=${{ github.sha }} -X infinite-canvas/backend/internal/buildinfo.BuildTime=${{ steps.version.outputs.time }}"
           go build -trimpath -ldflags="$ldflags" -o ../out/infinite-canvas-backend ./cmd/server
           chmod 0755 ../out/infinite-canvas-backend
+          file ../out/infinite-canvas-backend
 
-      - name: Package artifacts
+      - name: Package Agent Host runtime
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p out
+          export BEEFTV_NODE_RUNTIME="$(dirname "$(dirname "$(command -v node)")")"
+          node --version
+          bun scripts/package-agent-host.mjs linux/amd64 out/agent-host
+          tar -czf out/agent-host.tar.gz -C out/agent-host .
+          tar -tzf out/agent-host.tar.gz | grep -Fq './runtime/bin/node'
+          tar -tzf out/agent-host.tar.gz | grep -Fq './server.mjs'
+
+      - name: Package frontend and release bundle
+        shell: bash
+        run: |
+          set -euo pipefail
           tar -czf out/web-dist.tar.gz -C web/dist .
-          cat > out/build-manifest.json <<EOF
-          {
-            "format": "aicyld-canvas-linux-build-v1",
-            "version": "${{ steps.version.outputs.value }}",
-            "commit": "${{ github.sha }}",
-            "buildTime": "${{ steps.version.outputs.time }}",
-            "backend": "infinite-canvas-backend",
-            "web": "web-dist.tar.gz"
-          }
-          EOF
-          (cd out && sha256sum infinite-canvas-backend web-dist.tar.gz build-manifest.json > SHA256SUMS)
-          file out/infinite-canvas-backend
+          go_version="$(go version | awk '{print $3}')"
+          node_version="$(node --version)"
+          bundle="out/aicyld-canvas-${{ steps.version.outputs.value }}-${{ steps.version.outputs.short }}.tar.gz"
+          bash scripts/package-canvas-release.sh \
+            --version '${{ steps.version.outputs.value }}' \
+            --commit '${{ github.sha }}' \
+            --build-time '${{ steps.version.outputs.time }}' \
+            --go-version "$go_version" \
+            --node-version "$node_version" \
+            --backend out/infinite-canvas-backend \
+            --web out/web-dist.tar.gz \
+            --agent-host out/agent-host.tar.gz \
+            --output "$bundle"
+          bash scripts/deploy-canvas-release.sh "$bundle" "$(cat "$bundle.sha256")" --verify-only
           ls -lh out
 
-      - name: Smoke-test built artifacts
+      - name: Smoke-test built backend
         shell: bash
         run: |
           set -euo pipefail
-          test -f out/infinite-canvas-backend
-          test -f out/web-dist.tar.gz
-          test -f out/build-manifest.json
-          tar -tzf out/web-dist.tar.gz > "$RUNNER_TEMP/web-dist.list"
-          grep -Eq "(^|/)index.html$" "$RUNNER_TEMP/web-dist.list"
           data_dir="$(mktemp -d)"
           log="$RUNNER_TEMP/backend-smoke.log"
           CANVAS_BACKEND_ADDR=127.0.0.1:18080 \
@@ -130,6 +158,7 @@ jobs:
             CANVAS_AUTO_MIGRATE=true \
             CANVAS_DISABLE_WORKERS=true \
             CANVAS_REGISTRATION_ENABLED=false \
+            CANVAS_OFFICIAL_PLUGIN_DIR="$PWD/plugin-packages" \
             ./out/infinite-canvas-backend >"$log" 2>&1 &
           pid=$!
           cleanup() { kill -TERM "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; }
@@ -140,15 +169,17 @@ jobs:
           done
           cat "$RUNNER_TEMP/health.json"
           grep -q '"ready":true' "$RUNNER_TEMP/health.json"
+          grep -q '${{ steps.version.outputs.value }}' "$RUNNER_TEMP/health.json"
           cleanup
           trap - EXIT
           echo "smoke=ok"
 
-      - name: Upload build artifact
+      - name: Upload release bundle
         uses: actions/upload-artifact@v4
         with:
-          name: aicyld-canvas-linux-amd64-${{ github.sha }}
-          path: out/
+          name: aicyld-canvas-release-${{ steps.version.outputs.value }}-${{ steps.version.outputs.short }}
+          path: |
+            out/aicyld-canvas-*.tar.gz
+            out/aicyld-canvas-*.tar.gz.sha256
           if-no-files-found: error
           retention-days: 30
-
