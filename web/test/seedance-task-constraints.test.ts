@@ -26,11 +26,13 @@ test("backend TaskTypeConstraint failure copy explains how to correct the mode",
     expect(explainGenerationError({ code: "invalid_params", message: persisted }).taskId).toBe("task_outer_456");
 });
 
-test("explicit reference and extension intent survives model selection", () => {
+test("explicit video mode survives reference inference", () => {
     const input = { imageCount: 1, characterCount: 0, videoCount: 0, audioCount: 0 };
     expect(resolveVideoOperation(input, "reference_to_video")).toBe("reference_to_video");
     expect(resolveVideoOperation({ ...input, videoCount: 1 }, "extend")).toBe("extend");
     expect(resolveVideoOperation({ ...input, videoCount: 1 })).toBe("reference_to_video");
+    expect(resolveVideoOperation({ textCount: 0, imageCount: 0, characterCount: 0, videoCount: 0, audioCount: 0 }, "reference_to_video")).toBe("reference_to_video");
+    expect(resolveVideoOperation({ textCount: 0, imageCount: 5, characterCount: 0, videoCount: 0, audioCount: 0 }, "image_to_video")).toBe("image_to_video");
 });
 
 test("temporary unavailable error inside failed task is actionable", () => {

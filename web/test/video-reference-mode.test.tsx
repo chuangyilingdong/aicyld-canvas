@@ -45,33 +45,35 @@ describe("resolveVideoReferenceModeState", () => {
         expect(switchedToAll.endFrameNodeId).toBeUndefined();
     });
 
-    test("3 张及以上参考图或包含视频/音频时自动锁定全能参考并给出禁用原因", () => {
-        const fiveImageState = resolveVideoReferenceModeState({
-            references: makeImageRefs(5),
-        });
-        expect(fiveImageState.mode).toBe("all");
-        expect(fiveImageState.canSelectFrames).toBe(false);
-        expect(fiveImageState.framesDisabledReason).toContain("1–2 张图");
+    test("模式以用户选择为准，连接素材不会自动改写首尾帧或全能参考", () => {
+        const noRefState = resolveVideoReferenceModeState({ references: [] });
+        expect(noRefState.mode).toBe("frames");
+        expect(noRefState.canSelectFrames).toBe(true);
+        expect(noRefState.canSelectAll).toBe(true);
 
-        const videoRefState = resolveVideoReferenceModeState({
+        const fiveImageFrames = resolveVideoReferenceModeState({
+            references: makeImageRefs(5),
+            metadata: { videoEditOperation: "image_to_video" },
+        });
+        expect(fiveImageFrames.mode).toBe("frames");
+        expect(fiveImageFrames.canSelectFrames).toBe(true);
+
+        const oneImageAll = resolveVideoReferenceModeState({
+            references: makeImageRefs(1),
+            metadata: { videoEditOperation: "reference_to_video" },
+        });
+        expect(oneImageAll.mode).toBe("all");
+        expect(oneImageAll.canSelectAll).toBe(true);
+
+        const videoRefFrames = resolveVideoReferenceModeState({
             references: [
                 ...makeImageRefs(1),
                 { nodeId: "vid-1", kind: "video", label: "视频1", title: "参考视频", active: true },
             ],
+            metadata: { videoEditOperation: "image_to_video" },
         });
-        expect(videoRefState.mode).toBe("all");
-        expect(videoRefState.canSelectFrames).toBe(false);
-        expect(videoRefState.framesDisabledReason).toContain("参考视频");
-
-        const characterRefState = resolveVideoReferenceModeState({
-            references: [
-                ...makeImageRefs(1),
-                { nodeId: "char-1", kind: "character", label: "角色1", title: "主角卡", active: true },
-            ],
-        });
-        expect(characterRefState.mode).toBe("all");
-        expect(characterRefState.canSelectFrames).toBe(false);
-        expect(characterRefState.framesDisabledReason).toContain("角色卡");
+        expect(videoRefFrames.mode).toBe("frames");
+        expect(videoRefFrames.canSelectFrames).toBe(true);
 
         const noRefVideoModelState = resolveVideoReferenceModeState({
             references: makeImageRefs(1),
@@ -211,6 +213,15 @@ describe("buildVideoGenerationMetadata default frame roles", () => {
 });
 
 describe("VideoReferenceModeSwitch & ConnectedReferenceShelf UI", () => {
+    test("尚未连接引用时也显示首尾帧与全能参考模式切换器", () => {
+        const state = resolveVideoReferenceModeState({ references: [] });
+        const html = renderToStaticMarkup(
+            <VideoReferenceModeSwitch state={state} theme={canvasThemes.dark} onChange={() => {}} />,
+        );
+        expect(html).toContain("首尾帧");
+        expect(html).toContain("全能参考");
+    });
+
     test("首尾帧模式渲染 [首尾帧 | 全能参考] 切换器、缩略图首帧/尾帧角标与 ⇄ 互换按钮", () => {
         const refs = makeImageRefs(2);
         const state = resolveVideoReferenceModeState({ model: "seedance-2.5", references: refs });
@@ -237,7 +248,7 @@ describe("VideoReferenceModeSwitch & ConnectedReferenceShelf UI", () => {
     test("全能参考模式在图片缩略图上渲染提示词首帧快捷按钮", () => {
         const refs = makeImageRefs(5);
         const prompt = "@[node:img-5] 作为首帧，镜头推进";
-        const state = resolveVideoReferenceModeState({ model: "seedance-2.5", references: refs, prompt });
+        const state = resolveVideoReferenceModeState({ model: "seedance-2.5", references: refs, prompt, metadata: { videoEditOperation: "reference_to_video" } });
         const shelfHtml = renderToStaticMarkup(
             <ConnectedReferenceShelf
                 references={refs}

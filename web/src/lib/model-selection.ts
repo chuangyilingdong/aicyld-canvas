@@ -444,9 +444,9 @@ export function inferVideoOperation(input: ModelInputSummary) {
 }
 
 export function resolveVideoOperation(input: ModelInputSummary, storedOperation?: string) {
-    if (storedOperation === "reference_to_video" && input.imageCount + input.characterCount + input.videoCount + input.audioCount > 0) return storedOperation;
-    if (storedOperation === "extend" && input.videoCount > 0) return storedOperation;
-    if (storedOperation && !["text_to_video", "image_to_video", "audio_to_video", "extend", "reference_to_video"].includes(storedOperation)) return storedOperation;
+    // 用户在节点上显式选过生成模式时，模式就是配置本身；参考素材只用于
+    // 兼容性校验，不能在提交前把用户选择改写成另一个 operation。
+    if (storedOperation) return storedOperation;
     return inferVideoOperation(input);
 }
 

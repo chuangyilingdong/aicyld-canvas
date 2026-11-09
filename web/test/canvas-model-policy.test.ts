@@ -246,15 +246,15 @@ describe("逻辑模型选择", () => {
         expect(groups[0]?.models).toHaveLength(3);
     });
 
-    test("根据参考图自动切换到图生视频细分模型", () => {
+    test("未显式选择视频模式时按参考图匹配细分模型", () => {
         const config = policyConfig();
-        const resolved = resolveCompatibleModel(config, "relay::cinema-text", {
-            capability: "video",
+        const requirements = {
+            capability: "video" as const,
             input: { textCount: 1, imageCount: 1, videoCount: 0, audioCount: 0, characterCount: 0 },
-            videoOperation: "text_to_video",
             videoSeconds: "6",
-        });
-        expect(resolved).toBe("relay::cinema-image");
+        };
+        expect(resolveCompatibleModel(config, "relay::cinema-text", requirements)).toBe("relay::cinema-image");
+        expect(resolveCompatibleModel(config, "relay::cinema-text", { ...requirements, videoOperation: "text_to_video" })).toBe("");
     });
 
     test("音频输入只匹配支持音频的细分模型", () => {

@@ -70,7 +70,7 @@ export function resolveVideoReferenceModeState({
     references,
     endFrameSupported = true,
     referenceVideoSupported = true,
-    h3Model = false,
+    framesSupported = true,
     h3Style = false,
     prompt = "",
 }: {
@@ -78,49 +78,31 @@ export function resolveVideoReferenceModeState({
     references: VideoReferenceCandidate[];
     endFrameSupported?: boolean;
     referenceVideoSupported?: boolean;
+    framesSupported?: boolean;
     h3Model?: boolean;
     h3Style?: boolean;
     prompt?: string;
 }): VideoReferenceModeState {
     const active = references.filter((item) => item.active !== false && item.kind !== "skill");
     const imageRefs = active.filter((item) => item.kind === "image");
-    const characterCount = active.filter((item) => item.kind === "character").length;
-    const visualCount = imageRefs.length + characterCount;
-    const videoCount = active.filter((item) => item.kind === "video").length;
-    const audioCount = active.filter((item) => item.kind === "audio").length;
-    const maxFrameImages = endFrameSupported ? 2 : 1;
-
-    const canSelectFrames =
-        imageRefs.length >= 1 &&
-        characterCount === 0 &&
-        visualCount <= maxFrameImages &&
-        videoCount === 0 &&
-        (audioCount === 0 || (h3Model && audioCount <= 1));
-    const canSelectAll = !h3Style && referenceVideoSupported && (visualCount > 0 || videoCount > 0 || audioCount > 0);
-
-    let framesDisabledReason: string | undefined;
-    if (!canSelectFrames) {
-        if (videoCount > 0) {
-            framesDisabledReason = "已连接参考视频，当前为全能参考模式；可点击图片缩略图「首帧」设为起始画面";
-        } else if (characterCount > 0) {
-            framesDisabledReason = "已连接角色卡，当前为全能参考模式；可点击图片缩略图「首帧」设为起始画面";
-        } else if (visualCount > maxFrameImages) {
-            framesDisabledReason = "首尾帧模式仅限 1–2 张图；多图全能参考下可直接点击图片「首帧」设为起始画面";
-        } else if (audioCount > 0) {
-            framesDisabledReason = "已连接参考音频，当前为全能参考模式；可点击图片缩略图「首帧」设为起始画面";
-        } else {
-            framesDisabledReason = "请先连接 1–2 张参考图";
-        }
-    }
+    // 模式只由模型能力和用户显式选择决定。已连接素材只参与后续兼容校验，
+    // 不能把用户选好的首尾帧/全能参考模式自动改掉。
+    const canSelectFrames = framesSupported;
+    const canSelectAll = !h3Style && referenceVideoSupported;
+    const framesDisabledReason = !canSelectFrames ? "当前模型仅支持全能参考模式" : undefined;
     const allDisabledReason = !canSelectAll ? "当前模型仅支持首帧/首尾帧模式，不支持全能参考" : undefined;
-
-    const mode: "frames" | "all" = !canSelectFrames
+    const selectedMode = metadata?.videoEditOperation === "reference_to_video"
         ? "all"
-        : !canSelectAll
+        : metadata?.videoEditOperation === "image_to_video"
           ? "frames"
-          : metadata?.videoEditOperation === "reference_to_video"
-            ? "all"
-            : "frames";
+          : undefined;
+    const mode: "frames" | "all" = selectedMode === "all" && canSelectAll
+        ? "all"
+        : selectedMode === "frames" && canSelectFrames
+          ? "frames"
+          : canSelectFrames
+            ? "frames"
+            : "all";
 
     if (mode === "all") {
         return {

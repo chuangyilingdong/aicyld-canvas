@@ -473,7 +473,7 @@ export function buildVideoGenerationMetadata(
     const videoEditOperation = draftTaskId
         ? "draft_to_final"
         : effectiveModel && isH3Model(effectiveModel)
-          ? h3VideoOperation(effectiveModel, { imageCount: context?.referenceImages.length || 0, videoCount: context?.referenceVideos.length || 0, audioCount: context?.referenceAudios.length || 0 }, metadata?.videoEditOperation)
+          ? (h3VideoOperation(effectiveModel, { imageCount: context?.referenceImages.length || 0, videoCount: context?.referenceVideos.length || 0, audioCount: context?.referenceAudios.length || 0 }, metadata?.videoEditOperation) as CanvasVideoEditOperation)
           : resolveVideoEditOperation(node, context);
     // 工作流视频与非 H3 Max 的全模态参考生成不消费首尾帧/中间帧槽位，不再把历史帧选择当成硬约束或透传给后端。
     const workflowVideo = node?.type === CanvasNodeType.Config && (config?.taskWorkflowProvider === "runninghub" || isCanvasWorkflowProvider(metadata));

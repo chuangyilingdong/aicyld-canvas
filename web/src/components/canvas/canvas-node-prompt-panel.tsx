@@ -193,19 +193,22 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
     const referenceVideoSupported = mode === "video"
         ? (h3Model ? !isH3Style(config.model) : Boolean(videoProfile?.operations.includes("reference_to_video")))
         : false;
-    const hasVisualOrVideoReference = activeReferences.some((item) => item.kind === "image" || item.kind === "character" || item.kind === "video");
+    const referenceFramesSupported = mode === "video"
+        ? (h3Model ? !isH3Style(config.model) : Boolean(videoProfile?.operations.includes("image_to_video")))
+        : false;
     const videoModeState = useMemo(() => {
-        if (mode !== "video" || simpleMode || !hasVisualOrVideoReference || ["extend", "inpaint"].includes(effectiveVideoOperation || "")) return undefined;
+        if (mode !== "video" || simpleMode || ["extend", "inpaint"].includes(effectiveVideoOperation || "")) return undefined;
         return resolveVideoReferenceModeState({
             metadata: node.metadata,
             references: resolvedMentionReferences,
             endFrameSupported,
             referenceVideoSupported,
+            framesSupported: referenceFramesSupported,
             h3Model,
             h3Style: isH3Style(config.model),
             prompt,
         });
-    }, [config.model, effectiveVideoOperation, endFrameSupported, h3Model, hasVisualOrVideoReference, mode, node.metadata, prompt, referenceVideoSupported, resolvedMentionReferences, simpleMode]);
+    }, [config.model, effectiveVideoOperation, endFrameSupported, h3Model, mode, node.metadata, prompt, referenceFramesSupported, referenceVideoSupported, resolvedMentionReferences, simpleMode]);
     const videoReferenceInputs = useMemo(() => activeReferences.flatMap((reference) => reference.kind === "skill" ? [] : [{ nodeId: reference.nodeId, type: reference.kind, title: reference.title }]), [activeReferences]);
     const h3SelectedFrames = [node.metadata?.videoStartFrameNodeId, node.metadata?.videoEndFrameNodeId, node.metadata?.videoMiddleFrameNodeId];
     const hasH3ReferenceOrder = isH3ReferenceOrderModel(config.model) && videoReferenceInputs.some((input) => ["image", "character", "video", "audio"].includes(input.type) && !h3SelectedFrames.includes(input.nodeId));

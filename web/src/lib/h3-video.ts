@@ -21,7 +21,8 @@ export function isH3Style(model: string): boolean {
 export function h3VideoOperation(model: string, input: { imageCount: number; characterCount?: number; videoCount: number; audioCount: number }, stored?: string) {
     const images = input.imageCount + (input.characterCount || 0);
     if (isH3Style(model)) return images ? "image_to_video" : "text_to_video";
-    if ((stored === "reference_to_video" && images + input.videoCount + input.audioCount > 0) || input.videoCount > 0 || input.audioCount > 1 || images > 2) return "reference_to_video";
+    if (stored) return stored;
+    if (input.videoCount > 0 || input.audioCount > 1 || images > 2) return "reference_to_video";
     if (images) return "image_to_video";
     if (input.audioCount) return "audio_to_video";
     return "text_to_video";
@@ -82,7 +83,9 @@ type H3FrameOptions = { videoEditOperation?: string; videoStartFrameNodeId?: str
 export function h3ReferenceMode(model: string, input: { imageCount: number; videoCount: number; audioCount: number }, options: H3FrameOptions = {}): boolean {
     const base = model.split("::").at(-1) === "minimax-h3";
     const hasFrame = Boolean(options.videoStartFrameNodeId || options.videoEndFrameNodeId || options.videoMiddleFrameNodeId);
-    return !isH3Style(model) && (options.videoEditOperation === "reference_to_video" || Boolean(options.videoMiddleFrameNodeId) || input.videoCount > 0 || input.audioCount > 1 || (base && input.imageCount > 0 && !hasFrame && options.videoEditOperation !== "image_to_video"));
+    if (options.videoEditOperation === "reference_to_video") return !isH3Style(model);
+    if (options.videoEditOperation === "image_to_video" || options.videoEditOperation === "text_to_video" || options.videoEditOperation === "audio_to_video") return false;
+    return !isH3Style(model) && (Boolean(options.videoMiddleFrameNodeId) || input.videoCount > 0 || input.audioCount > 1 || (base && input.imageCount > 0 && !hasFrame));
 }
 
 export function h3MediaPayload(model: string, media: H3Media[], options: H3FrameOptions = {}, seconds = 5, resolution = "768p") {

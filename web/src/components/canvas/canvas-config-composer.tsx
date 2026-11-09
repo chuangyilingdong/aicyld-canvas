@@ -14,6 +14,8 @@ import type { CanvasGenerationMode, CanvasNodeMetadata, CanvasWorkspaceMode } fr
 import { CanvasH3ReferenceOrder } from "./canvas-h3-reference-order";
 import { h3VideoOperation, isH3MaxModel, isH3Model, isH3Style } from "@/lib/h3-video";
 import { resolveVideoOperation } from "@/lib/model-selection";
+import { modelCapabilityConfigFor, videoReferencesForOperation } from "@/lib/model-capabilities";
+import { useEffectiveConfig } from "@/stores/use-config-store";
 import { findPromptFirstFrameNodeId, resolveVideoReferenceModeState, stripPromptFirstFrameClauses } from "@/lib/canvas/video-reference-mode";
 import { VideoReferenceModeSwitch } from "./canvas-node-reference-shelf";
 import { CanvasPromptFontControl } from "./canvas-prompt-font-control";
@@ -54,6 +56,7 @@ export const CONFIG_REFERENCE_PATTERN = /@\[node:([^\]]+)\]|@(图片|视频|音�
 
 export function CanvasConfigComposer({ value, inputs, skillReferences = [], generationMode, metadata, model="", onChange, onMetadataChange, onClose, workspaceMode = "professional" }: CanvasConfigComposerProps) {
     const theme = canvasThemes[useActiveTheme()];
+    const config = useEffectiveConfig();
     const promptFontSize = useCreationPreferencesStore((state) => state.preferences.promptFontSize ?? DEFAULT_PROMPT_FONT_SIZE);
     const promptTextStyle = { fontSize: promptFontSize, lineHeight: 1.5 };
     const editorRef = useRef<HTMLDivElement>(null);
@@ -64,6 +67,37 @@ export function CanvasConfigComposer({ value, inputs, skillReferences = [], gene
     const [presetOpen, setPresetOpen] = useState(false);
     const simpleMode = workspaceMode === "simple";
     const workflowVideoReferenceMode = generationMode === "video" && isCanvasWorkflowProvider(metadata);
+    const videoProfile = generationMode === "video" ? modelCapabilityConfigFor(config, model).video : undefined;
+    const h3Model = isH3Model(model);
+    const h3Style = isH3Style(model);
+    const endFrameSupported = generationMode === "video"
+        ? (!h3Style && (h3Model || (videoProfile ? videoReferencesForOperation(videoProfile, "image_to_video").maxImages >= 2 : true)))
+        : false;
+    const referenceVideoSupported = generationMode === "video"
+        ? (h3Model ? !h3Style : Boolean(videoProfile?.operations.includes("reference_to_video")))
+        : false;
+    const referenceFramesSupported = generationMode === "video"
+        ? (h3Model ? !h3Style : Boolean(videoProfile?.operations.includes("image_to_video")))
+        : false;
+    const videoModeState = useMemo(() => {
+        if (generationMode !== "video" || simpleMode || workflowVideoReferenceMode) return undefined;
+        return resolveVideoReferenceModeState({
+            metadata,
+            references: inputs.map((input, index) => ({
+                nodeId: input.nodeId,
+                kind: input.type,
+                label: resourceLabel(input, inputs) || `素材${index + 1}`,
+                title: input.title,
+                active: true,
+            })),
+            endFrameSupported,
+            referenceVideoSupported,
+            framesSupported: referenceFramesSupported,
+            h3Model,
+            h3Style,
+            prompt: value,
+        });
+    }, [endFrameSupported, generationMode, h3Model, h3Style, inputs, metadata, referenceFramesSupported, referenceVideoSupported, simpleMode, value, workflowVideoReferenceMode]);
     const tokens = useMemo(() => parseComposerTokens(value, inputs), [inputs, value]);
     const referenceById = useMemo(() => new Map(inputs.map((input) => [input.nodeId, input])), [inputs]);
     const videoFrameOptions = useMemo(
@@ -189,22 +223,9 @@ export function CanvasConfigComposer({ value, inputs, skillReferences = [], gene
             </div>
             {generationMode === "video" && onMetadataChange && !simpleMode ? (
                 <div className="mb-3 space-y-2 rounded-lg px-2 py-2" style={{ background: theme.node.fill }}>
-                    {!workflowVideoReferenceMode && inputs.some((input) => input.type === "image" || input.type === "character" || input.type === "video") ? (
+                    {videoModeState ? (
                         <VideoReferenceModeSwitch
-                            state={resolveVideoReferenceModeState({
-                                metadata,
-                                references: inputs.map((input, index) => ({
-                                    nodeId: input.nodeId,
-                                    kind: input.type,
-                                    label: resourceLabel(input, inputs) || `素材${index + 1}`,
-                                    title: input.title,
-                                    active: true,
-                                })),
-                                endFrameSupported: !isH3Style(model),
-                                h3Model: isH3Model(model),
-                                h3Style: isH3Style(model),
-                                prompt: value,
-                            })}
+                            state={videoModeState}
                             theme={theme}
                             onSelectMode={(nextMode) => {
                                 if (nextMode === "frames" && findPromptFirstFrameNodeId(value, inputs.map((input, index) => ({ nodeId: input.nodeId, kind: input.type, label: resourceLabel(input, inputs) || `素材${index + 1}`, active: true })))) {
