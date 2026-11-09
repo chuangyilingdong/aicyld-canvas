@@ -96,6 +96,9 @@ jobs:
           test/assistant-production-card.test.tsx
           test/canvas-agent-assistant-stream.test.ts
           test/image2-default-quality.test.ts
+          test/video-reference-mode.test.tsx
+          test/seedance-task-constraints.test.ts
+          test/canvas-model-policy.test.ts
           test/model-service-presets.test.ts
           test/canvas-storage-revision.test.ts
           test/local-workspace-stale-backend.test.ts
