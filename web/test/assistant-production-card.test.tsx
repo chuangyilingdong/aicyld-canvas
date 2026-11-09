@@ -409,3 +409,31 @@ test("skill script proposal card renders confirmation actions and collapsible ou
     expect(completedHtml).toContain("检测到 00:01.20-00:01.80 停顿");
     expect(completedHtml).not.toContain("本对话始终允许");
 });
+test("stale proposal replaces the inert generate action with a direct re-propose action", () => {
+    const turn: AssistantTurn = {
+        turnId: "turn-stale",
+        userText: "继续出图",
+        selectedNodeIds: [],
+        reply: "请确认方案",
+        toolCalls: [],
+        change: null,
+        error: null,
+        cancelled: false,
+        createdAt: "2026-11-09",
+        proposals: [proposal],
+    };
+    const html = renderToStaticMarkup(
+        <CanvasAssistantTurnView
+            turn={turn}
+            handledProposals={new Set()}
+            proposalFeedback={{ [proposal.proposalId]: "生成设置在提出方案后改过。请让助手重新提出方案。" }}
+            onLocate={() => {}}
+            onUndo={() => {}}
+            onRunProposal={() => {}}
+            onDismissProposal={() => {}}
+            onRepropose={() => {}}
+        />,
+    );
+    expect(html).toContain("让助手重新提方案");
+    expect(html).not.toMatch(/>生成</);
+});

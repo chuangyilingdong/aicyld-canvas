@@ -35,6 +35,7 @@ type Props = {
     scriptProposalFeedback?: Record<string, string>;
     onDismissProposal: (proposalId: string) => void;
     onContinue?: () => void;
+    onRepropose?: () => void;
     nodes?: CanvasNodeData[];
     onCheckResults?: (nodeIds: string[]) => void;
     /** 思考区域是否展开；展开状态由调用方按回合持有，这里只负责显示。 */
@@ -71,7 +72,7 @@ export function CanvasAssistantUserMessage({ text, selectedCount, continuationId
     );
 }
 
-export function CanvasAssistantTurnView({ turn, canvasId, sessionId, status, handledProposals, proposalFeedback, runningProposalIds, generationDisabled, onLocate, onUndo, onRunProposal, onRunScriptProposal, runningScriptProposalIds, scriptProposalFeedback, onDismissProposal, onContinue, nodes, onCheckResults, reasoningOpen, onReasoningOpenChange }: Props) {
+export function CanvasAssistantTurnView({ turn, canvasId, sessionId, status, handledProposals, proposalFeedback, runningProposalIds, generationDisabled, onLocate, onUndo, onRunProposal, onRunScriptProposal, runningScriptProposalIds, scriptProposalFeedback, onDismissProposal, onContinue, onRepropose, nodes, onCheckResults, reasoningOpen, onReasoningOpenChange }: Props) {
     const { message } = App.useApp();
     const config = useEffectiveConfig();
     const summary = assistantChangeSummary(turn.change);
@@ -176,6 +177,8 @@ export function CanvasAssistantTurnView({ turn, canvasId, sessionId, status, han
                 const productionParts = assistantProductionProposalParts(proposal, awaitingConfirmation, config);
                 const orderTargetLines = assistantOrderTargetLines(proposal);
                 const legacyProposalNote = !assistantVisibleReply(turn.reply || "") && proposal.note?.trim() ? proposal.note.trim() : "";
+                const proposalFeedbackText = proposalFeedback?.[proposal.proposalId] || "";
+                const needsReproposal = /请让助手重新提出(?:生成)?方案/.test(proposalFeedbackText);
                 return (
                     <div key={proposal.proposalId} className="canvas-assistant-card">
                         {legacyProposalNote ? <span className="canvas-assistant-proposal-note" style={{ whiteSpace: "pre-line", overflowWrap: "anywhere" }}>{legacyProposalNote}</span> : null}
@@ -231,9 +234,15 @@ export function CanvasAssistantTurnView({ turn, canvasId, sessionId, status, han
                             <span className="canvas-assistant-meta" role="status">{ASSISTANT_PROPOSAL_INVALIDATED_TEXT}</span>
                         ) : (
                             <div className="canvas-assistant-card-actions">
-                                <Button size="small" type="primary" autoInsertSpace={false} loading={running} disabled={generationDisabled || Boolean(priceError)} onClick={() => onRunProposal(proposal, turn.turnId)}>
-                                    {proposal.production ? "确认并制作整片" : "生成"}
-                                </Button>
+                                {needsReproposal ? (
+                                    <Button size="small" type="primary" autoInsertSpace={false} disabled={!onRepropose || generationDisabled || running} onClick={onRepropose}>
+                                        让助手重新提方案
+                                    </Button>
+                                ) : (
+                                    <Button size="small" type="primary" autoInsertSpace={false} loading={running} disabled={generationDisabled || Boolean(priceError)} onClick={() => onRunProposal(proposal, turn.turnId)}>
+                                        {proposal.production ? "确认并制作整片" : "生成"}
+                                    </Button>
+                                )}
                                 <Button size="small" disabled={running} onClick={() => onDismissProposal(proposal.proposalId)}>
                                     先不用
                                 </Button>

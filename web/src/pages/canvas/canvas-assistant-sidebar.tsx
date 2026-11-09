@@ -14,7 +14,7 @@ import { SkillInstallModal } from "@/pages/skills/skill-install-modal";
 import { Link } from "react-router";
 import { attachmentFromCanvasReference, attachmentRangeError, readAssistantInputDraft, saveAssistantInputDraft, uploadAssistantAttachment, type AssistantInputDraft } from "@/services/assistant-attachments";
 import { CanvasAssistantAttachments } from "./canvas-assistant-attachments";
-import { ASSISTANT_CONTINUE_PROMPT, ASSISTANT_CHECK_RESULTS_PROMPT, ASSISTANT_STARTER_PROMPTS, appendAssistantDraft, assistantSkillLabel, assistantStatusNotice, assistantVisibleReply } from "./canvas-assistant-copy";
+import { ASSISTANT_CONTINUE_PROMPT, ASSISTANT_CHECK_RESULTS_PROMPT, ASSISTANT_REPROPOSE_PROMPT, ASSISTANT_STARTER_PROMPTS, appendAssistantDraft, assistantSkillLabel, assistantStatusNotice, assistantVisibleReply } from "./canvas-assistant-copy";
 import { CanvasAssistantComposer } from "./canvas-assistant-composer";
 import { CanvasAssistantReply, CanvasAssistantTurnView, CanvasAssistantUserMessage } from "./canvas-assistant-turn";
 import { AssistantReasoning } from "@/components/ai/message-reasoning";
@@ -168,6 +168,12 @@ export function CanvasAssistantSidebar(props: Props) {
         void assistant.send(text, assistant.streaming ? [] : attachedIds, assetReferences, { attachments, skills: selectedSkills });
     }, [assistant, attachedIds, attachments, draft, draftIdentity, draftLoaded, loadedDraftIdentity, readOnly, selectedSkills, uploads.length]);
 
+    const requestReproposal = useCallback(() => {
+        if (!inputReady || readOnly || assistant.streaming || assistant.sessionBusy || assistant.awaitingReceipt || !assistant.sessionId) return;
+        followLatestRef.current = true;
+        void assistant.send(ASSISTANT_REPROPOSE_PROMPT, attachedIds, [], {});
+    }, [assistant, attachedIds, inputReady, readOnly]);
+
     const startResize = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
         event.preventDefault();
         const startX = event.clientX;
@@ -279,6 +285,7 @@ export function CanvasAssistantSidebar(props: Props) {
                         nodes={props.nodes}
                         onCheckResults={!readOnly && inputReady && !assistant.streaming && !assistant.sessionBusy ? prepareResultCheck : undefined}
                         onContinue={!readOnly && inputReady && !assistant.streaming && !assistant.sessionBusy && turn.turnId === assistant.turns.at(-1)?.turnId ? () => setDraft(current => appendAssistantDraft(current, ASSISTANT_CONTINUE_PROMPT)) : undefined}
+                        onRepropose={!readOnly && inputReady && !assistant.streaming && !assistant.sessionBusy && !assistant.awaitingReceipt ? requestReproposal : undefined}
                         reasoningOpen={assistant.reasoningOpen[turn.turnId]}
                         onReasoningOpenChange={(open) => assistant.setReasoningOpen(turn.turnId, open)}
                     />
