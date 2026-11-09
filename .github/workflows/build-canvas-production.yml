@@ -104,6 +104,11 @@ jobs:
           VITE_BUILD_COMMIT: ${{ github.sha }}
         run: bun --bun ./node_modules/vite/bin/vite.js build
 
+      - name: Install media test tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
       - name: Backend tests - operations
         working-directory: backend
         run: |
