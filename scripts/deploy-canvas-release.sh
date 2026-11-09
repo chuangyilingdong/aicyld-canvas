@@ -307,7 +307,8 @@ web_switched=1
 nginx -t
 systemctl reload nginx
 
-curl -fsS --max-time 20 "$public_url/" | grep -Fq "$entry"
+public_index="$(curl -fsS --max-time 20 "$public_url/")"
+grep -Fq "$entry" <<<"$public_index"
 curl -fsS --max-time 20 "$public_url/version.json" >"$stage/public-version.json"
 "$python_bin" - "$stage/public-version.json" "$version" "$commit" <<'PY'
 import json, sys

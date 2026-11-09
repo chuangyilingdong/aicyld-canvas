@@ -123,8 +123,9 @@ jobs:
           node --version
           bun scripts/package-agent-host.mjs linux/amd64 out/agent-host
           tar -czf out/agent-host.tar.gz -C out/agent-host .
-          tar -tzf out/agent-host.tar.gz | grep -Fq './runtime/bin/node'
-          tar -tzf out/agent-host.tar.gz | grep -Fq './server.mjs'
+          tar -tzf out/agent-host.tar.gz > out/agent-host.list
+          grep -Fq './runtime/bin/node' out/agent-host.list
+          grep -Fq './server.mjs' out/agent-host.list
 
       - name: Package frontend and release bundle
         shell: bash
