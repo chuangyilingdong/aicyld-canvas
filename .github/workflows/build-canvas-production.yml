@@ -106,7 +106,13 @@ jobs:
 
       - name: Backend tests - operations
         working-directory: backend
-        run: go test ./internal/operations -count=1
+        run: |
+          set -o pipefail
+          go test ./internal/operations -count=1 2>&1 | tee /tmp/canvas-operations-test.log
+
+      - name: Report operations failures
+        if: failure()
+        run: grep -E '^(--- FAIL|FAIL|panic:)' /tmp/canvas-operations-test.log | head -80 | sed 's/^/::error::/' || true
 
       - name: Backend tests - skills
         working-directory: backend
