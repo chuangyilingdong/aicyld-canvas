@@ -12,7 +12,6 @@ import (
 
 	"infinite-canvas/backend/internal/kernel"
 	"infinite-canvas/backend/internal/model"
-	"infinite-canvas/backend/internal/skillhub"
 )
 
 // Pin is the exact installed package selected by the user for a business round.
@@ -113,7 +112,7 @@ func IsSkillScriptPath(filePath string) bool {
 	if err != nil || normalized != filePath {
 		return false
 	}
-	for _, prefix := range []string{skillhub.ScriptsPrefix, skillhub.AltScriptsPrefix} {
+	for _, prefix := range []string{"scripts/", "script/"} {
 		if strings.HasPrefix(normalized, prefix) {
 			return len(normalized) > len(prefix)
 		}

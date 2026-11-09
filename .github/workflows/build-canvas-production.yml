@@ -91,6 +91,9 @@ jobs:
           test/canvas-text-prompt-controls.test.ts
           test/workspace-asset-upload.test.ts
           test/assets-collection-layout.test.ts
+          test/assistant-production-card.test.tsx
+          test/canvas-agent-assistant-stream.test.ts
+          test/image2-default-quality.test.ts
           test/script-document-import.test.ts
           test/voice-preview-player.test.ts
 
@@ -104,8 +107,14 @@ jobs:
       - name: Run focused backend regression tests
         working-directory: backend
         run: |
-          go test ./internal/skills ./internal/taskruntime -count=1
-          go test ./internal/handler -run '^$' -count=1
+          go test ./internal/operations ./internal/skills ./internal/canvas ./internal/taskbinding ./internal/agentops ./internal/generation ./internal/taskruntime -count=1
+          go test ./internal/handler -count=1
+
+      - name: Run focused agent host tests
+        working-directory: agent-host
+        run: |
+          bun install --frozen-lockfile
+          bun test canvas-turn.test.mjs skill-resource.test.mjs operation-policy.test.mjs operation-bridge.test.mjs
 
       - name: Build Linux backend
         working-directory: backend
