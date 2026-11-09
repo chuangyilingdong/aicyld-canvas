@@ -2,12 +2,25 @@ import { canonicalize } from "json-canonicalize";
 import type { CanvasProject } from "@/stores/canvas/use-canvas-store";
 
 // These fields describe local viewing / synchronization, not an edit to the document.
-const VOLATILE_NODE_METADATA_KEYS = new Set(["taskUpdatedAt", "taskStartedAt", "taskCompletedAt"]);
+const VOLATILE_NODE_METADATA_KEYS = new Set([
+    "taskStatus",
+    "taskProgress",
+    "taskStage",
+    "taskUpdatedAt",
+    "taskStartedAt",
+    "taskCompletedAt",
+    "taskDurationMs",
+    "taskProviderRequestId",
+    "taskOfficialStatus",
+    "taskReceiptRecorded",
+    "generationSubmissionState",
+]);
 
 export function canvasContentSnapshot(project: CanvasProject) {
     const { viewport: _viewport, updatedAt: _updatedAt, revision: _revision, remoteContentHash: _hash, ...content } = project;
     const nodes = Array.isArray(content.nodes)
         ? content.nodes.map((node) => {
+            if (!node || typeof node !== "object") return node;
             const metadata = node.metadata;
             if (!metadata) return node;
             const nextMetadata = { ...metadata };

@@ -85,6 +85,7 @@ jobs:
           test/canvas-text-mention.test.ts
           test/canvas-connection-state-sync.test.ts
           test/canvas-document-field-rule.test.ts
+          test/canvas-unconfirmed-edits.test.ts
           test/canvas-leave-flush.test.ts
           test/canvas-personal-asset-loading.test.ts
           test/canvas-text-prompt-controls.test.ts
