@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { canvasThemes } from "../src/lib/canvas-theme";
 import { ConnectedReferenceShelf, VideoReferenceModeSwitch } from "../src/components/canvas/canvas-node-reference-shelf";
-import { findPromptFirstFrameNodeId, resolveVideoReferenceModeState, stripPromptFirstFrameClauses, togglePromptFirstFrameMention } from "../src/lib/canvas/video-reference-mode";
+import { findPromptFirstFrameNodeId, resolveVideoReferenceModeState, stripPromptFirstFrameClauses, togglePromptFirstFrameMention, videoReferenceModeWarning } from "../src/lib/canvas/video-reference-mode";
 import type { CanvasResourceReference } from "../src/lib/canvas/canvas-resource-references";
 
 const makeImageRefs = (count: number): CanvasResourceReference[] =>
@@ -88,6 +88,26 @@ describe("resolveVideoReferenceModeState", () => {
                 <VideoReferenceModeSwitch state={noRefVideoModelState} theme={canvasThemes.dark} onChange={() => {}} />,
             ),
         ).toBe("");
+    });
+});
+
+describe("videoReferenceModeWarning", () => {
+    test("首尾帧模式超出模型图片或视频限制时给出具体提示", () => {
+        const threeImages = videoReferenceModeWarning("frames", makeImageRefs(3), { maxImages: 2, maxVideos: 0, maxAudios: 0 });
+        expect(threeImages).toContain("最多支持 2 张图片/角色（当前 3 个）");
+        expect(threeImages).toContain("切换为全能参考模式");
+
+        const withVideo = videoReferenceModeWarning("frames", [
+            ...makeImageRefs(1),
+            { nodeId: "vid-1", kind: "video", label: "视频1", active: true },
+        ], { maxImages: 2, maxVideos: 0, maxAudios: 0 });
+        expect(withVideo).toContain("不支持参考视频（当前 1 个）");
+    });
+
+    test("全能参考模式允许一张图片，但空素材或超出模型限制时提示", () => {
+        expect(videoReferenceModeWarning("all", makeImageRefs(1), { maxImages: 9, maxVideos: 3, maxAudios: 3 })).toBe("");
+        expect(videoReferenceModeWarning("all", [], { maxImages: 9, maxVideos: 3, maxAudios: 3 })).toContain("至少需要连接 1 个");
+        expect(videoReferenceModeWarning("all", makeImageRefs(10), { maxImages: 9, maxVideos: 3, maxAudios: 3 })).toContain("最多支持 9 张图片/角色");
     });
 });
 

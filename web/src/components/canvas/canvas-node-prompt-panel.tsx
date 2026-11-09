@@ -1,7 +1,7 @@
 import { App, Button, InputNumber, Modal, Popover } from "antd";
 import { Tooltip } from "@/components/ui/base/tooltip";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { ArrowLeftRight, ArrowUp, Boxes, Camera, ChevronDown, FileText, ImagePlus, Link2, LoaderCircle, Maximize2, Music2, SlidersHorizontal, Video, WandSparkles, X, Zap } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, ArrowUp, Boxes, Camera, ChevronDown, FileText, ImagePlus, Link2, LoaderCircle, Maximize2, Music2, SlidersHorizontal, Video, WandSparkles, X, Zap } from "lucide-react";
 
 import { ModelPicker } from "@/components/model-picker";
 import { modelCapabilityConfigFor, videoReferencesForOperation } from "@/lib/model-capabilities";
@@ -36,7 +36,7 @@ import { CanvasPromptOptimizerDrawer } from "./canvas-prompt-optimizer-drawer";
 import { CanvasNodeType, type CanvasConnection, type CanvasGenerationMode, type CanvasNodeData, type CanvasNodeMetadata, type CanvasWorkspaceMode } from "@/types/canvas";
 import { autoMentionCanvasResourceReferences, canvasResourceMentionToken, type CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import { getCanvasNodePromptSelection, insertCanvasResourceMentionAtSelection, setCanvasNodePromptSelection, useCanvasPickConnectStore } from "@/lib/canvas/canvas-text-mention";
-import { resolveVideoReferenceModeState, stripPromptFirstFrameClauses, togglePromptFirstFrameMention } from "@/lib/canvas/video-reference-mode";
+import { resolveVideoReferenceModeState, stripPromptFirstFrameClauses, togglePromptFirstFrameMention, videoReferenceModeWarning } from "@/lib/canvas/video-reference-mode";
 import { promptOptimizerPlugin, PROMPT_OPTIMIZER_PLUGIN_ID } from "@/lib/plugins/builtin/prompt-optimizer";
 import { createPluginHostContext } from "@/services/plugin-host";
 import { usePluginStore } from "@/stores/use-plugin-store";
@@ -209,6 +209,17 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
             prompt,
         });
     }, [config.model, effectiveVideoOperation, endFrameSupported, h3Model, mode, node.metadata, prompt, referenceFramesSupported, referenceVideoSupported, resolvedMentionReferences, simpleMode]);
+    const videoModeWarning = useMemo(() => {
+        if (!videoModeState || !videoProfile) return "";
+        const operation = videoModeState.mode === "all" ? "reference_to_video" : "image_to_video";
+        const limits = videoReferencesForOperation(videoProfile, operation);
+        return videoReferenceModeWarning(videoModeState.mode, resolvedMentionReferences, {
+            minImages: limits.minImages,
+            maxImages: limits.maxImages,
+            maxVideos: limits.maxVideos,
+            maxAudios: limits.maxAudios,
+        });
+    }, [resolvedMentionReferences, videoModeState, videoProfile]);
     const videoReferenceInputs = useMemo(() => activeReferences.flatMap((reference) => reference.kind === "skill" ? [] : [{ nodeId: reference.nodeId, type: reference.kind, title: reference.title }]), [activeReferences]);
     const h3SelectedFrames = [node.metadata?.videoStartFrameNodeId, node.metadata?.videoEndFrameNodeId, node.metadata?.videoMiddleFrameNodeId];
     const hasH3ReferenceOrder = isH3ReferenceOrderModel(config.model) && videoReferenceInputs.some((input) => ["image", "character", "video", "audio"].includes(input.type) && !h3SelectedFrames.includes(input.nodeId));
@@ -255,8 +266,8 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
         return { width: Math.round(rect.width), height: Math.round(rect.height) };
     };
     const isSubmitDisabled = !isRunning && !prompt.trim();
-    const submitDisabled = isRunning || isSubmitDisabled || insufficientBillingPoints || billingQuoteUnavailable;
-    const submitBlockedReason = !prompt.trim() ? "请先输入提示词" : isRunning ? "当前任务仍在生成中，请等待完成" : insufficientBillingPoints ? `积分不足：本次预计 ${estimatedBillingPoints} 积分，当前 ${availableBillingBalance ?? 0} 积分` : billingQuoteUnavailable ? billingQuoteErrorMessage : "";
+    const submitDisabled = isRunning || isSubmitDisabled || insufficientBillingPoints || billingQuoteUnavailable || Boolean(videoModeWarning);
+    const submitBlockedReason = !prompt.trim() ? "请先输入提示词" : isRunning ? "当前任务仍在生成中，请等待完成" : videoModeWarning || (insufficientBillingPoints ? `积分不足：本次预计 ${estimatedBillingPoints} 积分，当前 ${availableBillingBalance ?? 0} 积分` : billingQuoteUnavailable ? billingQuoteErrorMessage : "");
     const canExpandPrompt = mode === "image" || mode === "video";
     const canOptimizePrompt = Boolean(promptOptimizerProvider) && canExpandPrompt;
     const isPortraitTexture = mode === "image" && Boolean(node.metadata?.portraitTexture);
@@ -477,6 +488,17 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
             </Tooltip>
         );
     };
+    const renderVideoModeWarning = () => videoModeWarning ? (
+        <div
+            role="alert"
+            aria-live="polite"
+            className="mx-2.5 mb-1 flex items-start gap-1.5 rounded-md border px-2 py-1.5 text-[var(--fs-tiny)] leading-relaxed"
+            style={{ color: theme.accent.danger, borderColor: `${theme.accent.danger}55`, background: `${theme.accent.danger}12` }}
+        >
+            <AlertTriangle className="mt-0.5 size-3 shrink-0" />
+            <span>{videoModeWarning}</span>
+        </div>
+    ) : null;
     const renderBillingQuoteError = () => billingQuoteErrorMessage ? (
         <div
             role="alert"
@@ -801,6 +823,7 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                 {canExpandPrompt ? <button type="button" className="canvas-node-composer-header-action grid size-6 place-items-center rounded-md" onClick={() => setExpandedPromptOpen(true)} aria-label="放大编辑提示词" title="放大编辑提示词"><Maximize2 className="size-3" /></button> : null}
             </div>
 
+            {renderVideoModeWarning()}
             {renderPromptEditor(false)}
 
             {/* B区 参数区（对应 #98 决策2：默认折叠，手风琴展开）*/}
@@ -858,6 +881,7 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                                     {renderVideoPromptTools()}
                                 </div>
                             ) : null}
+                            {renderVideoModeWarning()}
                             {renderBillingQuoteError()}
                             <div className="shrink-0">{renderComposerControls(true)}</div>
                         </div>

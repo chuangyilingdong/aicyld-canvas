@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, MouseEvent, PointerEvent } from "react";
 import { Button, Image } from "antd";
-import { FileText, Image as ImageIcon, Music2, Pencil, Sparkles, Video, X } from "lucide-react";
+import { AlertTriangle, FileText, Image as ImageIcon, Music2, Pencil, Sparkles, Video, X } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { isCanvasWorkflowProvider } from "@/lib/canvas/canvas-workflow";
@@ -16,7 +16,7 @@ import { h3VideoOperation, isH3MaxModel, isH3Model, isH3Style } from "@/lib/h3-v
 import { resolveVideoOperation } from "@/lib/model-selection";
 import { modelCapabilityConfigFor, videoReferencesForOperation } from "@/lib/model-capabilities";
 import { useEffectiveConfig } from "@/stores/use-config-store";
-import { findPromptFirstFrameNodeId, resolveVideoReferenceModeState, stripPromptFirstFrameClauses } from "@/lib/canvas/video-reference-mode";
+import { findPromptFirstFrameNodeId, resolveVideoReferenceModeState, stripPromptFirstFrameClauses, videoReferenceModeWarning } from "@/lib/canvas/video-reference-mode";
 import { VideoReferenceModeSwitch } from "./canvas-node-reference-shelf";
 import { CanvasPromptFontControl } from "./canvas-prompt-font-control";
 import { DEFAULT_PROMPT_FONT_SIZE, useCreationPreferencesStore } from "@/stores/use-creation-preferences-store";
@@ -98,6 +98,23 @@ export function CanvasConfigComposer({ value, inputs, skillReferences = [], gene
             prompt: value,
         });
     }, [endFrameSupported, generationMode, h3Model, h3Style, inputs, metadata, referenceFramesSupported, referenceVideoSupported, simpleMode, value, workflowVideoReferenceMode]);
+    const videoModeWarning = useMemo(() => {
+        if (!videoModeState || !videoProfile) return "";
+        const operation = videoModeState.mode === "all" ? "reference_to_video" : "image_to_video";
+        const limits = videoReferencesForOperation(videoProfile, operation);
+        return videoReferenceModeWarning(videoModeState.mode, inputs.map((input, index) => ({
+            nodeId: input.nodeId,
+            kind: input.type,
+            label: resourceLabel(input, inputs) || `素材${index + 1}`,
+            title: input.title,
+            active: true,
+        })), {
+            minImages: limits.minImages,
+            maxImages: limits.maxImages,
+            maxVideos: limits.maxVideos,
+            maxAudios: limits.maxAudios,
+        });
+    }, [inputs, videoModeState, videoProfile]);
     const tokens = useMemo(() => parseComposerTokens(value, inputs), [inputs, value]);
     const referenceById = useMemo(() => new Map(inputs.map((input) => [input.nodeId, input])), [inputs]);
     const videoFrameOptions = useMemo(
@@ -234,6 +251,12 @@ export function CanvasConfigComposer({ value, inputs, skillReferences = [], gene
                             }}
                             onChange={onMetadataChange}
                         />
+                    ) : null}
+                    {videoModeWarning ? (
+                        <div role="alert" className="flex items-start gap-1.5 rounded-md border px-2 py-1.5 text-[var(--fs-tiny)] leading-relaxed" style={{ color: theme.accent.danger, borderColor: `${theme.accent.danger}55`, background: `${theme.accent.danger}12` }}>
+                            <AlertTriangle className="mt-0.5 size-3 shrink-0" />
+                            <span>{videoModeWarning}</span>
+                        </div>
                     ) : null}
                     <CanvasVideoPromptTools
                         metadata={metadata}

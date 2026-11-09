@@ -65,6 +65,34 @@ export function togglePromptFirstFrameMention(
     return cleaned ? `${prefix}${cleaned}` : prefix;
 }
 
+export type VideoReferenceModeLimits = {
+    minImages?: number;
+    maxImages: number;
+    maxVideos: number;
+    maxAudios: number;
+};
+
+// 用户选择不改写；素材不兼容时返回可展示的具体原因，由调用方阻止提交。
+export function videoReferenceModeWarning(
+    mode: "frames" | "all",
+    references: VideoReferenceCandidate[],
+    limits: VideoReferenceModeLimits,
+): string {
+    const active = references.filter((item) => item.active !== false && item.kind !== "skill");
+    const visual = active.filter((item) => item.kind === "image" || item.kind === "character").length;
+    const videos = active.filter((item) => item.kind === "video").length;
+    const audios = active.filter((item) => item.kind === "audio").length;
+    const modeLabel = mode === "frames" ? "首尾帧模式" : "全能参考模式";
+    if (mode === "all" && visual + videos + audios === 0) return "全能参考模式至少需要连接 1 个图片、视频或音频素材。";
+    const issues: string[] = [];
+    if (visual < (limits.minImages || 0)) issues.push(`至少需要 ${limits.minImages} 张图片/角色`);
+    if (visual > limits.maxImages) issues.push(`最多支持 ${limits.maxImages} 张图片/角色（当前 ${visual} 个）`);
+    if (videos > limits.maxVideos) issues.push(limits.maxVideos > 0 ? `最多支持 ${limits.maxVideos} 个参考视频（当前 ${videos} 个）` : `不支持参考视频（当前 ${videos} 个）`);
+    if (audios > limits.maxAudios) issues.push(limits.maxAudios > 0 ? `最多支持 ${limits.maxAudios} 个参考音频（当前 ${audios} 个）` : `不支持参考音频（当前 ${audios} 个）`);
+    if (!issues.length) return "";
+    return `${modeLabel}${issues.join("；")}。请调整参考素材${mode === "frames" ? "，或切换为全能参考模式" : ""}。`;
+}
+
 export function resolveVideoReferenceModeState({
     metadata,
     references,
