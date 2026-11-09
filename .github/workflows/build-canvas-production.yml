@@ -84,6 +84,12 @@ jobs:
           test/canvas-batch-download.test.ts
           test/canvas-text-mention.test.ts
           test/canvas-connection-state-sync.test.ts
+          test/canvas-document-field-rule.test.ts
+          test/canvas-leave-flush.test.ts
+          test/canvas-personal-asset-loading.test.ts
+          test/canvas-text-prompt-controls.test.ts
+          test/workspace-asset-upload.test.ts
+          test/assets-collection-layout.test.ts
           test/script-document-import.test.ts
           test/voice-preview-player.test.ts
 

@@ -83,6 +83,12 @@ function resolveAssetGenerationPrompt(asset: LibraryAsset | null | undefined): s
     return asset.kind === "text" ? asset.data.content.trim() : "";
 }
 
+function incrementFacetCount(counts: Record<string, number> | undefined, key: string, amount = 1) {
+    const next = { ...(counts || {}) };
+    next[key] = (next[key] || 0) + amount;
+    return next;
+}
+
 const kindOptions = [
     { label: "全部", value: "all" },
     { label: "文本", value: "text" },
@@ -392,6 +398,44 @@ export default function AssetsPage() {
         ]);
     };
 
+    const reflectUploadedAssets = (uploadedAssets: LibraryAsset[]) => {
+        const cacheKey = assetLibraryQueryKey(1, pageSize, "library", kindFilter, categoryFilter, folderFilter, projectFilter, debouncedKeyword);
+        queryClient.setQueryData<Awaited<ReturnType<typeof loadAssetLibraryPage>>>(cacheKey, (current) => {
+            if (!current) return current;
+            const matching = uploadedAssets.filter((asset) => {
+                if (kindFilter !== "all" && asset.kind !== kindFilter) return false;
+                if (categoryFilter !== "all" && asset.category !== categoryFilter) return false;
+                if (folderFilter.startsWith("builtin:") && (asset.folderId || asset.category !== folderFilter.slice(8))) return false;
+                if (folderFilter === "uncategorized" && asset.folderId) return false;
+                if (folderFilter !== "all" && folderFilter !== "uncategorized" && !folderFilter.startsWith("builtin:") && asset.folderId !== folderFilter) return false;
+                if (projectFilter !== "all" && workspaceAssetProjectLabel(asset) !== projectFilter) return false;
+                if (debouncedKeyword && !assetSearchText(asset).includes(debouncedKeyword.toLowerCase())) return false;
+                return true;
+            });
+            const existing = new Set(current.assets.map((asset) => asset.id));
+            const incoming = matching.filter((asset) => !existing.has(asset.id));
+            if (!incoming.length) return current;
+            let kindCounts = current.kindCounts;
+            let categoryCounts = current.categoryCounts;
+            let projectCounts = current.projectCounts;
+            for (const asset of incoming) {
+                kindCounts = incrementFacetCount(kindCounts, asset.kind);
+                categoryCounts = incrementFacetCount(categoryCounts, asset.category || "other");
+                projectCounts = incrementFacetCount(projectCounts, workspaceAssetProjectLabel(asset));
+            }
+            return {
+                ...current,
+                assets: [...incoming, ...current.assets].slice(0, current.pageSize),
+                total: current.total + incoming.length,
+                canonicalTotal: current.canonicalTotal + incoming.length,
+                recentTotal: current.recentTotal + incoming.length,
+                kindCounts,
+                categoryCounts,
+                projectCounts,
+            };
+        });
+    };
+
     const uploadFiles = async (files: File[], folderId: string) => {
         const hideLoading = message.loading("正在上传素材…", 0);
         try {
@@ -399,7 +443,11 @@ export default function AssetsPage() {
             if (result.persistenceError) message.warning(localSavedRemotePendingMessage("部分素材已保存在本地", result.persistenceError));
             else if (result.completed) message.success(`已上传 ${result.completed} 个素材`);
             if (result.failed) message.error(`${result.failed} 个素材上传失败`);
-            await invalidateAssetLibrary();
+            const uploadedIds = new Set(result.addedAssetIds);
+            const uploadedAssets = useAssetStore.getState().assets.filter((asset): asset is LibraryAsset => asset.kind !== "entity" && uploadedIds.has(asset.id));
+            reflectUploadedAssets(uploadedAssets);
+            setPage(1);
+            void invalidateAssetLibrary();
         } catch (error) {
             message.error(error instanceof Error ? error.message : "上传失败");
         } finally {
@@ -1012,7 +1060,7 @@ export default function AssetsPage() {
                                     onMoveToFolder={(folderId) => void moveSelectedAssetsToFolder(selectedAssets.map((asset) => asset.id), folderId)}
                                 />
                             ) : null}
-                            {canonicalReads && assetPageQuery.isError ? (
+                            {canonicalReads && assetPageQuery.isError && !assetPageQuery.data ? (
                                 <WorkspaceErrorState compact title="素材读取失败" description="请稍后重试。" actionLabel="重试" onRetry={() => void assetPageQuery.refetch()} />
                             ) : canonicalReads && !remoteReady ? (
                                 <WorkspaceLoadingState label="正在读取素材" detail="正在加载已保存的素材。" />
@@ -1020,6 +1068,12 @@ export default function AssetsPage() {
                                 <AssetsEmptyState onImport={() => assetUploadInputRef.current?.click()} />
                             ) : (
                                 <>
+                                    {canonicalReads && assetPageQuery.isError ? (
+                                        <div role="status" className="mb-3 flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-xs" style={{ borderColor: "rgba(250,173,20,.35)", background: "rgba(250,173,20,.08)", color: "#d9a441" }}>
+                                            <span>素材刷新失败，当前继续显示上一次成功结果。</span>
+                                            <Button size="small" onClick={() => void assetPageQuery.refetch()}>重试</Button>
+                                        </div>
+                                    ) : null}
                                     {visibleAssets.length === 0 ? (
                                         <WorkspaceState icon="assets" compact title="没有匹配的素材" description="调整关键词或左侧分类后再试。" />
                                     ) : (

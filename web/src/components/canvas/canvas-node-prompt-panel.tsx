@@ -168,6 +168,11 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
     const billingPending = Boolean(billingQuoteInput) && (billingQuoteQuery.loading || (billingQuoteQuery.quote === undefined && !billingQuoteQuery.error));
     const insufficientBillingPoints = Boolean(mode !== "text" && billingQuoteQuery.quote?.enabled && estimatedBillingPoints > 0 && typeof availableBillingBalance === "number" && availableBillingBalance < estimatedBillingPoints);
     const billingQuoteUnavailable = Boolean(mode !== "text" && billingQuoteInput && billingQuoteQuery.error);
+    const billingQuoteErrorMessage = billingQuoteUnavailable
+        ? billingQuoteQuery.error instanceof Error && billingQuoteQuery.error.message.trim()
+            ? billingQuoteQuery.error.message.trim()
+            : "暂时无法读取价格，请稍后重试"
+        : "";
 
     const promptOptimizerProvider = useMemo(() => {
         if (!promptOptimizerEnabled || !promptOptimizerInstallation || !promptOptimizerPlugin.createPromptOptimizer) return null;
@@ -248,7 +253,7 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
     };
     const isSubmitDisabled = !isRunning && !prompt.trim();
     const submitDisabled = isRunning || isSubmitDisabled || insufficientBillingPoints || billingQuoteUnavailable;
-    const submitBlockedReason = !prompt.trim() ? "请先输入提示词" : isRunning ? "当前任务仍在生成中，请等待完成" : insufficientBillingPoints ? `积分不足：本次预计 ${estimatedBillingPoints} 积分，当前 ${availableBillingBalance ?? 0} 积分` : billingQuoteUnavailable ? "暂时无法读取价格，请稍后重试" : "";
+    const submitBlockedReason = !prompt.trim() ? "请先输入提示词" : isRunning ? "当前任务仍在生成中，请等待完成" : insufficientBillingPoints ? `积分不足：本次预计 ${estimatedBillingPoints} 积分，当前 ${availableBillingBalance ?? 0} 积分` : billingQuoteUnavailable ? billingQuoteErrorMessage : "";
     const canExpandPrompt = mode === "image" || mode === "video";
     const canOptimizePrompt = Boolean(promptOptimizerProvider) && canExpandPrompt;
     const isPortraitTexture = mode === "image" && Boolean(node.metadata?.portraitTexture);
@@ -446,7 +451,7 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
         const detail = !hasPrompt
             ? "输入提示词后显示预计消耗"
             : billingQuoteUnavailable
-                ? "暂时无法读取价格，请稍后重试"
+                ? billingQuoteErrorMessage
                 : insufficientBillingPoints
                     ? `积分不足：本次预计 ${estimatedBillingPoints} 积分，当前 ${availableBillingBalance ?? 0} 积分`
                     : billingQuoteQuery.quote?.enabled
@@ -469,6 +474,16 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
             </Tooltip>
         );
     };
+    const renderBillingQuoteError = () => billingQuoteErrorMessage ? (
+        <div
+            role="alert"
+            aria-live="polite"
+            className="canvas-node-composer-quote-error mx-2.5 mb-1 rounded-md border px-2 py-1.5 text-[var(--fs-tiny)] leading-relaxed"
+            style={{ color: theme.accent.danger, borderColor: `${theme.accent.danger}55`, background: `${theme.accent.danger}12` }}
+        >
+            {billingQuoteErrorMessage}
+        </div>
+    ) : null;
     const renderComposerControls = (expanded: boolean) =>
         simpleMode ? (
             <div className="canvas-node-composer-footer">
@@ -808,6 +823,7 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                 </div>
             ) : null}
 
+            {renderBillingQuoteError()}
             {renderComposerControls(false)}
 
             <Modal
@@ -839,6 +855,7 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                                     {renderVideoPromptTools()}
                                 </div>
                             ) : null}
+                            {renderBillingQuoteError()}
                             <div className="shrink-0">{renderComposerControls(true)}</div>
                         </div>
                         <PromptModalResizeHandle size={expandedModalSize} measure={measureExpandedModalSize} onResize={setExpandedModalSize} accent={theme.node.muted} />

@@ -41,6 +41,14 @@ describe("asset upload entry points", () => {
         expect(page).toContain('label: "新建文件夹"');
         expect(page).not.toContain('label: "新建文本素材"');
     });
+
+    test("uploaded assets are reflected optimistically and a transient refresh failure keeps the last page", () => {
+        const page = readFileSync(resolve(import.meta.dir, "../src/pages/assets/index.tsx"), "utf8");
+        expect(page).toContain("reflectUploadedAssets(uploadedAssets)");
+        expect(page).toContain("void invalidateAssetLibrary()");
+        expect(page).toContain("assetPageQuery.isError && !assetPageQuery.data");
+        expect(page).toContain("当前继续显示上一次成功结果");
+    });
 });
 
 describe("project card actions", () => {

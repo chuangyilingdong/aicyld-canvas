@@ -3,7 +3,7 @@ import type { CSSProperties, ClipboardEvent, DragEvent, FocusEvent, KeyboardEven
 import { createPortal } from "react-dom";
 
 import { canvasThemes } from "@/lib/canvas-theme";
-import { usePersonalAssetLibrary } from "@/hooks/use-personal-asset-library";
+import { usePersonalAssetLibrary, usePersonalAssetLibrarySearch } from "@/hooks/use-personal-asset-library";
 import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
 import { buildAssetMentionReferences, canvasResourceDisplayName, canvasResourceMentionToken, canvasResourceReferenceInsertText, findCanvasResourceAutoLinkMatch, referencedAssetIdsInPrompt, type CanvasResourceAutoLinkMatch, type CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import { replaceCanvasReferenceToken, type CanvasReferenceAction, type CanvasReferenceIssue } from "@/lib/canvas/canvas-reference-issues";
@@ -82,6 +82,8 @@ export const CanvasResourceMentionTextarea = forwardRef<HTMLTextAreaElement, Pro
     const interactingWithMenuRef = useRef(false);
     const interactingTimerRef = useRef<number | null>(null);
     const [mention, setMention] = useState<MentionState | null>(null);
+    const mentionQuery = mention?.query.trim() ?? "";
+    const searchedAssets = usePersonalAssetLibrarySearch(mentionQuery, includeAssetLibrary && Boolean(mentionQuery));
     const [activeIndex, setActiveIndex] = useState(-1);
     const [autoLinkCursor, setAutoLinkCursor] = useState<number | null>(null);
     const autoLinkSuggestionRef = useRef<HTMLButtonElement | null>(null);
@@ -128,12 +130,13 @@ export const CanvasResourceMentionTextarea = forwardRef<HTMLTextAreaElement, Pro
     }, []);
     const canvasReferences = useResolvedCanvasResourceReferences(references);
     const activeAssetIdsKey = includeAssetLibrary && highlightLabels ? referencedAssetIdsInPrompt(value).join("\x00") : "";
+    const mentionAssets = useMemo(() => [...new Map([...assets, ...searchedAssets].map((asset) => [asset.id, asset])).values()], [assets, searchedAssets]);
     const rawAssetReferences = useMemo(() => {
         if (!includeAssetLibrary) return EMPTY_REFERENCES;
         const activeIds = new Set(activeAssetIdsKey ? activeAssetIdsKey.split("\x00") : []);
-        return [...new Map([...buildAssetMentionReferences(assets), ...selectedAssetReferences].map((item) => [item.assetId, item])).values()]
+        return [...new Map([...buildAssetMentionReferences(mentionAssets), ...selectedAssetReferences].map((item) => [item.assetId, item])).values()]
             .map((item) => ({ ...item, active: Boolean(item.assetId && activeIds.has(item.assetId)) }));
-    }, [activeAssetIdsKey, assets, includeAssetLibrary, selectedAssetReferences]);
+    }, [activeAssetIdsKey, includeAssetLibrary, mentionAssets, selectedAssetReferences]);
     const assetReferences = useResolvedCanvasResourceReferences(rawAssetReferences);
     const activeCanvasReferences = useMemo(() => canvasReferences.filter((item) => item.active), [canvasReferences]);
     const availableReferences = useMemo(() => [...(onSelectReference ? canvasReferences : activeCanvasReferences), ...assetReferences], [onSelectReference, canvasReferences, activeCanvasReferences, assetReferences]);

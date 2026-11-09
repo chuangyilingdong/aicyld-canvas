@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { sameCanvasAutosaveFields } from "@/lib/canvas/canvas-document-equality";
 import { canvasContentSnapshot, sameCanvasContent, sameCanvasDocument } from "@/lib/canvas/canvas-content";
 import type { CanvasProject } from "@/stores/canvas/use-canvas-store";
 
@@ -89,5 +90,14 @@ describe("sameCanvasDocument 的字段规则", () => {
         expect("updatedAt" in snapshot).toBe(false);
         expect("revision" in snapshot).toBe(false);
         expect("remoteContentHash" in snapshot).toBe(false);
+    });
+
+    test("生成轮询遥测不会触发整份画布自动保存", () => {
+        const baseNode = { id: "n1", type: "video", title: "视频", position: { x: 0, y: 0 }, width: 100, height: 100, metadata: { content: "", status: "loading", taskId: "task-1", taskStatus: "running", taskProgress: 10, taskStage: "排队中", taskUpdatedAt: "2026-01-01T00:00:01.000Z" } };
+        const base = { nodes: [baseNode], connections: [] };
+        const polled = { nodes: [{ ...baseNode, updatedAt: "2026-01-01T00:00:09.000Z", metadata: { ...baseNode.metadata, taskStatus: "succeeded", taskProgress: 100, taskStage: "已完成", taskUpdatedAt: "2026-01-01T00:00:09.000Z", generationSubmissionState: "accepted" } }], connections: [] };
+        expect(sameCanvasAutosaveFields(base, polled)).toBe(true);
+        expect(sameCanvasAutosaveFields(base, { ...polled, nodes: [{ ...polled.nodes[0], metadata: { ...polled.nodes[0].metadata, content: "/api/resources/result/file", storageKey: "resource:result" } }] })).toBe(false);
+        expect(sameCanvasAutosaveFields(base, { ...polled, connections: [{ id: "c1", fromNodeId: "n1", toNodeId: "n2" }] })).toBe(false);
     });
 });

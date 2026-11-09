@@ -18,7 +18,7 @@ mock.module("@/services/file-storage", () => ({ uploadMediaFile: async (file: Fi
     return { url: file.name, storageKey: `resource:${file.name}`, bytes: 1, mimeType: "video/mp4" };
 } }));
 mock.module("@/services/workspace-asset-repository", () => ({ persistWorkspaceAssetChanges: async () => { persistCount++; if (persistError) throw persistError; } }));
-mock.module("@/stores/use-asset-store", () => ({ useAssetStore: { getState: () => ({ addAsset: (asset: { title: string; folderId: string }) => writes.push(asset) }) } }));
+mock.module("@/stores/use-asset-store", () => ({ useAssetStore: { getState: () => ({ addAsset: (asset: { title: string; folderId: string }) => { writes.push(asset); return `asset-${writes.length}`; } }) } }));
 const { uploadWorkspaceAssetFiles } = await import("@/services/workspace-asset-upload");
 const files = (prefix: string, count: number) => Array.from({ length: count }, (_, i) => new File(["x"], `${prefix}${i}.mp4`, { type: "video/mp4" }));
 afterEach(() => { writes.length = 0; uploads = []; persistCount = 0; persistError = undefined; failedName = ""; resetGate(); });
@@ -32,6 +32,8 @@ test("six-file batch settles exactly once while another picker batch starts", as
     release();
     expect(await first).toMatchObject({ completed: 6, failed: 0 });
     expect(await second).toMatchObject({ completed: 2, failed: 0 });
+    expect((await first).addedAssetIds).toHaveLength(6);
+    expect((await second).addedAssetIds).toHaveLength(2);
     expect(writes.length).toBe(8);
     expect(new Set(writes.map((asset) => asset.title)).size).toBe(8);
     expect(writes.filter((asset) => asset.folderId === "folder-a").length).toBe(6);
@@ -53,5 +55,5 @@ test("persistence failure is reported separately from completed uploads", async 
     persistError = new Error("disk unavailable");
     const pending = uploadWorkspaceAssetFiles(files("saved", 1), "");
     release();
-    expect(await pending).toEqual({ completed: 1, failed: 0, persistenceError: persistError });
+    expect(await pending).toEqual({ completed: 1, failed: 0, persistenceError: persistError, addedAssetIds: ["asset-1"] });
 });

@@ -18,3 +18,12 @@ test("video prompt tools move camera control below the prompt", async () => {
     expect(tools).not.toContain('label: "角色库"');
     expect(panel).toContain('label="运镜"');
 });
+
+test("quote validation exposes the backend reason instead of a generic disabled state", async () => {
+    const panel = await Bun.file(new URL("../src/components/canvas/canvas-node-prompt-panel.tsx", import.meta.url)).text();
+    expect(panel).toContain("const billingQuoteErrorMessage");
+    expect(panel).toContain("billingQuoteQuery.error instanceof Error");
+    expect(panel).toContain("billingQuoteUnavailable ? billingQuoteErrorMessage");
+    expect(panel).toContain("role=\"alert\"");
+    expect(panel).toContain("canvas-node-composer-quote-error");
+});
