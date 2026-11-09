@@ -83,6 +83,8 @@ export type PrepareAssistantProposalOptions = {
     saveWaitMs?: number;
     pollMs?: number;
     sleep?: (ms: number) => Promise<void>;
+    /** Production proposals already carry their exact model and parameters; global setting drift must not block them. */
+    checkSettings?: boolean;
 };
 
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -118,11 +120,11 @@ function proposalGenerationContent(proposal: AssistantGenerationProposal, state:
 
 /** A canvas autosave usually settles within a moment, so wait for it instead of failing the first click. */
 async function readSettledCurrent(readCurrent: () => ProposalSourceState, options: PrepareAssistantProposalOptions) {
-    const { saveWaitMs = 3000, pollMs = 250, sleep = defaultSleep } = options;
+    const { saveWaitMs = 3000, pollMs = 250, sleep = defaultSleep, checkSettings = true } = options;
     let waited = 0;
     for (;;) {
         const state = structuredClone(readCurrent());
-        if (state.modelConfigHasUnconfirmedEdits) throw new AssistantProposalBlockedError("settings_unsaved");
+        if (checkSettings && state.modelConfigHasUnconfirmedEdits) throw new AssistantProposalBlockedError("settings_unsaved");
         if (state.canvasUnconfirmedReason === "blocked") throw new AssistantProposalBlockedError("canvas_conflict");
         if (!state.canvasHasUnconfirmedEdits) return state;
         if (waited >= saveWaitMs) throw new AssistantProposalBlockedError("canvas_saving");
@@ -138,14 +140,15 @@ export async function prepareAssistantProposalSnapshot(
     readPersisted: () => Promise<SourceRevisions & Pick<ProposalSourceState, "nodes" | "connections"> & { config?: AiConfig }>,
     options: PrepareAssistantProposalOptions = {},
 ): Promise<ConfirmedGenerationInputs> {
+    const { checkSettings = true } = options;
     const expected = proposal.source;
     if (!expected || !expected.canvasId || !Number.isSafeInteger(expected.canvasRevision) || expected.canvasRevision < 0 ||
-        !Number.isSafeInteger(expected.modelConfigRevision) || expected.modelConfigRevision < 0) {
+        (checkSettings && (!Number.isSafeInteger(expected.modelConfigRevision) || expected.modelConfigRevision < 0))) {
         throw new AssistantProposalBlockedError("invalid_source");
     }
     const checkRevisions = (state: SourceRevisions) => {
         if (state.canvasId !== expected.canvasId || state.canvasRevision !== expected.canvasRevision) throw new AssistantProposalBlockedError("canvas_changed");
-        if (state.modelConfigRevision !== expected.modelConfigRevision) throw new AssistantProposalBlockedError("settings_changed");
+        if (checkSettings && state.modelConfigRevision !== expected.modelConfigRevision) throw new AssistantProposalBlockedError("settings_changed");
     };
     const snapshot = await readSettledCurrent(readCurrent, options);
     if (snapshot.canvasId !== expected.canvasId || snapshot.canvasRevision !== expected.canvasRevision) throw new AssistantProposalBlockedError("canvas_changed");
@@ -153,9 +156,9 @@ export async function prepareAssistantProposalSnapshot(
     checkRevisions(persisted);
     // A catalog refresh can advance the backend revision without notifying this
     // editor. Accept it only with proof that the actual settings are unchanged.
-    if (snapshot.modelConfigRevision > persisted.modelConfigRevision ||
+    if (checkSettings && (snapshot.modelConfigRevision > persisted.modelConfigRevision ||
         (snapshot.modelConfigRevision !== persisted.modelConfigRevision && !persisted.config) ||
-        (persisted.config && comparableConfig(snapshot.config) !== comparableConfig(persisted.config))) {
+        (persisted.config && comparableConfig(snapshot.config) !== comparableConfig(persisted.config)))) {
         throw new AssistantProposalBlockedError("settings_changed");
     }
     const snapshotContent = proposalCanvasContent(snapshot.nodes, snapshot.connections);
@@ -166,8 +169,8 @@ export async function prepareAssistantProposalSnapshot(
         latest.canvasHasUnconfirmedEdits || snapshotContent !== proposalCanvasContent(latest.nodes, latest.connections)) {
         throw new AssistantProposalBlockedError("canvas_changed");
     }
-    if (latest.modelConfigHasUnconfirmedEdits || snapshot.modelConfigRevision !== latest.modelConfigRevision ||
-        comparableConfig(snapshot.config) !== comparableConfig(latest.config) || canonicalize(snapshot.skills) !== canonicalize(latest.skills)) {
+    if (checkSettings && (latest.modelConfigHasUnconfirmedEdits || snapshot.modelConfigRevision !== latest.modelConfigRevision ||
+        comparableConfig(snapshot.config) !== comparableConfig(latest.config) || canonicalize(snapshot.skills) !== canonicalize(latest.skills))) {
         throw new AssistantProposalBlockedError("settings_changed");
     }
     if (canonicalize(snapshot.assets) !== canonicalize(latest.assets) &&

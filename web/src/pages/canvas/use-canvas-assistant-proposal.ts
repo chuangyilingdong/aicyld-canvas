@@ -77,6 +77,7 @@ export function useCanvasAssistantProposal({
                             proposal,
                             () => readAssistantProposalSourceState(owner.canvasId, nodesRef.current, connectionsRef.current, addedSkillsRef.current),
                             () => readPersistedAssistantProposalSource(owner.canvasId),
+                            { checkSettings: false },
                         );
                     }
                     if (!lifetime.matches(owner, projectIdRef.current)) return;

@@ -30,6 +30,23 @@ test("normal freshly loaded React nodes pass against raw server nodes", async ()
     expect(result.nodes[0].metadata?.prompt).toBe("original");
 });
 
+test("production proposal executes its captured plan after global settings drift", async () => {
+    const persisted = fixture();
+    const live = fixture();
+    live.modelConfigRevision = 3;
+    live.modelConfigHasUnconfirmedEdits = true;
+    live.config.canvasImageCount = "4";
+    const confirmed = await prepareAssistantProposalSnapshot(proposal, () => live, async () => persisted, { checkSettings: false, sleep: async () => {} });
+    expect(confirmed.nodes[0].metadata?.prompt).toBe("original");
+    expect(confirmed.config.canvasImageCount).toBe("4");
+});
+
+test("production proposal still rejects canvas drift when settings are ignored", async () => {
+    const live = fixture();
+    live.canvasRevision++;
+    expect(await blockedReason(prepareAssistantProposalSnapshot(proposal, () => live, async () => fixture(), { checkSettings: false, sleep: async () => {} }))).toBe("canvas_changed");
+});
+
 const noWait = { sleep: async () => {} };
 
 const mutations: [string, (state: ProposalSourceState) => void][] = [
