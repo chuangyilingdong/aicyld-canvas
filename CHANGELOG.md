@@ -4,6 +4,7 @@ All notable public changes to BeefTV are documented in this file.
 
 ## Unreleased
 
+- Canvas references: dragging a connection now inserts the same `@reference` token as pick-connect/Alt-click, so a connected resource no longer leaves the generation button grey solely because the prompt stayed empty.
 - Canvas interaction: insert references at the caret, double-click previews, pick-connect/Alt connection, Alt-drag duplication, and multi-select batch downloads.
 - Assets and scripts: MP3 upload, generated-prompt copy, and `.docx/.txt/.md` script import for script nodes.
 - Assistant and timeline: session deletion, voice preview, reliable tail-frame concat, and cancellation before task identity is assigned.

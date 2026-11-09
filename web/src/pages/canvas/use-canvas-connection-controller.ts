@@ -10,6 +10,7 @@ import { batchReferenceHandleAtY } from "@/lib/canvas/canvas-batch-table";
 import { connectedNodeCenterFromEdgeDrop } from "@/lib/canvas/canvas-connected-node-placement";
 import { canvasConnectionError } from "@/lib/canvas/canvas-connection-policy";
 import { attachNodeToStoryboardRow, createCanvasNode, getConnectionTargetAnchor, isHiddenBatchChild, normalizeConnection, storyboardHandleAtY, storyboardPromptTemplateMetadata, storyboardRowFromHandle } from "@/lib/canvas/canvas-project-domain";
+import { connectAndAppendCanvasResourceMention } from "@/lib/canvas/canvas-text-mention";
 import { createCanvasDrawingFromImage } from "@/lib/canvas/canvas-drawing-storage";
 import type { CanvasDrawingEngine } from "@/lib/canvas/canvas-drawing-engine";
 import { isFrameNode, isNodeHiddenByCollapsedFrame } from "@/lib/canvas/canvas-frame";
@@ -261,8 +262,18 @@ export function useCanvasConnectionController({
         if (exists) {
             setConnections((currentConnections) => currentConnections.map((item) => item.id === exists.id ? { ...item, fromAnchorRatio, toAnchorRatio } : item));
         } else {
-            setConnections((currentConnections) => [...currentConnections, { id: `conn-${Date.now()}`, fromNodeId, toNodeId, fromHandleId, toHandleId, fromAnchorRatio, toAnchorRatio }]);
-            setNodes((currentNodes) => attachNodeToStoryboardRow(currentNodes, { fromNodeId, toNodeId, fromHandleId, toHandleId }));
+            const connectionId = `conn-${Date.now()}`;
+            try {
+                const linked = connectAndAppendCanvasResourceMention(nodesRef.current, connectionsRef.current, toNodeId, fromNodeId, connectionId);
+                setNodes(attachNodeToStoryboardRow(linked.nodes, { fromNodeId, toNodeId, fromHandleId, toHandleId }));
+                setConnections(linked.connections);
+            } catch {
+                // Non-reference connections and locked targets keep the original
+                // graph-only behavior; the prompt is only changed when a real
+                // resource mention can be established.
+                setConnections((currentConnections) => [...currentConnections, { id: connectionId, fromNodeId, toNodeId, fromHandleId, toHandleId, fromAnchorRatio, toAnchorRatio }]);
+                setNodes((currentNodes) => attachNodeToStoryboardRow(currentNodes, { fromNodeId, toNodeId, fromHandleId, toHandleId }));
+            }
         }
         pageUi.getState().setContextMenu(null);
     }, [pageUi, projectId, config, connectionsRef, message, nodesRef, setConnections, setNodes]);
