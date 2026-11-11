@@ -65,12 +65,25 @@ export type CanvasBackendSaveProgressPhase = keyof typeof SAVE_PROGRESS_MESSAGES
  * 发布画布保存的真实进度：排队、提交中、已被服务端接受、失败。
  * 冲突暂停优先：只有被接受的提交或「使用最新版本」能解除它，普通进度不得覆盖。
  */
-export function setCanvasBackendSaveProgress(id: string, scope: string, phase: CanvasBackendSaveProgressPhase) {
+export type CanvasBackendSaveErrorDetail = {
+    message?: string;
+    errorCode?: string;
+    retryable?: boolean;
+};
+
+export function setCanvasBackendSaveProgress(
+    id: string,
+    scope: string,
+    phase: CanvasBackendSaveProgressPhase,
+    detail?: CanvasBackendSaveErrorDetail,
+) {
     if (canvasBackendSubmitPaused(id, scope)) return;
-    const message = SAVE_PROGRESS_MESSAGES[phase];
+    const message = phase === "error" ? detail?.message?.trim() || SAVE_PROGRESS_MESSAGES.error : SAVE_PROGRESS_MESSAGES[phase];
+    const errorCode = phase === "error" ? detail?.errorCode : undefined;
+    const retryable = phase === "error" ? detail?.retryable : undefined;
     const current = projectSyncProgress(id, scope);
-    if (current?.phase === phase && current.message === message) return;
-    useSyncProgressStore.getState().setProjectProgress(id, { phase, message }, scope);
+    if (current?.phase === phase && current.message === message && current.errorCode === errorCode && current.retryable === retryable) return;
+    useSyncProgressStore.getState().setProjectProgress(id, { phase, message, errorCode, retryable }, scope);
 }
 
 /** 画布已删除：不再保留它的保存进度。 */

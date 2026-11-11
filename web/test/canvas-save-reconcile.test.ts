@@ -148,6 +148,7 @@ const {
     openLocalCanvasProjectFromBackend,
     refreshLocalCanvasProjectIfChanged,
     resetLocalCanvasBackendSaveState,
+    retryLocalCanvasBackendSync,
     scheduleLocalCanvasBackendSync,
     syncLocalCanvasProjectToBackend,
 } = await import("@/services/local-workspace-repository");
@@ -572,6 +573,24 @@ describe("本地保存状态", () => {
         await syncLocalCanvasProjectToBackend("c1");
         expect(projectSyncProgress("c1", scope)?.phase).toBe("done");
         expect(server.document!.title).toBe("第二次");
+    });
+
+    test("确定性 4xx 后自动调度暂停，手动重试才继续", async () => {
+        await seedConfirmed(canvas(1));
+        useCanvasStore.getState().updateProject("c1", { title: "需要修复的内容" });
+        server.failNext = { status: 400 };
+        await expect(syncLocalCanvasProjectToBackend("c1")).rejects.toThrow();
+        expect(projectSyncProgress("c1", scope)).toMatchObject({ phase: "error", errorCode: "http_400", retryable: false });
+
+        const attemptsBefore = server.attempts.length;
+        scheduleLocalCanvasBackendSync("c1");
+        await new Promise((resolve) => setTimeout(resolve, 650));
+        expect(server.attempts.length).toBe(attemptsBefore);
+        expect(projectSyncProgress("c1", scope)?.phase).toBe("error");
+
+        await retryLocalCanvasBackendSync("c1");
+        expect(projectSyncProgress("c1", scope)?.phase).toBe("done");
+        expect(server.document?.title).toBe("需要修复的内容");
     });
 
     test("冲突暂停期间的保存尝试不会把状态改回保存中或已保存", async () => {

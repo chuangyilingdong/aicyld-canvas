@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -292,7 +293,6 @@ func RegisterAgentOpsRoutes(r gin.IRouter, svc agentOpsService, store *agentops.
 			fail(c, http.StatusForbidden, app.BadAuthRequest(authErr.Error()))
 			return
 		}
-		_ = clientLabel
 		// 回合归属只认内置宿主：外部客户端出示 turn 头会被明确拒绝，而不是静默忽略后
 		// 让一次外部写入被误当成助手的改动（撤销会因此抹掉外部修改）。
 		scope, turnID, scopeErr := assistantScopeForRequest(c, svc, user.ID, isAssistantHostRequest(c, svc))
@@ -308,6 +308,18 @@ func RegisterAgentOpsRoutes(r gin.IRouter, svc agentOpsService, store *agentops.
 		})
 		if execErr != nil {
 			opErr := agentops.AsError(execErr)
+			var identity struct {
+				CanvasID string `json:"canvasId"`
+				AssetID  string `json:"assetId"`
+			}
+			_ = json.Unmarshal(req.Params, &identity)
+			message := strings.ReplaceAll(strings.TrimSpace(opErr.Message), "\n", " ")
+			if runes := []rune(message); len(runes) > 300 {
+				message = string(runes[:300])
+			}
+			// Metadata only: operation params and canvas payloads may contain user content.
+			log.Printf("agent_op_failed request_id=%q trace_id=%q actor=%q client=%q op=%q op_id=%q canvas=%q asset=%q status=%d reason=%q message=%q",
+				RequestID(c), TraceID(c), user.ID, clientLabel, c.Param("op"), req.OpID, identity.CanvasID, identity.AssetID, agentops.HTTPStatus(opErr.Code), opErr.Reason, message)
 			c.JSON(agentops.HTTPStatus(opErr.Code), gin.H{
 				"code": agentops.HTTPStatus(opErr.Code), "reason": opErr.Reason, "msg": opErr.Message,
 				"details": opErr.Details,

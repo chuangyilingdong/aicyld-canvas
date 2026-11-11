@@ -15,17 +15,23 @@ const VOLATILE_NODE_METADATA_KEYS = new Set([
     "taskReceiptRecorded",
     "generationSubmissionState",
 ]);
+// Node timestamps describe local observation / polling time, not an edit to
+// the node. Task progress writes update them even when no user-visible content
+// changed, so they must follow the same rule as runtime task metadata.
+const VOLATILE_NODE_KEYS = new Set(["createdAt", "updatedAt"]);
 
 export function canvasContentSnapshot(project: CanvasProject) {
     const { viewport: _viewport, updatedAt: _updatedAt, revision: _revision, remoteContentHash: _hash, ...content } = project;
     const nodes = Array.isArray(content.nodes)
         ? content.nodes.map((node) => {
             if (!node || typeof node !== "object") return node;
+            const nextNode = { ...node } as Record<string, unknown>;
+            for (const key of VOLATILE_NODE_KEYS) delete nextNode[key];
             const metadata = node.metadata;
-            if (!metadata) return node;
+            if (!metadata) return nextNode as typeof node;
             const nextMetadata = { ...metadata };
             for (const key of VOLATILE_NODE_METADATA_KEYS) delete (nextMetadata as Record<string, unknown>)[key];
-            return { ...node, metadata: nextMetadata };
+            return { ...nextNode, metadata: nextMetadata } as typeof node;
         })
         : content.nodes;
     return { ...content, nodes, projectId: content.projectId || undefined };

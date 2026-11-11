@@ -18,6 +18,7 @@ describe("本地画布保存状态", () => {
             label: "保存失败",
             tone: "failed",
             detail: "保存没有完成，修改仍保留在本机。",
+            note: "自动重试已暂停，确认原因后可手动重试。",
             action: "retry-save",
         });
     });
@@ -39,7 +40,12 @@ describe("云端画布保存状态保持原样", () => {
         expect(canvasSyncStatusView(false, undefined)).toMatchObject({ label: "尚未同步", tone: "failed", detail: "尚未确认云端保存，请保留本地内容" });
         expect(canvasSyncStatusView(false, { phase: "saving" })).toMatchObject({ label: "正在保存", tone: "saving" });
         expect(canvasSyncStatusView(false, { phase: "done" })).toMatchObject({ label: "已保存", tone: "saved", detail: "画布已同步到云端", note: undefined });
-        expect(canvasSyncStatusView(false, { phase: "error" })).toMatchObject({ label: "云端未保存", tone: "failed" });
+        expect(canvasSyncStatusView(false, { phase: "error" })).toMatchObject({ label: "云端保存失败", tone: "failed", action: "retry-save" });
+        expect(canvasSyncStatusView(false, { phase: "error", message: "素材引用无法读取", errorCode: "asset_not_ready" })).toMatchObject({
+            detail: "素材引用无法读取",
+            note: "自动重试已暂停（asset_not_ready），确认原因后可手动重试。",
+            action: "retry-save",
+        });
     });
 });
 

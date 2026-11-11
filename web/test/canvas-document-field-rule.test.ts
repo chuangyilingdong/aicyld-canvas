@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { sameCanvasAutosaveFields } from "@/lib/canvas/canvas-document-equality";
 import { canvasContentSnapshot, sameCanvasContent, sameCanvasDocument } from "@/lib/canvas/canvas-content";
+import { canvasUnconfirmedReason } from "@/lib/canvas/canvas-unconfirmed-edits";
 import type { CanvasProject } from "@/stores/canvas/use-canvas-store";
 
 function project(patch: Record<string, unknown> = {}): CanvasProject {
@@ -90,6 +91,15 @@ describe("sameCanvasDocument 的字段规则", () => {
         expect("updatedAt" in snapshot).toBe(false);
         expect("revision" in snapshot).toBe(false);
         expect("remoteContentHash" in snapshot).toBe(false);
+    });
+
+    test("只更新任务进度和节点观察时间不算未确认编辑", () => {
+        const baseNode = { id: "n1", type: "video", title: "视频", position: { x: 0, y: 0 }, width: 100, height: 100, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z", metadata: { content: "", status: "loading", taskId: "task-1", taskStatus: "running", taskProgress: 10, taskStage: "排队中", taskUpdatedAt: "2026-01-01T00:00:01.000Z" } };
+        const base = project({ nodes: [baseNode] });
+        const polled = project({ nodes: [{ ...baseNode, updatedAt: "2026-01-01T00:00:09.000Z", metadata: { ...baseNode.metadata, taskProgress: 45, taskStage: "生成中", taskUpdatedAt: "2026-01-01T00:00:09.000Z" } }] });
+        expect(sameCanvasDocument(base, polled)).toBe(true);
+        expect(canvasUnconfirmedReason({ live: polled, confirmed: base, pending: false, blocked: false, inFlight: false, pendingProjection: false })).toBeUndefined();
+        expect(sameCanvasDocument(base, project({ nodes: [{ ...polled.nodes[0], metadata: { ...polled.nodes[0].metadata, content: "/api/resources/result/file", storageKey: "resource:result" } }] }))).toBe(false);
     });
 
     test("生成轮询遥测不会触发整份画布自动保存", () => {

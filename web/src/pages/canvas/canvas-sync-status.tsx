@@ -7,7 +7,7 @@ import { ApiError } from "@/services/api/request";
 import { readAllCanvasSyncDrafts, readCanvasSyncDrafts, type CanvasSyncDraft } from "@/services/canvas-sync-drafts";
 import { fetchExternalCanvasWrites, subscribeExternalCanvasEvent, undoExternalCanvasWrite, type ExternalCanvasWrite } from "@/services/canvas-external-writes";
 import { getActiveUserScope } from "@/lib/user-scope";
-import { acceptExternalCanvasRevision, pendingExternalCanvasRevision, refreshLocalCanvasProjectIfChanged, syncLocalCanvasProjectToBackend } from "@/services/local-workspace-repository";
+import { acceptExternalCanvasRevision, pendingExternalCanvasRevision, refreshLocalCanvasProjectIfChanged, retryLocalCanvasBackendSync } from "@/services/local-workspace-repository";
 import { loadCanvasProjectForEditing } from "@/services/local-workspace-sync";
 import { highlightAssistantNodes } from "./canvas-assistant-highlight";
 import { canvasExternalRevisionVersion, subscribeCanvasExternalRevision, useCanvasStore } from "@/stores/canvas/use-canvas-store";
@@ -23,7 +23,7 @@ export type CanvasSyncStatusView = {
 };
 
 /** 顶栏保存状态的文案与可用操作：只说这份画布现在是否已保存、接下来能做什么。 */
-export function canvasSyncStatusView(localOnly: boolean, progress: Pick<SyncProjectProgress, "phase" | "message"> | undefined): CanvasSyncStatusView {
+export function canvasSyncStatusView(localOnly: boolean, progress: Pick<SyncProjectProgress, "phase" | "message" | "errorCode" | "retryable"> | undefined): CanvasSyncStatusView {
     const phase = progress?.phase;
     const saving = phase === "pending" || phase === "saving" || phase === "uploading";
     if (localOnly) {
@@ -36,18 +36,23 @@ export function canvasSyncStatusView(localOnly: boolean, progress: Pick<SyncProj
                 action: "use-latest",
             };
         }
-        if (phase === "error") return { label: "保存失败", tone: "failed", detail: "保存没有完成，修改仍保留在本机。", action: "retry-save" };
+        if (phase === "error") return { label: "保存失败", tone: "failed", detail: progress?.message || "保存没有完成，修改仍保留在本机。", note: "自动重试已暂停，确认原因后可手动重试。", action: "retry-save" };
         if (saving) return { label: "正在保存", tone: "saving", detail: "正在保存到本机。" };
         return { label: "已保存在本地", tone: "saved", detail: "画布已保存在本机。" };
     }
     const conflict = phase === "conflict";
-    const failed = phase === "error" || conflict || !phase;
+    const error = phase === "error";
+    const failed = error || conflict || !phase;
     return {
-        label: conflict ? "版本冲突 · 未同步" : !phase ? "尚未同步" : failed ? "云端未保存" : saving ? "正在保存" : "已保存",
+        label: conflict ? "版本冲突 · 未同步" : error ? "云端保存失败" : !phase ? "尚未同步" : saving ? "正在保存" : "已保存",
         tone: saving ? "saving" : failed ? "failed" : "saved",
         detail: progress?.message || (phase === "done" ? "画布已同步到云端" : "尚未确认云端保存，请保留本地内容"),
-        note: conflict ? "此画布的自动提交已暂停。加载最新版前会保留本地草稿，可下载后从画布列表导入为副本。" : undefined,
-        action: "load-cloud",
+        note: conflict
+            ? "此画布的自动提交已暂停。加载最新版前会保留本地草稿，可下载后从画布列表导入为副本。"
+            : error
+              ? `自动重试已暂停${progress?.errorCode ? `（${progress.errorCode}）` : ""}，确认原因后可手动重试。`
+              : undefined,
+        action: error ? "retry-save" : "load-cloud",
     };
 }
 
@@ -274,7 +279,7 @@ export function CanvasSyncStatus({ projectId, onLoadLatest, onOpenVersions }: { 
                         {view.note ? <p className="text-xs text-muted-foreground">{view.note}</p> : null}
                         <div className="flex flex-wrap gap-2">
                             {view.action === "use-latest" ? <Button size="small" type="primary" loading={adopting} disabled={busy} onClick={() => void adoptLatest()}>使用最新版本</Button> : null}
-                            {view.action === "retry-save" ? <Button size="small" type="primary" loading={busy} onClick={() => void run(() => syncLocalCanvasProjectToBackend(projectId))}>重试保存</Button> : null}
+                            {view.action === "retry-save" ? <Button size="small" type="primary" loading={busy} onClick={() => void run(() => retryLocalCanvasBackendSync(projectId))}>重试保存</Button> : null}
                             {view.action === "load-cloud" ? <Button size="small" loading={externalConflict || progress?.phase === "conflict" ? adopting : busy} onClick={() => void (externalConflict || progress?.phase === "conflict" ? adoptLatest() : run(onLoadLatest))}>加载云端最新版本</Button> : null}
                             <Button
                                 size="small"

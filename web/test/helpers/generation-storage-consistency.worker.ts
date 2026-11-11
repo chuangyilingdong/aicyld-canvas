@@ -100,7 +100,8 @@ function installStorageHarness() {
         writable: true,
         value: {
             locks: {
-                request: async <T>(name: string, callback: () => Promise<T>) => {
+                request: async <T>(name: string, optionsOrCallback: unknown, maybeCallback?: () => Promise<T>) => {
+                    const callback = (typeof optionsOrCallback === "function" ? optionsOrCallback : maybeCallback) as () => Promise<T>;
                     const previous = lockTails.get(name) ?? Promise.resolve();
                     let release!: () => void;
                     const tail = new Promise<void>((resolve) => {

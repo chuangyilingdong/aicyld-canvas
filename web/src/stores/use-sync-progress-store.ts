@@ -8,6 +8,8 @@ export type SyncProjectProgress = {
     completed: number;
     phase: "pending" | "uploading" | "saving" | "done" | "error" | "conflict";
     message?: string;
+    errorCode?: string;
+    retryable?: boolean;
     draftCount?: number;
 };
 

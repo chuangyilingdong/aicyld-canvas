@@ -32,6 +32,7 @@ import type { CanvasHistorySnapshot } from "./use-canvas-history";
 import { backfillCanvasTaskOutcomes } from "@/services/canvas-task-outcome-backfill";
 import { queryGenerationTask } from "@/services/api/task-center";
 import { persistCanvasNodeFailure } from "@/lib/canvas/canvas-node-failure-state";
+import { useCanvasTabCoordinator } from "./use-canvas-tab-coordinator";
 
 const CANVAS_VIEWPORT_SAVE_DELAY_MS = 2000;
 
@@ -226,6 +227,7 @@ export function useCanvasProjectLifecycle({
     const hydrated = useCanvasStore((state) => state.hydrated);
     const sessionHydrated = useUserStore((state) => state.hydrated);
     const localMode = isLocalWorkspaceMode();
+    useCanvasTabCoordinator(projectId, projectLoaded);
     const openProject = useCanvasStore((state) => state.openProject);
     const updateProject = useCanvasStore((state) => state.updateProject);
     const renameProject = useCanvasStore((state) => state.renameProject);
@@ -607,7 +609,9 @@ export function useCanvasProjectLifecycle({
         }
         updateProject(projectId, patch);
         observedStoreRef.current = storedEditorProject() ?? observedStoreRef.current;
-        scheduleLocalCanvasBackendSync(projectId);
+        // This branch contains a real graph/document edit. It is safe to retry a
+        // previous deterministic save failure once the user changes the content.
+        scheduleLocalCanvasBackendSync(projectId, { force: true });
     }, [activeChatId, backgroundMode, canvasAppearance, chatSessions, connections, historyPausedRef, nodes, observedAtRender, projectId, projectLoaded, showImageInfo, updateProject]);
 
     useEffect(() => {

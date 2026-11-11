@@ -14,6 +14,8 @@ import type { CanvasStarterMode } from "@/lib/canvas/canvas-starter";
 import { canvasUnconfirmedReason, canvasUnconfirmedDiagnostic, type CanvasUnconfirmedState } from "@/lib/canvas/canvas-unconfirmed-edits";
 import { rebaseCanvasDocumentThreeWay, settleInFlightGenerationOverlay } from "@/lib/canvas/canvas-document-rebase";
 import { traceCanvasGraph } from "@/lib/canvas/canvas-graph-trace";
+import { projectSyncProgress } from "@/stores/use-sync-progress-store";
+import { withCanvasSaveLock } from "@/services/canvas-save-lock";
 
 
 export { CanvasBackendSubmitPausedError } from "@/services/canvas-revision-conflict";
@@ -115,12 +117,26 @@ function canvasSubmitBlocked(id: string, scope: string) {
     return canvasBackendSubmitPaused(id, scope) || Boolean(canvasExternalRevisionConflict(scope, id));
 }
 
+function canvasSaveErrorDetail(error: unknown) {
+    if (error instanceof ApiError) {
+        return {
+            message: error.message || "画布保存失败，修改仍保留在本机。",
+            errorCode: error.reason || (error.status ? `http_${error.status}` : undefined),
+            retryable: error.retryable,
+        };
+    }
+    if (error && typeof error === "object" && "message" in error && typeof error.message === "string") {
+        return { message: error.message, retryable: false };
+    }
+    return { message: "画布保存失败，修改仍保留在本机。", retryable: false };
+}
+
 /** 把保存链的真实状态发布到同步进度：排队、提交中、已被接受或失败。冲突暂停不被覆盖。 */
-function publishCanvasSaveProgress(id: string, scope: string, failed = false) {
+function publishCanvasSaveProgress(id: string, scope: string, failed = false, error?: unknown) {
     const key = saveKey(scope, id);
     if (backendSaveTails.has(key)) setCanvasBackendSaveProgress(id, scope, "saving");
     else if (backendSaveTimers.has(key)) setCanvasBackendSaveProgress(id, scope, "pending");
-    else setCanvasBackendSaveProgress(id, scope, failed ? "error" : "done");
+    else setCanvasBackendSaveProgress(id, scope, failed ? "error" : "done", failed ? canvasSaveErrorDetail(error) : undefined);
 }
 
 function throwIfCanvasNotWritable(id: string, scope: string) {
@@ -457,7 +473,7 @@ function syncLocalCanvasProject(id: string): Promise<void> {
     const previous = backendSaveTails.get(key) || Promise.resolve();
     const next = previous.catch(() => undefined).then(async () => {
         if (canvasDeleting.has(key)) throw new CanvasBackendSubmitPausedError("画布正在删除，未提交");
-        await commitLiveCanvasDocument(id);
+        await withCanvasSaveLock(scope, id, () => commitLiveCanvasDocument(id));
     });
     const tail = next.finally(() => {
         if (backendSaveTails.get(key) === tail) backendSaveTails.delete(key);
@@ -465,7 +481,12 @@ function syncLocalCanvasProject(id: string): Promise<void> {
     backendSaveTails.set(key, tail);
     publishCanvasSaveProgress(id, scope);
     // 先于调用方的 await 注册：调用方恢复执行时进度已经是这次提交的真实结果。
-    void tail.then(() => publishCanvasSaveProgress(id, scope), () => publishCanvasSaveProgress(id, scope, true));
+    void tail.then(
+        () => publishCanvasSaveProgress(id, scope),
+        (error) => {
+            if (!isCanvasSubmitControlError(error)) publishCanvasSaveProgress(id, scope, true, error);
+        },
+    );
     return tail;
 }
 
@@ -660,8 +681,18 @@ async function sendCanvasDocumentCommit(
     }
 }
 
-export function syncLocalCanvasProjectToBackend(id: string): Promise<void> {
+export function syncLocalCanvasProjectToBackend(id: string, options: { force?: boolean } = {}): Promise<void> {
+    const scope = getActiveUserScope();
+    if (options.force) {
+        clearCanvasBackendSaveProgress(id, scope);
+        setCanvasBackendSaveProgress(id, scope, "pending");
+    }
     return syncLocalCanvasProject(id);
+}
+
+/** User-initiated retry after a deterministic save failure. */
+export function retryLocalCanvasBackendSync(id: string): Promise<void> {
+    return syncLocalCanvasProjectToBackend(id, { force: true });
 }
 
 function revertUnchangedCanvasNodes(
@@ -817,21 +848,27 @@ export async function adoptServerConfirmedGenerationPatch(rawProject: CanvasProj
     });
 }
 
-export function scheduleLocalCanvasBackendSync(id: string) {
+export function scheduleLocalCanvasBackendSync(id: string, options: { force?: boolean } = {}) {
     const scope = getActiveUserScope();
     const key = saveKey(scope, id);
-    if (canvasDeleting.has(key)) return;
+    if (canvasDeleting.has(key) || canvasSubmitBlocked(id, scope)) return;
+    // A deterministic 4xx will not become valid by asking again milliseconds later.
+    // Keep the local edit, show the real reason, and wait for a user edit or explicit retry.
+    const progress = projectSyncProgress(id, scope);
+    if (!options.force && progress?.phase === "error" && progress.retryable !== true) return;
+    if (options.force) clearCanvasBackendSaveProgress(id, scope);
     const existing = backendSaveTimers.get(key);
     if (existing) clearTimeout(existing);
     backendSaveTimers.set(key, setTimeout(() => {
         backendSaveTimers.delete(key);
-        if (canvasDeleting.has(key)) {
+        if (canvasDeleting.has(key) || canvasSubmitBlocked(id, scope)) {
             publishCanvasSaveProgress(id, scope, true);
             return;
         }
         void syncLocalCanvasProject(id).catch((error) => {
             if (isCanvasSubmitControlError(error)) return;
-            console.error("画布后端持久化失败，等待下次编辑重试", { id, error });
+            publishCanvasSaveProgress(id, scope, true, error);
+            console.error("画布后端持久化失败，自动重试已暂停", { id, error });
         });
     }, 500));
     publishCanvasSaveProgress(id, scope);
