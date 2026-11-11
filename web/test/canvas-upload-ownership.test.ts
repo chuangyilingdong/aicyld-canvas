@@ -272,6 +272,12 @@ describe("shouldSuppressOwnedCanvasCallback", () => {
     });
 });
 
+test("upload hook surfaces asset persistence errors instead of leaving a 100% uploading node", () => {
+    const hook = read("pages/canvas/use-canvas-upload.ts");
+    expect(hook).toContain("if (result.error) throw result.error;");
+    expect(hook).toContain("素材记录没有保存成功");
+});
+
 test("upload hook threads the canvas owner through persist, file, image, chapter and timeline waits", () => {
     const hook = read("pages/canvas/use-canvas-upload.ts");
     const persist = hook.slice(hook.indexOf("const persistMediaNode"), hook.indexOf("const persistTimelineMedia"));

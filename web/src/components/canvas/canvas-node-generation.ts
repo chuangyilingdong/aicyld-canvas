@@ -82,6 +82,11 @@ export function buildNodeGenerationContext(nodeId: string, nodes: CanvasNodeData
     }
     const connectedInputs = withArkAssetReferenceInputs(buildNodeGenerationInputs(nodeId, nodes, connections), nodes, assets);
     const sourceNode = nodes.find((node) => node.id === nodeId);
+    const inputNodeIds = new Set([nodeId, ...connections.filter((connection) => connection.toNodeId === nodeId).map((connection) => connection.fromNodeId)]);
+    const uploadingInput = nodes.find((node) => inputNodeIds.has(node.id) && node.metadata?.fileUpload === "uploading");
+    if (uploadingInput) throw new Error(`素材「${uploadingInput.title || uploadingInput.id}」还在上传或保存，请等待完成后再生成`);
+    const failedInput = nodes.find((node) => inputNodeIds.has(node.id) && node.metadata?.fileUpload === "error");
+    if (failedInput) throw new Error(`素材「${failedInput.title || failedInput.id}」上传失败，请重新选择文件后再生成`);
     if (sourceNode?.metadata?.videoEditOperation === "draft_to_final" || Boolean(sourceNode?.metadata?.videoDraftTaskId?.trim())) {
         return {
             prompt: "",

@@ -162,6 +162,7 @@ export function useCanvasUpload({
                 : undefined,
             warn: (text) => message.warning(text),
         });
+        if (result.error) throw result.error;
         return result.confirmed;
     }, [canvasId, domainProjectId, lifetime, message, mountedRef, nodesRef, queryClient, setNodes]);
 
@@ -305,6 +306,9 @@ export function useCanvasUpload({
             // remote messages for one upload.
             const localOnly = browserFallback && localRuntime;
             const remotePending = browserFallback && !localRuntime;
+            if (!persisted && !localOnly && !remotePending) {
+                throw new Error("文件已上传，但素材记录没有保存成功，请重新上传后再生成");
+            }
             progress.done(localOnly ? "已保存在本机" : remotePending ? "已保存在本机，等待远端同步" : persisted ? "文件已添加到画布" : "文件已添加，项目资产待重试");
             if (remotePending) message.warning("已保存在本机缓存，资源服务暂不可用；等待远端同步");
             return id;
