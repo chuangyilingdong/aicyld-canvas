@@ -249,6 +249,12 @@ const IN_FLIGHT_POLL_TELEMETRY_KEYS = [
     "taskReceiptRecorded",
 ] as const;
 
+const TASK_LIFECYCLE_NON_MEDIA_KEYS = [
+    "taskId",
+    ...GENERATION_BIND_METADATA_KEYS.filter((key) => !GENERATION_MEDIA_RESULT_KEY_SET.has(key)),
+    ...GENERATION_ERROR_METADATA_KEYS,
+] as const;
+
 function mergeCanvasNodeItem(
     baseItem: CanvasNodeData | undefined,
     localItem: CanvasNodeData,
@@ -257,16 +263,25 @@ function mergeCanvasNodeItem(
 ): CanvasNodeData {
     let remoteNormalized = remoteItem;
     const taskId = nodeTaskId(localItem);
+    const baseMeta = (baseItem?.metadata || {}) as Record<string, unknown>;
+    const localMeta = (localItem.metadata || {}) as Record<string, unknown>;
     if (
-        taskId &&
-        nodeTaskId(remoteItem) === taskId &&
-        localItem.metadata?.status === "loading" &&
-        remoteItem.metadata?.status === "loading" &&
-        localItem.metadata?.taskStatus === remoteItem.metadata?.taskStatus
+        TASK_LIFECYCLE_NON_MEDIA_KEYS.some(key => !equal(baseMeta[key], localMeta[key])) &&
+        !remoteHasBoundGenerationResult(remoteItem) &&
+        !hasTrueGenerationContentConflict(baseItem, localItem, remoteItem) &&
+        (localItem.metadata?.status === "loading" || localItem.metadata?.status === "error") &&
+        (remoteItem.metadata?.status === "loading" || remoteItem.metadata?.status === "error")
     ) {
         const alignedMeta: Record<string, unknown> = { ...(remoteItem.metadata || {}) };
-        const localMeta = (localItem.metadata || {}) as Record<string, unknown>;
-        for (const key of IN_FLIGHT_POLL_TELEMETRY_KEYS) {
+        const keysToAlign =
+            taskId &&
+            nodeTaskId(remoteItem) === taskId &&
+            localItem.metadata?.status === "loading" &&
+            remoteItem.metadata?.status === "loading" &&
+            localItem.metadata?.taskStatus === remoteItem.metadata?.taskStatus
+                ? IN_FLIGHT_POLL_TELEMETRY_KEYS
+                : TASK_LIFECYCLE_NON_MEDIA_KEYS;
+        for (const key of keysToAlign) {
             if (hasDefinedProperty(localMeta, key)) {
                 alignedMeta[key] = localMeta[key];
             } else {

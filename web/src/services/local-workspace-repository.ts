@@ -54,6 +54,7 @@ type CanvasDocumentPersistPatch = Partial<Pick<CanvasProject, "nodes" | "connect
 
 const backendSaveTails = new Map<string, Promise<void>>();
 const backendSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const CANVAS_BACKEND_SAVE_DEBOUNCE_MS = 2_000;
 const canvasProjectionLocks = new Map<string, Promise<void>>();
 const canvasDeleting = new Set<string>();
 let projectionStoreFlush: () => Promise<void> = () => flushCanvasStorePersistence();
@@ -870,7 +871,7 @@ export function scheduleLocalCanvasBackendSync(id: string, options: { force?: bo
             publishCanvasSaveProgress(id, scope, true, error);
             console.error("画布后端持久化失败，自动重试已暂停", { id, error });
         });
-    }, 500));
+    }, CANVAS_BACKEND_SAVE_DEBOUNCE_MS));
     publishCanvasSaveProgress(id, scope);
 }
 
