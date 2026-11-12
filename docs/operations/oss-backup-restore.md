@@ -2,21 +2,25 @@
 
 ## 自动任务
 
-- `aicyld-canvas-oss-backup.timer` 每天 03:40 触发，随机延迟最多 15 分钟。
+- `aicyld-canvas-oss-backup.timer` 每天 02:40 触发，随机延迟最多 15 分钟。
 - 备份先完成一致性快照和 OSS 上传校验，成功后才退出 0。
-- `aicyld-canvas-backup-retention.timer` 04:20 才清理本地旧回滚点，因此正常顺序是“先备份、后清理”。
+- 只有备份成功后，systemd 才通过 `OnSuccess` 触发本地回滚点清理；备份失败不会删除本地文件。
 
 ## 备份内容
 
 - `open_ai_canvas.db` 的 SQLite 一致性快照
 - `data/sessions/**/*.sqlite` 的一致性快照
 - `data/resources` 用户资源
-- `data/plugin-packages`、`data/skill-packages`、`data/workspace`
-- `backups/*` 历史回滚点
-- 后端二进制、Agent Host 运行时、当前前端和历史前端回滚点
+- `data/plugin-packages`、`data/skill-packages`
+- 后端二进制、Agent Host 运行时、当前前端
+- 最近 2 个前端回滚目录，合并成一个压缩对象
 - `VERSION`、`RELEASE.json`、`oss-index.json`
 
 `canvas.env` 含密钥，不进入 OSS 备份。恢复时应从安全配置渠道重新注入。
+
+本地 `backups/` 存放发布回滚点、数据库快照和历史调查材料，不进入 OSS 日常备份。这样可避免历史发布目录里的 `node_modules` 被逐文件上传，导致对象数爆炸和 systemd 超时。OSS 保存的是当前可恢复状态，本地回滚点由 `prune-production-backups.sh` 单独治理。
+
+备份开始上传前会做对象数和总大小检查，默认最多 `5000` 个对象、`8 GiB`；超过任一上限会直接失败，不进入逐对象上传。备份完成后还会检查 `90` 分钟耗时预算，超时会保留完整备份但让服务返回失败，以触发告警并禁止后续本地清理。
 
 ## OSS 路径
 
@@ -32,8 +36,6 @@ sessions/...
 data/resources/...
 data/plugin-packages/...
 data/skill-packages/...
-data/workspace/...
-backups/...
 bin/...
 release/...
 meta/...
@@ -62,14 +64,17 @@ manifest.json.sha256
 /usr/bin/python3 /srv/aicyld/canvas/bin/backup-to-oss.py \
   --canvas-root /srv/aicyld/canvas \
   --env-file /srv/aicyld/canvas/canvas.env \
-  --work-dir /var/tmp --apply --workers 4
+  --work-dir /var/tmp --apply --workers 4 \
+  --max-objects 5000 --max-bytes 8589934592 \
+  --max-duration-seconds 5400
 ```
 
 不带 `--apply` 时只生成计划，不上传。
 
 ## OSS 保留策略
 
-- `aicyld-canvas-oss-backup.timer` 每天 03:40 生成完整备份。
-- `aicyld-canvas-oss-retention.timer` 每天 04:10 清理超过 30 天的完整备份前缀。
+- `aicyld-canvas-oss-backup.timer` 每天 02:40 生成当前状态备份。
+- `aicyld-canvas-backup-retention.service` 只在备份成功后清理本地旧回滚点。
+- `aicyld-canvas-oss-retention.timer` 每天 04:10 清理超过 30 天的 OSS 完整备份前缀。
 - OSS 清理以本机 `backups/oss-manifests/*.json` 为唯一删除依据，不通过猜测或裸列举删除。
 - 已清理清单移动到 `backups/oss-manifests/pruned/`，保留审计记录。

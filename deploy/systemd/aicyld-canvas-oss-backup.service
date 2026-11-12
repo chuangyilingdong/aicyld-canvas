@@ -3,12 +3,13 @@ Description=AICYLD Canvas daily OSS backup
 Documentation=file:/srv/aicyld/canvas/src/docs/operations/oss-backup-restore.md
 After=network-online.target
 Wants=network-online.target
+OnSuccess=aicyld-canvas-backup-retention.service
 ConditionPathExists=/srv/aicyld/canvas/bin/backup-to-oss.py
 ConditionPathExists=/srv/aicyld/canvas/canvas.env
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/python3 /srv/aicyld/canvas/bin/backup-to-oss.py --canvas-root /srv/aicyld/canvas --env-file /srv/aicyld/canvas/canvas.env --work-dir /var/tmp --apply --workers 4
+ExecStart=/usr/bin/python3 /srv/aicyld/canvas/bin/backup-to-oss.py --canvas-root /srv/aicyld/canvas --env-file /srv/aicyld/canvas/canvas.env --work-dir /var/tmp --apply --workers 4 --max-objects 5000 --max-bytes 8589934592 --max-duration-seconds 5400
 Nice=10
 IOSchedulingClass=idle
 TimeoutStartSec=2h

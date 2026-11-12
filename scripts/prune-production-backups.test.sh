@@ -42,6 +42,15 @@ for day in 01 02 03 04 05; do
     make_dir "$web_root/web-dist.prev-$day" "$day"
 done
 
+for day in 01 02 03 04 05; do
+    make_dir "$backup_root/pre-release-$day" "$day"
+done
+
+for day in 01 02 03 04; do
+    make_dir "$backup_root/pre-aicyld$day" "$day"
+    make_file "$backup_root/backend.pre-$day" "$day"
+done
+
 "$prune" \
     --backup-root "$backup_root" \
     --web-root "$web_root" \
@@ -49,6 +58,7 @@ done
     --keep-databases 3 \
     --keep-web-tarballs 2 \
     --keep-web-dirs 2 \
+    --keep-release-dirs 2 \
     --keep "$backup_root/infinite-canvas-backend.01" \
     >"$fixture/dry-run.log"
 
@@ -69,6 +79,7 @@ test -f "$web_root/web-dist.new-current/index.html"
     --keep-databases 3 \
     --keep-web-tarballs 2 \
     --keep-web-dirs 2 \
+    --keep-release-dirs 2 \
     --keep "$backup_root/infinite-canvas-backend.01" \
     --apply \
     >"$fixture/apply.log"
@@ -101,6 +112,22 @@ done
 for day in 01 02 03; do
     test ! -e "$backup_root/web-dist.$day"
     test ! -e "$web_root/web-dist.prev-$day"
+done
+
+for day in 04 05; do
+    test -d "$backup_root/pre-release-$day"
+done
+for day in 01 02 03; do
+    test ! -e "$backup_root/pre-release-$day"
+done
+
+for day in 03 04; do
+    test -d "$backup_root/pre-aicyld$day"
+    test -f "$backup_root/backend.pre-$day"
+done
+for day in 01 02; do
+    test ! -e "$backup_root/pre-aicyld$day"
+    test ! -e "$backup_root/backend.pre-$day"
 done
 
 test -f "$web_root/web-dist/index.html"

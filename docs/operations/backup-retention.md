@@ -15,6 +15,9 @@
 | `web-dist*.tar.gz` 前端压缩包 | 5 |
 | `backups/web-dist*` 前端目录快照 | 3 |
 | 生产根目录 `web-dist.prev*` 前端回滚目录 | 3 |
+| `backups/pre-release-*` 完整发布回滚集 | 2 |
+| `backups/pre-aicyld*` 旧版完整发布回滚集 | 2 |
+| `backups/backend.pre-*` 旧后端回滚二进制 | 2 |
 
 以下内容不在清理范围：
 
@@ -51,24 +54,21 @@
 
 ## 自动执行
 
-`deploy/systemd/aicyld-canvas-backup-retention.timer` 每天 04:20 触发，最多随机延迟 15 分钟。服务以 root 运行，因为历史文件同时属于 `root`、`aicyld` 和 `www-data`。
+本地清理不再使用独立定时器。`aicyld-canvas-oss-backup.service` 成功后通过 `OnSuccess=aicyld-canvas-backup-retention.service` 触发清理，确保 OSS 备份失败时不会先删除本地回滚点。服务以 root 运行，因为历史文件同时属于 `root`、`aicyld` 和 `www-data`。
 
 安装或更新 unit：
 
 ```bash
 install -m 0644 deploy/systemd/aicyld-canvas-backup-retention.service \
   /etc/systemd/system/aicyld-canvas-backup-retention.service
-install -m 0644 deploy/systemd/aicyld-canvas-backup-retention.timer \
-  /etc/systemd/system/aicyld-canvas-backup-retention.timer
 systemctl daemon-reload
-systemctl enable --now aicyld-canvas-backup-retention.timer
+systemctl disable --now aicyld-canvas-backup-retention.timer 2>/dev/null || true
 ```
 
 查看下一次执行和最近日志：
 
 ```bash
-systemctl list-timers aicyld-canvas-backup-retention.timer
-journalctl -u aicyld-canvas-backup-retention.service --since -7days
+journalctl -u aicyld-canvas-oss-backup.service -u aicyld-canvas-backup-retention.service --since -7days
 ```
 
 ## 验证
@@ -92,6 +92,6 @@ bash scripts/prune-production-backups.test.sh
 
 ## OSS 备份与本地清理的顺序
 
-每日 `aicyld-canvas-oss-backup.timer` 在 03:40 先执行 OSS 一致性备份；只有上传和远端大小校验全部成功后，04:20 的本地保留策略才会清理旧回滚点。
+每日 `aicyld-canvas-oss-backup.timer` 在 02:40 先执行 OSS 一致性备份；只有上传和远端大小校验全部成功后，systemd 才会触发本地保留策略清理旧回滚点。
 
 OSS 备份的内容、路径和恢复步骤见 `docs/operations/oss-backup-restore.md`。

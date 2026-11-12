@@ -67,7 +67,6 @@ def main() -> int:
     required = (
         "db/open_ai_canvas.db",
         "release/web-dist-current.tar.gz",
-        "release/web-dist-rollback-extra.tar.zst",
         "bin/agent-host-runtime.tar.zst",
     )
     keys = {str(item.get("key", "")) for item in objects}
@@ -79,6 +78,26 @@ def main() -> int:
         if not exists or size <= 0:
             raise SystemExit(f"critical object missing from OSS: {key}")
         print(f"critical_ok {key} size={size}")
+
+    rollback_key = f"{prefix}/release/web-dist-rollback-latest.tar.zst"
+    if rollback_key in keys:
+        exists, size = client.head(rollback_key)
+        if not exists or size <= 0:
+            raise SystemExit(f"rollback object missing from OSS: {rollback_key}")
+        print(f"rollback_ok {rollback_key} size={size}")
+
+    budget = manifest.get("backupBudget", {})
+    if budget:
+        max_objects = int(budget.get("maxObjects", 0))
+        max_bytes = int(budget.get("maxBytes", 0))
+        max_duration = int(budget.get("maxDurationSeconds", 0))
+        if max_objects and len(objects) > max_objects:
+            raise SystemExit(f"manifest objects exceed budget: {len(objects)} > {max_objects}")
+        if max_bytes and total > max_bytes:
+            raise SystemExit(f"manifest bytes exceed budget: {total} > {max_bytes}")
+        duration = int(manifest.get("durationSeconds", 0))
+        if max_duration and duration > max_duration:
+            print(f"warning_duration_budget_exceeded {duration}s > {max_duration}s")
     print("verification=ok")
     return 0
 

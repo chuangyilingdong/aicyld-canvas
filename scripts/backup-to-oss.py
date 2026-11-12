@@ -22,6 +22,7 @@ import hmac
 import http.client
 import json
 import os
+import platform
 import shutil
 import sqlite3
 import subprocess
@@ -215,6 +216,40 @@ def add_tree(items: list[tuple[Path, str]], source: Path, remote_relative: str, 
             items.append((path, f"{remote_relative}/{path.relative_to(source).as_posix()}"))
 
 
+def human_bytes(value: int) -> str:
+    units = ("B", "KiB", "MiB", "GiB", "TiB")
+    size = float(value)
+    unit = 0
+    while size >= 1024 and unit < len(units) - 1:
+        size /= 1024
+        unit += 1
+    return f"{size:.1f} {units[unit]}"
+
+
+def validate_backup_budget(object_count: int, total_bytes: int, max_objects: int, max_bytes: int) -> None:
+    if object_count > max_objects:
+        raise SystemExit(
+            f"备份对象数 {object_count} 超过预算 {max_objects}；"
+            "请检查是否误把历史备份目录纳入 OSS 日常备份"
+        )
+    if total_bytes > max_bytes:
+        raise SystemExit(
+            f"备份总大小 {human_bytes(total_bytes)} 超过预算 {human_bytes(max_bytes)}"
+        )
+
+
+def latest_web_rollbacks(root: Path, limit: int = 2) -> list[Path]:
+    candidates = [
+        path
+        for path in root.iterdir()
+        if path.is_dir()
+        and not path.is_symlink()
+        and (path.name.startswith(".web-dist.prev-") or path.name.startswith(".web-dist.failed-"))
+    ]
+    candidates.sort(key=lambda path: path.stat().st_mtime, reverse=True)
+    return candidates[:limit]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--canvas-root", default="/srv/aicyld/canvas")
@@ -223,7 +258,13 @@ def main() -> int:
     parser.add_argument("--apply", action="store_true", help="实际上传；缺省只生成计划")
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--run-id", default="", help="复用已有上传前缀；用于中断后续传")
+    parser.add_argument("--max-objects", type=int, default=5000, help="对象数预算")
+    parser.add_argument("--max-bytes", type=int, default=8 * 1024**3, help="总字节预算")
+    parser.add_argument("--max-duration-seconds", type=int, default=90 * 60, help="耗时预算")
     args = parser.parse_args()
+
+    if args.max_objects < 1 or args.max_bytes < 1 or args.max_duration_seconds < 1:
+        raise SystemExit("--max-objects、--max-bytes 和 --max-duration-seconds 必须大于 0")
 
     root = Path(args.canvas_root).resolve()
     env_path = Path(args.env_file).resolve()
@@ -237,6 +278,7 @@ def main() -> int:
         raise SystemExit("OSS 配置缺失: " + ", ".join(missing))
 
     run_id = args.run_id.strip() or dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    started_at = time.monotonic()
     work = Path(args.work_dir) / f"aicyld-canvas-oss-{run_id}"
     work.mkdir(parents=True, exist_ok=False)
     items: list[tuple[Path, str]] = []
@@ -270,12 +312,6 @@ def main() -> int:
     resources_root = root / "data" / "resources"
     add_tree(items, resources_root, "data/resources", required=False)
 
-    for source in sorted((root / "backups").iterdir()):
-        if source.is_file() and not is_sensitive_backup_name(source.name):
-            items.append((source, f"backups/{source.name}"))
-        elif source.is_dir():
-            add_tree(items, source, f"backups/{source.name}", required=True, skip_sensitive=True)
-
     bin_root = root / "bin"
     for source in sorted(bin_root.glob("infinite-canvas-backend*")):
         if source.is_file():
@@ -292,35 +328,48 @@ def main() -> int:
         subprocess.run(["tar", "-czf", str(web_archive), "-C", str(root), "web-dist"], check=True)
         items.append((web_archive, "release/web-dist-current.tar.gz"))
 
-    rollback_names = (
-        ".web-dist.failed-aicyld4-20261103-160544",
-        ".web-dist.prev-aicyld4-20261103-160709",
-        ".web-dist.prev-aicyld-v213-1-20261103-132106",
-    )
-    rollback_archive = work / "web-dist-rollback-extra.tar.zst"
-    rollback_paths = [root / name for name in rollback_names if (root / name).is_dir()]
+    rollback_archive = work / "web-dist-rollback-latest.tar.zst"
+    rollback_paths = latest_web_rollbacks(root)
     if rollback_paths:
         subprocess.run(
             ["tar", "--zstd", "-cf", str(rollback_archive), "-C", str(root), *[p.name for p in rollback_paths]],
             check=True,
         )
-        items.append((rollback_archive, "release/web-dist-rollback-extra.tar.zst"))
+        items.append((rollback_archive, "release/web-dist-rollback-latest.tar.zst"))
 
     base_prefix = "/".join(part for part in (env.get("CANVAS_OSS_PATH_PREFIX", "canvas").strip("/"), "backups", "daily", run_id) if part)
     manifest: dict[str, object] = {
-        "format": "aicyld-canvas-oss-backup-v1",
+        "format": "aicyld-canvas-oss-backup-v2",
         "createdAt": dt.datetime.now(dt.timezone.utc).isoformat(),
-        "hostname": os.uname().nodename,
+        "hostname": platform.node(),
         "canvasVersion": (root / "VERSION").read_text(encoding="utf-8").strip() if (root / "VERSION").is_file() else "",
         "databaseSnapshot": "db/open_ai_canvas.db",
         "sessionSnapshots": session_count,
+        "backupBudget": {
+            "maxObjects": args.max_objects,
+            "maxBytes": args.max_bytes,
+            "maxDurationSeconds": args.max_duration_seconds,
+        },
         "objects": [],
-        "excluded": ["canvas.env and secret backups", "data/workspace token/config files", "src/.git", "src/node_modules", "application logs"],
+        "excluded": [
+            "canvas.env and secret backups",
+            "backups/ local rollback history",
+            "data/workspace token/config files",
+            "src/.git",
+            "src/node_modules",
+            "application logs",
+        ],
     }
 
     total_bytes = sum(path.stat().st_size for path, _ in items)
+    validate_backup_budget(len(items), total_bytes, args.max_objects, args.max_bytes)
     print(f"backup staging: {work}")
-    print(f"objects={len(items)} bytes={total_bytes} sessions={session_count}")
+    print(
+        f"objects={len(items)} bytes={total_bytes} ({human_bytes(total_bytes)}) "
+        f"sessions={session_count}"
+    )
+    print(f"budget objects<={args.max_objects} bytes<={human_bytes(args.max_bytes)}")
+    print(f"rollback archives={len(rollback_paths)}")
     print(f"oss prefix: {base_prefix}/")
 
     if not args.apply:
@@ -370,7 +419,10 @@ def main() -> int:
     if errors:
         raise SystemExit("备份上传失败，未清理本地文件:\n" + "\n".join(errors))
 
+    duration_seconds = round(time.monotonic() - started_at, 3)
     manifest["objects"] = [results[relative] for _, relative in items]
+    manifest["durationSeconds"] = duration_seconds
+    manifest["durationWithinBudget"] = duration_seconds <= args.max_duration_seconds
     manifest_path = work / "manifest.json"
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     manifest_key = f"{base_prefix}/manifest.json"
@@ -389,7 +441,14 @@ def main() -> int:
     (manifest_store / "LATEST").write_text(run_id + "\n", encoding="utf-8")
     print(f"MANIFEST oss://{env['CANVAS_OSS_BUCKET']}/{manifest_key}")
     print(f"SHA256 {manifest_sha}")
-    print(f"backup complete: objects={len(items)} bytes={total_bytes}")
+    print(f"backup complete: objects={len(items)} bytes={total_bytes} duration={duration_seconds}s")
+    if duration_seconds > args.max_duration_seconds:
+        print(
+            f"WARNING backup duration {duration_seconds}s exceeded budget "
+            f"{args.max_duration_seconds}s; backup is complete but the service will fail for alerting",
+            file=sys.stderr,
+        )
+        return 2
     return 0
 
 
