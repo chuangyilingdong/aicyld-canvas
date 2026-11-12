@@ -87,7 +87,10 @@ func ensureAgentOperationTurnAttribution(tx *gorm.DB) error {
 	if err := ensureAgentOpRecordsTable(tx); err != nil {
 		return err
 	}
-	return ensureAgentOpTurnIndex(tx)
+	if err := ensureAgentOpTurnIndex(tx); err != nil {
+		return err
+	}
+	return ensureAgentOpUserOpStatusIndex(tx)
 }
 
 func ensureAgentOpRecordsTable(tx *gorm.DB) error {
@@ -122,7 +125,10 @@ func ensureAgentOpRecordsTable(tx *gorm.DB) error {
 		if err := ensureSQLiteColumn(tx, "agent_op_records", "updated_at", "DATETIME"); err != nil {
 			return err
 		}
-		return ensureAgentOpTurnIndex(tx)
+		if err := ensureAgentOpTurnIndex(tx); err != nil {
+			return err
+		}
+		return ensureAgentOpUserOpStatusIndex(tx)
 	}
 	if err := tx.Exec(`CREATE TABLE agent_op_records (
 		user_id TEXT,
@@ -141,12 +147,20 @@ func ensureAgentOpRecordsTable(tx *gorm.DB) error {
 	)`).Error; err != nil {
 		return fmt.Errorf("创建 Agent 操作表: %w", err)
 	}
-	return ensureAgentOpTurnIndex(tx)
+	if err := ensureAgentOpTurnIndex(tx); err != nil {
+		return err
+	}
+	return ensureAgentOpUserOpStatusIndex(tx)
 }
 
 func ensureAgentOpTurnIndex(tx *gorm.DB) error {
 	return ensureSQLiteIndex(tx, "agent_op_records", "idx_agent_op_records_turn_id",
 		"CREATE INDEX idx_agent_op_records_turn_id ON agent_op_records(turn_id)")
+}
+
+func ensureAgentOpUserOpStatusIndex(tx *gorm.DB) error {
+	return ensureSQLiteIndex(tx, "agent_op_records", "idx_agent_op_records_user_op_status",
+		"CREATE INDEX idx_agent_op_records_user_op_status ON agent_op_records(user_id, op, status)")
 }
 
 func ensureImageSubmissionsTable(tx *gorm.DB) error {

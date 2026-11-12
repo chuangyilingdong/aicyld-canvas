@@ -72,6 +72,30 @@ func TestLocalSchemaRecordsVersionAndIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestAgentOperationQueryIndexSupportsUserOpStatusLookup(t *testing.T) {
+	db, err := Open(Config{Driver: "sqlite", DSN: "file:agent-operation-query-index?mode=memory&cache=shared"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := MigrateLocalSchema(db); err != nil {
+		t.Fatal(err)
+	}
+	var plan []struct{ Detail string }
+	if err := db.Raw(
+		"EXPLAIN QUERY PLAN SELECT op_id, result_json FROM agent_op_records WHERE user_id = ? AND op = ? AND status = ?",
+		"owner", "canvas.project.export", "succeeded",
+	).Scan(&plan).Error; err != nil {
+		t.Fatal(err)
+	}
+	details := make([]string, 0, len(plan))
+	for _, row := range plan {
+		details = append(details, row.Detail)
+	}
+	if !strings.Contains(strings.Join(details, "\n"), "idx_agent_op_records_user_op_status") {
+		t.Fatalf("query plan does not use operation lookup index: %v", details)
+	}
+}
+
 func TestTaskDiagnosticsMigrationPreservesExistingTasks(t *testing.T) {
 	db := openHistorical(t, "product-v2")
 	if err := db.Exec("UPDATE tasks SET id = 'existing-task', error = '历史错误' WHERE id = 'task'").Error; err != nil {
@@ -421,7 +445,7 @@ func TestAssistantTurnsMigrationFromPreviewV9(t *testing.T) {
 	if err := db.Order("version").Find(&ledger).Error; err != nil {
 		t.Fatal(err)
 	}
-	if ledger[len(ledger)-1].Version != CurrentSchemaVersion || ledger[len(ledger)-1].Name != "canvas-onboarding-events" {
+	if ledger[len(ledger)-1].Version != CurrentSchemaVersion || ledger[len(ledger)-1].Name != "agent-operation-query-index" {
 		t.Fatalf("current identity: %+v", ledger[len(ledger)-1])
 	}
 	foundV10 := false

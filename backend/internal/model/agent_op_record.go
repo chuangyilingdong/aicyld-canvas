@@ -8,11 +8,11 @@ import "time"
 // TurnID 是写入发生时所属的助手回合。它和业务写入在同一个事务里提交，
 // 因此回合的「已落地改动」可以不依赖浏览器流，从回执重建。
 type AgentOpRecord struct {
-	UserID      string    `json:"userId" gorm:"primaryKey;size:36"`
+	UserID      string    `json:"userId" gorm:"primaryKey;size:36;index:idx_agent_op_records_user_op_status,priority:1"`
 	OpID        string    `json:"opId" gorm:"primaryKey;size:80"`
-	Op          string    `json:"op" gorm:"size:80"`
+	Op          string    `json:"op" gorm:"size:80;index:idx_agent_op_records_user_op_status,priority:2"`
 	PayloadHash string    `json:"payloadHash" gorm:"size:64"`
-	Status      string    `json:"status" gorm:"size:24"`
+	Status      string    `json:"status" gorm:"size:24;index:idx_agent_op_records_user_op_status,priority:3"`
 	ResultJSON  string    `json:"resultJson" gorm:"type:text"`
 	TurnID      string    `json:"turnId,omitempty" gorm:"size:64;index"`
 	CallerKind  string    `json:"callerKind,omitempty" gorm:"size:24"`

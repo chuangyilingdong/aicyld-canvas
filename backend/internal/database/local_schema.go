@@ -15,7 +15,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion int64 = 30
+const CurrentSchemaVersion int64 = 31
 
 type localSchemaMigration struct {
 	Version   int64 `gorm:"primaryKey;autoIncrement:false"`
@@ -144,6 +144,7 @@ func canonicalLocalMigrations() []localMigration {
 		}},
 		{version: 29, name: "skill-market-review-submissions", apply: migrateSkillMarketSubmissions},
 		{version: 30, name: "canvas-onboarding-events", apply: func(tx *gorm.DB) error { return tx.AutoMigrate(&model.CanvasOnboardingEvent{}) }},
+		{version: 31, name: "agent-operation-query-index", apply: ensureAgentOpUserOpStatusIndex},
 	}
 }
 
