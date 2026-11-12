@@ -2,6 +2,12 @@
 
 All notable public changes to BeefTV are documented in this file.
 
+## v2.1.3-aicyld.54
+
+- 画布保存：服务端确认保存后，如果本地内容已与确认快照一致，立即清理冗余防抖定时器，避免保存成功后仍短暂显示未保存。
+- 发布流程：AICYLD tag 的容器镜像构建优先使用 `RELEASE_VERSION` 校验版本，修复 tag 与 `VERSION` 不一致导致的工作流失败。
+- 测试门禁：修复 Windows 换行导致的更新日志断言失败，并同步画布生命周期浏览器测试到 2 秒保存防抖。
+
 ## v2.1.3-aicyld.53
 
 - 画布保存：生成任务的进度轮询不再反复提交整份画布；普通编辑统一做 2 秒防抖，显著减少 revision 增长和保存写放大。
