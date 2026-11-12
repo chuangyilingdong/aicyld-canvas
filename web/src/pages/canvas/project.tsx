@@ -1,9 +1,8 @@
 import { localAssetToInsertPayload } from "@/components/canvas/asset-picker-modal";
-import { CanvasAssistantSidebar } from "./canvas-assistant-sidebar";
 import { useCanvasAssistantContinuation } from "./use-canvas-assistant-continuation";
 import { highlightAssistantNodes } from "./canvas-assistant-highlight";
 import { resolveCanvasRightPanel, useCanvasAssistant, useCanvasAssistantDockable } from "./use-canvas-assistant";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { isLocalWorkspaceMode } from "@/services/workspace-mode";
@@ -51,7 +50,6 @@ import { listCanvasWorkspaceProjectCanvases } from "@/lib/canvas/canvas-workspac
 import { batchSourceRestriction } from "@/lib/canvas/canvas-batch-connection";
 import { CanvasSyncStatus } from "./canvas-sync-status";
 import { CanvasVersionHistory, useCanvasVersionHistory } from "./canvas-version-history";
-import { CanvasVersionPreview } from "./canvas-version-preview";
 import { CanvasTopBar } from "./canvas-project-top-bar";
 import { CanvasFocusModeBar } from "@/components/canvas/canvas-focus-mode-bar";
 import { CanvasProjectContextMenu } from "./canvas-project-context-menu";
@@ -60,7 +58,6 @@ import { useCanvasImport } from "./use-canvas-import";
 import { useCanvasNodeReferences } from "./use-canvas-node-references";
 import { CanvasProjectNodePrompt } from "./canvas-project-node-prompt";
 import { CanvasProjectNodeContent } from "./canvas-project-node-content";
-import { CanvasProjectEditorDialogs } from "./canvas-project-editor-dialogs";
 import { CanvasProjectSelectionToolbar } from "./canvas-project-selection-toolbar";
 import { CanvasWorkflowWorkspace, type CanvasWorkflowsHandle } from "./canvas-workflow-workspace";
 import { useCanvasWorkflowInstances } from "./use-canvas-workflow-instances";
@@ -70,10 +67,8 @@ import { CanvasNodeActionContext, type CanvasNodeActionContextValue } from "@/co
 import { CanvasNodeGraphContext, type CanvasNodeGraphContextValue } from "@/components/canvas/canvas-node-graph-context";
 import { CanvasRefreshShell } from "./canvas-refresh-shell";
 import type { CanvasImageEmotionPayload } from "@/components/canvas/canvas-node-emotion-panel";
-import { CanvasEmotionWorkspace } from "@/components/canvas/canvas-emotion-workspace";
 import { removeCanvasDrawing } from "@/lib/canvas/canvas-drawing-storage";
 import { persistCanvasTimeline, refreshLocalCanvasProjectIfChanged } from "@/services/local-workspace-repository";
-import { CanvasUploadModal } from "@/components/canvas/canvas-upload-modal";
 import { useCanvasConnectionController } from "./use-canvas-connection-controller";
 import { useCanvasActiveTasks } from "./use-canvas-active-tasks";
 import { useCanvasStyleWorkflow } from "./use-canvas-style-workflow";
@@ -110,6 +105,12 @@ import { useCanvasContextMenu } from "./use-canvas-context-menu";
 import { useCanvasProjectDialogs } from "./use-canvas-project-dialogs";
 import { useCanvasResourceHandoff } from "./use-canvas-resource-handoff";
 import { CanvasNodeType, type CanvasAssistantSession, type CanvasConnection, type CanvasNodeData, type CanvasWorkspaceMode, type Position } from "@/types/canvas";
+
+const CanvasAssistantSidebar = lazy(() => import("./canvas-assistant-sidebar").then((module) => ({ default: module.CanvasAssistantSidebar })));
+const CanvasProjectEditorDialogs = lazy(() => import("./canvas-project-editor-dialogs").then((module) => ({ default: module.CanvasProjectEditorDialogs })));
+const CanvasEmotionWorkspace = lazy(() => import("@/components/canvas/canvas-emotion-workspace").then((module) => ({ default: module.CanvasEmotionWorkspace })));
+const CanvasUploadModal = lazy(() => import("@/components/canvas/canvas-upload-modal").then((module) => ({ default: module.CanvasUploadModal })));
+const CanvasVersionPreview = lazy(() => import("./canvas-version-preview").then((module) => ({ default: module.CanvasVersionPreview })));
 
 
 export default function CanvasPage() {
@@ -1703,17 +1704,19 @@ function InfiniteCanvasPage() {
                         ) : null}
 
                         {emotionNode?.metadata?.content && !isCanvasNodeMoving ? (
-                            <CanvasEmotionWorkspace
-                                node={emotionNode}
-                                viewport={viewport}
-                                containerRef={containerRef}
-                                dragOffset={dragPreview?.nodeIds.has(emotionNode.id) ? { x: dragPreview.x, y: dragPreview.y } : null}
-                                isDragging={isNodeDragging && Boolean(dragPreview?.nodeIds.has(emotionNode.id))}
-                                onClose={() => setEmotionNodeId(null)}
-                                onConfirm={(payload: CanvasImageEmotionPayload) => {
-                                    void generateEmotionNode(emotionNode, payload);
-                                }}
-                            />
+                            <Suspense fallback={null}>
+                                <CanvasEmotionWorkspace
+                                    node={emotionNode}
+                                    viewport={viewport}
+                                    containerRef={containerRef}
+                                    dragOffset={dragPreview?.nodeIds.has(emotionNode.id) ? { x: dragPreview.x, y: dragPreview.y } : null}
+                                    isDragging={isNodeDragging && Boolean(dragPreview?.nodeIds.has(emotionNode.id))}
+                                    onClose={() => setEmotionNodeId(null)}
+                                    onConfirm={(payload: CanvasImageEmotionPayload) => {
+                                        void generateEmotionNode(emotionNode, payload);
+                                    }}
+                                />
+                            </Suspense>
                         ) : null}
 
                         {dialogNode &&
@@ -1927,10 +1930,15 @@ function InfiniteCanvasPage() {
                             onDeleteSelection={() => deleteNodes(selectedNodeIds)}
                         />
 
-                        <CanvasUploadModal open={uploadModalOpen} onClose={closeUploadModal} onUpload={handleUploadFiles} onImportUrl={handleImportUrl} />
+                        {uploadModalOpen ? (
+                            <Suspense fallback={null}>
+                                <CanvasUploadModal open onClose={closeUploadModal} onUpload={handleUploadFiles} onImportUrl={handleImportUrl} />
+                            </Suspense>
+                        ) : null}
                         <input ref={imageInputRef} type="file" accept="image/*,video/*,.mp4,.mov,.m4v,audio/mpeg,audio/wav,audio/x-wav,.mp3,.wav,.txt,.md,.markdown" multiple className="hidden" onChange={handleImageInputChange} />
 
-                        <CanvasProjectEditorDialogs
+                        <Suspense fallback={null}>
+                            <CanvasProjectEditorDialogs
                             projectId={projectId} theme={theme} config={effectiveConfig}
                             document={document} dialogs={dialogs} renderModel={renderModel}
                             generation={generation} nodeEditor={nodeEditor} mediaTools={mediaTools}
@@ -1972,27 +1980,34 @@ function InfiniteCanvasPage() {
                                 onCloseProject: closeProjectAssets, onInsertProject: handleTimelineProjectAssetsInsert,
                                 onInsertFolder: projectAssetScope === "canvas" ? handleProjectFolderInsert : undefined,
                             }}
-                        />
+                            />
+                        </Suspense>
                     </section>
-                    {versions.preview ? <CanvasVersionPreview key={versions.preview.key} preview={versions.preview} busy={versions.restoring || versions.confirming} onReturn={versions.returnToCurrent} onShowVersions={versions.show} /> : null}
+                    {versions.preview ? (
+                        <Suspense fallback={<CanvasRefreshShell />}>
+                            <CanvasVersionPreview key={versions.preview.key} preview={versions.preview} busy={versions.restoring || versions.confirming} onReturn={versions.returnToCurrent} onShowVersions={versions.show} />
+                        </Suspense>
+                    ) : null}
                     </div>
                 </CanvasOverlayLayerProvider>
                 {rightPanel === "assistant" && !focusMode && !versions.preview ? (
-                    <CanvasAssistantSidebar
-                        proposalFeedback={assistantProposalFeedback}
-                        runningProposalIds={runningProposalIds}
-                        assistant={assistant}
-                        continuation={assistantContinuation}
-                        nodes={nodes}
-                        canvasTitle={workspaceProject?.title === "未命名项目" || !workspaceProject?.title ? "未命名工作区" : workspaceProject.title}
-                        dockable={assistantDockable}
-                        readOnly={readOnly}
-                        selectedNodeIds={assistantSelectedNodeIds}
-                        references={assistantMentionReferences}
-                        onLocateNodes={locateAssistantNodes}
-                        onRunProposal={runAssistantProposal}
-                        onOpenModelSettings={() => navigate("/settings?section=channels")}
-                    />
+                    <Suspense fallback={<div className="w-[420px] max-w-[42vw] shrink-0 border-l border-border bg-sidebar" aria-busy="true" />}>
+                        <CanvasAssistantSidebar
+                            proposalFeedback={assistantProposalFeedback}
+                            runningProposalIds={runningProposalIds}
+                            assistant={assistant}
+                            continuation={assistantContinuation}
+                            nodes={nodes}
+                            canvasTitle={workspaceProject?.title === "未命名项目" || !workspaceProject?.title ? "未命名工作区" : workspaceProject.title}
+                            dockable={assistantDockable}
+                            readOnly={readOnly}
+                            selectedNodeIds={assistantSelectedNodeIds}
+                            references={assistantMentionReferences}
+                            onLocateNodes={locateAssistantNodes}
+                            onRunProposal={runAssistantProposal}
+                            onOpenModelSettings={() => navigate("/settings?section=channels")}
+                        />
+                    </Suspense>
                 ) : null}
                 <CanvasVersionHistory history={versions} />
                 <CanvasWorkflowWorkspace

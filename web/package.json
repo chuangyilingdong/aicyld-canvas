@@ -6,7 +6,7 @@
     "scripts": {
         "dev": "vite --host 0.0.0.0 --port 3000",
         "dev:slim": "BEEFTV_FULL_MEDIA_RESOURCES=0 vite --host 0.0.0.0 --port 3000",
-        "build": "tsc --noEmit && vite build",
+        "build": "tsc --noEmit && vite build && bun scripts/check-canvas-bundle-budget.mjs",
         "build:hosted": "bun run build && bun run verify:hosted",
         "build:full": "BEEFTV_FULL_MEDIA_RESOURCES=1 bun run build",
         "build:slim": "BEEFTV_FULL_MEDIA_RESOURCES=0 bun run build",
