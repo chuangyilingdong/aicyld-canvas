@@ -154,8 +154,12 @@ func (s *Store) Run(ctx context.Context, req RunRequest, fn func(tx *gorm.DB) ([
 			}
 			return runErr
 		}
+		resultJSON, resultEncoding, err := model.EncodeAgentOpResult(out)
+		if err != nil {
+			return AsError(err)
+		}
 		if err := tx.Model(&model.AgentOpRecord{}).Where("user_id = ? AND op_id = ?", req.UserID, req.OpID).
-			Updates(map[string]any{"status": "succeeded", "result_json": string(out), "turn_id": strings.TrimSpace(req.TurnID)}).Error; err != nil {
+			Updates(map[string]any{"status": "succeeded", "result_json": resultJSON, "result_encoding": resultEncoding, "turn_id": strings.TrimSpace(req.TurnID)}).Error; err != nil {
 			return AsError(err)
 		}
 		if req.AfterCommitInTx != nil {
@@ -232,8 +236,12 @@ func (s *Store) runOutOfTx(db *gorm.DB, req RunRequest, fn func(tx *gorm.DB) ([]
 		}
 		return RunOutcome{}, AsError(runErr)
 	}
+	resultJSON, resultEncoding, err := model.EncodeAgentOpResult(out)
+	if err != nil {
+		return RunOutcome{}, AsError(err)
+	}
 	if err := db.Model(&model.AgentOpRecord{}).Where("user_id = ? AND op_id = ?", req.UserID, req.OpID).
-		Updates(map[string]any{"status": "succeeded", "result_json": string(out), "turn_id": strings.TrimSpace(req.TurnID)}).Error; err != nil {
+		Updates(map[string]any{"status": "succeeded", "result_json": resultJSON, "result_encoding": resultEncoding, "turn_id": strings.TrimSpace(req.TurnID)}).Error; err != nil {
 		return RunOutcome{}, AsError(err)
 	}
 	return RunOutcome{Result: out}, nil
