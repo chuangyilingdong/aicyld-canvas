@@ -34,8 +34,11 @@ jobs:
         shell: bash
         run: |
           version="$(tr -d '\r\n' < VERSION)"
+          if [[ "$GITHUB_REF" == refs/tags/v* && -f RELEASE_VERSION ]]; then
+            version="$(tr -d '\r\n' < RELEASE_VERSION)"
+          fi
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            [[ "$version" == "$GITHUB_REF_NAME" ]] || { echo "VERSION=$version does not match tag $GITHUB_REF_NAME" >&2; exit 1; }
+            [[ "$version" == "$GITHUB_REF_NAME" ]] || { echo "resolved version $version does not match tag $GITHUB_REF_NAME" >&2; exit 1; }
             grep -Fqx "## $version" CHANGELOG.md || { echo "CHANGELOG.md is missing ## $version" >&2; exit 1; }
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"

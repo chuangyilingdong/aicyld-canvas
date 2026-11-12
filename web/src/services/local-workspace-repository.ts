@@ -508,6 +508,17 @@ async function applyAcceptedCanvasSave(id: string, submitted: CanvasProject, sav
     }));
     if (!pendingExternal && !canvasExternalRevisionConflict(scope, id)) {
         resumeCanvasBackendSubmit(id, scope);
+        // A successful save may have been followed by a duplicate debounce tick.
+        // Clear it only when there is no newer document edit to protect.
+        const liveAfterSave = useCanvasStore.getState().openProject(id);
+        if (liveAfterSave && sameCanvasDocument(confirmed, liveAfterSave)) {
+            const key = saveKey(scope, id);
+            const redundantTimer = backendSaveTimers.get(key);
+            if (redundantTimer) {
+                clearTimeout(redundantTimer);
+                backendSaveTimers.delete(key);
+            }
+        }
     }
     const pending = journal.pendingProjection;
     if (pending) {

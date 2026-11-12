@@ -12,7 +12,7 @@ function read(path: string) {
 describe("desktop update UI contract", () => {
     test("installed release has published notes in both the release and in-app changelogs", () => {
         const version = read("../VERSION").trim();
-        expect(read("../CHANGELOG.md")).toContain(`## ${version}\n`);
+        expect(read("../CHANGELOG.md").replace(/\r\n/g, "\n")).toContain(`## ${version}\n`);
         expect(appChangelogZh.find((entry) => entry.version === version)?.changes.length).toBeGreaterThan(0);
         expect(new Set(appChangelogZh.map((entry) => entry.version)).size).toBe(appChangelogZh.length);
     });

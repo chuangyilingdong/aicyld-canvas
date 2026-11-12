@@ -64,7 +64,7 @@ function Harness() {
         let count = 0;
         const timer = setInterval(() => {
             unrelatedRender(value => value + 1);
-            if (++count === 17) { clearInterval(timer); resolve(); }
+            if (++count === 55) { clearInterval(timer); resolve(); }
         }, 50);
     });
     const { nodes, nodesRef, setNodes, setNodesState, adoptNodes } = useCanvasNodeState();
