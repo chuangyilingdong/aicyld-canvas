@@ -1,4 +1,4 @@
-import { localAssetToInsertPayload } from "@/components/canvas/asset-picker-modal";
+import { localAssetToInsertPayload } from "@/lib/canvas/canvas-insert-payload";
 import { useCanvasAssistantContinuation } from "./use-canvas-assistant-continuation";
 import { highlightAssistantNodes } from "./canvas-assistant-highlight";
 import { resolveCanvasRightPanel, useCanvasAssistant, useCanvasAssistantDockable } from "./use-canvas-assistant";
@@ -29,9 +29,6 @@ import { CanvasAssetTray } from "@/components/canvas/canvas-asset-tray";
 import { CanvasProjectSidebar } from "@/components/canvas/canvas-project-sidebar";
 import { CanvasNodeToolbar } from "@/components/canvas/canvas-node-toolbar";
 import { useCanvasUpscaleBatch } from "./use-canvas-upscale-batch";
-import { CanvasVideoInlineTrimOverlay } from "@/components/canvas/canvas-video-inline-trim";
-import { CanvasNodeAnglePanel } from "@/components/canvas/canvas-node-angle-dialog";
-import { CanvasNodeLightingPanel } from "@/components/canvas/canvas-node-lighting-dialog";
 import { CanvasFileDropOverlay } from "@/components/canvas/canvas-file-drop-overlay";
 import { InfiniteCanvas } from "@/components/canvas/infinite-canvas";
 import { Minimap } from "@/components/canvas/canvas-mini-map";
@@ -41,7 +38,6 @@ import { CanvasZoomControls } from "@/components/canvas/canvas-zoom-controls";
 import { buildCanvasAgentMentionReferences, getContextResourceNodes, type CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import { CanvasConnectionCreateMenu, CanvasNodePanelOverlay } from "@/components/canvas/canvas-workspace-overlays";
 import { CanvasOverlayLayerContainer, CanvasOverlayLayerProvider } from "@/components/canvas/canvas-overlay-layer";
-import { CanvasLeaferGraphicsLayer } from "@/components/canvas/canvas-leafer-graphics-layer";
 import { CanvasLodLayer } from "@/components/canvas/canvas-lod-layer";
 import { CanvasFreeformEmptyState, CanvasLinkedProjectEmptyState, CanvasShortDramaEmptyState, CanvasShortDramaGuide } from "@/components/canvas/canvas-short-drama-entry";
 import { resolveCanvasEmptyStateKind } from "@/lib/canvas/canvas-starter";
@@ -112,6 +108,10 @@ const CanvasProjectEditorDialogs = lazy(() => import("./canvas-project-editor-di
 const CanvasEmotionWorkspace = lazy(() => import("@/components/canvas/canvas-emotion-workspace").then((module) => ({ default: module.CanvasEmotionWorkspace })));
 const CanvasUploadModal = lazy(() => import("@/components/canvas/canvas-upload-modal").then((module) => ({ default: module.CanvasUploadModal })));
 const CanvasVersionPreview = lazy(() => import("./canvas-version-preview").then((module) => ({ default: module.CanvasVersionPreview })));
+const CanvasLeaferGraphicsLayer = lazy(() => import("@/components/canvas/canvas-leafer-graphics-layer").then((module) => ({ default: module.CanvasLeaferGraphicsLayer })));
+const CanvasNodeAnglePanel = lazy(() => import("@/components/canvas/canvas-node-angle-dialog").then((module) => ({ default: module.CanvasNodeAnglePanel })));
+const CanvasNodeLightingPanel = lazy(() => import("@/components/canvas/canvas-node-lighting-dialog").then((module) => ({ default: module.CanvasNodeLightingPanel })));
+const CanvasVideoInlineTrimOverlay = lazy(() => import("@/components/canvas/canvas-video-inline-trim").then((module) => ({ default: module.CanvasVideoInlineTrimOverlay })));
 
 
 export default function CanvasPage() {
@@ -1485,21 +1485,23 @@ function InfiniteCanvasPage() {
                                             onNodeDoubleClick={handleLodNodeDoubleClick}
                                             onHoverNodeChange={setLodHoverNodeId}
                                         />
-                                        <CanvasLeaferGraphicsLayer
-                                            containerRef={containerRef}
-                                            viewport={viewport}
-                                            theme={theme}
-                                            scriptScrollTopById={scriptScrollTopById}
-                                            connectingParams={connectingParams}
-                                            batchConnectionPreview={batchConnectionPreview}
-                                            mouseWorld={mouseWorld}
-                                            connectionTargetNodeId={connectionTargetNodeId}
-                                            connectionTargetAnchorRatio={connectionTargetAnchorRatio}
-                                            nodeById={nodeById}
-                                            selectionBox={selectionBox}
-                                            selectedNodeBounds={selectedNodeBounds}
-                                            alignmentGuides={alignmentGuides}
-                                        />
+                                        <Suspense fallback={null}>
+                                            <CanvasLeaferGraphicsLayer
+                                                containerRef={containerRef}
+                                                viewport={viewport}
+                                                theme={theme}
+                                                scriptScrollTopById={scriptScrollTopById}
+                                                connectingParams={connectingParams}
+                                                batchConnectionPreview={batchConnectionPreview}
+                                                mouseWorld={mouseWorld}
+                                                connectionTargetNodeId={connectionTargetNodeId}
+                                                connectionTargetAnchorRatio={connectionTargetAnchorRatio}
+                                                nodeById={nodeById}
+                                                selectionBox={selectionBox}
+                                                selectedNodeBounds={selectedNodeBounds}
+                                                alignmentGuides={alignmentGuides}
+                                            />
+                                        </Suspense>
                                         </>
                                     }
                                     onViewportChange={handleViewportChange}
@@ -1682,25 +1684,29 @@ function InfiniteCanvasPage() {
                                 dragOffset={dragPreview?.nodeIds.has(angleNode.id) ? { x: dragPreview.x, y: dragPreview.y } : null}
                                 isDragging={isNodeDragging && Boolean(dragPreview?.nodeIds.has(angleNode.id))}
                             >
-                                <CanvasNodeAnglePanel
-                                    dataUrl={angleNode.metadata.content}
-                                    onClose={() => setAngleNodeId(null)}
-                                    onConfirm={(params) => {
-                                        void generateAngleNode(angleNode, params);
-                                    }}
-                                />
+                                <Suspense fallback={null}>
+                                    <CanvasNodeAnglePanel
+                                        dataUrl={angleNode.metadata.content}
+                                        onClose={() => setAngleNodeId(null)}
+                                        onConfirm={(params) => {
+                                            void generateAngleNode(angleNode, params);
+                                        }}
+                                    />
+                                </Suspense>
                             </CanvasNodePanelOverlay>
                         ) : null}
 
                         {lightingNode?.metadata?.content ? (
                             <AppModal flush open centered title={null} closable={false} footer={null} width={720} onCancel={() => setLightingNodeId(null)}>
-                                <CanvasNodeLightingPanel
-                                    dataUrl={lightingNode.metadata.content}
-                                    onClose={() => setLightingNodeId(null)}
-                                    onConfirm={(options, prompt) => {
-                                        generateLightingNode(lightingNode, options, prompt);
-                                    }}
-                                />
+                                <Suspense fallback={null}>
+                                    <CanvasNodeLightingPanel
+                                        dataUrl={lightingNode.metadata.content}
+                                        onClose={() => setLightingNodeId(null)}
+                                        onConfirm={(options, prompt) => {
+                                            generateLightingNode(lightingNode, options, prompt);
+                                        }}
+                                    />
+                                </Suspense>
                             </AppModal>
                         ) : null}
 
@@ -1875,16 +1881,18 @@ function InfiniteCanvasPage() {
                         ) : null}
 
                         {inlineTrimNode ? (
-                            <CanvasVideoInlineTrimOverlay
-                                node={inlineTrimNode}
-                                viewport={viewport}
-                                containerRef={containerRef}
-                                dragOffset={dragPreview?.nodeIds.has(inlineTrimNode.id) ? { x: dragPreview.x, y: dragPreview.y } : null}
-                                isDragging={isNodeDragging && Boolean(dragPreview?.nodeIds.has(inlineTrimNode.id))}
-                                busy={inlineTrimRunning}
-                                onCancel={closeInlineVideoTrim}
-                                onConfirm={(range) => void confirmInlineVideoTrim(inlineTrimNode, range)}
-                            />
+                            <Suspense fallback={null}>
+                                <CanvasVideoInlineTrimOverlay
+                                    node={inlineTrimNode}
+                                    viewport={viewport}
+                                    containerRef={containerRef}
+                                    dragOffset={dragPreview?.nodeIds.has(inlineTrimNode.id) ? { x: dragPreview.x, y: dragPreview.y } : null}
+                                    isDragging={isNodeDragging && Boolean(dragPreview?.nodeIds.has(inlineTrimNode.id))}
+                                    busy={inlineTrimRunning}
+                                    onCancel={closeInlineVideoTrim}
+                                    onConfirm={(range) => void confirmInlineVideoTrim(inlineTrimNode, range)}
+                                />
+                            </Suspense>
                         ) : null}
 
                         <CanvasProjectContextMenu
