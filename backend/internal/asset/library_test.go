@@ -211,6 +211,40 @@ func TestLibraryRejectsForeignAndAcceptsOwnedResource(t *testing.T) {
 	}
 }
 
+func TestUpsertUserAssetReusesActiveMediaForSameResource(t *testing.T) {
+	lib, db := newLibraryFixture(t)
+	now := time.Now().UTC()
+	resource := model.Resource{ID: "res-shared", UserID: "owner", Kind: "image", Status: model.ResourceStatusReady, Provider: "local", ObjectKey: "shared.png", CreatedAt: now, UpdatedAt: now}
+	if err := db.Create(&resource).Error; err != nil {
+		t.Fatal(err)
+	}
+	payload := func(id string, updatedAt string) json.RawMessage {
+		raw, err := json.Marshal(testLibraryAssetPayload("image", map[string]any{
+			"id": id, "title": id, "createdAt": updatedAt, "updatedAt": updatedAt,
+			"data": map[string]any{"dataUrl": "/api/resources/res-shared/file", "storageKey": "resource:res-shared", "width": 1, "height": 1, "bytes": 1, "mimeType": "image/png"},
+		}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return raw
+	}
+	first, err := lib.UpsertUserAsset("owner", payload("asset-first", "2026-11-01T00:00:00Z"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := lib.UpsertUserAsset("owner", payload("asset-second", "2026-11-02T00:00:00Z"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.ID != first.ID {
+		t.Fatalf("duplicate resource created a new asset: first=%s second=%s", first.ID, second.ID)
+	}
+	var count int64
+	if err := db.Model(&model.Asset{}).Where("user_id = ?", "owner").Count(&count).Error; err != nil || count != 1 {
+		t.Fatalf("asset count = %d, err=%v", count, err)
+	}
+}
+
 func TestPersistPreparedAssetsRollsBackWithCallerTransaction(t *testing.T) {
 	lib, _ := newLibraryFixture(t)
 	raw, err := json.Marshal(testLibraryAssetPayload("image", map[string]any{"id": "generation_rollback"}))

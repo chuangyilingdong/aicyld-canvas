@@ -425,6 +425,12 @@ func isUniqueConstraint(err error) bool {
 	return strings.Contains(strings.ToUpper(err.Error()), "UNIQUE CONSTRAINT FAILED")
 }
 
+// IsUniqueConstraint lets domain services recover idempotently when two asset
+// writers race on the same media identity.
+func IsUniqueConstraint(err error) bool {
+	return isUniqueConstraint(err)
+}
+
 func newRepositoryID() string {
 	var value [16]byte
 	if _, err := rand.Read(value[:]); err != nil {

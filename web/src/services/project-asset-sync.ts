@@ -142,6 +142,9 @@ async function persistCanvasNodeAsset(options: EnsureCanvasNodeAssetOptions): Pr
     const declaredCategory = options.category || declaredCanvasNodeAssetCategory(options.node);
     let created = false;
     if (!asset) {
+        asset = await hydrateCanvasNodeDeclaredAsset(options.node, options.signal);
+    }
+    if (!asset) {
         const input = canvasNodeToAsset(options.node, { canvasId: options.canvasId, source: options.source, taskId: options.taskId });
         if (!input) throw new Error("当前节点没有可保存的素材内容");
         const assetId = store.addAsset(options.category ? { ...input, category: options.category } : input);
@@ -178,7 +181,7 @@ async function persistCanvasNodeAsset(options: EnsureCanvasNodeAssetOptions): Pr
         await http.put(`/assets/${encodeURIComponent(asset.id)}`, { asset }, { signal: options.signal });
         throwIfAborted(options.signal);
     }
-    await persistWorkspaceAssetLink({
+    const persistedAsset = await persistWorkspaceAssetLink({
         asset,
         domainProjectId: options.domainProjectId,
         category: declaredCategory,
@@ -186,7 +189,27 @@ async function persistCanvasNodeAsset(options: EnsureCanvasNodeAssetOptions): Pr
         source: "canvas",
         signal: options.signal,
     });
-    return { assetId: asset.id, created, linkedToProject: Boolean(options.domainProjectId), confirmed: true };
+    return { assetId: persistedAsset.id, created, linkedToProject: Boolean(options.domainProjectId), confirmed: true };
+}
+
+async function hydrateCanvasNodeDeclaredAsset(node: CanvasNodeData, signal?: AbortSignal): Promise<Asset | undefined> {
+    const id = String(node.metadata?.assetId || "").trim();
+    if (!id) return undefined;
+    try {
+        const payload = await getWorkspaceAsset(id, signal);
+        const asset = parseAssetRecord(payload.asset);
+        if (asset.kind !== node.type) return undefined;
+        const nodeResourceID = canvasNodeResourceId(node);
+        const assetResourceID = assetResourceId(asset);
+        if (nodeResourceID && assetResourceID && nodeResourceID !== assetResourceID) return undefined;
+        useAssetStore.setState((state) => (state.assets.some((item) => item.id === asset.id)
+            ? state
+            : { assets: [asset, ...state.assets] }));
+        return asset;
+    } catch (error) {
+        if (error instanceof ApiError && error.status === 404) return undefined;
+        throw error;
+    }
 }
 
 function generationTaskResult(task: GenerationTask): BackendGenerationResult {

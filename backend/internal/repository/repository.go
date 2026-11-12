@@ -1027,6 +1027,21 @@ func (r *Repository) AssetsForUserIDs(userID string, ids []string) ([]model.Asse
 	return assets, err
 }
 
+// AssetsForUserMediaStorageKeys returns active media assets by the exact
+// resource locator stored in the asset document. It is used to make repeated
+// canvas materialization idempotent before the unique index is reached.
+func (r *Repository) AssetsForUserMediaStorageKeys(userID, kind string, storageKeys []string) ([]model.Asset, error) {
+	if len(storageKeys) == 0 {
+		return nil, nil
+	}
+	var assets []model.Asset
+	err := r.db.Where(
+		"user_id = ? AND kind = ? AND status <> ? AND json_extract(payload_json, '$.data.storageKey') IN ?",
+		userID, kind, model.AssetVersionStatusArchived, storageKeys,
+	).Order("updated_at desc, id desc").Find(&assets).Error
+	return assets, err
+}
+
 func (r *Repository) UpsertAsset(asset *model.Asset) error {
 	result := r.db.Model(&model.Asset{}).
 		Where("id = ? AND user_id = ?", asset.ID, asset.UserID).

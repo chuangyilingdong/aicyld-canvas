@@ -54,7 +54,7 @@ func TestProductionAuthorizationMigrationPreservesV19HistoryAndRequiresColumn(t 
 	}
 	var after []localSchemaMigration
 	db.Order("version").Find(&after)
-	if len(after) != len(before)+13 || after[len(before)].Name != "assistant-production-authorization" || after[len(before)+1].Name != "skill-market-release-metadata" || after[len(before)+5].Name != "reconcile-preview-assistant-schema" || after[len(before)+6].Name != "task-recovery-outcome" || after[len(before)+7].Name != "task-beefapi-settlement" || after[len(before)+8].Name != "managed-media-query-identity" || after[len(before)+9].Name != "skill-market-review-submissions" || after[len(before)+10].Name != "canvas-onboarding-events" || after[len(before)+11].Name != "agent-operation-query-index" || after[len(before)+12].Name != "agent-operation-result-compression" {
+	if len(after) != len(before)+14 || after[len(before)].Name != "assistant-production-authorization" || after[len(before)+1].Name != "skill-market-release-metadata" || after[len(before)+5].Name != "reconcile-preview-assistant-schema" || after[len(before)+6].Name != "task-recovery-outcome" || after[len(before)+7].Name != "task-beefapi-settlement" || after[len(before)+8].Name != "managed-media-query-identity" || after[len(before)+9].Name != "skill-market-review-submissions" || after[len(before)+10].Name != "canvas-onboarding-events" || after[len(before)+11].Name != "agent-operation-query-index" || after[len(before)+12].Name != "agent-operation-result-compression" || after[len(before)+13].Name != "canvas-media-asset-identity" {
 		t.Fatal("migration identity changed")
 	}
 	for i, row := range before {

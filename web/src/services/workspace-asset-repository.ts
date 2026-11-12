@@ -1,8 +1,9 @@
 import { linkProjectAsset, moveProjectAsset, updateProjectAssetCategory } from "@/services/api/projects";
 import { ApiError } from "@/services/api/request";
-import { deleteWorkspaceAssetRecord, putWorkspaceAsset } from "@/services/api/workspace-data";
+import { deleteWorkspaceAssetRecord, getWorkspaceAsset, putWorkspaceAsset } from "@/services/api/workspace-data";
 import { getActiveUserScope } from "@/lib/user-scope";
 import { normalizeAssetCategory } from "@/lib/asset-category";
+import { parseAssetRecord } from "@/lib/asset-record";
 import { usesBrowserLocalResourceStore, workspaceAssetHasCanonicalMediaPersist } from "@/services/workspace-resource-storage";
 import {
     ackAssetStoreDraft,
@@ -148,13 +149,39 @@ async function commitTrackedAssetDraft(id: string, signal?: AbortSignal) {
     const submitted = asset;
     const saved = await putWorkspaceAsset(id, submitted, { signal });
     throwIfAborted(signal);
+    if (saved?.asset?.id && saved.asset.id !== id) {
+        return adoptCanonicalWorkspaceAsset(id, submittedVersion, saved.asset, signal);
+    }
     assertAssetWriteReceipt(saved?.asset, id);
     ackAssetStoreDraft(id, submittedVersion);
     applyReceiptProjection(id, submitted, saved.asset);
+    return useAssetStore.getState().assets.find((item) => item.id === id) ?? submitted;
+}
+
+async function adoptCanonicalWorkspaceAsset(
+    duplicateId: string,
+    submittedVersion: number | undefined,
+    receipt: AssetWriteReceipt,
+    signal?: AbortSignal,
+) {
+    const canonicalId = String(receipt.id || "").trim();
+    if (!canonicalId || canonicalId === duplicateId) throw new Error("素材去重回执无效");
+    const payload = await getWorkspaceAsset(canonicalId, signal);
+    throwIfAborted(signal);
+    const canonical = parseAssetRecord(payload.asset);
+    runAssetStoreProjection(() => {
+        useAssetStore.setState((state) => ({
+            assets: [canonical, ...state.assets.filter((item) => item.id !== duplicateId && item.id !== canonical.id)],
+        }));
+    });
+    const scope = getActiveUserScope();
+    const later = peekAssetStoreDraft(scope, duplicateId);
+    if (later && submittedVersion !== undefined && later.version === submittedVersion) ackAssetStoreDraft(duplicateId, submittedVersion);
+    return canonical;
 }
 
 /** Single boundary for local asset persistence and optional project linking. */
-export async function persistWorkspaceAssetLink({ asset, domainProjectId, category, folderId, source, signal }: WorkspaceAssetLinkOptions) {
+export async function persistWorkspaceAssetLink({ asset, domainProjectId, category, folderId, source, signal }: WorkspaceAssetLinkOptions): Promise<Asset> {
     throwIfAborted(signal);
     await hydrateAssetStoreDrafts();
     if (!workspaceAssetHasCanonicalMediaPersist(asset)) {
@@ -170,49 +197,57 @@ export async function persistWorkspaceAssetLink({ asset, domainProjectId, catego
         const submittedVersion = peekAssetStoreDraft(getActiveUserScope(), asset.id)?.version;
         await flushAssetStorePersistence();
         if (submittedVersion) ackAssetStoreDraft(asset.id, submittedVersion);
-        return;
+        return useAssetStore.getState().assets.find((item) => item.id === asset.id) ?? asset;
     }
 
-    await enqueueAssetCommit(getActiveUserScope(), asset.id, async () => {
+    return enqueueAssetCommit(getActiveUserScope(), asset.id, async () => {
         throwIfAborted(signal);
         const live = useAssetStore.getState().assets.find((item) => item.id === asset.id) ?? peekAssetStoreDraft(getActiveUserScope(), asset.id)?.asset ?? asset;
         const draft = peekAssetStoreDraft(getActiveUserScope(), live.id);
         const submittedVersion = draft?.version;
         if (draft?.kind === "delete") {
             await commitTrackedAssetDraft(live.id, signal);
-            return;
+            return live;
         }
         const submitted = live;
         const saved = await putWorkspaceAsset(live.id, submitted, { signal });
         throwIfAborted(signal);
-        assertAssetWriteReceipt(saved?.asset, live.id);
-        if (submittedVersion) ackAssetStoreDraft(live.id, submittedVersion);
-        const afterPut = peekAssetStoreDraft(getActiveUserScope(), live.id);
-        if (afterPut?.kind === "delete") {
-            await commitTrackedAssetDraft(live.id, signal);
-            return;
+        let canonical = live;
+        if (saved?.asset?.id && saved.asset.id !== live.id) {
+            canonical = await adoptCanonicalWorkspaceAsset(live.id, submittedVersion, saved.asset, signal);
+        } else {
+            assertAssetWriteReceipt(saved?.asset, live.id);
+            if (submittedVersion) ackAssetStoreDraft(live.id, submittedVersion);
+            applyReceiptProjection(live.id, submitted, saved.asset);
+            canonical = useAssetStore.getState().assets.find((item) => item.id === live.id) ?? live;
         }
-        if (!useAssetStore.getState().assets.some((item) => item.id === live.id)) return;
+        const afterPut = peekAssetStoreDraft(getActiveUserScope(), canonical.id);
+        if (afterPut?.kind === "delete") {
+            await commitTrackedAssetDraft(canonical.id, signal);
+            return canonical;
+        }
+        if (!useAssetStore.getState().assets.some((item) => item.id === canonical.id)) return canonical;
 
         let receipt: AssetWriteReceipt = saved.asset;
         if (domainProjectId) {
             const { asset: linkedAsset } = await linkProjectAsset(
                 domainProjectId,
-                { assetId: live.id, category: normalizeAssetCategory(category || live.category), folderId, source },
+                { assetId: canonical.id, category: normalizeAssetCategory(category || canonical.category), folderId, source },
                 signal,
             );
             throwIfAborted(signal);
-            let linked = category && linkedAsset.category !== category ? (await updateProjectAssetCategory(domainProjectId, live.id, category, signal)).asset : linkedAsset;
+            let linked = category && linkedAsset.category !== category ? (await updateProjectAssetCategory(domainProjectId, canonical.id, category, signal)).asset : linkedAsset;
             throwIfAborted(signal);
-            if (folderId !== undefined && (linked.folderId || "") !== folderId) linked = (await moveProjectAsset(domainProjectId, live.id, folderId, signal)).asset;
+            if (folderId !== undefined && (linked.folderId || "") !== folderId) linked = (await moveProjectAsset(domainProjectId, canonical.id, folderId, signal)).asset;
             throwIfAborted(signal);
             receipt = linked;
         }
-        if (peekAssetStoreDraft(getActiveUserScope(), live.id)?.kind === "delete") {
-            await commitTrackedAssetDraft(live.id, signal);
-            return;
+        if (peekAssetStoreDraft(getActiveUserScope(), canonical.id)?.kind === "delete") {
+            await commitTrackedAssetDraft(canonical.id, signal);
+            return canonical;
         }
-        applyReceiptProjection(live.id, submitted, receipt, domainProjectId);
+        applyReceiptProjection(canonical.id, canonical, receipt, domainProjectId);
+        return useAssetStore.getState().assets.find((item) => item.id === canonical.id) ?? canonical;
     });
 }
 
