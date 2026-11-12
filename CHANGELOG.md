@@ -2,6 +2,12 @@
 
 All notable public changes to BeefTV are documented in this file.
 
+## v2.1.3-aicyld.55
+
+- 画布性能：画布路由主 chunk 从约 730KB gzip 降到约 279KB gzip；编辑器对话框、工作流、Cytoscape、Leafer 覆盖层和媒体面板改为按需或空闲加载，并增加前端体积门禁。
+- 操作回执：大体积 Agent 操作结果使用透明 gzip 压缩，降低 SQLite、备份和读取放大；新增用户/操作/状态复合索引，消除后台清理慢查询。
+- 运维备份：用户资源改为内容寻址共享对象，跨日复用未变化资源；历史 Web hash 文件和旧回滚目录按保留策略自动清理。
+
 ## v2.1.3-aicyld.54
 
 - 画布保存：服务端确认保存后，如果本地内容已与确认快照一致，立即清理冗余防抖定时器，避免保存成功后仍短暂显示未保存。
