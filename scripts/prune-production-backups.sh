@@ -15,7 +15,7 @@ Options:
   --keep-backends N      Keep newest backend binaries (default: 7)
   --keep-databases N     Keep newest database snapshots (default: 7)
   --keep-web-tarballs N  Keep newest frontend tarballs (default: 5)
-  --keep-web-dirs N      Keep newest frontend directories (default: 3)
+  --keep-web-dirs N      Keep newest frontend directories (default: 2)
   --keep-release-dirs N  Keep newest full release rollback sets (default: 2)
   --keep PATH            Always keep PATH; may be repeated
   --apply                Delete candidates; otherwise only print the plan
@@ -55,7 +55,7 @@ web_root="${WEB_ROOT:-}"
 keep_backends=7
 keep_databases=7
 keep_web_tarballs=5
-keep_web_dirs=3
+keep_web_dirs=2
 keep_release_dirs=2
 declare -a keep_paths=()
 
