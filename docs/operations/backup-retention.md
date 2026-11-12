@@ -27,6 +27,8 @@
 - 无法识别的备份和运维文件
 - `.retention-manifests` 审计记录
 
+当前 `web-dist` 内还会保留最近 2 个前端回滚版本 `version.json.files` 引用的 hash 文件，其余未被引用的历史静态文件会由 `scripts/prune-web-dist-assets.py` 删除。该脚本只处理当前 `web-dist` 内的普通文件，不会改动当前入口或任何回滚目录。
+
 只有备份根目录的直接子项会被匹配。真正删除前，脚本还会校验候选路径的父目录必须等于已解析的备份根或生产根；任一异常都会终止整次清理。
 
 ## 手工操作
@@ -56,6 +58,8 @@
 
 本地清理不再使用独立定时器。`aicyld-canvas-oss-backup.service` 成功后通过 `OnSuccess=aicyld-canvas-backup-retention.service` 触发清理，确保 OSS 备份失败时不会先删除本地回滚点。服务以 root 运行，因为历史文件同时属于 `root`、`aicyld` 和 `www-data`。
 
+同一个成功回调还会执行 `prune-web-dist-assets.py`，清理当前 `web-dist` 中未被当前和最近 2 个回滚版本引用的历史 hash 文件，减少静态目录体积和每日 OSS 上传量。
+
 安装或更新 unit：
 
 ```bash
@@ -70,6 +74,15 @@ systemctl disable --now aicyld-canvas-backup-retention.timer 2>/dev/null || true
 ```bash
 journalctl -u aicyld-canvas-oss-backup.service -u aicyld-canvas-backup-retention.service --since -7days
 ```
+
+前端静态资产默认只预演：
+
+```bash
+python3 /srv/aicyld/canvas/src/scripts/prune-web-dist-assets.py \
+  --canvas-root /srv/aicyld/canvas --keep-previous 2
+```
+
+确认计划后再加 `--apply`。
 
 ## 验证
 

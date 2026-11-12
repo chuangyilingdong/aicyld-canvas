@@ -7,6 +7,7 @@ ConditionPathIsDirectory=/srv/aicyld/canvas/backups
 [Service]
 Type=oneshot
 ExecStart=/srv/aicyld/canvas/src/scripts/prune-production-backups.sh --apply
+ExecStart=/usr/bin/python3 /srv/aicyld/canvas/src/scripts/prune-web-dist-assets.py --canvas-root /srv/aicyld/canvas --keep-previous 2 --apply
 Nice=10
 IOSchedulingClass=idle
 TimeoutStartSec=30min
