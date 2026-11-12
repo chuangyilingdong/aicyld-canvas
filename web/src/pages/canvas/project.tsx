@@ -59,7 +59,8 @@ import { useCanvasNodeReferences } from "./use-canvas-node-references";
 import { CanvasProjectNodePrompt } from "./canvas-project-node-prompt";
 import { CanvasProjectNodeContent } from "./canvas-project-node-content";
 import { CanvasProjectSelectionToolbar } from "./canvas-project-selection-toolbar";
-import { CanvasWorkflowWorkspace, type CanvasWorkflowsHandle } from "./canvas-workflow-workspace";
+import type { CanvasWorkflowsHandle } from "./canvas-workflow-workspace";
+import { CanvasWorkflowWorkspaceHost } from "./canvas-workflow-workspace-host";
 import { useCanvasWorkflowInstances } from "./use-canvas-workflow-instances";
 import { workflowDropSlot } from "@/lib/canvas/reusable-workflow-instance";
 import { CanvasProjectWorldLayers } from "./canvas-project-world-layers";
@@ -2010,7 +2011,7 @@ function InfiniteCanvasPage() {
                     </Suspense>
                 ) : null}
                 <CanvasVersionHistory history={versions} />
-                <CanvasWorkflowWorkspace
+                <CanvasWorkflowWorkspaceHost
                     key={projectId}
                     ref={workflowsRef}
                     nodes={nodes}

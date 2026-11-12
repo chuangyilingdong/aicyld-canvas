@@ -12,7 +12,7 @@ import "./canvas-assistant-sidebar.css";
 
 export type CanvasWorkflowsHandle = { openLibrary(): void; toggleLibrary(): void; closeLibrary(): void; saveSelection(): void };
 
-export const CanvasWorkflowWorkspace = forwardRef<CanvasWorkflowsHandle, {
+export type CanvasWorkflowWorkspaceProps = {
     nodes: CanvasNodeData[];
     connections: CanvasConnection[];
     selection: Set<string>;
@@ -21,7 +21,9 @@ export const CanvasWorkflowWorkspace = forwardRef<CanvasWorkflowsHandle, {
     visible: boolean;
     onOpenChange(open: boolean): void;
     onInstantiate(workflow: CanvasWorkflow): Promise<void>;
-}>(function CanvasWorkflowWorkspace({ nodes, connections, selection, readOnly, dockable, visible, onOpenChange, onInstantiate }, ref) {
+};
+
+export const CanvasWorkflowWorkspace = forwardRef<CanvasWorkflowsHandle, CanvasWorkflowWorkspaceProps>(function CanvasWorkflowWorkspace({ nodes, connections, selection, readOnly, dockable, visible, onOpenChange, onInstantiate }, ref) {
     const [open, setOpen] = useState(false);
     const [draft, setDraft] = useState<{ definition: WorkflowDefinition; externalCount: number } | null>(null);
     const [workflows, setWorkflows] = useState<CanvasWorkflow[]>([]);
