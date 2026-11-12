@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import hashlib
 import importlib.util
 import json
@@ -43,9 +44,13 @@ def main() -> int:
     local_sha = hashlib.sha256(local_bytes).hexdigest()
     manifest = json.loads(local_bytes)
     objects = manifest.get("objects", [])
-    total = sum(int(item.get("size", 0)) for item in objects)
+    unique_objects: dict[str, dict[str, object]] = {}
+    for item in objects:
+        if isinstance(item, dict):
+            unique_objects.setdefault(str(item.get("key", "")), item)
+    total = sum(int(item.get("size", 0)) for item in unique_objects.values())
     print(f"manifest_sha256={local_sha}")
-    print(f"objects={len(objects)} bytes={total}")
+    print(f"references={len(objects)} unique_objects={len(unique_objects)} bytes={total}")
 
     sensitive_markers = ("canvas.env", "platform-channels", "workspace", "agent_host_token", "agent_owner_token", ".settings-key", "local-model-config")
     bad = []
@@ -86,13 +91,33 @@ def main() -> int:
             raise SystemExit(f"rollback object missing from OSS: {rollback_key}")
         print(f"rollback_ok {rollback_key} size={size}")
 
+    shared = {
+        key: item
+        for key, item in unique_objects.items()
+        if item.get("shared") and key
+    }
+
+    def verify_shared(item: tuple[str, dict[str, object]]) -> str:
+        key, record = item
+        expected = int(record.get("size", 0))
+        exists, size = client.head(key)
+        if not exists or size != expected:
+            raise RuntimeError(f"shared object mismatch: {key}, expected={expected}, remote={size}, exists={exists}")
+        return key
+
+    if shared:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+            for _ in pool.map(verify_shared, shared.items()):
+                pass
+        print(f"shared_ok objects={len(shared)} bytes={sum(int(item.get('size', 0)) for item in shared.values())}")
+
     budget = manifest.get("backupBudget", {})
     if budget:
         max_objects = int(budget.get("maxObjects", 0))
         max_bytes = int(budget.get("maxBytes", 0))
         max_duration = int(budget.get("maxDurationSeconds", 0))
-        if max_objects and len(objects) > max_objects:
-            raise SystemExit(f"manifest objects exceed budget: {len(objects)} > {max_objects}")
+        if max_objects and len(unique_objects) > max_objects:
+            raise SystemExit(f"manifest objects exceed budget: {len(unique_objects)} > {max_objects}")
         if max_bytes and total > max_bytes:
             raise SystemExit(f"manifest bytes exceed budget: {total} > {max_bytes}")
         duration = int(manifest.get("durationSeconds", 0))

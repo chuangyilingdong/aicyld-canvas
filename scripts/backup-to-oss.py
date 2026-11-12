@@ -184,9 +184,30 @@ def consistent_sqlite_backup(source: Path, target: Path) -> None:
         src.close()
 
 
-def add_file(items: list[tuple[Path, str]], source: Path, remote_relative: str, required: bool = True) -> None:
+class BackupItem:
+    __slots__ = ("source", "relative", "shared", "restore_path", "digest")
+
+    def __init__(
+        self,
+        source: Path,
+        relative: str,
+        shared: bool = False,
+        restore_path: str = "",
+        digest: str = "",
+    ) -> None:
+        self.source = source
+        self.relative = relative
+        self.shared = shared
+        self.restore_path = restore_path
+        self.digest = digest
+
+    def object_key(self, run_prefix: str, shared_prefix: str) -> str:
+        return f"{shared_prefix if self.shared else run_prefix}/{self.relative}"
+
+
+def add_file(items: list[BackupItem], source: Path, remote_relative: str, required: bool = True) -> None:
     if source.is_file():
-        items.append((source, remote_relative))
+        items.append(BackupItem(source, remote_relative, restore_path=remote_relative))
     elif required:
         raise FileNotFoundError(source)
 
@@ -206,14 +227,34 @@ def is_sensitive_backup_name(name: str) -> bool:
     return any(lowered.startswith(prefix) for prefix in SENSITIVE_BACKUP_PREFIXES)
 
 
-def add_tree(items: list[tuple[Path, str]], source: Path, remote_relative: str, required: bool = False, skip_sensitive: bool = False) -> None:
+def add_tree(items: list[BackupItem], source: Path, remote_relative: str, required: bool = False, skip_sensitive: bool = False) -> None:
     if not source.exists():
         if required:
             raise FileNotFoundError(source)
         return
     for path in sorted(source.rglob("*")):
         if path.is_file() and (not skip_sensitive or not is_sensitive_backup_name(path.name)):
-            items.append((path, f"{remote_relative}/{path.relative_to(source).as_posix()}"))
+            relative = f"{remote_relative}/{path.relative_to(source).as_posix()}"
+            items.append(BackupItem(path, relative, restore_path=relative))
+
+
+def add_shared_resource_tree(items: list[BackupItem], source: Path, remote_relative: str) -> None:
+    if not source.exists():
+        return
+    for path in sorted(source.rglob("*")):
+        if not path.is_file() or path.is_symlink():
+            continue
+        relative = path.relative_to(source).as_posix()
+        digest = sha256_file(path)
+        items.append(
+            BackupItem(
+                path,
+                f"resources/objects/{digest}",
+                shared=True,
+                restore_path=f"{remote_relative}/{relative}",
+                digest=digest,
+            )
+        )
 
 
 def human_bytes(value: int) -> str:
@@ -281,12 +322,12 @@ def main() -> int:
     started_at = time.monotonic()
     work = Path(args.work_dir) / f"aicyld-canvas-oss-{run_id}"
     work.mkdir(parents=True, exist_ok=False)
-    items: list[tuple[Path, str]] = []
+    items: list[BackupItem] = []
 
     db_source = root / "data" / "open_ai_canvas.db"
     db_target = work / "db" / "open_ai_canvas.db"
     consistent_sqlite_backup(db_source, db_target)
-    items.append((db_target, "db/open_ai_canvas.db"))
+    items.append(BackupItem(db_target, "db/open_ai_canvas.db", restore_path="db/open_ai_canvas.db"))
 
     sessions_root = root / "data" / "sessions"
     session_count = 0
@@ -296,7 +337,8 @@ def main() -> int:
                 relative = source.relative_to(sessions_root)
                 target = work / "sessions" / relative
                 consistent_sqlite_backup(source, target)
-                items.append((target, f"sessions/{relative.as_posix()}"))
+                remote_relative = f"sessions/{relative.as_posix()}"
+                items.append(BackupItem(target, remote_relative, restore_path=remote_relative))
                 session_count += 1
 
     for relative in (
@@ -310,23 +352,23 @@ def main() -> int:
     add_tree(items, root / "data" / "skill-packages", "data/skill-packages")
 
     resources_root = root / "data" / "resources"
-    add_tree(items, resources_root, "data/resources", required=False)
+    add_shared_resource_tree(items, resources_root, "data/resources")
 
     bin_root = root / "bin"
     for source in sorted(bin_root.glob("infinite-canvas-backend*")):
         if source.is_file():
-            items.append((source, f"bin/{source.name}"))
+            items.append(BackupItem(source, f"bin/{source.name}", restore_path=f"bin/{source.name}"))
 
     agent_runtime = work / "agent-host-runtime.tar.zst"
     if (bin_root / "agent-host").is_dir():
         subprocess.run(["tar", "--zstd", "-cf", str(agent_runtime), "-C", str(bin_root), "agent-host"], check=True)
-        items.append((agent_runtime, "bin/agent-host-runtime.tar.zst"))
+        items.append(BackupItem(agent_runtime, "bin/agent-host-runtime.tar.zst", restore_path="bin/agent-host-runtime.tar.zst"))
 
     web_dist = root / "web-dist"
     web_archive = work / "web-dist-current.tar.gz"
     if web_dist.is_dir():
         subprocess.run(["tar", "-czf", str(web_archive), "-C", str(root), "web-dist"], check=True)
-        items.append((web_archive, "release/web-dist-current.tar.gz"))
+        items.append(BackupItem(web_archive, "release/web-dist-current.tar.gz", restore_path="release/web-dist-current.tar.gz"))
 
     rollback_archive = work / "web-dist-rollback-latest.tar.zst"
     rollback_paths = latest_web_rollbacks(root)
@@ -335,11 +377,13 @@ def main() -> int:
             ["tar", "--zstd", "-cf", str(rollback_archive), "-C", str(root), *[p.name for p in rollback_paths]],
             check=True,
         )
-        items.append((rollback_archive, "release/web-dist-rollback-latest.tar.zst"))
+        items.append(BackupItem(rollback_archive, "release/web-dist-rollback-latest.tar.zst", restore_path="release/web-dist-rollback-latest.tar.zst"))
 
-    base_prefix = "/".join(part for part in (env.get("CANVAS_OSS_PATH_PREFIX", "canvas").strip("/"), "backups", "daily", run_id) if part)
+    path_prefix = env.get("CANVAS_OSS_PATH_PREFIX", "canvas").strip("/")
+    base_prefix = "/".join(part for part in (path_prefix, "backups", "daily", run_id) if part)
+    shared_prefix = "/".join(part for part in (path_prefix, "backups", "shared") if part)
     manifest: dict[str, object] = {
-        "format": "aicyld-canvas-oss-backup-v2",
+        "format": "aicyld-canvas-oss-backup-v3",
         "createdAt": dt.datetime.now(dt.timezone.utc).isoformat(),
         "hostname": platform.node(),
         "canvasVersion": (root / "VERSION").read_text(encoding="utf-8").strip() if (root / "VERSION").is_file() else "",
@@ -361,22 +405,28 @@ def main() -> int:
         ],
     }
 
-    total_bytes = sum(path.stat().st_size for path, _ in items)
-    validate_backup_budget(len(items), total_bytes, args.max_objects, args.max_bytes)
+    unique_items: dict[str, BackupItem] = {}
+    for item in items:
+        unique_items.setdefault(item.object_key(base_prefix, shared_prefix), item)
+    total_bytes = sum(item.source.stat().st_size for item in unique_items.values())
+    logical_bytes = sum(item.source.stat().st_size for item in items)
+    validate_backup_budget(len(unique_items), total_bytes, args.max_objects, args.max_bytes)
     print(f"backup staging: {work}")
     print(
-        f"objects={len(items)} bytes={total_bytes} ({human_bytes(total_bytes)}) "
+        f"objects={len(unique_items)} references={len(items)} bytes={total_bytes} ({human_bytes(total_bytes)}) "
+        f"logical_bytes={logical_bytes} ({human_bytes(logical_bytes)}) "
         f"sessions={session_count}"
     )
     print(f"budget objects<={args.max_objects} bytes<={human_bytes(args.max_bytes)}")
     print(f"rollback archives={len(rollback_paths)}")
     print(f"oss prefix: {base_prefix}/")
+    print(f"shared prefix: {shared_prefix}/")
 
     if not args.apply:
-        for path, relative in items[:12]:
-            print(f"PLAN {path} -> {base_prefix}/{relative}")
-        if len(items) > 12:
-            print(f"PLAN ... {len(items) - 12} more objects")
+        for key, item in list(unique_items.items())[:12]:
+            print(f"PLAN {item.source} -> {key}")
+        if len(unique_items) > 12:
+            print(f"PLAN ... {len(unique_items) - 12} more objects")
         print("dry-run: add --apply to upload")
         return 0
 
@@ -391,36 +441,52 @@ def main() -> int:
     results: dict[str, dict[str, object]] = {}
     errors: list[str] = []
 
-    def upload_one(item: tuple[Path, str]) -> tuple[str, dict[str, object]]:
-        source, relative = item
-        key = f"{base_prefix}/{relative}"
-        size = source.stat().st_size
+    def upload_one(item: BackupItem) -> tuple[str, dict[str, object]]:
+        key = item.object_key(base_prefix, shared_prefix)
+        size = item.source.stat().st_size
+        digest = item.digest or sha256_file(item.source)
         exists, remote_size = client.head(key)
         if exists and remote_size == size:
-            return relative, {"key": key, "size": size, "sha256": sha256_file(source), "status": "already-present"}
-        client.put(key, source)
+            return key, {"key": key, "size": size, "sha256": digest, "status": "already-present"}
+        client.put(key, item.source)
         exists, remote_size = client.head(key)
         if not exists or remote_size != size:
             raise RuntimeError(f"上传校验失败: {key}, local={size}, remote={remote_size}")
-        return relative, {"key": key, "size": size, "sha256": sha256_file(source), "status": "uploaded"}
+        return key, {"key": key, "size": size, "sha256": digest, "status": "uploaded"}
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
-        futures = {pool.submit(upload_one, item): item for item in items}
+        futures = {pool.submit(upload_one, item): item for item in unique_items.values()}
         for future in concurrent.futures.as_completed(futures):
-            source, relative = futures[future]
+            item = futures[future]
             try:
-                name, record = future.result()
-                results[name] = record
+                key, record = future.result()
+                results[key] = record
                 print(f"OK {record['status']} {record['key']} ({record['size']} bytes)")
             except Exception as exc:
-                errors.append(f"{source}: {exc}")
-                print(f"ERROR {source}: {exc}", file=sys.stderr)
+                errors.append(f"{item.source}: {exc}")
+                print(f"ERROR {item.source}: {exc}", file=sys.stderr)
 
     if errors:
         raise SystemExit("备份上传失败，未清理本地文件:\n" + "\n".join(errors))
 
     duration_seconds = round(time.monotonic() - started_at, 3)
-    manifest["objects"] = [results[relative] for _, relative in items]
+    manifest_objects: list[dict[str, object]] = []
+    for item in items:
+        key = item.object_key(base_prefix, shared_prefix)
+        record = dict(results[key])
+        record["shared"] = item.shared
+        if item.shared:
+            record["restorePath"] = item.restore_path
+        else:
+            record["relative"] = item.relative
+        manifest_objects.append(record)
+    manifest["objects"] = manifest_objects
+    manifest["resourceReuse"] = {
+        "references": len(items),
+        "uniqueObjects": len(unique_items),
+        "uploadedObjects": sum(1 for record in results.values() if record.get("status") == "uploaded"),
+        "reusedObjects": sum(1 for record in results.values() if record.get("status") == "already-present"),
+    }
     manifest["durationSeconds"] = duration_seconds
     manifest["durationWithinBudget"] = duration_seconds <= args.max_duration_seconds
     manifest_path = work / "manifest.json"
@@ -441,7 +507,10 @@ def main() -> int:
     (manifest_store / "LATEST").write_text(run_id + "\n", encoding="utf-8")
     print(f"MANIFEST oss://{env['CANVAS_OSS_BUCKET']}/{manifest_key}")
     print(f"SHA256 {manifest_sha}")
-    print(f"backup complete: objects={len(items)} bytes={total_bytes} duration={duration_seconds}s")
+    print(
+        f"backup complete: objects={len(unique_items)} references={len(items)} "
+        f"bytes={total_bytes} duration={duration_seconds}s"
+    )
     if duration_seconds > args.max_duration_seconds:
         print(
             f"WARNING backup duration {duration_seconds}s exceeded budget "

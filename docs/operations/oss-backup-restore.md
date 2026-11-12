@@ -10,7 +10,7 @@
 
 - `open_ai_canvas.db` 的 SQLite 一致性快照
 - `data/sessions/**/*.sqlite` 的一致性快照
-- `data/resources` 用户资源
+- `data/resources` 用户资源，按 SHA256 内容地址存入共享对象前缀
 - `data/plugin-packages`、`data/skill-packages`
 - 后端二进制、Agent Host 运行时、当前前端
 - 最近 2 个前端回滚目录，合并成一个压缩对象
@@ -26,6 +26,7 @@
 
 ```text
 oss://<bucket>/<CANVAS_OSS_PATH_PREFIX>/backups/daily/<UTC timestamp>/
+oss://<bucket>/<CANVAS_OSS_PATH_PREFIX>/backups/shared/resources/objects/<sha256>
 ```
 
 每次备份根目录包含：
@@ -43,13 +44,17 @@ manifest.json
 manifest.json.sha256
 ```
 
+`data/resources` 不再每天复制到新的 daily 前缀。每个文件按内容 SHA256 写入 `backups/shared/resources/objects/<sha256>`；manifest 同时记录 OSS `key` 和原始恢复路径 `restorePath`。同内容文件只上传一次，后续每日备份只上传新增或变化的资源。
+
+第一次启用该格式时会经历一次完整资源上传；之后正常日备只需要上传数据库、Web、Agent Host、回滚包和新增资源。
+
 ## 恢复顺序
 
 1. 先在隔离目录恢复，不要覆盖线上。
 2. 下载 `manifest.json` 并校验 `manifest.json.sha256`。
 3. 恢复数据库快照到 `data/open_ai_canvas.db`，确认文件属主为 `aicyld:aicyld`、权限 `0640`。
 4. 恢复 Agent 会话到 `data/sessions/`，保持原相对路径。
-5. 恢复 `data/resources`、插件和技能包。
+5. 按 manifest 的 `restorePath` 把共享资源对象恢复到 `data/resources`；不要按对象哈希路径直接还原。
 6. 恢复后端二进制、Agent Host 运行时或前端回滚目录。
 7. 从安全配置渠道恢复 `canvas.env`，不要把密钥写入工单或聊天。
 8. 启动服务后检查：
@@ -77,4 +82,5 @@ manifest.json.sha256
 - `aicyld-canvas-backup-retention.service` 只在备份成功后清理本地旧回滚点。
 - `aicyld-canvas-oss-retention.timer` 每天 04:10 清理超过 30 天的 OSS 完整备份前缀。
 - OSS 清理以本机 `backups/oss-manifests/*.json` 为唯一删除依据，不通过猜测或裸列举删除。
+- 清理旧 daily run 时不会直接删除 shared 对象；只有不再被任何保留 manifest 引用时，才会回收对应内容对象。
 - 已清理清单移动到 `backups/oss-manifests/pruned/`，保留审计记录。

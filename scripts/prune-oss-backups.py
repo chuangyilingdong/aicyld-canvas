@@ -32,6 +32,33 @@ def parse_created(value: str) -> dt.datetime:
     return parsed.astimezone(dt.timezone.utc)
 
 
+def manifest_key_set(manifest: dict[str, object], shared: bool | None = None) -> set[str]:
+    result: set[str] = set()
+    objects = manifest.get("objects", [])
+    if not isinstance(objects, list):
+        return result
+    for item in objects:
+        if not isinstance(item, dict):
+            continue
+        is_shared = bool(item.get("shared"))
+        if shared is not None and is_shared != shared:
+            continue
+        key = str(item.get("key", ""))
+        if key:
+            result.add(key)
+    return result
+
+
+def deletable_shared_keys(candidates: list[dict[str, object]], live: list[dict[str, object]]) -> set[str]:
+    candidate_shared: set[str] = set()
+    for manifest in candidates:
+        candidate_shared.update(manifest_key_set(manifest, shared=True))
+    live_shared: set[str] = set()
+    for manifest in live:
+        live_shared.update(manifest_key_set(manifest, shared=True))
+    return candidate_shared - live_shared
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--canvas-root", default="/srv/aicyld/canvas")
@@ -83,16 +110,32 @@ def main() -> int:
     for path, manifest, created in candidates:
         run_id = path.stem
         base = "/".join(part for part in (path_prefix, "backups", "daily", run_id) if part)
-        for item in manifest.get("objects", []):
-            key = str(item.get("key", ""))
-            if key:
-                client.delete(key)
-                total_deleted += 1
+        for key in sorted(manifest_key_set(manifest, shared=False)):
+            client.delete(key)
+            total_deleted += 1
         client.delete(f"{base}/manifest.json")
         client.delete(f"{base}/manifest.json.sha256")
         shutil.move(str(path), str(pruned_dir / path.name))
         print(f"PRUNED {run_id} objects={len(manifest.get('objects', []))}")
-    print(f"pruned_runs={len(candidates)} deleted_objects={total_deleted}")
+
+    live_manifests: list[dict[str, object]] = []
+    live_unknown = False
+    for path in sorted(manifest_dir.glob("*.json")):
+        try:
+            live_manifests.append(json.loads(path.read_text(encoding="utf-8")))
+        except Exception as exc:
+            live_unknown = True
+            print(f"KEEP shared objects because live manifest is unreadable: {path}: {exc}")
+    shared_deleted = 0
+    if live_unknown:
+        print("shared object GC skipped because a live manifest could not be read")
+    else:
+        shared_keys = deletable_shared_keys([manifest for _, manifest, _ in candidates], live_manifests)
+        for key in sorted(shared_keys):
+            client.delete(key)
+            shared_deleted += 1
+        print(f"shared_objects_deleted={shared_deleted}")
+    print(f"pruned_runs={len(candidates)} deleted_run_objects={total_deleted}")
     return 0
 
 

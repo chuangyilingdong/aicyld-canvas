@@ -93,6 +93,38 @@ class BackupToOSSTest(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "备份对象数"):
             self.module.validate_backup_budget(5001, 1024, 5000, 8 * 1024**3)
 
+    def test_resources_use_shared_content_addressed_objects(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "resources"
+            (root / "user-a").mkdir(parents=True)
+            (root / "user-b").mkdir(parents=True)
+            (root / "user-a" / "same.png").write_bytes(b"same-content")
+            (root / "user-b" / "same.png").write_bytes(b"same-content")
+            (root / "user-b" / "different.png").write_bytes(b"different-content")
+
+            items = []
+            self.module.add_shared_resource_tree(items, root, "data/resources")
+
+            self.assertEqual(len(items), 3)
+            self.assertTrue(all(item.shared for item in items))
+            self.assertEqual(len({item.relative for item in items}), 2)
+            self.assertEqual(
+                {item.restore_path for item in items},
+                {
+                    "data/resources/user-a/same.png",
+                    "data/resources/user-b/same.png",
+                    "data/resources/user-b/different.png",
+                },
+            )
+            self.assertTrue(
+                all(
+                    item.object_key("canvas/backups/daily/run", "canvas/backups/shared").startswith(
+                        "canvas/backups/shared/resources/objects/"
+                    )
+                    for item in items
+                )
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
