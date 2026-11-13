@@ -93,6 +93,7 @@ jobs:
           test/canvas-text-prompt-controls.test.ts
           test/workspace-asset-upload.test.ts
           test/canvas-node-toolbar.test.ts
+          test/canvas-folder.test.ts
           test/media-upscale.test.ts
           test/assets-collection-layout.test.ts
           test/assistant-production-card.test.tsx

@@ -34,6 +34,7 @@ type Props = {
     proposalFeedback?: Record<string, string>;
     runningProposalIds?: ReadonlySet<string>;
     nodes?: CanvasNodeData[];
+    selectionFocusRequest?: number;
     continuation?: { pending: boolean; notice: string; stop: () => Promise<void>; refresh: () => void };
     /** 测试或嵌入场景可缩短等待；生产默认 12 秒。 */
     slowResponseDelayMs?: number;
@@ -107,7 +108,7 @@ export function CanvasAssistantPlan({ plan }: { plan: AssistantPlan | null | und
 }
 
 export function CanvasAssistantSidebar(props: Props) {
-    const { assistant, dockable, readOnly, selectedNodeIds, references, onLocateNodes, onRunProposal, onOpenModelSettings } = props;
+    const { assistant, dockable, readOnly, selectedNodeIds, references, onLocateNodes, onRunProposal, onOpenModelSettings, selectionFocusRequest } = props;
     const [draft, setDraft] = useState("");
     const [attachments, setAttachments] = useState<AssistantAttachment[]>([]);
     const [selectedSkills, setSelectedSkills] = useState<AssistantSkillSelection[]>([]);
@@ -436,6 +437,7 @@ export function CanvasAssistantSidebar(props: Props) {
                 references={references}
                 selectedCount={attachedIds.length}
                 selectionAttached={attachedIds.length > 0}
+                focusRequest={selectionFocusRequest}
                 onDetachSelection={() => { setSelectionAttached(false); setResultSelection(null); }}
                 modelBusy={assistant.modelBusy}
                 canSupplement={assistant.canSupplement}

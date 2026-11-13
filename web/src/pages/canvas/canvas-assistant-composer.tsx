@@ -1,6 +1,6 @@
 import { Button, Select, Tooltip } from "antd";
 import { ArrowUp, Square, X, Paperclip, Sparkles } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { CanvasResourceMentionTextarea } from "@/components/canvas/canvas-resource-mention-textarea";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
@@ -23,6 +23,7 @@ type Props = {
     selectedCount: number;
     selectionAttached: boolean;
     onDetachSelection: () => void;
+    focusRequest?: number;
     modelBusy?: boolean;
     canSupplement?: boolean;
     supplementBusy?: boolean;
@@ -52,6 +53,7 @@ export function CanvasAssistantComposer({
     selectedCount,
     selectionAttached,
     onDetachSelection,
+    focusRequest,
     modelBusy,
     canSupplement,
     supplementBusy,
@@ -70,8 +72,14 @@ export function CanvasAssistantComposer({
 }: Props) {
     const [contentHeight, setContentHeight] = useState(LINE_HEIGHT);
     const fileInput = useRef<HTMLInputElement>(null);
+    const messageInput = useRef<HTMLTextAreaElement>(null);
     const height = Math.min(MAX_LINES * LINE_HEIGHT, Math.max(MIN_LINES * LINE_HEIGHT, contentHeight));
     const canSend = !disabled && (!streaming || canSupplement) && !supplementBusy && !inputBusy && (Boolean(value.trim()) || Boolean(hasAttachments));
+
+    useEffect(() => {
+        if (!focusRequest) return;
+        requestAnimationFrame(() => messageInput.current?.focus());
+    }, [focusRequest]);
 
     return (
         <footer className="canvas-assistant-composer" onDragOver={event => { if (onFiles && !disabled && event.dataTransfer.types.includes("Files")) { event.preventDefault(); event.stopPropagation(); } }}
@@ -91,6 +99,7 @@ export function CanvasAssistantComposer({
 
             <div className="canvas-assistant-input" style={{ height: height + 14 }}>
                 <CanvasResourceMentionTextarea
+                    ref={messageInput}
                     value={value}
                     references={references}
                     onChange={onChange}

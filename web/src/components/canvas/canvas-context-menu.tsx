@@ -80,6 +80,7 @@ type CanvasNodeContextMenuProps = {
     onSetAssetCategory: (category: CanvasAssetCategory) => void;
     onToggleFrame: () => void;
     onSpreadSelection?: () => void;
+    onPackSelectionToFolder?: () => void;
     onCopySelection?: () => void;
     onDeleteSelection?: () => void;
     downloadableSelectionCount?: number;
@@ -122,6 +123,7 @@ export function CanvasNodeContextMenu({
     onSetAssetCategory,
     onToggleFrame,
     onSpreadSelection,
+    onPackSelectionToFolder,
     onCopySelection,
     onDeleteSelection,
     downloadableSelectionCount = 0,
@@ -210,6 +212,7 @@ export function CanvasNodeContextMenu({
                             {hasMultiSelection ? (
                                 <>
                                     <MenuButton icon={<LayoutTemplate className="size-4" />} label="自适应整理画布" detail="保持相对布局并加大边距" disabled={!onSpreadSelection} onClick={() => onSpreadSelection && runAction(onSpreadSelection)} />
+                                    <MenuButton icon={<FolderPlus className="size-4" />} label="收纳到文件夹" detail="合并进新建画布文件夹" disabled={!onPackSelectionToFolder} onClick={() => onPackSelectionToFolder && runAction(onPackSelectionToFolder)} />
                                     <MenuButton icon={<Download className="size-4" />} label={downloadableSelectionCount ? `批量下载素材 (${downloadableSelectionCount})` : "批量下载素材"} disabled={!downloadableSelectionCount || !onBatchDownloadSelection} onClick={() => onBatchDownloadSelection && runAction(onBatchDownloadSelection)} />
                                     <MenuDivider />
                                 </>
@@ -228,6 +231,7 @@ export function CanvasNodeContextMenu({
                             <MenuHeader title={`已选 ${selectedCount} 个节点`} />
                             <MenuSection label="选区" />
                             <MenuButton icon={<LayoutTemplate />} label="自适应整理画布" detail="保持相对布局并加大边距" disabled={!onSpreadSelection} onClick={() => onSpreadSelection && runAction(onSpreadSelection)} />
+                            <MenuButton icon={<FolderPlus />} label="收纳到文件夹" detail="合并进新建画布文件夹" disabled={!onPackSelectionToFolder} onClick={() => onPackSelectionToFolder && runAction(onPackSelectionToFolder)} />
                             <MenuButton icon={<Download />} label={downloadableSelectionCount ? `批量下载素材 (${downloadableSelectionCount})` : "批量下载素材"} disabled={!downloadableSelectionCount || !onBatchDownloadSelection} onClick={() => onBatchDownloadSelection && runAction(onBatchDownloadSelection)} />
                             <MenuDivider />
                             <MenuButton icon={<Copy />} label={`复制 ${selectedCount} 个节点`} shortcut="⌘C" disabled={!onCopySelection} onClick={() => onCopySelection && runAction(onCopySelection)} />

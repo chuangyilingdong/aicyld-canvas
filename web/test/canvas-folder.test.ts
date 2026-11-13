@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { applyFrameDrop, buildCanvasFrameDropIndex, canFolderContain, canLinkedFolderArchive, findFrameDropTarget, findFrameDropTargetFromIndex, isCanvasFolderNode } from "@/lib/canvas/canvas-frame";
+import { applyFrameDrop, buildCanvasFrameDropIndex, canFolderContain, canLinkedFolderArchive, extractNodeFromCanvasFolder, findFrameDropTarget, findFrameDropTargetFromIndex, isCanvasFolderNode, packNodesIntoCollapsedFolder, unpackCanvasFolder } from "@/lib/canvas/canvas-frame";
 import { resolveCanvasFolderTheme, resolveCanvasFolderThemeCover } from "@/lib/canvas/canvas-folder-theme";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 
@@ -95,5 +95,32 @@ describe("canvas folders", () => {
         const child = { ...image("image"), parentId: "folder" };
         const next = applyFrameDrop([folder("folder"), child], new Set([child.id]), null);
         expect(next.find((node) => node.id === child.id)?.parentId).toBeUndefined();
+    });
+
+    test("多选节点会收纳到新建文件夹并保留内容", () => {
+        const first = image("first");
+        const second = { ...image("second"), position: { x: 380, y: 210 } };
+        const packed = packNodesIntoCollapsedFolder([first, second], new Set([first.id, second.id]), (position) => ({ ...folder("packed"), position }));
+        expect(packed?.count).toBe(2);
+        const packedFolder = packed?.nodes.find((node) => node.id === packed.folderId);
+        expect(packedFolder?.metadata?.frame?.collapsed).toBe(true);
+        expect(packed?.nodes.find((node) => node.id === first.id)?.parentId).toBe(packed?.folderId);
+        expect(packed?.nodes.find((node) => node.id === second.id)?.parentId).toBe(packed?.folderId);
+    });
+
+    test("解散文件夹会释放子节点并删除空容器", () => {
+        const first = { ...image("first"), parentId: "folder" };
+        const second = { ...image("second"), parentId: "folder" };
+        const result = unpackCanvasFolder([folder("folder"), first, second], "folder");
+        expect(result?.unpackedIds).toEqual(["first", "second"]);
+        expect(result?.nodes.some((node) => node.id === "folder")).toBe(false);
+        expect(result?.nodes.every((node) => node.parentId === undefined)).toBe(true);
+    });
+
+    test("单个节点可以移出文件夹且文件夹保留", () => {
+        const child = { ...image("child"), parentId: "folder" };
+        const result = extractNodeFromCanvasFolder([folder("folder"), child], child.id);
+        expect(result?.nodes.find((node) => node.id === child.id)?.parentId).toBeUndefined();
+        expect(result?.nodes.some((node) => node.id === "folder")).toBe(true);
     });
 });

@@ -390,6 +390,11 @@ function InfiniteCanvasPage() {
         versions.close();
         assistant.setOpen(true);
     }, [assistant, exitFocusMode, versions]);
+    const [assistantSelectionRequest, setAssistantSelectionRequest] = useState(0);
+    const askAssistantWithSelection = useCallback(() => {
+        openAssistant();
+        setAssistantSelectionRequest((current) => current + 1);
+    }, [openAssistant]);
     // 修复素材关联仍遵守当前画布版本，不能替用户确认覆盖云端的新内容。
     const confirmForceSaveCanvas = useCallback(() => {
         modal.confirm({
@@ -769,6 +774,7 @@ function InfiniteCanvasPage() {
         duplicateNode,
         duplicateNodesByDelta,
         hasCopiedNodes,
+        packSelectedIntoFolder,
         pasteCopiedNodes,
         restoreCopiedNodesFromText,
         releaseCopiedNodesPastePriority,
@@ -1086,7 +1092,7 @@ function InfiniteCanvasPage() {
     useCanvasKeyboard({
         pageUi,
         projectId,
-        enabled: projectLoaded && !versions.preview && !directorNodeId,
+        enabled: projectLoaded && !versions.preview && !directorNodeId && !nodeEditor.folderBrowserNodeId,
         onToggleAssistant: focusMode ? undefined : toggleAssistant,
         nodesRef,
         selectedNodeIdsRef,
@@ -1802,9 +1808,10 @@ function InfiniteCanvasPage() {
                                 onArrange={arrangeSelectedNodes}
                                 onCreateStoryboard={createStoryboardGroup}
                                 onCreateReferenceGroup={createReferenceGroup}
+                                onPackToFolder={packSelectedIntoFolder}
                                 onBatchConnect={() => beginBatchConnectionMode(Array.from(selectedNodeIds))}
                                 onMergeVideos={() => void mergeSelectedVideos()}
-                                onAskAssistant={openAssistant}
+                                onAskAssistant={askAssistantWithSelection}
                                 onSaveWorkflow={readOnly ? undefined : () => workflowsRef.current?.saveSelection()}
                             />
                         ) : null}
@@ -1944,6 +1951,7 @@ function InfiniteCanvasPage() {
                             onSetAssetCategory={(nodeId, assetCategory) => handleConfigNodeChange(nodeId, { assetCategory })}
                             onToggleFrame={(node) => handleFrameToggle(node.id)}
                             onSpreadSelection={spreadSelectedNodes}
+                            onPackSelectionToFolder={packSelectedIntoFolder}
                             onCopySelection={copySelectedNodes}
                             onDeleteSelection={() => deleteNodes(selectedNodeIds)}
                         />
@@ -1957,7 +1965,7 @@ function InfiniteCanvasPage() {
 
                         <Suspense fallback={null}>
                             <CanvasProjectEditorDialogs
-                            projectId={projectId} theme={theme} config={effectiveConfig}
+                            projectId={projectId} readOnly={readOnly} theme={theme} config={effectiveConfig}
                             document={document} dialogs={dialogs} renderModel={renderModel}
                             generation={generation} nodeEditor={nodeEditor} mediaTools={mediaTools}
                             styles={styles} director={director}
@@ -2014,6 +2022,7 @@ function InfiniteCanvasPage() {
                             proposalFeedback={assistantProposalFeedback}
                             runningProposalIds={runningProposalIds}
                             assistant={assistant}
+                            selectionFocusRequest={assistantSelectionRequest}
                             continuation={assistantContinuation}
                             nodes={nodes}
                             canvasTitle={workspaceProject?.title === "未命名项目" || !workspaceProject?.title ? "未命名工作区" : workspaceProject.title}
