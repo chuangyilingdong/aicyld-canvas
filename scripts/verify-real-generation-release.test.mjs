@@ -134,6 +134,8 @@ test('release gate CLI succeeds in simulated release checkout and rejects non-re
         evidenceSha256: SAMPLE_EVIDENCE_SHA256,
       }, null, 2),
     );
+    execFileSync('git', ['add', 'docs/release-evidence/v2.1.1.json'], { cwd: dir });
+    execFileSync('git', ['commit', '-m', 'chore(release): record v2.1.1 receipt'], { cwd: dir });
 
     const result = runReleaseGate({ cwd: dir, argv: [] });
     assert.equal(result.mode, 'release');

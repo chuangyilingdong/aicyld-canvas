@@ -23,6 +23,14 @@ const fail = message => {
   throw new Error(`Real generation release gate: ${message}`);
 };
 
+const readRefFile = (cwd, ref, path) => {
+  try {
+    return execFileSync('git', ['show', `${ref}:${path}`], { cwd, encoding: 'utf8' });
+  } catch {
+    fail(`${path} is missing at ${ref}`);
+  }
+};
+
 export function computeSourceDigest(cwd = process.cwd(), ref = 'HEAD') {
   const sourceTree = execFileSync('git', ['ls-tree', '-r', ref, '--', ...SOURCE_PATHS], {
     cwd,
@@ -85,13 +93,24 @@ export function normalizeVersion(rawVersion) {
   return `v${String(rawVersion || '').trim().replace(/^v/, '')}`;
 }
 
-export function verifyReleaseEvidenceDirectory(cwd = process.cwd(), expectedVersion) {
+export function verifyReleaseEvidenceDirectory(cwd = process.cwd(), expectedVersion, ref) {
   const dir = join(cwd, 'docs', 'release-evidence');
   let entries;
-  try {
-    entries = readdirSync(dir);
-  } catch {
-    fail('docs/release-evidence directory is missing');
+  if (ref) {
+    try {
+      entries = execFileSync('git', ['ls-tree', '--name-only', `${ref}:docs/release-evidence`], {
+        cwd,
+        encoding: 'utf8',
+      }).split(/\r?\n/).filter(Boolean);
+    } catch {
+      fail(`docs/release-evidence directory is missing at ${ref}`);
+    }
+  } else {
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      fail('docs/release-evidence directory is missing');
+    }
   }
   const normalizedVersion = normalizeVersion(expectedVersion);
   const receiptFile = `${normalizedVersion}.json`;
@@ -106,7 +125,20 @@ export function verifyReleaseEvidenceDirectory(cwd = process.cwd(), expectedVers
   if (entries.length !== 1 || entries[0] !== receiptFile) {
     fail(`missing minimal release receipt docs/release-evidence/${receiptFile}`);
   }
-  if (!statSync(join(dir, receiptFile)).isFile()) {
+  if (ref) {
+    let type;
+    try {
+      type = execFileSync('git', ['cat-file', '-t', `${ref}:docs/release-evidence/${receiptFile}`], {
+        cwd,
+        encoding: 'utf8',
+      }).trim();
+    } catch {
+      fail(`missing minimal release receipt docs/release-evidence/${receiptFile} at ${ref}`);
+    }
+    if (type !== 'blob') {
+      fail(`release receipt docs/release-evidence/${receiptFile} must be a regular file`);
+    }
+  } else if (!statSync(join(dir, receiptFile)).isFile()) {
     fail(`release receipt docs/release-evidence/${receiptFile} must be a regular file`);
   }
 }
@@ -132,10 +164,10 @@ export function runReleaseGate({
     fail('--evidence-file requires a path');
   }
 
-  const version = normalizeVersion(readFileSync(join(cwd, 'VERSION'), 'utf8'));
-  verifyReleaseEvidenceDirectory(cwd, version);
-  const receiptPath = join(cwd, 'docs', 'release-evidence', `${version}.json`);
-  const receipt = JSON.parse(readFileSync(receiptPath, 'utf8'));
+  const version = normalizeVersion(dryRun ? readFileSync(join(cwd, 'VERSION'), 'utf8') : readRefFile(cwd, ref, 'VERSION'));
+  verifyReleaseEvidenceDirectory(cwd, version, dryRun ? undefined : ref);
+  const receiptPath = `docs/release-evidence/${version}.json`;
+  const receipt = JSON.parse(dryRun ? readFileSync(join(cwd, receiptPath), 'utf8') : readRefFile(cwd, ref, receiptPath));
   const fullEvidenceBytes = evidenceFile ? readFileSync(evidenceFile) : undefined;
 
   validateReleaseReceipt(receipt, {
