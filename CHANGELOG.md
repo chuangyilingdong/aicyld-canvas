@@ -2,6 +2,13 @@
 
 All notable public changes to BeefTV are documented in this file.
 
+## v2.1.3-aicyld.63
+
+- 外部 Agent：新增 `task.wait`，一次最多等待 8 个原任务、最长 25 秒；超时返回 `pending`，可继续查询而不重复提交生成。
+- 批量节点：新增 `canvas.nodes.get` 与 `canvas.nodes.configure`，支持一次读取 1–50 个节点、原子配置最多 20 个媒体节点，整批成功只推进一次画布版本。
+- Agent 指南：新增外部专用 `agent.guide`，内容与随包画布技能保持一致并返回内容哈希；内置创作助手不可见这些外部专用操作。
+- MCP：默认工具集补齐外部创作基础闭环，新增 `task.wait`、批量节点操作和指南；付费原地重做仍保持独立版本，不在本版开放。
+
 ## v2.1.3-aicyld.62
 
 - 素材库：上传层改为按文件内容复用资源身份；同一文件即使重新选择、改名或在创作助手中再次添加，也不会再生成新的素材记录。
