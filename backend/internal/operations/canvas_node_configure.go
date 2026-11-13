@@ -12,7 +12,17 @@ import (
 )
 
 func registerCanvasNodeConfigureOps(r *Registry) {
-	properties := map[string]any{
+	properties := canvasNodeConfigurePatchProperties()
+	params, _ := json.Marshal(map[string]any{"type": "object", "additionalProperties": false,
+		"properties": map[string]any{"canvasId": map[string]any{"type": "string"}, "nodeId": map[string]any{"type": "string"},
+			"kind": map[string]any{"type": "string", "enum": []string{"image", "video", "audio"}}, "expectedRevision": map[string]any{"type": "integer", "minimum": 1},
+			"patch": map[string]any{"type": "object", "minProperties": 1, "additionalProperties": false, "properties": properties}},
+		"required": []string{"canvasId", "nodeId", "kind", "expectedRevision", "patch"}})
+	r.Register(Op{ReplaySafe: true, AssistantCanvas: true, ID: "canvas.node.configure", Summary: "设置媒体节点的提示词草稿与生成参数；不启动生成", Scope: ScopeCanvas, Params: params, Handler: opCanvasNodeConfigure})
+}
+
+func canvasNodeConfigurePatchProperties() map[string]any {
+	return map[string]any{
 		"model":                 map[string]any{"type": "string"},
 		"prompt":                map[string]any{"type": "string"},
 		"size":                  map[string]any{"type": "string"},
@@ -31,12 +41,6 @@ func registerCanvasNodeConfigureOps(r *Registry) {
 		"audioVolume":           map[string]any{"type": "string", "description": "音量，0–1"},
 		"audioInstructions":     map[string]any{"type": "string", "description": "声音风格、情绪和表达要求"},
 	}
-	params, _ := json.Marshal(map[string]any{"type": "object", "additionalProperties": false,
-		"properties": map[string]any{"canvasId": map[string]any{"type": "string"}, "nodeId": map[string]any{"type": "string"},
-			"kind": map[string]any{"type": "string", "enum": []string{"image", "video", "audio"}}, "expectedRevision": map[string]any{"type": "integer", "minimum": 1},
-			"patch": map[string]any{"type": "object", "minProperties": 1, "additionalProperties": false, "properties": properties}},
-		"required": []string{"canvasId", "nodeId", "kind", "expectedRevision", "patch"}})
-	r.Register(Op{ReplaySafe: true, AssistantCanvas: true, ID: "canvas.node.configure", Summary: "设置媒体节点的提示词草稿与生成参数；不启动生成", Scope: ScopeCanvas, Params: params, Handler: opCanvasNodeConfigure})
 }
 
 func opCanvasNodeConfigure(ctx *Context, raw json.RawMessage) (any, error) {
@@ -74,18 +78,9 @@ func opCanvasNodeConfigure(ctx *Context, raw json.RawMessage) (any, error) {
 	if node["type"] != args.Kind {
 		return nil, InvalidArg("node_kind_mismatch", "参数类型与目标节点不一致")
 	}
-	// 节点上已有的草稿参数先铺底、patch 再覆盖：只改 size 时也要能看出节点是不是正在拆图层。
-	base := stringParameters(dependencyMetadata(node))
-	patch, err := resolveGenerationDraft(ctx, args.Kind, args.Patch, base)
+	patch, err := applyGenerationDraftToNode(ctx, node, args.Kind, args.Patch)
 	if err != nil {
 		return nil, err
-	}
-	if _, hasModel := patch["model"]; !hasModel {
-		// 只改尺寸这类参数时 patch 里没有 model，用节点当前模型补上再校验，
-		// 否则同一份规则只在换模型时才生效。
-		if err := validateModelGenerationParameters(ctx.Domain, args.Kind, nodeSelectedModel(node), mergeParameters(base, stringParameters(patch))); err != nil {
-			return nil, err
-		}
 	}
 	if _, err := ctx.Domain.UpdateUserCanvasNodeFields(ctx.UserID, args.CanvasID, args.NodeID, patch, args.ExpectedRevision); err != nil {
 		return nil, mapDomainError(err)
@@ -93,6 +88,36 @@ func opCanvasNodeConfigure(ctx *Context, raw json.RawMessage) (any, error) {
 	return canvasWriteResult(ctx, args.CanvasID, func(doc map[string]any) map[string]any {
 		return map[string]any{"canvasId": args.CanvasID, "nodeId": args.NodeID, "node": findDocNode(doc, args.NodeID), "draftConfigured": true}
 	})
+}
+
+func applyGenerationDraftToNode(ctx *Context, node map[string]any, kind string, raw map[string]json.RawMessage) (map[string]any, error) {
+	// 节点上已有的草稿参数先铺底、patch 再覆盖：只改 size 时也要能看出节点是不是正在拆图层。
+	base := stringParameters(dependencyMetadata(node))
+	patch, err := resolveGenerationDraft(ctx, kind, raw, base)
+	if err != nil {
+		return nil, err
+	}
+	if _, hasModel := patch["model"]; !hasModel {
+		// 只改尺寸这类参数时 patch 里没有 model，用节点当前模型补上再校验，
+		// 否则同一份规则只在换模型时才生效。
+		if err := validateModelGenerationParameters(ctx.Domain, kind, nodeSelectedModel(node), mergeParameters(base, stringParameters(patch))); err != nil {
+			return nil, err
+		}
+	}
+	descriptor, _ := capability.BuiltinRegistry().Resolve(kind)
+	metadata, _ := node["metadata"].(map[string]any)
+	if metadata == nil {
+		metadata = map[string]any{}
+		node["metadata"] = metadata
+	}
+	if err := descriptor.ApplyPatch(node, patch); err != nil {
+		return nil, InvalidArg("invalid_parameter", err.Error())
+	}
+	if _, hasPrompt := patch["prompt"]; hasPrompt {
+		delete(metadata, "promptTemplateOperation")
+		delete(metadata, "promptTemplateVariables")
+	}
+	return patch, nil
 }
 
 // Single draft validator for a node edit and storyboard production preparation.
