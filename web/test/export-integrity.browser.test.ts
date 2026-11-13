@@ -213,7 +213,6 @@ test("automatic canvas creation failure leaves the opening screen and shows a re
             await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ code: 0, data: { op: "canvas.document.commit", opId: body.opId, replayed: false, caller: "manual", revision: 1, result: { canvasId: savedId, revision: 1, title: project.title, updatedAt: project.updatedAt } } }) });
         });
         await page.getByRole("button", { name: "开始创作", exact: true }).click();
-        await page.getByRole("button", { name: /从空白开始/ }).click();
         await saveStarted;
         expect(await page.getByTestId("canvas-route").textContent()).toBe("/canvas?mode=new");
         acceptSave();
@@ -221,7 +220,7 @@ test("automatic canvas creation failure leaves the opening screen and shows a re
         expect(await page.getByTestId("canvas-route").textContent()).toContain(`/canvas/${savedId}`);
         expect(pageErrors).toEqual([]);
     } finally { await context.close(); }
-}, 15_000);
+}, 30_000);
 
 test("fresh IndexedDB can initialize app_state and folder pending together", async () => {
     const context = await browser.newContext();

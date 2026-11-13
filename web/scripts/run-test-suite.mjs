@@ -95,7 +95,7 @@ if (import.meta.main) {
         if (otherExitCode !== 0) {
             process.exitCode = otherExitCode;
         } else {
-            const browserExitCode = await runIsolatedPool(browserFiles, Math.min(concurrency, 2), spawnBrowserFile);
+            const browserExitCode = await runIsolatedPool(browserFiles, 1, spawnBrowserFile);
             if (browserExitCode !== 0) process.exitCode = browserExitCode;
         }
     }
