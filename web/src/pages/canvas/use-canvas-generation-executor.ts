@@ -19,6 +19,7 @@ import { imagePromptLengthError } from "@/lib/canvas/image-prompt-limits";
 import { generationErrorMessage } from "@/lib/generation-error";
 import { navigateToSettings } from "@/lib/settings-navigation";
 import { modelCompatibilityError, modelGroupReferenceLimits, modelRequestOptions, type ModelRequirements } from "@/lib/model-selection";
+import { resolveTextMediaModel } from "@/lib/media-review-model";
 import { referencedAssetIdsInPrompt } from "@/lib/canvas/canvas-resource-references";
 import type { Skill } from "@/services/api/skills";
 import { skillRuntime } from "@/services/skill-runtime";
@@ -349,11 +350,25 @@ export function useCanvasGenerationExecutor({
                         }
                         const generationContext = { ...rawGenerationContext, prompt: effectivePrompt };
                         if (!usesWorkflowProvider) {
-                            const compatibilityError = modelCompatibilityError(
+                            let compatibilityError = modelCompatibilityError(
                                 inputConfig,
                                 generationConfig.model,
                                 generationModelRequirements(mode, generationContext, sourceNode, generationConfig),
                             );
+                            if (compatibilityError && mode === "text") {
+                                const mediaKind = generationContext.referenceVideos.length ? "video" : generationContext.referenceImages.length ? "image" : "";
+                                const mediaModel = mediaKind ? resolveTextMediaModel(inputConfig, mediaKind) : "";
+                                if (mediaModel && mediaModel !== generationConfig.model) {
+                                    generationConfig = { ...generationConfig, model: mediaModel };
+                                    setNodes((current) => current.map((item) => item.id === nodeId ? { ...item, metadata: { ...item.metadata, model: mediaModel } } : item));
+                                    message.info(`当前模型不支持参考${mediaKind === "video" ? "视频" : "图片"}，已切换到支持媒体输入的多模态模型`);
+                                    compatibilityError = modelCompatibilityError(
+                                        inputConfig,
+                                        generationConfig.model,
+                                        generationModelRequirements(mode, generationContext, sourceNode, generationConfig),
+                                    );
+                                }
+                            }
                             if (compatibilityError) {
                                 reportError(new Error(compatibilityError));
                                 return;

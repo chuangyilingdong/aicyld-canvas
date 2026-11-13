@@ -2,6 +2,10 @@
 
 All notable public changes to BeefTV are documented in this file.
 
+## v2.1.3-aicyld.66
+
+- 视频/图片反推提示词：已有的失败结果节点在重试时会自动把不兼容的普通文本模型切换为支持媒体输入的多模态模型，无需删除节点后重建。
+
 ## v2.1.3-aicyld.65
 
 - 视频/图片反推提示词：结果节点优先选择支持视频或图片输入的多模态文本模型，不再默认绑定普通聊天模型。
