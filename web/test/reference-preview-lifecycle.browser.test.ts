@@ -33,7 +33,7 @@ beforeAll(async () => {
                 const unexpected = () => { throw new Error('unexpected image storage operation'); };
                 export {unexpected as uploadImage, unexpected as getImageBlob, unexpected as setImageBlob, unexpected as imageToDataUrl, unexpected as deleteStoredImages, unexpected as cleanupUnusedImages, unexpected as collectImageStorageKeys};` }));
             builder.onLoad({ filter: /src[\\/]lib[\\/]canvas[\\/]canvas-drawing-storage\.ts$/ }, () => ({ loader: "js", contents: `export async function loadCanvasDrawingPreview() { return null; }` }));
-            builder.onLoad({ filter: /src[\\/]hooks[\\/]use-personal-asset-library\.ts$/ }, () => ({ loader: "js", contents: `export function usePersonalAssetLibrary() { return []; }` }));
+            builder.onLoad({ filter: /src[\\/]hooks[\\/]use-personal-asset-library\.ts$/ }, () => ({ loader: "js", contents: `export function usePersonalAssetLibrary() { return []; } export function usePersonalAssetLibrarySearch() { return []; }` }));
         } }],
     });
     if (!build.success) throw new Error(build.logs.join("\n"));
