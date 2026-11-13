@@ -29,6 +29,9 @@ func RunAudioTask(ctx context.Context, input Input) (map[string]interface{}, err
 	if managedConnection(input.Config) {
 		return runLegacyManagedAudio(ctx, input)
 	}
+	if input.Config.InterfaceType == "audio-generations" {
+		return runAudioGenerationsTask(ctx, input)
+	}
 	if input.Config.InterfaceType == "" {
 		input.Config.InterfaceType = "openai-audio"
 	}

@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 
 import {
     applyPlatformFeatureModels,
+    canvasFeatureModel,
     canvasFeatureModelForMode,
     collectCapabilityImageEditModels,
     isImageEditModel,
@@ -17,6 +18,7 @@ const models = {
     "video.i2v": "video::i2v-model",
     "video.multi": "video::multi-model",
     "audio.tts": "audio::tts-model",
+    "audio.music": "audio::music-model",
 };
 
 afterEach(() => {
@@ -44,6 +46,7 @@ test("platform defaults fill each generation mode field", () => {
         videoModel: models["video.t2v"],
         audioModel: models["audio.tts"],
     });
+    expect(canvasFeatureModel("audio.music")).toBe(models["audio.music"]);
 });
 
 test("image edit routing keeps capability-declared edit models", () => {

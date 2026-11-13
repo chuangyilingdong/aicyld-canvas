@@ -29,6 +29,18 @@ test("production workbench does not silently drop bound voice samples before bac
     expect(source).not.toContain("selectedVideoProfile?.references.maxAudios");
 });
 
+test("production workbench can submit missing shots in one batch", async () => {
+    const source = await Bun.file(new URL("../src/pages/projects/detail/workflow-production-workbench.tsx", import.meta.url)).text();
+
+    expect(source).toContain("const generateAllArtifacts = async (options?: { automatic?: boolean }) =>");
+    expect(source).toContain("shotNeedsGeneration(detail, shot, artifactType)");
+    expect(source).toContain("补齐全部${stageCopy.label}");
+    expect(source).toContain("批量生成会产生积分消耗");
+    expect(source).toContain('setBatchProgress({ done: index + 1, total: targets.length, phase: "submitting" })');
+    expect(source).toContain("withStoryboardVideoReference");
+    expect(source).toContain("最后一张参考图是当前镜头分镜图");
+});
+
 test("shot generation submits historical character image, current voice and asset prompt", async () => {
     const detail = {
         assets: [

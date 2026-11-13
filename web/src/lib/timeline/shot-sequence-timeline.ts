@@ -3,6 +3,8 @@ import type { ProjectDetail, ProjectShot, ShotArtifact } from "@/services/api/pr
 import type { TimelineClip, TimelineProject, TimelineTrack } from "@/types/timeline";
 
 const VIDEO_TRACK_ID = "t-video";
+const AUDIO_TRACK_ID = "t-audio";
+const BGM_TRACK_ID = "t-bgm";
 const SUBTITLE_TRACK_ID = "t-subtitle";
 
 /**
@@ -78,6 +80,29 @@ export function buildDeliveryTimeline(detail: DeliveryTimelineInput, unitId: str
             },
         });
 
+        const audio = currentAudioArtifact(detail, shot.id);
+        if (audio?.status === "ready" && audio.resourceId) {
+            clips.push({
+                id: `audio-${shot.id}`,
+                kind: "audio",
+                nodeId: shot.id,
+                trackId: AUDIO_TRACK_ID,
+                startMs: cursor,
+                durationMs,
+                title: `${shot.title} · 旁白`,
+                sourceStartMs: 0,
+                volume: 1,
+                directMedia: {
+                    id: shot.id,
+                    kind: "audio",
+                    title: `${shot.title} · 旁白`,
+                    storageKey: `resource:${audio.resourceId}`,
+                    url: resourceFileUrl(audio.resourceId),
+                    durationMs,
+                },
+            });
+        }
+
         const dialogue = resolveDialogue(detail, shot);
         if (dialogue) {
             clips.push({
@@ -94,9 +119,36 @@ export function buildDeliveryTimeline(detail: DeliveryTimelineInput, unitId: str
         cursor += durationMs;
     }
 
+    const music = currentBgmArtifact(detail, unitId);
+    if (cursor > 0 && music?.status === "ready" && music.resourceId) {
+        clips.push({
+            id: `bgm-${unitId}`,
+            kind: "audio",
+            nodeId: music.shotId,
+            trackId: BGM_TRACK_ID,
+            startMs: 0,
+            durationMs: cursor,
+            title: "背景音乐",
+            sourceStartMs: 0,
+            volume: 0.18,
+            fadeInMs: 500,
+            fadeOutMs: 1200,
+            directMedia: {
+                id: music.shotId,
+                kind: "audio",
+                title: "背景音乐",
+                storageKey: `resource:${music.resourceId}`,
+                url: resourceFileUrl(music.resourceId),
+                durationMs: cursor,
+            },
+        });
+    }
+
     const tracks: TimelineTrack[] = [
         { id: VIDEO_TRACK_ID, kind: "video", label: "成片", order: 0 },
-        { id: SUBTITLE_TRACK_ID, kind: "subtitle", label: "字幕", order: 1 },
+        ...(clips.some((clip) => clip.kind === "audio" && clip.trackId === AUDIO_TRACK_ID) ? [{ id: AUDIO_TRACK_ID, kind: "audio" as const, label: "旁白", order: 1 }] : []),
+        ...(clips.some((clip) => clip.kind === "audio" && clip.trackId === BGM_TRACK_ID) ? [{ id: BGM_TRACK_ID, kind: "audio" as const, label: "配乐", order: 2 }] : []),
+        { id: SUBTITLE_TRACK_ID, kind: "subtitle", label: "字幕", order: 3 },
     ];
 
     return {
@@ -113,6 +165,34 @@ function currentVideoArtifact(detail: DeliveryTimelineInput, shotId: string): Sh
         .slice()
         .sort((left, right) => right.version - left.version);
     return artifacts.find((item) => item.selected) || artifacts[0];
+}
+
+function currentAudioArtifact(detail: DeliveryTimelineInput, shotId: string): ShotArtifact | undefined {
+    const artifacts = (detail.shotArtifacts || [])
+        .filter((item) => item.shotId === shotId && item.type === "audio" && audioArtifactPurpose(item) !== "music")
+        .slice()
+        .sort((left, right) => right.version - left.version);
+    return artifacts.find((item) => item.selected) || artifacts[0];
+}
+
+function currentBgmArtifact(detail: DeliveryTimelineInput, unitId: string): ShotArtifact | undefined {
+    const artifacts = (detail.shotArtifacts || [])
+        .filter((item) => item.unitId === unitId && item.type === "audio" && audioArtifactPurpose(item) === "music")
+        .slice()
+        .sort((left, right) => right.version - left.version);
+    return artifacts.find((item) => item.selected) || artifacts[0];
+}
+
+function audioArtifactPurpose(artifact: ShotArtifact) {
+    if (!artifact.metadataJson) return "";
+    try {
+        const parsed: unknown = JSON.parse(artifact.metadataJson);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return "";
+        const purpose = (parsed as Record<string, unknown>).audioPurpose;
+        return typeof purpose === "string" ? purpose : "";
+    } catch {
+        return "";
+    }
 }
 
 /**

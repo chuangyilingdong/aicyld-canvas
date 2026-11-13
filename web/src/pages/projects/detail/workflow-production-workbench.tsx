@@ -8,18 +8,21 @@ import { EmptyState } from "@/components/ui/product/empty-state";
 import { StatusBadge } from "@/components/ui/base/badges";
 import { AppModal } from "@/components/ui/product/app-modal/app-modal";
 import { Box, ChevronDown, ChevronLeft, ChevronRight, Download, Film, Image as ImageIcon, Layers3, List, Maximize2, Play, Plus, RefreshCcw, Save, Search, SlidersHorizontal, Trash2, UsersRound, WandSparkles, X } from "lucide-react";
-import { Link, useNavigate } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 
 import { CanvasResourceMentionTextarea } from "@/components/canvas/canvas-resource-mention-textarea";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { ModelPicker } from "@/components/model-picker";
 import { initialWorkbenchModel, refreshedWorkbenchModel } from "./workflow-model-selection";
+import { isMusicAudioModel } from "@/lib/audio-generation";
+import { canvasFeatureModel } from "@/lib/canvas/feature-models";
+import { parseStyleProfile } from "@/lib/canvas/style-profile";
 import { modelCapabilityConfigFor, normalizeImageValue, normalizeVideoValue, videoDurationOptions } from "@/lib/model-capabilities";
 import { customShotTitle, formatShotOrdinal, normalizeDefaultShotTitle } from "@/lib/shot-label";
 import { resolveCompatibleModel, resolveModelVideoBooleanOptions, type ModelRequirements } from "@/lib/model-selection";
 import { formatVideoResolutionLabel } from "@/lib/video-generation-options";
 import { submitBackendGenerationTask } from "@/services/api/generation-task";
-import { type GenerationTask } from "@/services/api/task-center";
+import { waitForGenerationTask, type GenerationTask } from "@/services/api/task-center";
 import {
     createUnitWorkflow,
     deleteProjectShot,
@@ -37,7 +40,7 @@ import {
 } from "@/services/api/projects";
 import { resourceFileUrl, resourceIdFromStorageKey } from "@/services/api/resources";
 import { skillRuntime } from "@/services/skill-runtime";
-import { modelDisplayName, modelOptionName, resolveModelChannel, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
+import { modelDisplayName, modelOptionName, resolveModelChannel, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { SkillRuntimePicker, useSkillRuntimeCatalog } from "@/components/skills/skill-runtime-picker";
 
 import {
@@ -49,7 +52,7 @@ import {
     formatDuration,
     type ShortDramaWorkflowStage,
 } from "./workflow-shared";
-import { buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, resolveShotAssetMentionPrompt } from "./workflow-shot-references";
+import { buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, resolveShotAssetMentionPrompt, type ShotAssetReferenceContext } from "./workflow-shot-references";
 
 type ShotEditorValues = Omit<ShotRevisionInput, "durationMs"> & {
     title: string;
@@ -75,12 +78,16 @@ const productionStageCopy: Record<"storyboard" | "previz" | "video", { label: st
     video: { label: "镜头视频", action: "生成镜头视频", empty: "选择视频模型后生成当前镜头" },
 };
 
+const SMART_FILM_TASK_TIMEOUT_MS = 60 * 60 * 1000;
+
 export default function WorkflowProductionWorkbench(props: Props) {
     const { activeStage, detail, projectId, unitId, workflowStep, selectedShot, onSelectShot, onRefresh, onAddShot, addingShot } = props;
     const { message, modal } = App.useApp();
     const navigate = useNavigate();
     const effectiveConfig = useEffectiveConfig();
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
+    const narrationAudioModel = useMemo(() => resolveNarrationAudioModel(effectiveConfig), [effectiveConfig]);
+    const musicAudioModel = useMemo(() => resolveMusicAudioModel(effectiveConfig), [effectiveConfig]);
     const [form] = Form.useForm<ShotEditorValues>();
     const watchedDuration = Form.useWatch("durationSeconds", form);
     const watchedTitle = Form.useWatch("title", form);
@@ -90,6 +97,9 @@ export default function WorkflowProductionWorkbench(props: Props) {
     const [imagePreviewArtifact, setImagePreviewArtifact] = useState<ShotArtifact | null>(null);
     const [editorDirty, setEditorDirty] = useState(false);
     const [submittingShotIds, setSubmittingShotIds] = useState<Set<string>>(() => new Set());
+    const [batchProgress, setBatchProgress] = useState<{ done: number; total: number; phase: "submitting" | "waiting" } | null>(null);
+    const [searchParams, setSearchParams] = useSearchParams();
+    const autostartRef = useRef("");
     const [taskClock, setTaskClock] = useState(() => Date.now());
     const activeShotIdRef = useRef(selectedShot?.id || "");
     activeShotIdRef.current = selectedShot?.id || "";
@@ -278,66 +288,224 @@ export default function WorkflowProductionWorkbench(props: Props) {
         onError: (error) => message.error(error instanceof Error ? error.message : "镜头资产更新失败"),
     });
 
+    const ensureProductionStep = async () => {
+        let productionStep = workflowStep;
+        if (!productionStep) {
+            const initialized = await createUnitWorkflow(projectId, unitId);
+            productionStep = (initialized.workflow.steps || []).find((step) => step.stepKey === activeStage);
+        }
+        if (!productionStep) throw new Error("当前生成阶段不可用，请刷新页面后重试");
+        if (productionStep.status === "failed") throw new Error("当前生成阶段失败，请刷新后重试");
+        return productionStep;
+    };
+
+    const submitShotGeneration = async (input: {
+        shot: ProjectShot;
+        values: ShotEditorValues;
+        context: ReturnType<typeof buildShotAssetReferenceContext>;
+        productionStep: WorkflowStep;
+        model: string;
+        config: AiConfig;
+        persistRevision: boolean;
+    }) => {
+        const mode = generationCapability;
+        if (!isAiConfigReady(input.config, input.model)) throw new Error("当前模型渠道配置不完整，请先到设置中补齐");
+        const shotAssetReferenceContext = mode === "video" ? withStoryboardVideoReference(detail, input.shot, input.context) : input.context;
+        const hasStoryboardReference = mode === "video" && shotAssetReferenceContext.referenceImages.some((image) => image.id === `storyboard:${input.shot.id}`);
+        const existingRevision = currentRevision(detail, input.shot);
+        let savedShot = input.shot;
+        let shotRevisionId = existingRevision?.id;
+        if (input.persistRevision || !shotRevisionId) {
+            const saved = await saveProjectShot(projectId, {
+                id: input.shot.id,
+                unitId,
+                title: input.values.title,
+                description: input.values.plotDescription,
+                position: input.shot.position,
+                durationMs: Math.round(input.values.durationSeconds * 1000),
+                status: input.shot.status,
+                revision: revisionInput(input.values),
+            });
+            savedShot = saved.shot;
+            shotRevisionId = saved.shot.currentRevisionId || shotRevisionId;
+        }
+        const referenceAudios = mode === "video" ? shotAssetReferenceContext.referenceAudios : [];
+        const basePrompt = mode === "video"
+            ? [input.values.videoPrompt || input.values.plotDescription, input.values.action, input.values.dialogue && `台词：${input.values.dialogue}`, input.values.continuityNotes, hasStoryboardReference ? "最后一张参考图是当前镜头分镜图，请保持人物位置、构图、场景关系和光线一致。" : ""].filter(Boolean).join("\n")
+            : [input.values.imagePrompt || input.values.plotDescription, input.values.action, "黑白分镜草图，清晰动作节拍，电影构图"].filter(Boolean).join("\n");
+        const resolvedPrompt = resolveShotAssetMentionPrompt(basePrompt, shotAssetReferenceContext, { dialogue: input.values.dialogue });
+        const skillExecution = await skillRuntime.prepare({
+            profile: "shortDrama",
+            prompt: resolvedPrompt,
+            skills: availableSkills,
+            selectedSkillIds,
+        });
+        const task = await submitBackendGenerationTask({
+            projectId,
+            mode,
+            prompt: skillExecution.prompt,
+            config: input.config,
+            referenceImages: shotAssetReferenceContext.referenceImages,
+            referenceAudios,
+            metadata: {
+                ...skillExecution.metadata,
+                workflowStepId: input.productionStep.id,
+                domainProjectId: projectId,
+                unitId,
+                shotId: savedShot.id,
+                shotRevisionId,
+                artifactType,
+                role: "output",
+                source: "short-drama-workflow",
+                ...(mode === "video" && shotAssetReferenceContext.referenceImages.length ? { videoEditOperation: "reference_to_video" } : {}),
+                resolvedCharacterVersions: shotAssetReferenceContext.resolvedCharacterVersions,
+                artifactMetadata: { model: input.model, aspectRatio, resolution, durationSeconds: input.values.durationSeconds, ...skillExecution.metadata },
+            },
+        });
+        if (activeShotIdRef.current === input.shot.id) setEditorDirty(false);
+        return task;
+    };
+
+    const generateNarrations = async (productionStep: WorkflowStep) => {
+        const audioModel = narrationAudioModel;
+        if (!audioModel || !isAiConfigReady(effectiveConfig, audioModel)) {
+            message.info("未配置可用旁白模型，跳过自动配音");
+            return [];
+        }
+        const tasks: Array<{ task: GenerationTask; title: string }> = [];
+        for (const shot of shots) {
+            const shotRevision = currentRevision(detail, shot);
+            const dialogue = (shotRevision?.dialogue || "").trim();
+            if (!dialogue) continue;
+            const existingAudio = currentArtifact(detail, shot.id, "audio");
+            if (existingAudio?.resourceId && existingAudio.status === "ready") continue;
+            const config = {
+                ...effectiveConfig,
+                model: audioModel,
+                audioModel,
+                audioVoice: effectiveConfig.audioVoice || "alloy",
+                audioFormat: effectiveConfig.audioFormat || "mp3",
+            };
+            try {
+                const task = await submitBackendGenerationTask({
+                    projectId,
+                    mode: "audio",
+                    prompt: dialogue,
+                    config,
+                    metadata: {
+                        workflowStepId: productionStep.id,
+                        domainProjectId: projectId,
+                        unitId,
+                        shotId: shot.id,
+                        shotRevisionId: shotRevision?.id,
+                        artifactType: "audio",
+                        role: "output",
+                        source: "smart-film-narration",
+                        audioPurpose: "voice",
+                        audioOperation: "synthesize",
+                        artifactMetadata: { model: audioModel, audioPurpose: "voice", durationSeconds: Math.max(1, Math.round(shot.durationMs / 1000)) },
+                    },
+                });
+                tasks.push({ task, title: shot.title });
+            } catch (error) {
+                message.warning(`${shot.title || "镜头"}旁白提交失败：${error instanceof Error ? error.message : "未知错误"}`);
+            }
+        }
+        if (!tasks.length) return [];
+        setBatchProgress({ done: 0, total: tasks.length, phase: "waiting" });
+        const settled = await Promise.allSettled(tasks.map(({ task }) => waitForGenerationTask(task.id, { intervalMs: 3000, timeoutMs: SMART_FILM_TASK_TIMEOUT_MS })));
+        await onRefresh();
+        return settled.flatMap((result, index) => result.status === "rejected" ? [tasks[index]?.title || "旁白"] : []);
+    };
+
+    const generateMusic = async (productionStep: WorkflowStep) => {
+        if (!musicAudioModel) {
+            message.info("未配置 BGM 音乐模型，自动成片将跳过配乐");
+            return "";
+        }
+        if (!isAiConfigReady(effectiveConfig, musicAudioModel)) {
+            message.warning("BGM 音乐模型当前不可用，自动成片将跳过配乐");
+            return "";
+        }
+        const firstShot = shots[0];
+        if (!firstShot) return "";
+        const existingMusic = currentBgmArtifact(detail, unitId);
+        if (existingMusic?.status === "ready" && existingMusic.resourceId) return "";
+
+        const durationSeconds = Math.max(5, Math.round(shots.reduce((total, shot) => total + Math.max(1, shot.durationMs / 1000), 0)));
+        const style = parseStyleProfile(detail.project.styleProfileJson);
+        const styleHint = [style?.title, style?.prompt].filter(Boolean).join("：");
+        const prompt = [
+            `为短视频《${detail.project.name}》创作一段纯器乐背景音乐。`,
+            `内容主题：${(detail.project.description || detail.project.name).trim()}`,
+            styleHint ? `画面风格与情绪参考：${styleHint}` : "",
+            "音乐要求：电影感、现代、克制，有自然起伏但始终为旁白留出空间；无人声、无歌词，避免尖锐高频和突兀停顿。",
+            `时长约 ${durationSeconds} 秒，开头轻柔进入，结尾自然收束。`,
+        ].filter(Boolean).join("\n");
+        const shotRevision = currentRevision(detail, firstShot);
+        try {
+            const task = await submitBackendGenerationTask({
+                projectId,
+                mode: "audio",
+                prompt,
+                config: {
+                    ...effectiveConfig,
+                    model: musicAudioModel,
+                    audioModel: musicAudioModel,
+                    audioVoice: "",
+                    audioFormat: "mp3",
+                    audioSpeed: "1",
+                    audioPitch: "0",
+                    audioVolume: "1",
+                    audioInstructions: "",
+                },
+                metadata: {
+                    workflowStepId: productionStep.id,
+                    domainProjectId: projectId,
+                    unitId,
+                    shotId: firstShot.id,
+                    shotRevisionId: shotRevision?.id,
+                    artifactType: "audio",
+                    role: "output",
+                    source: "smart-film-bgm",
+                    audioPurpose: "music",
+                    audioOperation: "generate",
+                    audioIsInstrumental: true,
+                    audioLyricsOptimizer: false,
+                    artifactMetadata: { model: musicAudioModel, audioPurpose: "music", durationSeconds, title: "BGM" },
+                },
+            });
+            setBatchProgress({ done: 0, total: 1, phase: "waiting" });
+            await waitForGenerationTask(task.id, { intervalMs: 3000, timeoutMs: SMART_FILM_TASK_TIMEOUT_MS });
+            await onRefresh();
+            message.success("BGM 已生成并加入成片音轨");
+            return "";
+        } catch (error) {
+            return error instanceof Error ? error.message : "BGM 生成失败";
+        }
+    };
+
     const generateArtifact = async () => {
-        if (!selectedShot || submittingShotIds.has(selectedShot.id)) return;
+        if (!selectedShot || submittingShotIds.has(selectedShot.id) || batchProgress) return;
         const submittingShot = selectedShot;
         setSubmittingShotIds((current) => new Set(current).add(submittingShot.id));
         try {
             const values = await form.validateFields();
-            let productionStep = workflowStep;
-            if (!productionStep) {
-                const initialized = await createUnitWorkflow(projectId, unitId);
-                productionStep = (initialized.workflow.steps || []).find((step) => step.stepKey === activeStage);
-            }
-            if (!productionStep) throw new Error("当前生成阶段不可用，请刷新页面后重试");
-            if (productionStep.status === "failed") throw new Error("当前生成阶段失败，请刷新后重试");
-            if (!routedModel) throw new Error(activeStage === "video" ? "请先配置视频模型" : "请先配置图片模型");
-            const saved = await saveProjectShot(projectId, {
-                id: submittingShot.id,
-                unitId,
-                title: values.title,
-                description: values.plotDescription,
-                position: submittingShot.position,
-                durationMs: Math.round(values.durationSeconds * 1000),
-                status: submittingShot.status,
-                revision: revisionInput(values),
+            const productionStep = await ensureProductionStep();
+            const context = generationCapability === "video"
+                ? withStoryboardVideoReference(detail, submittingShot, shotAssetReferenceContext)
+                : shotAssetReferenceContext;
+            const generation = generationConfigForShot({
+                effectiveConfig,
+                capability: generationCapability,
+                requestedModel: routedModel,
+                context,
+                values,
+                aspectRatio,
+                resolution,
+                imageQuality,
             });
-            const mode = generationCapability;
-            const config = { ...generationConfig, videoSeconds: String(Math.max(1, Math.round(values.durationSeconds))) };
-            if (!isAiConfigReady(config, routedModel)) throw new Error("当前模型渠道配置不完整，请先到设置中补齐");
-            const basePrompt = mode === "video"
-                ? [values.videoPrompt || values.plotDescription, values.action, values.dialogue && `台词：${values.dialogue}`, values.continuityNotes].filter(Boolean).join("\n")
-                : [values.imagePrompt || values.plotDescription, values.action, "黑白分镜草图，清晰动作节拍，电影构图"].filter(Boolean).join("\n");
-            const resolvedPrompt = resolveShotAssetMentionPrompt(basePrompt, shotAssetReferenceContext, { dialogue: values.dialogue });
-            const skillExecution = await skillRuntime.prepare({
-                profile: "shortDrama",
-                prompt: resolvedPrompt,
-                skills: availableSkills,
-                selectedSkillIds,
-            });
-            await submitBackendGenerationTask({
-                projectId,
-                mode,
-                prompt: skillExecution.prompt,
-                config,
-                referenceImages: shotAssetReferenceContext.referenceImages,
-                referenceAudios: generationReferenceAudios,
-                metadata: {
-                    ...skillExecution.metadata,
-                    workflowStepId: productionStep.id,
-                    domainProjectId: projectId,
-                    unitId,
-                    shotId: saved.shot.id,
-                    shotRevisionId: saved.shot.currentRevisionId,
-                    artifactType,
-                    role: "output",
-                    source: "short-drama-workflow",
-                    ...(mode === "video" && shotAssetReferenceContext.referenceImages.length ? { videoEditOperation: "reference_to_video" } : {}),
-                    resolvedCharacterVersions: shotAssetReferenceContext.resolvedCharacterVersions,
-                    artifactMetadata: { model: routedModel, aspectRatio, resolution, durationSeconds: values.durationSeconds, ...skillExecution.metadata },
-                },
-            });
-            if (activeShotIdRef.current === submittingShot.id) setEditorDirty(false);
+            await submitShotGeneration({ shot: submittingShot, values, context, productionStep, model: generation.model, config: generation.config, persistRevision: true });
             await onRefresh();
             message.success(`${productionStageCopy[activeStage as "storyboard" | "previz" | "video"].label}任务已提交`);
         } catch (error) {
@@ -350,6 +518,165 @@ export default function WorkflowProductionWorkbench(props: Props) {
             });
         }
     };
+
+    const generateAllArtifacts = async (options?: { automatic?: boolean }) => {
+        if (batchProgress || submittingShotIds.size) return;
+        const advanceAutomaticStage = () => {
+            const nextStage = activeStage === "storyboard" ? "video" : activeStage === "video" ? "delivery" : "";
+            if (nextStage) navigate(`/projects/${projectId}/workflow/${unitId}/${nextStage}?autostart=1`);
+        };
+        const waitForTasks = async (tasks: GenerationTask[]) => {
+            setBatchProgress({ done: 0, total: tasks.length, phase: "waiting" });
+            const settled = await Promise.allSettled(tasks.map((task) => waitForGenerationTask(task.id, { intervalMs: 3000, timeoutMs: SMART_FILM_TASK_TIMEOUT_MS })));
+            await onRefresh();
+            return settled.flatMap((result, index) => {
+                if (result.status !== "rejected") return [];
+                const task = tasks[index];
+                const title = shots.find((shot) => shot.id === task?.clientContext?.shotId)?.title;
+                return [title || `任务 ${index + 1}`];
+            });
+        };
+        const finishVideoPostProduction = async () => {
+            if (activeStage !== "video") return;
+            const productionStep = await ensureProductionStep();
+            const narrationFailures = await generateNarrations(productionStep);
+            if (narrationFailures.length) message.warning(`${narrationFailures.length} 个镜头旁白生成失败，继续成片：${narrationFailures.slice(0, 3).join("；")}`);
+            const musicFailure = await generateMusic(productionStep);
+            if (musicFailure) message.warning(`BGM 生成失败，继续无配乐成片：${musicFailure}`);
+        };
+        const runningTasks = runningStageTasks(detail, shots, artifactType);
+        const targets = shots.filter((shot) => shotNeedsGeneration(detail, shot, artifactType));
+        if (!targets.length) {
+            if (options?.automatic) {
+                try {
+                    if (runningTasks.length) {
+                        const failures = await waitForTasks(runningTasks);
+                        if (failures.length) {
+                            message.error(`${failures.length} 个${stageCopy.label}生成失败：${failures.slice(0, 3).join("；")}`);
+                            return;
+                        }
+                    }
+                    await finishVideoPostProduction();
+                    advanceAutomaticStage();
+                } catch (error) {
+                    message.error(error instanceof Error ? error.message : "自动制作后续步骤失败");
+                } finally {
+                    setBatchProgress(null);
+                }
+                return;
+            }
+            message.info(`所有${stageCopy.label}都已生成或正在生成`);
+            return;
+        }
+        if (!routedModel) {
+            message.warning(activeStage === "video" ? "请先配置视频模型" : "请先配置图片模型");
+            return;
+        }
+        let currentValues: ShotEditorValues | undefined;
+        if (targets.some((shot) => shot.id === selectedShot?.id)) {
+            try {
+                currentValues = await form.validateFields();
+            } catch {
+                message.warning("请先补全当前镜头必填内容，再开始批量生成");
+                return;
+            }
+        }
+        const missingStoryboards = activeStage === "video"
+            ? targets.filter((shot) => !currentArtifact(detail, shot.id, "storyboard")?.resourceId).length
+            : 0;
+        if (!options?.automatic) {
+            const confirmed = await new Promise<boolean>((resolve) => {
+                modal.confirm({
+                    title: `使用 ${modelSummary} 补齐 ${targets.length} 个${stageCopy.label}？`,
+                    content: `将提交 ${targets.length} 个生成任务，已生成或正在生成的 ${shots.length - targets.length} 个镜头会跳过。${missingStoryboards ? `其中 ${missingStoryboards} 个镜头没有分镜图，将按视频提示词和已绑定资产生成。` : ""}批量生成会产生积分消耗。`,
+                    okText: "开始批量生成",
+                    cancelText: "取消",
+                    centered: true,
+                    onOk: () => resolve(true),
+                    onCancel: () => resolve(false),
+                });
+            });
+            if (!confirmed) return;
+        }
+        setSubmittingShotIds((current) => new Set([...current, ...targets.map((shot) => shot.id)]));
+        setBatchProgress({ done: 0, total: targets.length, phase: "submitting" });
+        const failures: string[] = [];
+        const submittedTasks: GenerationTask[] = [];
+        try {
+            const productionStep = await ensureProductionStep();
+            for (let index = 0; index < targets.length; index += 1) {
+                const shot = targets[index];
+                const shotIndex = shots.findIndex((item) => item.id === shot.id);
+                const context = generationCapability === "video"
+                    ? withStoryboardVideoReference(detail, shot, buildShotAssetReferenceContext(detail, shot.id))
+                    : buildShotAssetReferenceContext(detail, shot.id);
+                const values = shot.id === selectedShot?.id && currentValues
+                    ? currentValues
+                    : shotEditorValues(detail, shot, shotIndex, context);
+                const generation = generationConfigForShot({
+                    effectiveConfig,
+                    capability: generationCapability,
+                    requestedModel: routedModel,
+                    context,
+                    values,
+                    aspectRatio,
+                    resolution,
+                    imageQuality,
+                });
+                try {
+                    const persistRevision = shot.id === selectedShot?.id ? editorDirty : !currentRevision(detail, shot)?.id;
+                    const task = await submitShotGeneration({ shot, values, context, productionStep, model: generation.model, config: generation.config, persistRevision });
+                    submittedTasks.push(task);
+                } catch (error) {
+                    failures.push(`${shot.title || formatShotOrdinal(shotIndex)}：${error instanceof Error ? error.message : "提交失败"}`);
+                } finally {
+                    setSubmittingShotIds((current) => {
+                        const next = new Set(current);
+                        next.delete(shot.id);
+                        return next;
+                    });
+                    setBatchProgress({ done: index + 1, total: targets.length, phase: "submitting" });
+                }
+            }
+            await onRefresh();
+            if (failures.length) {
+                message.warning(`已提交 ${targets.length - failures.length} 个，${failures.length} 个失败：${failures.slice(0, 3).join("；")}`);
+                return;
+            }
+            if (options?.automatic) {
+                const waitFailures = await waitForTasks([...runningTasks, ...submittedTasks]);
+                if (waitFailures.length) {
+                    message.error(`${waitFailures.length} 个${stageCopy.label}生成失败：${waitFailures.slice(0, 3).join("；")}`);
+                    return;
+                }
+                await finishVideoPostProduction();
+                message.success(`全部${stageCopy.label}已生成，继续下一步`);
+                advanceAutomaticStage();
+            } else {
+                message.success(`已提交 ${targets.length} 个${stageCopy.label}任务`);
+            }
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "批量生成提交失败");
+        } finally {
+            setSubmittingShotIds((current) => {
+                const next = new Set(current);
+                targets.forEach((shot) => next.delete(shot.id));
+                return next;
+            });
+            setBatchProgress(null);
+        }
+    };
+
+    useEffect(() => {
+        const resumeSmartFilm = detail.project.type === "smart-film-auto";
+        if (batchProgress || submittingShotIds.size) return;
+        if (autostartRef.current === activeStage || (searchParams.get("autostart") !== "1" && !resumeSmartFilm)) return;
+        autostartRef.current = activeStage;
+        const next = new URLSearchParams(searchParams);
+        next.delete("autostart");
+        setSearchParams(next, { replace: true });
+        void generateAllArtifacts({ automatic: true });
+    }, [activeStage, batchProgress, detail.project.type, searchParams, setSearchParams, submittingShotIds, generateAllArtifacts]);
 
     const stageCopy = productionStageCopy[activeStage as "storyboard" | "previz" | "video"];
     const selectedShotSubmitting = submittingShotIds.has(selectedShot?.id || "");
@@ -506,7 +833,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                             </WorkflowDisclosure>
                         </div>
                         <footer className="workflow-editor-actions">
-                            <div className="flex items-center gap-2"><Button danger icon={<Trash2 className="size-4" />} loading={deleteShot.isPending} disabled={saveShot.isPending || selectedShotSubmitting || changeAssetBinding.isPending} onClick={requestDeleteShot}>删除镜头</Button><Button htmlType="submit" icon={<Save className="size-4" />} loading={saveShot.isPending} disabled={!editorDirty || deleteShot.isPending}>保存脚本</Button><Button type="primary" icon={<Play className="size-4" />} loading={selectedShotSubmitting || shotTask?.status === "queued" || shotTask?.status === "running"} disabled={deleteShot.isPending} onClick={() => void generateArtifact()}>{selectedShotSubmitting ? `${stageCopy.action}（正在提交）` : shotTask?.status === "queued" || shotTask?.status === "running" ? `${stageCopy.action}（已运行${shotTaskElapsed}）` : shotTask?.status === "failed" ? `${stageCopy.action}（上次失败，可重试）` : shotTask?.status === "succeeded" && !newestArtifact ? `${stageCopy.action}（已完成，正在同步）` : newestArtifact ? `${stageCopy.action}（已生成）` : stageCopy.action}</Button></div>
+                            <div className="flex items-center gap-2"><Button danger icon={<Trash2 className="size-4" />} loading={deleteShot.isPending} disabled={saveShot.isPending || selectedShotSubmitting || Boolean(batchProgress) || changeAssetBinding.isPending} onClick={requestDeleteShot}>删除镜头</Button><Button htmlType="submit" icon={<Save className="size-4" />} loading={saveShot.isPending} disabled={!editorDirty || deleteShot.isPending || Boolean(batchProgress)}>保存脚本</Button><Button icon={<Layers3 className="size-4" />} loading={Boolean(batchProgress)} disabled={deleteShot.isPending || selectedShotSubmitting || Boolean(batchProgress)} onClick={() => void generateAllArtifacts()}>{batchProgress ? batchProgress.phase === "waiting" ? `生成中 ${batchProgress.done}/${batchProgress.total}` : `提交中 ${batchProgress.done}/${batchProgress.total}` : `补齐全部${stageCopy.label}`}</Button><Button type="primary" icon={<Play className="size-4" />} loading={selectedShotSubmitting || shotTask?.status === "queued" || shotTask?.status === "running"} disabled={deleteShot.isPending || Boolean(batchProgress)} onClick={() => void generateArtifact()}>{selectedShotSubmitting ? `${stageCopy.action}（正在提交）` : shotTask?.status === "queued" || shotTask?.status === "running" ? `${stageCopy.action}（已运行${shotTaskElapsed}）` : shotTask?.status === "failed" ? `${stageCopy.action}（上次失败，可重试）` : shotTask?.status === "succeeded" && !newestArtifact ? `${stageCopy.action}（已完成，正在同步）` : newestArtifact ? `${stageCopy.action}（已生成）` : stageCopy.action}</Button></div>
                         </footer>
                     </Form>
                 </section>
@@ -710,6 +1037,156 @@ function revisionInput(values: ShotEditorValues): ShotRevisionInput {
         videoPrompt: values.videoPrompt,
         negativePrompt: values.negativePrompt,
         continuityNotes: values.continuityNotes,
+    };
+}
+
+function latestShotTask(detail: ProjectDetail, shotId: string, artifactType: string) {
+    return (detail.tasks || [])
+        .filter((task) => task.clientContext?.shotId === shotId && task.clientContext?.artifactType === artifactType)
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
+}
+
+function shotNeedsGeneration(detail: ProjectDetail, shot: ProjectShot, artifactType: string) {
+    const task = latestShotTask(detail, shot.id, artifactType);
+    if (task?.status === "queued" || task?.status === "running") return false;
+    const artifact = currentArtifact(detail, shot.id, artifactType);
+    if (artifact?.status === "pending" || artifact?.status === "running") return false;
+    return !artifact || !artifact.resourceId || artifact.status === "failed" || artifact.status === "stale";
+}
+
+function runningStageTasks(detail: ProjectDetail, shots: ProjectShot[], artifactType: string) {
+    return shots.flatMap((shot) => {
+        const task = latestShotTask(detail, shot.id, artifactType);
+        return task?.status === "queued" || task?.status === "running" ? [task] : [];
+    });
+}
+
+function resolveNarrationAudioModel(config: AiConfig) {
+    const preferred = canvasFeatureModel("audio.tts") || config.audioModel;
+    if (preferred && !isMusicAudioModel(preferred)) return preferred;
+    return (config.audioModels || []).find((model) => !isMusicAudioModel(model)) || "";
+}
+
+function resolveMusicAudioModel(config: AiConfig) {
+    const preferred = canvasFeatureModel("audio.music");
+    if (preferred) return preferred;
+    if (config.audioModel && isMusicAudioModel(config.audioModel)) return config.audioModel;
+    return (config.audioModels || []).find(isMusicAudioModel) || "";
+}
+
+function audioArtifactPurpose(artifact: ShotArtifact) {
+    if (!artifact.metadataJson) return "";
+    try {
+        const parsed: unknown = JSON.parse(artifact.metadataJson);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return "";
+        const purpose = (parsed as Record<string, unknown>).audioPurpose;
+        return typeof purpose === "string" ? purpose : "";
+    } catch {
+        return "";
+    }
+}
+
+function currentBgmArtifact(detail: ProjectDetail, unitId: string) {
+    const artifacts = (detail.shotArtifacts || [])
+        .filter((item) => item.unitId === unitId && item.type === "audio" && audioArtifactPurpose(item) === "music")
+        .slice()
+        .sort((left, right) => right.version - left.version);
+    return artifacts.find((item) => item.selected) || artifacts[0];
+}
+
+function shotEditorValues(detail: ProjectDetail, shot: ProjectShot, index: number, context: ReturnType<typeof buildShotAssetReferenceContext>): ShotEditorValues {
+    const shotRevision = currentRevision(detail, shot);
+    return {
+        title: normalizeDefaultShotTitle(shot.title, index),
+        plotDescription: shotRevision?.plotDescription || shot.description || "",
+        action: shotRevision?.action || "",
+        dialogue: shotRevision?.dialogue || "",
+        shotSize: shotRevision?.shotSize || "",
+        cameraAngle: shotRevision?.cameraAngle || "",
+        cameraMovement: shotRevision?.cameraMovement || "",
+        durationSeconds: Math.max(0.5, (shotRevision?.durationMs || shot.durationMs || 3000) / 1000),
+        imagePrompt: shotRevision?.imagePrompt || "",
+        videoPrompt: ensureShotAssetMentionPrompt(shotRevision?.videoPrompt || "", context.mentionReferences),
+        negativePrompt: shotRevision?.negativePrompt || "",
+        continuityNotes: shotRevision?.continuityNotes || "",
+    };
+}
+
+function withStoryboardVideoReference(detail: ProjectDetail, shot: ProjectShot, context: ShotAssetReferenceContext): ShotAssetReferenceContext {
+    const storyboard = currentArtifact(detail, shot.id, "storyboard");
+    if (!storyboard?.resourceId || storyboard.status !== "ready") return context;
+    const storageKey = `resource:${storyboard.resourceId}`;
+    if (context.referenceImages.some((image) => image.storageKey === storageKey)) return context;
+    return {
+        ...context,
+        referenceImages: [
+            ...context.referenceImages,
+            {
+                id: `storyboard:${shot.id}`,
+                name: "当前镜头分镜参考",
+                type: "image/*",
+                dataUrl: "",
+                url: resourceFileUrl(storyboard.resourceId),
+                storageKey,
+            },
+        ],
+    };
+}
+
+function modelRequirementsForShot(
+    capability: "image" | "video",
+    context: ReturnType<typeof buildShotAssetReferenceContext>,
+    values: ShotEditorValues,
+    aspectRatio: string,
+    resolution: string,
+    imageQuality: string,
+) {
+    const seconds = String(Math.max(1, Math.round(values.durationSeconds)));
+    const referenceAudios = capability === "video" ? context.referenceAudios : [];
+    const videoOperation = capability === "video" && context.referenceImages.length ? "reference_to_video" : undefined;
+    return {
+        capability,
+        input: { textCount: 1, imageCount: context.referenceImages.length, videoCount: 0, audioCount: referenceAudios.length, characterCount: 0 },
+        videoOperation,
+        videoSeconds: capability === "video" ? seconds : undefined,
+        imageSize: capability === "image" ? aspectRatio : undefined,
+        options: capability === "video"
+            ? { size: aspectRatio, vquality: resolution, videoSeconds: Number(seconds) }
+            : { size: aspectRatio, quality: imageQuality },
+    } satisfies ModelRequirements;
+}
+
+function generationConfigForShot(input: {
+    effectiveConfig: AiConfig;
+    capability: "image" | "video";
+    requestedModel: string;
+    context: ReturnType<typeof buildShotAssetReferenceContext>;
+    values: ShotEditorValues;
+    aspectRatio: string;
+    resolution: string;
+    imageQuality: string;
+}) {
+    const requirements = modelRequirementsForShot(input.capability, input.context, input.values, input.aspectRatio, input.resolution, input.imageQuality);
+    const model = resolveCompatibleModel(input.effectiveConfig, input.requestedModel, requirements) || input.requestedModel;
+    const videoBooleanOptions = input.capability === "video"
+        ? resolveModelVideoBooleanOptions(input.effectiveConfig, model, {}, {
+              videoGenerateAudio: input.effectiveConfig.videoGenerateAudio,
+              videoWatermark: input.effectiveConfig.videoWatermark,
+          })
+        : undefined;
+    return {
+        model,
+        config: {
+            ...input.effectiveConfig,
+            model,
+            imageModel: input.capability === "image" ? model : input.effectiveConfig.imageModel,
+            videoModel: input.capability === "video" ? model : input.effectiveConfig.videoModel,
+            size: input.aspectRatio,
+            quality: input.imageQuality,
+            vquality: input.resolution,
+            videoSeconds: String(Math.max(1, Math.round(input.values.durationSeconds))),
+            ...(videoBooleanOptions || {}),
+        } satisfies AiConfig,
     };
 }
 

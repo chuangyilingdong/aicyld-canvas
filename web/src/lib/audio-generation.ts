@@ -79,6 +79,12 @@ export function audioSpeechKind(model: string): AudioSpeechKind {
     return "openai";
 }
 
+/** 音乐 / BGM 模型与语音合成模型共用音频能力，但生成操作和参数不同。 */
+export function isMusicAudioModel(model: string) {
+    const id = audioModelId(model);
+    return id.includes("music") || id.includes("mureka") || id.includes("bgm");
+}
+
 export function audioSpeechProfile(model = ""): AudioSpeechProfile {
     const kind = audioSpeechKind(model);
     if (kind === "minimax-speech") {

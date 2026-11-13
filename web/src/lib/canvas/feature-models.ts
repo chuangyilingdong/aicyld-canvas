@@ -10,7 +10,8 @@ export type CanvasFeatureKey =
     | "video.t2v"
     | "video.i2v"
     | "video.multi"
-    | "audio.tts";
+    | "audio.tts"
+    | "audio.music";
 
 export type CanvasGenerationMode = "text" | "image" | "video" | "audio";
 

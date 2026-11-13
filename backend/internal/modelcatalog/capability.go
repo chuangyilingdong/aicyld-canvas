@@ -276,7 +276,7 @@ func defaultCapabilityForProtocol(protocol string) string {
 	switch {
 	case strings.HasSuffix(normalized, "-image") || normalized == "openai-image" || normalized == "gemini-image" || normalized == "grok-image":
 		return "image"
-	case strings.HasSuffix(normalized, "-audio") || normalized == "openai-audio" || normalized == "minimax-speech":
+	case strings.HasSuffix(normalized, "-audio") || normalized == "openai-audio" || normalized == "async-audio" || normalized == "audio-generations" || normalized == "minimax-speech":
 		return "audio"
 	case strings.HasSuffix(normalized, "-video") || strings.Contains(normalized, "video") || normalized == "newapi" || normalized == "newapi-channel-1" || normalized == "newapi-channel-2" || normalized == "gemini-veo" || normalized == "luma-dream-machine" || normalized == "zhipu-cogvideox" || normalized == "autodl-comfyui":
 		return "video"

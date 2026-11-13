@@ -132,6 +132,58 @@ describe("buildDeliveryTimeline", () => {
         expect(subtitle?.trackId).toBe("t-subtitle");
     });
 
+    test("旁白产物进入独立音轨", () => {
+        const { timeline } = buildDeliveryTimeline(
+            detail({
+                shots: [shot({ id: "shot-a", durationMs: 4000 })],
+                shotArtifacts: [
+                    videoArtifact({ shotId: "shot-a" }),
+                    videoArtifact({ shotId: "shot-a", id: "narration-1", type: "audio", resourceId: "audio-1" }),
+                ],
+            }),
+            UNIT_ID,
+        );
+
+        const audio = timeline.clips.find((clip) => clip.kind === "audio");
+        expect(audio?.trackId).toBe("t-audio");
+        expect(audio?.startMs).toBe(0);
+        expect(audio?.durationMs).toBe(4000);
+        expect(audio?.directMedia?.kind).toBe("audio");
+        expect(audio?.directMedia?.storageKey).toBe("resource:audio-1");
+        expect(timeline.tracks.map((track) => track.kind)).toEqual(["video", "audio", "subtitle"]);
+    });
+
+    test("BGM 产物铺满整条成片并进入独立配乐轨", () => {
+        const { timeline } = buildDeliveryTimeline(
+            detail({
+                shots: [shot({ id: "shot-a", durationMs: 4000 }), shot({ id: "shot-b", position: 1, durationMs: 3000 })],
+                shotArtifacts: [
+                    videoArtifact({ shotId: "shot-a" }),
+                    videoArtifact({ shotId: "shot-b" }),
+                    videoArtifact({
+                        shotId: "shot-a",
+                        id: "bgm-1",
+                        type: "audio",
+                        resourceId: "music-1",
+                        metadataJson: JSON.stringify({ audioPurpose: "music", durationSeconds: 7 }),
+                    }),
+                ],
+            }),
+            UNIT_ID,
+        );
+
+        const bgm = timeline.clips.find((clip) => clip.trackId === "t-bgm");
+        expect(bgm?.startMs).toBe(0);
+        expect(bgm?.durationMs).toBe(7000);
+        expect(bgm?.volume).toBe(0.18);
+        expect(bgm?.fadeInMs).toBe(500);
+        expect(bgm?.fadeOutMs).toBe(1200);
+        expect(bgm?.directMedia?.storageKey).toBe("resource:music-1");
+        expect(timeline.tracks.map((track) => track.kind)).toEqual(["video", "audio", "subtitle"]);
+        expect(timeline.tracks.find((track) => track.id === "t-bgm")?.label).toBe("配乐");
+        expect(timeline.tracks.some((track) => track.id === "t-audio")).toBe(false);
+    });
+
     test("空台词不生成字幕片段", () => {
         const { timeline } = buildDeliveryTimeline(
             detail({

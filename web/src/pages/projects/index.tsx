@@ -3,8 +3,8 @@ import { CachedResourceImage } from "@/components/cached-resource-image";
 import { MediaPlaceholder } from "@/components/ui/product/media-placeholder";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { App, Button, Dropdown, Form, Input, Modal, Select } from "antd";
-import { ArrowRight, Archive, BookOpenText, FileText, FolderKanban, Images, LayoutGrid, MoreHorizontal, Palette, Pencil, Plus, Search, Sparkles } from "lucide-react";
+import { App, Button, Dropdown, Form, Input, Modal, Select, Switch } from "antd";
+import { ArrowRight, Archive, BookOpenText, Clapperboard, FileText, FolderKanban, Images, LayoutGrid, MoreHorizontal, Palette, Pencil, Plus, Search, Sparkles } from "lucide-react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 
 import { CollectionGrid, PageHeader, WorkspacePage } from "@/components/layout/workspace-page";
@@ -12,14 +12,19 @@ import { WorkspaceErrorState, WorkspaceLoadingState, WorkspaceState } from "@/co
 import { CanvasStylePickerModal, resolveCanvasStylePreset, resolveProjectCanvasStyle, type CanvasStylePreset } from "@/components/canvas/canvas-style-picker-modal";
 import { resourceFileUrl } from "@/services/api/resources";
 import { ModelPicker } from "@/components/model-picker";
+import { isMusicAudioModel } from "@/lib/audio-generation";
+import { canvasFeatureModel } from "@/lib/canvas/feature-models";
 import { createStyleProfileSnapshot, parseStyleProfile, serializeStyleProfile } from "@/lib/canvas/style-profile";
 import { projectSummaryCompletion, projectSummaryStage } from "@/lib/project-workbench";
 import { settingsPath } from "@/lib/settings-navigation";
 import { PromptTemplateOperation, parseGeneratedStory, promptTemplateTaskPlaceholder, shortDramaOutlineVariables } from "@/lib/prompts";
-import { runBackendGenerationTask } from "@/services/api/generation-task";
-import { createProject, deleteProject, duplicateProject, importProjectUnits, listProjectFolders, listProjects, moveProjectToFolder, updateProject, type ProjectSummary } from "@/services/api/projects";
-import { modelDisplayName, useEffectiveConfig } from "@/stores/use-config-store";
+import { prepareBackendGenerationTask, runBackendGenerationTask } from "@/services/api/generation-task";
+import { quoteGenerationTask } from "@/services/api/task-billing";
+import { createProject, createProjectUnit, createUnitWorkflow, deleteProject, duplicateProject, getProjectCore, importProjectUnits, listProjectFolders, listProjects, moveProjectToFolder, replaceProjectUnitShots, updateProject, type ProjectSummary } from "@/services/api/projects";
+import { modelDisplayName, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 
+import { storyboardRowsToProjectShots } from "./detail/chapter-storyboard-production";
+import { extractChapterAssets, generateChapterStoryboard } from "./detail/project-chapter-ai";
 import { sourceTypeLabel } from "./detail/shared";
 
 type ProjectForm = { name: string; aspectRatio: string; sourceType: string };
@@ -29,6 +34,7 @@ export default function ProjectsPage() {
     const queryClient = useQueryClient();
     const { message, modal } = App.useApp();
     const effectiveConfig = useEffectiveConfig();
+    const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const [createForm] = Form.useForm<ProjectForm>();
     const [searchParams, setSearchParams] = useSearchParams();
     const [keyword, setKeyword] = useState("");
@@ -49,8 +55,23 @@ export default function ProjectsPage() {
     const [generating, setGenerating] = useState(false);
     const [generationStatus, setGenerationStatus] = useState("");
     const [generationPreview, setGenerationPreview] = useState("");
+    const [smartFilmOpen, setSmartFilmOpen] = useState(false);
+    const [smartFilmTopic, setSmartFilmTopic] = useState("");
+    const [smartFilmShotCount, setSmartFilmShotCount] = useState("6");
+    const [smartFilmAspectRatio, setSmartFilmAspectRatio] = useState("9:16");
+    const [smartFilmTextModel, setSmartFilmTextModel] = useState("");
+    const [smartFilmImageModel, setSmartFilmImageModel] = useState("");
+    const [smartFilmVideoModel, setSmartFilmVideoModel] = useState("");
+    const [smartFilmAutoRun, setSmartFilmAutoRun] = useState(true);
+    const [smartFilmGenerating, setSmartFilmGenerating] = useState(false);
+    const [smartFilmStatus, setSmartFilmStatus] = useState("");
+    const [smartFilmEstimate, setSmartFilmEstimate] = useState<{ loading: boolean; imagePoints?: number; videoPoints?: number; totalPoints?: number; error?: string }>({ loading: false });
     const [renamingProject, setRenamingProject] = useState<ProjectSummary["project"] | null>(null);
     const [renameValue, setRenameValue] = useState("");
+    const smartFilmMusicModel = useMemo(
+        () => canvasFeatureModel("audio.music") || (effectiveConfig.audioModels || []).find(isMusicAudioModel) || "",
+        [effectiveConfig],
+    );
     const foldersQuery = useQuery({ queryKey: ["project-folders"], queryFn: listProjectFolders });
     const createOpen = searchParams.get("create") === "1";
     const setCreateOpen = (open: boolean) => {
@@ -63,6 +84,77 @@ export default function ProjectsPage() {
         setCreateSource(source);
         setCreateOpen(true);
     };
+    const openSmartFilm = () => {
+        setSmartFilmTopic(storyDraft.trim());
+        setSmartFilmTextModel(effectiveConfig.textModel || "");
+        setSmartFilmImageModel(effectiveConfig.imageModel || "");
+        setSmartFilmVideoModel(effectiveConfig.videoModel || "");
+        setSmartFilmAutoRun(true);
+        setSmartFilmOpen(true);
+    };
+    useEffect(() => {
+        if (searchParams.get("smart") !== "1") return;
+        setSmartFilmTopic(storyDraft.trim());
+        setSmartFilmTextModel(effectiveConfig.textModel || "");
+        setSmartFilmImageModel(effectiveConfig.imageModel || "");
+        setSmartFilmVideoModel(effectiveConfig.videoModel || "");
+        setSmartFilmAutoRun(true);
+        setSmartFilmOpen(true);
+        const next = new URLSearchParams(searchParams);
+        next.delete("smart");
+        setSearchParams(next, { replace: true });
+    }, [effectiveConfig.imageModel, effectiveConfig.textModel, effectiveConfig.videoModel, searchParams, setSearchParams, storyDraft]);
+    useEffect(() => {
+        if (!smartFilmOpen || !smartFilmAutoRun) {
+            setSmartFilmEstimate({ loading: false });
+            return;
+        }
+        const imageModel = smartFilmImageModel || effectiveConfig.imageModel;
+        const videoModel = smartFilmVideoModel || effectiveConfig.videoModel;
+        if (!imageModel || !videoModel) {
+            setSmartFilmEstimate({ loading: false, error: "选择图片和视频模型后显示预估费用" });
+            return;
+        }
+        let cancelled = false;
+        const timer = window.setTimeout(async () => {
+            setSmartFilmEstimate({ loading: true });
+            try {
+                const shotCount = Math.max(1, Number(smartFilmShotCount) || 6);
+                const [imageInput, videoInput] = await Promise.all([
+                    prepareBackendGenerationTask({
+                        projectId: "smart-film-estimate",
+                        mode: "image",
+                        prompt: "智能成片分镜图费用预估",
+                        config: { ...effectiveConfig, model: imageModel, imageModel, size: smartFilmAspectRatio, quality: effectiveConfig.quality || "auto" },
+                    }),
+                    prepareBackendGenerationTask({
+                        projectId: "smart-film-estimate",
+                        mode: "video",
+                        prompt: "智能成片镜头视频费用预估",
+                        config: { ...effectiveConfig, model: videoModel, videoModel, size: smartFilmAspectRatio, vquality: effectiveConfig.vquality || "720", videoSeconds: "5" },
+                    }),
+                ]);
+                const [imageQuote, videoQuote] = await Promise.all([quoteGenerationTask(imageInput), quoteGenerationTask(videoInput)]);
+                if (cancelled) return;
+                if (!imageQuote.enabled || !videoQuote.enabled) {
+                    setSmartFilmEstimate({ loading: false, error: "当前套餐未启用积分计费" });
+                    return;
+                }
+                setSmartFilmEstimate({
+                    loading: false,
+                    imagePoints: imageQuote.points * shotCount,
+                    videoPoints: videoQuote.points * shotCount,
+                    totalPoints: (imageQuote.points + videoQuote.points) * shotCount,
+                });
+            } catch (error) {
+                if (!cancelled) setSmartFilmEstimate({ loading: false, error: error instanceof Error ? error.message : "费用预估失败" });
+            }
+        }, 280);
+        return () => {
+            cancelled = true;
+            window.clearTimeout(timer);
+        };
+    }, [effectiveConfig, smartFilmAspectRatio, smartFilmAutoRun, smartFilmImageModel, smartFilmOpen, smartFilmShotCount, smartFilmVideoModel]);
     useEffect(() => {
         if (!createOpen) return;
         createForm.setFieldsValue({
@@ -94,7 +186,16 @@ export default function ProjectsPage() {
         setGenerationStatus("正在创建项目…");
         setGenerationPreview("");
         try {
-            const project = await createUniqueProjectName(story, selectedStyle);
+            const project = await createUniqueProject(story, {
+                type: "short-drama",
+                aspectRatio: "9:16",
+                sourceType: "blank",
+                description: story,
+                ...(selectedStyle ? {
+                    stylePresetId: selectedStyle.id,
+                    styleProfileJson: serializeStyleProfile(selectedStyle.profile || createStyleProfileSnapshot(selectedStyle)),
+                } : {}),
+            });
             setGenerationStatus("AI 正在生成故事大纲与章节…");
             const result = await runBackendGenerationTask({
                 projectId: project.project.id,
@@ -131,6 +232,122 @@ export default function ProjectsPage() {
             setGenerating(false);
             setGenerationStatus("");
             setGenerationPreview("");
+        }
+    };
+    const createSmartFilm = async () => {
+        const topic = smartFilmTopic.trim();
+        const textModel = smartFilmTextModel || effectiveConfig.textModel;
+        const imageModel = smartFilmImageModel || effectiveConfig.imageModel;
+        const videoModel = smartFilmVideoModel || effectiveConfig.videoModel;
+        if (!topic || smartFilmGenerating) return;
+        if (!textModel || !imageModel || !videoModel) {
+            modal.warning({
+                title: "请先选择完整模型",
+                content: "智能成片需要分别选择文本、图片和视频模型。",
+                okText: "去配置",
+                cancelText: "取消",
+                onOk: () => navigate(settingsPath("models")),
+            });
+            return;
+        }
+        const unavailable = [
+            ["文本", textModel],
+            ["图片", imageModel],
+            ["视频", videoModel],
+        ].filter(([, model]) => !isAiConfigReady(effectiveConfig, model));
+        if (unavailable.length) {
+            modal.warning({
+                title: "所选模型当前不可用",
+                content: `请检查 ${unavailable.map(([label]) => label).join("、")}模型的渠道配置后重试。`,
+                okText: "去设置",
+                cancelText: "取消",
+                onOk: () => navigate(settingsPath("models")),
+            });
+            return;
+        }
+        setSmartFilmGenerating(true);
+        setSmartFilmStatus("正在创建项目…");
+        try {
+            const project = await createUniqueProject(topic, {
+                type: smartFilmAutoRun ? "smart-film-auto" : "smart-film",
+                aspectRatio: smartFilmAspectRatio,
+                sourceType: "text",
+                description: topic,
+                defaultImageModel: imageModel,
+                defaultVideoModel: videoModel,
+                ...(selectedStyle ? {
+                    stylePresetId: selectedStyle.id,
+                    styleProfileJson: serializeStyleProfile(selectedStyle.profile || createStyleProfileSnapshot(selectedStyle)),
+                } : {}),
+            });
+            setSmartFilmStatus("正在创建章节与制作流程…");
+            const { unit } = await createProjectUnit(project.project.id, {
+                kind: "chapter",
+                title: project.project.name,
+                sourceText: topic,
+                position: 0,
+            });
+            await createUnitWorkflow(project.project.id, unit.id);
+            const core = await getProjectCore(project.project.id);
+            let characters: Array<{ name: string; definition: Record<string, unknown> }> = [];
+            let assets: Array<{ id: string; title: string; type: "image"; category: string; tags: string[]; prompt: string }> = [];
+            try {
+                setSmartFilmStatus("正在提取角色、场景和道具…");
+                const extracted = await extractChapterAssets({
+                    projectId: project.project.id,
+                    projectName: project.project.name,
+                    chapterId: unit.id,
+                    chapterTitle: unit.title,
+                    sourceText: topic,
+                    projectStyle: selectedStyle?.prompt || "",
+                    config: { ...effectiveConfig, model: textModel, textModel, imageModel, videoModel },
+                });
+                characters = extracted.characters.map((character) => ({ name: character.name, definition: { ...character } }));
+                assets = [
+                    ...extracted.scenes.map((scene, index) => ({ id: `smart-scene-${index}`, title: scene.name, type: "image" as const, category: "environment", tags: [], prompt: scene.prompt })),
+                    ...extracted.props.map((prop, index) => ({ id: `smart-prop-${index}`, title: prop.name, type: "image" as const, category: "prop", tags: [], prompt: prop.prompt })),
+                ];
+            } catch {
+                message.warning("角色、场景和道具提取失败，继续生成分镜");
+            }
+            setSmartFilmStatus(`正在规划 ${smartFilmShotCount} 个镜头…`);
+            const generated = await generateChapterStoryboard({
+                projectId: project.project.id,
+                chapterId: unit.id,
+                chapterTitle: unit.title,
+                sourceText: topic,
+                projectStyle: selectedStyle ? {
+                    presetId: selectedStyle.id,
+                    title: selectedStyle.title,
+                    prompt: selectedStyle.prompt,
+                    profileJson: selectedStyle.profile ? serializeStyleProfile(selectedStyle.profile) : undefined,
+                } : { presetId: "", title: "", prompt: "" },
+                characters,
+                assets,
+                config: { ...effectiveConfig, model: textModel, textModel, imageModel, videoModel },
+                skills: [],
+                selectedSkillIds: [],
+                approvedRevision: core.project.revision,
+                approvedShotIds: [],
+                shotCount: Number(smartFilmShotCount),
+                userRequirements: `这是一条从主题直接启动的成片项目。主题：${topic}\n画面以 AI 生成图片和视频为主，分镜要能直接继续生成首帧和镜头视频。`,
+            });
+            if (!generated.rows.length) throw new Error("模型没有返回有效分镜，请重试");
+            setSmartFilmStatus("正在写入分镜…");
+            const shots = storyboardRowsToProjectShots(generated.rows);
+            await replaceProjectUnitShots(project.project.id, unit.id, shots, [], core.project.revision, { sourceTaskId: generated.taskId });
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: ["projects"] }),
+                queryClient.invalidateQueries({ queryKey: ["project", project.project.id] }),
+            ]);
+            setSmartFilmOpen(false);
+            message.success(smartFilmAutoRun ? `已生成 ${shots.length} 个分镜，开始自动制作成片` : `已生成 ${shots.length} 个分镜，图片与视频模型已写入项目默认配置`);
+            navigate(`/projects/${project.project.id}/workflow/${unit.id}/storyboard${smartFilmAutoRun ? "?autostart=1" : ""}`);
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "智能成片创建失败，请重试");
+        } finally {
+            setSmartFilmGenerating(false);
+            setSmartFilmStatus("");
         }
     };
     const loadMoreRef = useRef<HTMLDivElement>(null);
@@ -245,6 +462,7 @@ export default function ProjectsPage() {
                             popoverClassName="agent-model-picker-popover"
                         />
                         <Button type="default" icon={<Sparkles className="size-3.5" />} disabled={!storyDraft.trim() || generating} loading={generating} onClick={() => void generateStory()}>AI 生成章节</Button>
+                        <Button type="default" icon={<Clapperboard className="size-3.5" />} disabled={generating} onClick={openSmartFilm}>智能成片</Button>
                         <Button type="primary" icon={<Plus className="size-3.5" />} onClick={() => openCreate(createSource)}>开始创作</Button>
                     </div>
                 <details className="story-launcher-options">
@@ -311,6 +529,65 @@ export default function ProjectsPage() {
                 onClose={() => setStylePickerOpen(false)}
                 onSelect={(preset) => { setSelectedStyle(preset); setStylePickerOpen(false); }}
             />
+            <Modal
+                className="library-modal"
+                title="智能成片"
+                open={smartFilmOpen}
+                footer={null}
+                destroyOnHidden
+                closable={!smartFilmGenerating}
+                mask={{ closable: !smartFilmGenerating }}
+                keyboard={!smartFilmGenerating}
+                onCancel={() => setSmartFilmOpen(false)}
+                width={780}
+                styles={{ body: { paddingTop: 12 } }}
+            >
+                <div className="space-y-5">
+                    <div className="rounded-xl border border-border/70 bg-surface p-4">
+                        <div className="flex items-center gap-2 text-sm font-semibold"><Clapperboard className="size-4 text-[var(--workspace-accent)]" />从主题直接生成可编辑分镜</div>
+                        <p className="mt-2 text-xs leading-5 text-foreground/50">先生成镜头脚本，再在分镜工作台使用你选择的图片与视频模型继续制作。模型选择会保存为项目默认值，后续镜头生成直接沿用。</p>
+                    </div>
+                    <div>
+                        <label className="mb-1.5 block text-xs font-medium text-foreground/60" htmlFor="smart-film-topic">视频主题或文案</label>
+                        <Input.TextArea
+                            id="smart-film-topic"
+                            value={smartFilmTopic}
+                            onChange={(event) => setSmartFilmTopic(event.target.value)}
+                            placeholder="例如：用 30 秒讲清楚为什么冬天更容易静电，要求画面明亮、节奏快、适合竖屏短视频"
+                            autoSize={{ minRows: 4, maxRows: 8 }}
+                            disabled={smartFilmGenerating}
+                        />
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="space-y-1.5 text-xs font-medium text-foreground/60"><span>分镜数量</span><Select className="w-full" value={smartFilmShotCount} onChange={setSmartFilmShotCount} disabled={smartFilmGenerating} options={[{ label: "4 镜 · 快速样片", value: "4" }, { label: "6 镜 · 标准短视频", value: "6" }, { label: "8 镜 · 更完整叙事", value: "8" }, { label: "10 镜 · 深度内容", value: "10" }]} /></label>
+                        <label className="space-y-1.5 text-xs font-medium text-foreground/60"><span>成片画幅</span><Select className="w-full" value={smartFilmAspectRatio} onChange={setSmartFilmAspectRatio} disabled={smartFilmGenerating} options={[{ label: "9:16 竖屏", value: "9:16" }, { label: "16:9 横屏", value: "16:9" }, { label: "1:1 方形", value: "1:1" }]} /></label>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-3">
+                        <div className="space-y-1.5"><span className="block text-xs font-medium text-foreground/60">文本模型</span><ModelPicker config={effectiveConfig} value={smartFilmTextModel || effectiveConfig.textModel} onChange={setSmartFilmTextModel} capability="text" fullWidth variant="creation" placeholder="选择文本模型" onMissingConfig={() => navigate(settingsPath("models"))} /></div>
+                        <div className="space-y-1.5"><span className="block text-xs font-medium text-foreground/60">图片模型</span><ModelPicker config={effectiveConfig} value={smartFilmImageModel || effectiveConfig.imageModel} onChange={setSmartFilmImageModel} capability="image" fullWidth variant="creation" placeholder="选择图片模型" onMissingConfig={() => navigate(settingsPath("models"))} /></div>
+                        <div className="space-y-1.5"><span className="block text-xs font-medium text-foreground/60">视频模型</span><ModelPicker config={effectiveConfig} value={smartFilmVideoModel || effectiveConfig.videoModel} onChange={setSmartFilmVideoModel} capability="video" fullWidth variant="creation" placeholder="选择视频模型" onMissingConfig={() => navigate(settingsPath("models"))} /></div>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/70 px-4 py-3">
+                        <span className="text-xs text-foreground/50">画风用于统一角色、场景与画面质感</span>
+                        <Button size="small" icon={<Palette className="size-3.5" />} disabled={smartFilmGenerating} onClick={() => setStylePickerOpen(true)}>{selectedStyle ? `画风：${selectedStyle.title}` : "选择画风（可选）"}</Button>
+                    </div>
+                    <div className="flex items-start justify-between gap-4 rounded-xl border border-border/70 px-4 py-3">
+                        <div><div className="text-sm font-medium">全自动制作成片</div><p className="mt-1 text-xs leading-5 text-foreground/48">生成分镜后继续补齐分镜图和镜头视频，有台词镜头会使用平台 TTS 模型生成旁白，并使用音乐功能模型生成 BGM，全部完成后自动提交一键成片。会连续产生多次生成任务和积分消耗。</p><p className="mt-1 text-xs leading-5 text-foreground/40">{smartFilmMusicModel ? `BGM 模型：${modelDisplayName(effectiveConfig, smartFilmMusicModel)}` : "未配置 audio.music 模型，自动成片将跳过 BGM。"}</p></div>
+                        <Switch checked={smartFilmAutoRun} onChange={setSmartFilmAutoRun} disabled={smartFilmGenerating} aria-label="全自动制作成片" />
+                    </div>
+                    {smartFilmAutoRun ? <div className="rounded-xl border border-border/70 px-4 py-3 text-xs leading-5 text-foreground/55">
+                        {smartFilmEstimate.loading ? "正在计算全流程预估费用…" : smartFilmEstimate.error ? smartFilmEstimate.error : smartFilmEstimate.totalPoints !== undefined ? `预计 ${smartFilmShotCount} 镜约 ${smartFilmEstimate.totalPoints} 积分（分镜图 ${smartFilmEstimate.imagePoints} + 视频 ${smartFilmEstimate.videoPoints}），旁白与 BGM 按实际任务另计。按每镜约 5 秒估算，实际以任务账单为准。` : "选择模型后显示预估费用"}
+                    </div> : null}
+                    <div className="rounded-xl bg-[color-mix(in_srgb,var(--workspace-accent)_7%,transparent)] px-4 py-3 text-xs leading-6 text-foreground/60">
+                        {smartFilmAutoRun ? "主题 → 分镜 → 全部分镜图 → 全部镜头视频 → 旁白 + BGM → MP4/SRT 成片。执行期间请保持页面打开。" : "主题 → 分镜。图片和视频可在分镜工作台继续手动生成。"}图片和视频生成使用上方选择的模型，旁白与 BGM 使用平台音频功能模型。
+                    </div>
+                    {smartFilmStatus ? <p className="text-xs text-foreground/55" role="status">{smartFilmStatus}</p> : null}
+                    <div className="flex justify-end gap-2">
+                        <Button disabled={smartFilmGenerating} onClick={() => setSmartFilmOpen(false)}>取消</Button>
+                        <Button type="primary" icon={<Sparkles className="size-3.5" />} loading={smartFilmGenerating} disabled={!smartFilmTopic.trim()} onClick={() => void createSmartFilm()}>{smartFilmGenerating ? "正在准备分镜" : smartFilmAutoRun ? "创建并自动成片" : "创建并生成分镜"}</Button>
+                    </div>
+                </div>
+            </Modal>
             <Modal className="library-modal" title="AI 生成章节" open={generating} footer={null} closable={false} mask={{ closable: false }} keyboard={false} width={760}>
                 <div className="app-story-generating">
                     <div className="app-story-generating-head">
@@ -346,20 +623,14 @@ export default function ProjectsPage() {
     );
 }
 
-async function createUniqueProjectName(story: string, selectedStyle: CanvasStylePreset | null) {
-    const base = story.trim().slice(0, 24);
-    const buildInput = (name: string) => ({
-        name,
-        type: "short-drama" as const,
-        aspectRatio: "9:16",
-        sourceType: "blank",
-        description: story.trim(),
-        ...(selectedStyle ? { stylePresetId: selectedStyle.id, styleProfileJson: serializeStyleProfile(selectedStyle.profile || createStyleProfileSnapshot(selectedStyle)) } : {}),
-    });
+type NewProjectInput = Omit<Parameters<typeof createProject>[0], "name">;
+
+async function createUniqueProject(sourceText: string, input: NewProjectInput) {
+    const base = sourceText.trim().slice(0, 24) || "未命名项目";
     let attempt = 0;
     for (;;) {
         try {
-            return await createProject(buildInput(attempt === 0 ? base : `${base}（${attempt + 1}）`));
+            return await createProject({ ...input, name: attempt === 0 ? base : `${base}（${attempt + 1}）` });
         } catch (error) {
             const message = error instanceof Error ? error.message : "";
             const uniqueConflict = message.includes("UNIQUE") || message.includes("projects.user_id") || message.includes("projects.name");

@@ -1,6 +1,7 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { App, Button } from "antd";
 import { Clock3, Download, Film, Layers3, PackageCheck, Sparkles } from "lucide-react";
+import { useSearchParams } from "react-router";
 
 import type { ProjectDetail } from "@/services/api/projects";
 import { resourceFileUrl } from "@/services/api/resources";
@@ -23,6 +24,9 @@ type Props = {
  * 且缺片容易被忽略，因此这里只列出缺片并禁用入口。
  */
 export function WorkflowDeliveryPanel({ detail, projectId, unitId, onRefresh }: Props) {
+    const { message } = App.useApp();
+    const [searchParams, setSearchParams] = useSearchParams();
+    const autostartRef = useRef(false);
     const unit = detail.units.find((item) => item.id === unitId);
     const unitTitle = unit?.title?.trim() || "episode";
 
@@ -54,6 +58,23 @@ export function WorkflowDeliveryPanel({ detail, projectId, unitId, onRefresh }: 
         onRefresh,
     });
 
+    useEffect(() => {
+        if (autostartRef.current || searchParams.get("autostart") !== "1") return;
+        autostartRef.current = true;
+        const next = new URLSearchParams(searchParams);
+        next.delete("autostart");
+        setSearchParams(next, { replace: true });
+        if (!shotCount) {
+            message.warning("本章还没有镜头，无法自动成片");
+            return;
+        }
+        if (issues.length) {
+            message.warning(`还有 ${issues.length} 个镜头没有可用视频，自动成片已暂停`);
+            return;
+        }
+        void render();
+    }, [issues.length, message, render, searchParams, setSearchParams, shotCount]);
+
     const staleCount = (detail.shotArtifacts || []).filter((item) => item.unitId === unitId && item.status === "stale").length;
 
     return (
@@ -61,7 +82,7 @@ export function WorkflowDeliveryPanel({ detail, projectId, unitId, onRefresh }: 
             <StageHeading
                 eyebrow="06 / 交付与打包"
                 title="一键成片"
-                description="按镜头顺序拼接本章视频，生成整集 MP4 与 SRT 字幕。所有镜头就绪后才能出片。"
+                description="按镜头顺序拼接本章视频，混合旁白与 BGM，生成整集 MP4 与 SRT 字幕。所有镜头就绪后才能出片。"
             />
 
             <div className="mt-6 grid gap-4 sm:grid-cols-3">
