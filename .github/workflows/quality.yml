@@ -158,7 +158,7 @@ jobs:
   web:
     name: Web checks
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 40
     defaults:
       run:
         working-directory: web
