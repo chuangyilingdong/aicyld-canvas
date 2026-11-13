@@ -40,7 +40,6 @@ for (const mode of ["image", "video"]) {
             await page.goto(`${server.url}?mode=${mode}`);
             const panel = page.getByTestId("node-panel");
             await panel.getByRole("button", { name: `${mode}-a`, exact: true }).click();
-            await page.getByRole("button", { name: "Fixture", exact: true }).click();
             await page.getByRole("option", { name: `${mode}-b`, exact: true }).click();
             const current = JSON.parse((await page.getByTestId("current-config").textContent())!);
             expect(current.model).toBe(`fixture::${mode}-b`);

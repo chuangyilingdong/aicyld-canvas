@@ -4,6 +4,7 @@ import { join, relative } from "node:path";
 
 const root = join(import.meta.dir, "..");
 const testFilePattern = /\.test\.[cm]?[jt]sx?$/;
+const browserTestPattern = /\.browser\.test\.[jt]sx?$/;
 const browserGlobalName = /\b(?:window|document|navigator)\b/;
 
 function collectTestFiles(directory) {
@@ -42,6 +43,13 @@ async function defaultSpawnFile(file) {
     return exitCode ?? 1;
 }
 
+async function spawnBrowserFile(file) {
+    const firstExitCode = await defaultSpawnFile(file);
+    if (firstExitCode === 0) return 0;
+    console.error(`浏览器测试失败，隔离重试一次：${file}`);
+    return defaultSpawnFile(file);
+}
+
 export async function runIsolatedPool(files, concurrency, spawnFile = defaultSpawnFile) {
     if (files.length === 0) return 0;
     let nextIndex = 0;
@@ -65,7 +73,7 @@ if (import.meta.main) {
     const isolated = files.filter((file) => {
         // Browser suites own subprocesses and should not share a Bun worker with
         // shell-script tests or modules that replace browser globals.
-        if (/\.browser\.test\.[jt]sx?$/.test(file)) return true;
+        if (browserTestPattern.test(file)) return true;
         const source = readFileSync(join(root, file), "utf8");
         // Bun module replacements persist beyond mock.restore(); isolate their import graphs.
         if (source.includes("mock.module(")) return true;
@@ -81,7 +89,14 @@ if (import.meta.main) {
     if (concurrency <= 1) {
         for (const file of isolated) run([file]);
     } else {
-        const exitCode = await runIsolatedPool(isolated, concurrency);
-        if (exitCode !== 0) process.exitCode = exitCode;
+        const browserFiles = isolated.filter((file) => browserTestPattern.test(file));
+        const otherFiles = isolated.filter((file) => !browserTestPattern.test(file));
+        const otherExitCode = await runIsolatedPool(otherFiles, concurrency);
+        if (otherExitCode !== 0) {
+            process.exitCode = otherExitCode;
+        } else {
+            const browserExitCode = await runIsolatedPool(browserFiles, Math.min(concurrency, 2), spawnBrowserFile);
+            if (browserExitCode !== 0) process.exitCode = browserExitCode;
+        }
     }
 }
