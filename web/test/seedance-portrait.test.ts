@@ -71,6 +71,13 @@ test("workbench retains unavailable portrait defaults and explicit choices acros
     expect(initialWorkbenchModel(config, standard, "video")).toBe("");
 });
 
+test("workbench keeps an explicitly selected project video model even when capability metadata is incomplete", () => {
+    const config = fixture();
+    const selected = config.models[0];
+    config.channels[0].modelProfiles![0].capability = "text";
+    expect(initialWorkbenchModel(config, selected, "video")).toBe(selected);
+});
+
 test("task-center portrait retry never guesses an account quote from a bare model", () => {
     for (const detail of [undefined, "{}", JSON.stringify({ videoParameters: { model: "seedance-2.0-portrait", affectedChannel: true } })]) {
         expect(portraitTaskRetryError(detail, "seedance-2.0-portrait")).toContain("回到原画布");

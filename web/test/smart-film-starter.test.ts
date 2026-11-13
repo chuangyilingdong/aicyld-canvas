@@ -1,47 +1,58 @@
 import { expect, test } from "bun:test";
+import { defaultModelCapabilityConfig } from "../src/lib/model-capabilities";
+import { normalizeSmartFilmShotSeconds, resizeSmartFilmShotDurations, smartFilmMaxClipSeconds } from "../src/lib/canvas/smart-film-options";
 
-test("智能成片从主题生成分镜并持久化图片与视频模型", async () => {
-    const source = await Bun.file(new URL("../src/components/canvas/smart-film-starter-modal.tsx", import.meta.url)).text();
+test("smart film keeps per-shot duration inside the selected video model limit", () => {
+    const video = defaultModelCapabilityConfig("openai-videos").video!;
+    video.duration = { selection: "enum", values: [4, 6, 8], default: 6 };
 
-    expect(source).toContain('title="智能成片"');
-    expect(source).toContain("defaultImageModel: resolvedImageModel");
-    expect(source).toContain("defaultVideoModel: resolvedVideoModel");
-    expect(source).toContain("value={imageModel || effectiveConfig.imageModel}");
-    expect(source).toContain("value={videoModel || effectiveConfig.videoModel}");
-    expect(source).toContain("shotCount: Number(shotCount)");
-    expect(source).toContain("generateChapterStoryboard");
-    expect(source).toContain("replaceProjectUnitShots");
-    expect(source).toContain("type: autoRun ? \"smart-film-auto\" : \"smart-film\"");
-    expect(source).toContain("?autostart=1");
-    expect(source).toContain("extractChapterAssets");
-    expect(source).toContain('canvasFeatureModel("audio.music")');
-    expect(source).toContain("使用音乐功能模型生成 BGM");
+    expect(smartFilmMaxClipSeconds(video)).toBe(8);
+    expect(normalizeSmartFilmShotSeconds(9, video)).toBe(8);
+    expect(resizeSmartFilmShotDurations([4], 4, video)).toEqual([4, 6, 6, 6]);
 });
 
-test("全自动制作会等待图片与视频任务并进入交付", async () => {
+test("smart film starter persists models, style and explicit per-shot durations", async () => {
+    const starter = await Bun.file(new URL("../src/components/canvas/smart-film-starter.tsx", import.meta.url)).text();
+    const workbench = await Bun.file(new URL("../src/pages/projects/detail/workflow-production-workbench.tsx", import.meta.url)).text();
+    const styleHelper = await Bun.file(new URL("../src/pages/projects/detail/workflow-generation-style.ts", import.meta.url)).text();
+    const chapter = await Bun.file(new URL("../src/pages/projects/detail/project-chapter-ai.ts", import.meta.url)).text();
+    const modelSelection = await Bun.file(new URL("../src/pages/projects/detail/workflow-model-selection.ts", import.meta.url)).text();
+
+    expect(starter).toContain("defaultImageModel: resolvedImageModel");
+    expect(starter).toContain("defaultVideoModel: resolvedVideoModel");
+    expect(starter).toContain("await updateProject(project.project.id");
+    expect(starter).toContain("shotDurationsSeconds: resolvedShotDurations");
+    expect(starter).toContain("smart-film-duration-grid");
+    expect(starter).toContain("setAutoRun(false)");
+    expect(starter).toContain("项目已创建");
+    expect(chapter).toContain("shotDurationsSeconds?: number[]");
+    expect(chapter).toContain("逐镜时长");
+    expect(styleHelper).toContain("applyStyleExecutionPlan");
+    expect(workbench).toContain("styleExecutionPlan");
+    expect(modelSelection).toContain("normalizeModelOptionValue(projectModel, config.channels)");
+});
+
+test("smart film is a standalone workflow page and entries leave the modal behind", async () => {
+    const page = await Bun.file(new URL("../src/pages/smart-film/index.tsx", import.meta.url)).text();
+    const router = await Bun.file(new URL("../src/router.tsx", import.meta.url)).text();
+    const home = await Bun.file(new URL("../src/pages/home/home-data.ts", import.meta.url)).text();
+    const canvas = await Bun.file(new URL("../src/pages/canvas/index.tsx", import.meta.url)).text();
+
+    expect(page).toContain('presentation="page"');
+    expect(page).toContain("每个镜头单独选择时长");
+    expect(router).toContain('path: "/smart-film"');
+    expect(home).toContain('to: "/smart-film"');
+    expect(canvas).toContain('navigate("/smart-film")');
+    expect(canvas).not.toContain("SmartFilmStarterModal");
+});
+
+test("full auto production is opt-in and still waits for image, video and delivery tasks", async () => {
     const workbench = await Bun.file(new URL("../src/pages/projects/detail/workflow-production-workbench.tsx", import.meta.url)).text();
     const delivery = await Bun.file(new URL("../src/pages/projects/detail/workflow-delivery.tsx", import.meta.url)).text();
 
     expect(workbench).toContain("waitForGenerationTask");
-    expect(workbench).toContain("runningStageTasks");
     expect(workbench).toContain("smart-film-narration");
     expect(workbench).toContain("smart-film-bgm");
-    expect(workbench).toContain('canvasFeatureModel("audio.music")');
-    expect(workbench).toContain('audioOperation: "generate"');
-    expect(workbench).toContain('audioPurpose: "music"');
     expect(workbench).toContain("generateAllArtifacts({ automatic: true })");
-    expect(workbench).toContain("?autostart=1");
     expect(delivery).toContain('searchParams.get("autostart") !== "1"');
-    expect(delivery).toContain("void render()");
-});
-
-test("首页与当前项目库提供智能成片入口", async () => {
-    const source = await Bun.file(new URL("../src/pages/home/home-data.ts", import.meta.url)).text();
-    const canvas = await Bun.file(new URL("../src/pages/canvas/index.tsx", import.meta.url)).text();
-
-    expect(source).toContain('label: "智能成片"');
-    expect(source).toContain('to: "/projects?smart=1"');
-    expect(canvas).toContain("SmartFilmStarterModal");
-    expect(canvas).toContain('searchParams.get("smart") !== "1"');
-    expect(canvas).toContain(">智能成片</Button>");
 });

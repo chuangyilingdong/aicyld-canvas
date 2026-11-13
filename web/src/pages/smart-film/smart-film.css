@@ -1,0 +1,224 @@
+.smart-film-page {
+    min-height: 100%;
+    padding: 28px clamp(20px, 4vw, 56px) 56px;
+}
+
+.smart-film-hero {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    max-width: 1320px;
+    margin: 0 auto 24px;
+}
+
+.smart-film-hero h1 {
+    margin: 10px 0 8px;
+    color: var(--foreground);
+    font-size: clamp(30px, 4vw, 52px);
+    font-weight: 680;
+    letter-spacing: -0.045em;
+    line-height: 1;
+}
+
+.smart-film-hero p {
+    max-width: 680px;
+    margin: 0;
+    color: color-mix(in srgb, var(--foreground) 52%, transparent);
+    font-size: 14px;
+    line-height: 1.7;
+}
+
+.smart-film-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--workspace-accent);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.13em;
+}
+
+.smart-film-layout {
+    display: grid;
+    grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+    gap: 22px;
+    max-width: 1320px;
+    margin: 0 auto;
+    align-items: start;
+}
+
+.smart-film-sidebar,
+.smart-film-main {
+    border: 1px solid color-mix(in srgb, var(--foreground) 9%, transparent);
+    border-radius: 22px;
+    background: color-mix(in srgb, var(--background) 92%, var(--foreground) 8%);
+}
+
+.smart-film-sidebar {
+    position: sticky;
+    top: 24px;
+    overflow: hidden;
+    padding: 20px;
+}
+
+.smart-film-sidebar-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 18px;
+    color: var(--foreground);
+    font-size: 13px;
+    font-weight: 650;
+}
+
+.smart-film-flow-item {
+    display: grid;
+    grid-template-columns: 35px minmax(0, 1fr);
+    gap: 10px;
+    padding: 13px 0;
+    border-top: 1px solid color-mix(in srgb, var(--foreground) 7%, transparent);
+}
+
+.smart-film-flow-index {
+    color: color-mix(in srgb, var(--foreground) 30%, transparent);
+    font-family: var(--font-mono, monospace);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+}
+
+.smart-film-flow-item strong {
+    display: block;
+    color: var(--foreground);
+    font-size: 13px;
+    font-weight: 620;
+}
+
+.smart-film-flow-item p,
+.smart-film-sidebar-note p {
+    margin: 4px 0 0;
+    color: color-mix(in srgb, var(--foreground) 42%, transparent);
+    font-size: 11px;
+    line-height: 1.6;
+}
+
+.smart-film-sidebar-note {
+    display: flex;
+    gap: 9px;
+    margin-top: 18px;
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--workspace-accent) 8%, transparent);
+    padding: 13px;
+    color: color-mix(in srgb, var(--foreground) 52%, transparent);
+}
+
+.smart-film-main {
+    min-width: 0;
+    padding: clamp(18px, 3vw, 32px);
+}
+
+.smart-film-form {
+    display: grid;
+    gap: 18px;
+}
+
+.smart-film-duration-section {
+    border: 1px solid color-mix(in srgb, var(--foreground) 9%, transparent);
+    border-radius: 16px;
+    background: color-mix(in srgb, var(--foreground) 2.5%, transparent);
+    padding: 16px;
+}
+
+.smart-film-duration-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 13px;
+}
+
+.smart-film-duration-heading strong {
+    display: block;
+    color: var(--foreground);
+    font-size: 13px;
+    font-weight: 650;
+}
+
+.smart-film-duration-heading span {
+    display: block;
+    margin-top: 3px;
+    color: color-mix(in srgb, var(--foreground) 42%, transparent);
+    font-size: 11px;
+}
+
+.smart-film-duration-heading .smart-film-duration-hint {
+    max-width: 260px;
+    text-align: right;
+}
+
+.smart-film-duration-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+    gap: 9px;
+}
+
+.smart-film-duration-grid label {
+    display: grid;
+    gap: 5px;
+    min-width: 0;
+}
+
+.smart-film-duration-grid label > span {
+    color: color-mix(in srgb, var(--foreground) 42%, transparent);
+    font-size: 10px;
+}
+
+.smart-film-created {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    border: 1px solid color-mix(in srgb, var(--workspace-accent) 24%, transparent);
+    border-radius: 16px;
+    background: color-mix(in srgb, var(--workspace-accent) 8%, transparent);
+    padding: 13px 15px;
+}
+
+.smart-film-created strong,
+.smart-film-created span {
+    display: block;
+}
+
+.smart-film-created strong {
+    color: var(--foreground);
+    font-size: 13px;
+}
+
+.smart-film-created span {
+    margin-top: 3px;
+    color: color-mix(in srgb, var(--foreground) 48%, transparent);
+    font-size: 11px;
+}
+
+@media (max-width: 900px) {
+    .smart-film-page {
+        padding: 20px 16px 40px;
+    }
+    .smart-film-hero {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+    .smart-film-layout {
+        grid-template-columns: 1fr;
+    }
+    .smart-film-sidebar {
+        position: static;
+    }
+    .smart-film-duration-heading {
+        flex-direction: column;
+    }
+    .smart-film-duration-heading .smart-film-duration-hint {
+        max-width: none;
+        text-align: left;
+    }
+}

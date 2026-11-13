@@ -103,6 +103,7 @@ type ChapterStoryboardGenerationInput = {
     /** Optional planning constraints used by the smart-film starter. */
     shotCount?: number;
     shotDurationSeconds?: number;
+    shotDurationsSeconds?: number[];
     userRequirements?: string;
 };
 
@@ -123,6 +124,7 @@ export async function generateChapterStoryboard(input: ChapterStoryboardGenerati
             "请将本章拆解为可直接进入短剧分镜制作的镜头脚本，保持剧情因果、人物关系、关键动作与台词完整。",
             input.shotCount && input.shotCount > 0 ? `镜头数量：严格规划为 ${input.shotCount} 个镜头。` : "",
             input.shotDurationSeconds && input.shotDurationSeconds > 0 ? `单镜时长：每个镜头约 ${input.shotDurationSeconds} 秒，按叙事需要可略有浮动。` : "",
+            input.shotDurationsSeconds?.length ? `逐镜时长：${input.shotDurationsSeconds.map((seconds, index) => `第 ${index + 1} 镜 ${seconds} 秒`).join("，")}。严格按照该时长规划，不得超出所选视频模型的单镜上限。` : "",
             input.userRequirements?.trim() || "",
         ].join("\n\n"),
         skills: input.skills,
@@ -148,6 +150,7 @@ export async function generateChapterStoryboard(input: ChapterStoryboardGenerati
             projectStyle: input.projectStyle,
             characters: input.characters,
             shotDurationSeconds: input.shotDurationSeconds && input.shotDurationSeconds > 0 ? input.shotDurationSeconds : 0,
+            shotDurationsSeconds: input.shotDurationsSeconds?.length ? input.shotDurationsSeconds : [],
             shotCount: input.shotCount && input.shotCount > 0 ? input.shotCount : 0,
             config: backendProviderConfig(config, "text"),
             metadata: {
