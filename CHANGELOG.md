@@ -2,9 +2,11 @@
 
 All notable public changes to BeefTV are documented in this file.
 
-## Unreleased
+## v2.1.3-aicyld.64
 
 - 素材库、技能、插件和账户入口统一为同一套页头、分类标签、卡片表面和交互节奏；账户菜单补充积分概览、充值入口以及素材/技能/插件/设置快捷入口。
+- 素材完整性：新增只读审计和失效素材归档工具，检查同一 Resource 多素材、同内容多 Resource、本地文件缺失和孤立素材。
+- 存量修复：归档 165 条缺文件素材和 1 条孤立测试素材，保留 Resource、画布文档和历史快照，不删除资源文件。
 
 ## v2.1.3-aicyld.63
 
