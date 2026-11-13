@@ -1,4 +1,5 @@
 import { CollectionToolbar } from "@/components/layout/collection-toolbar";
+import { CollectionHeader } from "@/components/layout/collection-header";
 import { App, Button, Input, Modal, Select, Typography } from "antd";
 import { Switch } from "@/components/ui/base/switch";
 import { AudioLines, CalendarDays, CheckCircle2, Clock3, ExternalLink, Film, FolderOpen, Image as ImageIcon, MessageSquareText, PlugZap, RefreshCw, Search, Settings2, ShieldCheck, SlidersHorizontal } from "lucide-react";
@@ -6,7 +7,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { EmptyState } from "@/components/ui/product/empty-state";
-import { PageHeader } from "@/components/layout/workspace-page";
 import { listRegisteredPlugins } from "@/lib/plugins/plugin-registry";
 import "@/lib/plugins/builtin";
 import { EAGLE_PLUGIN_ID } from "@/lib/plugins/builtin/eagle";
@@ -255,51 +255,21 @@ export default function PluginsPage() {
         <main className="app-workspace-page plugins-page flex h-full min-h-0 flex-col text-foreground">
             <div ref={scrollContainerRef} className="app-workspace-scroll min-h-0 flex-1 overflow-y-auto">
                 <div className="plugins-page-layout">
-                    <aside className="plugins-sidebar" aria-label="插件分类">
-                        <div className="plugins-sidebar-heading">
-                            <PageHeader title="插件中心" description="连接模型、素材与工作流，拓展你的创作工具。" />
-                        </div>
-                        <nav className="plugins-sidebar-nav">
-                            <button type="button" className={`plugins-sidebar-item${categoryFilter === "all" ? " is-active" : ""}`} aria-current={categoryFilter === "all" ? "page" : undefined} onClick={() => selectCategory("all")}>
-                                <span className="plugins-sidebar-item-label">
-                                    <PlugZap className="size-4" />
-                                    全部插件
-                                </span>
-                                <span>{categoryCounts.all}</span>
-                            </button>
-                            {visibleProtocolSectionMeta.map((section) => {
-                                const SectionIcon = section.icon;
-                                return (
-                                    <button
-                                        key={section.key}
-                                        type="button"
-                                        className={`plugins-sidebar-item${categoryFilter === section.key ? " is-active" : ""}`}
-                                        aria-current={categoryFilter === section.key ? "page" : undefined}
-                                        onClick={() => selectCategory(section.key)}
-                                    >
-                                        <span className="plugins-sidebar-item-label">
-                                            <SectionIcon className="size-4" />
-                                            {section.label}
-                                        </span>
-                                        <span>{categoryCounts[section.key] || 0}</span>
-                                    </button>
-                                );
-                            })}
-                            <button type="button" className={`plugins-sidebar-item${categoryFilter === "other" ? " is-active" : ""}`} aria-current={categoryFilter === "other" ? "page" : undefined} onClick={() => selectCategory("other")}>
-                                <span className="plugins-sidebar-item-label">
-                                    <PlugZap className="size-4" />
-                                    应用插件
-                                </span>
-                                <span>{categoryCounts.other}</span>
-                            </button>
-                        </nav>
-                    </aside>
+                    <CollectionHeader
+                        title="插件中心"
+                        description="连接模型、素材与工作流，拓展你的创作工具。"
+                        tabs={[
+                            { value: "all", label: "全部插件", count: categoryCounts.all, icon: PlugZap },
+                            ...visibleProtocolSectionMeta.map((section) => ({ value: section.key, label: section.label, count: categoryCounts[section.key] || 0, icon: section.icon })),
+                            { value: "other", label: "应用插件", count: categoryCounts.other, icon: PlugZap },
+                        ]}
+                        value={categoryFilter}
+                        onChange={selectCategory}
+                        navigationLabel="插件分类"
+                        actions={<Button icon={<RefreshCw className="size-4" />} loading={backendPluginsLoading} onClick={() => void reloadBackendPlugins()}>刷新插件</Button>}
+                    />
                     <div className="plugins-page-content">
-                        <CollectionToolbar label="插件筛选" trailing={<div className="plugins-toolbar-actions">
-                                <Button icon={<RefreshCw className="size-4" />} loading={backendPluginsLoading} onClick={() => void reloadBackendPlugins()}>
-                                    刷新插件
-                                </Button>
-                            </div>}>
+                        <CollectionToolbar label="插件筛选">
                             <Input
                                 className="plugins-search"
                                 prefix={<Search className="size-4 text-foreground/38" aria-hidden="true" />}

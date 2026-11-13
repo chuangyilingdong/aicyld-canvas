@@ -1,12 +1,13 @@
 import { CollectionToolbar } from "@/components/layout/collection-toolbar";
+import { CollectionHeader } from "@/components/layout/collection-header";
 import { App, Button, Dropdown, Input, Select } from "antd";
 import { Tooltip } from "@/components/ui/base/tooltip";
 
 import { Boxes, Check, Clapperboard, Heart, Library, LoaderCircle, Megaphone, MoreHorizontal, Palette, Plus, Puzzle, Search, Send, ShieldCheck, ShoppingBag, Sparkles, UserRound } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 
-import { PageHeader, PaginationBar, WorkspacePage } from "@/components/layout/workspace-page";
+import { PaginationBar, WorkspacePage } from "@/components/layout/workspace-page";
 import { LocalSkillSourceButton } from "./local-skill-source";
 import { WorkspaceErrorState, WorkspaceState } from "@/components/layout/workspace-state";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
@@ -56,16 +57,6 @@ export default function SkillsPage() {
     const [categories, setCategories] = useState<SkillCategory[]>(fallbackSkillCategories);
     const [total, setTotal] = useState(0);
     const [counts, setCounts] = useState<Partial<Record<SkillScope, number>>>({});
-    const tabsRef = useRef<HTMLDivElement>(null);
-    const indicatorRef = useRef<HTMLSpanElement>(null);
-    useLayoutEffect(() => {
-        const tabs = tabsRef.current;
-        const indicator = indicatorRef.current;
-        const active = tabs?.querySelector<HTMLButtonElement>('[aria-selected="true"]');
-        if (!tabs || !indicator || !active) return;
-        indicator.style.left = `${active.offsetLeft}px`;
-        indicator.style.width = `${active.offsetWidth}px`;
-    }, [scope, counts]);
     const [loading, setLoading] = useState(true);
     const [loadError, setLoadError] = useState("");
     const [reloadKey, setReloadKey] = useState(0);
@@ -239,41 +230,21 @@ export default function SkillsPage() {
     return (
         <>
             <WorkspacePage className="library-page skills-library-page" grid>
-                <PageHeader title="技能市场" description="在这里发现、创建、投稿和管理创作技能。" actions={<div className="flex gap-2"><LocalSkillSourceButton onChanged={reload} /><Button icon={<Send className="size-4" />} onClick={() => { setScope("created"); message.info("选择你创建的技能，点击“投稿”查看状态或准备送审"); }}>投稿管理</Button>{isAdmin ? <Button icon={<ShieldCheck className="size-4" />} onClick={() => setReviewOpen(true)}>审核台</Button> : null}<Button type="primary" icon={<Plus className="size-4" />} onClick={() => setInstallOpen(true)}>创建 / 导入</Button></div>} />
-
+                <CollectionHeader
+                    title="技能市场"
+                    description="在这里发现、创建、投稿和管理创作技能。"
+                    tabs={scopeOptions.map((option) => ({ ...option, count: counts[option.value as SkillScope] }))}
+                    value={scope}
+                    onChange={(next) => setScope(next as SkillScope)}
+                    navigationLabel="技能库范围"
+                    actions={<>
+                        <LocalSkillSourceButton onChanged={reload} />
+                        <Button icon={<Send className="size-4" />} onClick={() => { setScope("created"); message.info("选择你创建的技能，点击“投稿”查看状态或准备送审"); }}>投稿管理</Button>
+                        {isAdmin ? <Button icon={<ShieldCheck className="size-4" />} onClick={() => setReviewOpen(true)}>审核台</Button> : null}
+                    </>}
+                    primaryAction={<Button type="primary" icon={<Plus className="size-4" />} onClick={() => setInstallOpen(true)}>创建 / 导入</Button>}
+                />
                 <div className="skills-browse-bar sticky top-0" style={{ zIndex: "var(--z-toolbar)", background: "var(--user-page-bg, var(--background))" }}>
-                <div className="skills-navigation">
-                    <div className="skills-tabs" ref={tabsRef} role="tablist" aria-label="技能库范围" onKeyDown={(event) => {
-                        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-                        event.preventDefault();
-                        const current = scopeOptions.findIndex((option) => option.value === scope);
-                        const next = event.key === "Home" ? 0 : event.key === "End" ? scopeOptions.length - 1 : (current + (event.key === "ArrowRight" ? 1 : -1) + scopeOptions.length) % scopeOptions.length;
-                        setScope(scopeOptions[next].value as SkillScope);
-                        tabsRef.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus();
-                    }}>
-                        <span className="skills-tabs-indicator" ref={indicatorRef} aria-hidden="true" />
-                        {scopeOptions.map((option) => {
-                            const Icon = option.icon;
-                            const active = scope === option.value;
-                            const count = counts[option.value as SkillScope];
-                            return (
-                                <button
-                                    key={option.value}
-                                    type="button"
-                                    role="tab"
-                                    tabIndex={active ? 0 : -1}
-                                    aria-selected={active}
-                                    className={`skills-tab${active ? " is-active" : ""}`}
-                                    onClick={() => setScope(option.value as SkillScope)}
-                                >
-                                    <Icon className="size-4" />
-                                    <span>{option.label}</span>
-                                    {count !== undefined ? <span className="skills-tab-count">{count}</span> : null}
-                                </button>
-                            );
-                        })}
-                    </div>
-                </div>
                 <CollectionToolbar active={filtersActive} onReset={resetFilters}>
                         <Input className="min-w-0 sm:!w-56" prefix={<Search className="size-4 text-foreground/38" />} value={search} allowClear placeholder="搜索技能或作者" onChange={(event) => setSearch(event.target.value)} />
                         <Select aria-label="技能分类" className="w-28" value={tag} options={[{ value: "all", label: "全部分类" }, ...categories]} onChange={(value) => setTag(value)} />

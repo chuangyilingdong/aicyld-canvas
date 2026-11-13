@@ -2,6 +2,10 @@
 
 All notable public changes to BeefTV are documented in this file.
 
+## Unreleased
+
+- 素材库、技能、插件和账户入口统一为同一套页头、分类标签、卡片表面和交互节奏；账户菜单补充积分概览、充值入口以及素材/技能/插件/设置快捷入口。
+
 ## v2.1.3-aicyld.63
 
 - 外部 Agent：新增 `task.wait`，一次最多等待 8 个原任务、最长 25 秒；超时返回 `pending`，可继续查询而不重复提交生成。
