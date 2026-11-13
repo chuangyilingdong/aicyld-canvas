@@ -99,7 +99,9 @@ export function resolveVideoReferenceModeState({
     endFrameSupported = true,
     referenceVideoSupported = true,
     framesSupported = true,
+    h3Model = false,
     h3Style = false,
+    maxFrameAudios,
     prompt = "",
 }: {
     metadata?: CanvasNodeMetadata;
@@ -109,15 +111,39 @@ export function resolveVideoReferenceModeState({
     framesSupported?: boolean;
     h3Model?: boolean;
     h3Style?: boolean;
+    maxFrameAudios?: number;
     prompt?: string;
 }): VideoReferenceModeState {
     const active = references.filter((item) => item.active !== false && item.kind !== "skill");
     const imageRefs = active.filter((item) => item.kind === "image");
-    // 模式只由模型能力和用户显式选择决定。已连接素材只参与后续兼容校验，
-    // 不能把用户选好的首尾帧/全能参考模式自动改掉。
-    const canSelectFrames = framesSupported;
-    const canSelectAll = !h3Style && referenceVideoSupported;
-    const framesDisabledReason = !canSelectFrames ? "当前模型仅支持全能参考模式" : undefined;
+    const characterCount = active.filter((item) => item.kind === "character").length;
+    const videoCount = active.filter((item) => item.kind === "video").length;
+    const audioCount = active.filter((item) => item.kind === "audio").length;
+    const visualCount = imageRefs.length + characterCount;
+    const maxFrameImages = endFrameSupported ? 2 : 1;
+    const allowedFrameAudios = maxFrameAudios ?? (h3Model ? 1 : 0);
+    const frameReferencesCompatible = imageRefs.length >= 1
+        && characterCount === 0
+        && visualCount <= maxFrameImages
+        && videoCount === 0
+        && audioCount <= allowedFrameAudios;
+    const hasReference = visualCount + videoCount + audioCount > 0;
+    // 模型能力决定选项是否可用，已连接素材决定当前模式能否继续沿用。
+    const canSelectFrames = framesSupported && (!hasReference || frameReferencesCompatible);
+    const canSelectAll = !h3Style && referenceVideoSupported && hasReference;
+    const framesDisabledReason = canSelectFrames
+        ? undefined
+        : characterCount > 0
+          ? "已连接角色卡，自动切换为全能参考模式"
+          : videoCount > 0
+            ? "已连接参考视频，自动切换为全能参考模式"
+            : audioCount > allowedFrameAudios
+              ? "已连接参考音频，自动切换为全能参考模式"
+              : visualCount > maxFrameImages
+                ? "已超过首尾帧图片数量，自动切换为全能参考模式"
+                : !framesSupported
+                  ? "当前模型仅支持全能参考模式"
+                  : "请先连接 1–2 张参考图";
     const allDisabledReason = !canSelectAll ? "当前模型仅支持首帧/首尾帧模式，不支持全能参考" : undefined;
     const selectedMode = metadata?.videoEditOperation === "reference_to_video"
         ? "all"
@@ -130,7 +156,9 @@ export function resolveVideoReferenceModeState({
           ? "frames"
           : canSelectFrames
             ? "frames"
-            : "all";
+            : canSelectAll
+              ? "all"
+              : "frames";
 
     if (mode === "all") {
         return {

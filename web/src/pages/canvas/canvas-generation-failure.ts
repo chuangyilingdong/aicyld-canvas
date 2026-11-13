@@ -136,7 +136,9 @@ export function canvasGenerationTaskNodes(nodes: CanvasNodeData[], targetNodeId:
         const hasCompletedContent = task.status === "succeeded" && !paused && hasCurrentVideoOutput && (!output || Boolean(output.materializedAssetId)) && Boolean(node.metadata?.content || node.metadata?.storageKey);
         const existingOutcome = readNodeTaskOutcome(node.metadata);
         const targetUnavailable = existingOutcome?.reason === "result_target_unavailable" || node.metadata?.generationErrorCode === "result_target_unavailable";
-        const retainRecovery = task.status === "succeeded" && !hasCompletedContent && (targetUnavailable || existingOutcome?.phase === "retrievable" || CLIENT_DELIVERY_FAILURE_CODES.has(node.metadata?.generationErrorCode || ""));
+        // 后端已经判定结果不可取回时，前端不能再用「继续取回」覆盖后台结论。
+        const backendTerminalFailure = task.outcome?.phase === "failed";
+        const retainRecovery = task.status === "succeeded" && !backendTerminalFailure && !hasCompletedContent && (targetUnavailable || existingOutcome?.phase === "retrievable" || CLIENT_DELIVERY_FAILURE_CODES.has(node.metadata?.generationErrorCode || ""));
         const failure = paused
             ? {
                   taskOutcome: task.outcome ?? ({ phase: "retrievable", regenerate: "blocked", reason: "delivery_pending" } as const),

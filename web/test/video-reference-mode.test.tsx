@@ -45,18 +45,18 @@ describe("resolveVideoReferenceModeState", () => {
         expect(switchedToAll.endFrameNodeId).toBeUndefined();
     });
 
-    test("模式以用户选择为准，连接素材不会自动改写首尾帧或全能参考", () => {
+    test("引用与模型能力不兼容时自动切换为全能参考，兼容时仍尊重用户选择", () => {
         const noRefState = resolveVideoReferenceModeState({ references: [] });
         expect(noRefState.mode).toBe("frames");
         expect(noRefState.canSelectFrames).toBe(true);
-        expect(noRefState.canSelectAll).toBe(true);
+        expect(noRefState.canSelectAll).toBe(false);
 
         const fiveImageFrames = resolveVideoReferenceModeState({
             references: makeImageRefs(5),
             metadata: { videoEditOperation: "image_to_video" },
         });
-        expect(fiveImageFrames.mode).toBe("frames");
-        expect(fiveImageFrames.canSelectFrames).toBe(true);
+        expect(fiveImageFrames.mode).toBe("all");
+        expect(fiveImageFrames.canSelectFrames).toBe(false);
 
         const oneImageAll = resolveVideoReferenceModeState({
             references: makeImageRefs(1),
@@ -72,8 +72,8 @@ describe("resolveVideoReferenceModeState", () => {
             ],
             metadata: { videoEditOperation: "image_to_video" },
         });
-        expect(videoRefFrames.mode).toBe("frames");
-        expect(videoRefFrames.canSelectFrames).toBe(true);
+        expect(videoRefFrames.mode).toBe("all");
+        expect(videoRefFrames.canSelectFrames).toBe(false);
 
         const noRefVideoModelState = resolveVideoReferenceModeState({
             references: makeImageRefs(1),
@@ -233,13 +233,19 @@ describe("buildVideoGenerationMetadata default frame roles", () => {
 });
 
 describe("VideoReferenceModeSwitch & ConnectedReferenceShelf UI", () => {
-    test("尚未连接引用时也显示首尾帧与全能参考模式切换器", () => {
+    test("尚未连接引用时不显示模式切换器，连接后按模型能力显示", () => {
         const state = resolveVideoReferenceModeState({ references: [] });
         const html = renderToStaticMarkup(
             <VideoReferenceModeSwitch state={state} theme={canvasThemes.dark} onChange={() => {}} />,
         );
-        expect(html).toContain("首尾帧");
-        expect(html).toContain("全能参考");
+        expect(html).toBe("");
+
+        const connected = resolveVideoReferenceModeState({ references: makeImageRefs(1) });
+        const connectedHtml = renderToStaticMarkup(
+            <VideoReferenceModeSwitch state={connected} theme={canvasThemes.dark} onChange={() => {}} />,
+        );
+        expect(connectedHtml).toContain("首尾帧");
+        expect(connectedHtml).toContain("全能参考");
     });
 
     test("首尾帧模式渲染 [首尾帧 | 全能参考] 切换器、缩略图首帧/尾帧角标与 ⇄ 互换按钮", () => {

@@ -5,6 +5,7 @@ import { consumeTaskTextStream, createTaskTextStreamParser, type TaskTextStreamE
 import { getDiagnosticTraceId, recordDiagnosticEvent } from "@/services/diagnostics/client-diagnostics";
 import { publishGenerationDeliveryProgress } from "@/stores/use-generation-delivery-progress";
 import { beginTaskReferenceObservation, publishTaskReferenceProgress } from "@/services/task-reference-progress";
+import { normalizeTaskOutcome, taskOutcomeCopy, type TaskOutcome } from "@/lib/task-outcome";
 
 export type { BackendEnvelope } from "@/services/api/request";
 
@@ -413,6 +414,7 @@ export async function waitForGenerationTask(id: string, options?: WaitForGenerat
     if (shouldUseTaskTextEvents(options)) return waitForGenerationTaskTextEvents(id, options || {});
     const startedAt = Date.now();
     const intervalMs = options?.intervalMs || 2000;
+    const timeoutMs = explicitObservationTimeoutMs(options?.timeoutMs);
     let lastTask = options?.initialTask;
     let lastQueryError: unknown;
     let consecutiveFailures = 0;
@@ -420,7 +422,7 @@ export async function waitForGenerationTask(id: string, options?: WaitForGenerat
     // waiter for the same task keeps its own view.
     let publishedDelivery = false;
     try {
-        while (Date.now() - startedAt < (options?.timeoutMs || taskWaitTimeoutMs(lastTask))) {
+        while (Date.now() - startedAt < timeoutMs) {
             if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
             let task: GenerationTask;
             try {
@@ -440,27 +442,27 @@ export async function waitForGenerationTask(id: string, options?: WaitForGenerat
                 await delay(intervalMs, options?.signal);
                 continue;
             }
-            if (task.status === "queued" || task.status === "running") {
-                const progress = task.delivery?.outputs[0];
-                if (progress) {
-                    publishGenerationDeliveryProgress(id, progress);
-                    publishedDelivery = true;
-                } else if (publishedDelivery) {
-                    publishGenerationDeliveryProgress(id, undefined);
-                    publishedDelivery = false;
-                }
+            const settled = settleGenerationTaskWait(task);
+            if (settled.kind === "ready") {
+                return settled.task;
             }
-            if (task.status === "succeeded") {
-                return task;
-            }
-            if (task.status === "failed" || task.status === "cancelled") {
-                const message = task.error ? generationErrorMessage(task.errorCode ? { code: task.errorCode, message: task.error } : task.error) : `任务${task.status === "cancelled" ? "已取消" : "失败"}`;
-                const error = new Error(message) as Error & { code?: string; taskOutcome?: import("@/lib/task-outcome").TaskOutcome };
+            if (settled.kind === "failed") {
+                const error = new Error(generationTaskWaitFailureMessage(task, settled.outcome)) as Error & { code?: string; taskOutcome?: TaskOutcome; failureDiagnostics?: import("@/lib/generation-error").GenerationFailureDiagnostics };
                 if (task.errorCode) error.code = task.errorCode;
-                if (task.outcome) error.taskOutcome = task.outcome;
+                const taskOutcome = settled.outcome ?? task.outcome;
+                if (taskOutcome) error.taskOutcome = taskOutcome;
+                if (task.failureDiagnostics) error.failureDiagnostics = task.failureDiagnostics;
                 throw error;
             }
-            const retrieving = Boolean(task.delivery) || task.stage === GENERATION_RESULT_FETCH_STAGE;
+            const progress = task.delivery?.outputs[0];
+            if (progress) {
+                publishGenerationDeliveryProgress(id, progress);
+                publishedDelivery = true;
+            } else if (publishedDelivery) {
+                publishGenerationDeliveryProgress(id, undefined);
+                publishedDelivery = false;
+            }
+            const retrieving = Boolean(task.delivery) || task.stage === GENERATION_RESULT_FETCH_STAGE || settled.outcome?.phase === "fetching" || settled.outcome?.phase === "retrievable";
             await delay(retrieving ? Math.min(intervalMs, 500) : intervalMs, options?.signal);
         }
     } catch (error) {
@@ -478,6 +480,7 @@ export async function waitForGenerationTask(id: string, options?: WaitForGenerat
 async function waitForGenerationTaskTextEvents(id: string, options: WaitForGenerationTaskOptions) {
     const startedAt = Date.now();
     const intervalMs = options.intervalMs || 1000;
+    const timeoutMs = explicitObservationTimeoutMs(options.timeoutMs);
     let lastTask = options.initialTask;
     let lastEventId = 0;
     // 已有草稿先落到文本里，重开对话时同一批增量不会被当成新内容重复拼接。
@@ -487,7 +490,8 @@ async function waitForGenerationTaskTextEvents(id: string, options: WaitForGener
         lastTask = await queryGenerationTask(id, { signal: options.signal });
         options.onTaskUpdate?.(lastTask);
     }
-    const timeoutMs = options.timeoutMs || taskWaitTimeoutMs(lastTask);
+    const initialSettled = settleTerminalTextEventTask(lastTask);
+    if (initialSettled) return initialSettled;
     while (Date.now() - startedAt < timeoutMs) {
         if (options.signal?.aborted) throw new DOMException("Aborted", "AbortError");
         let terminalReceived = false;
@@ -559,16 +563,22 @@ async function waitForGenerationTaskTextEvents(id: string, options: WaitForGener
             if (terminalReceived) {
                 const completed = await queryGenerationTask(id, { signal: options.signal });
                 options.onTaskUpdate?.(completed);
-                if (completed.status === "succeeded") return completed;
-                if (completed.status === "failed" || completed.status === "cancelled") {
-                    const message = completed.error ? generationErrorMessage(completed.errorCode ? { code: completed.errorCode, message: completed.error } : completed.error) : `任务${completed.status === "cancelled" ? "已取消" : "失败"}`;
-                    throw new TaskTextStreamFatalError(message, completed.errorCode);
-                }
+                const settled = settleTerminalTextEventTask(completed);
+                if (settled) return settled;
             }
             lastStreamError = new Error("任务文本流连接提前结束");
         } catch (error) {
             if (options.signal?.aborted) throw new DOMException("Aborted", "AbortError");
             if (error instanceof TaskTextStreamFatalError) throw error;
+            try {
+                const latest = await queryGenerationTask(id, { signal: options.signal });
+                options.onTaskUpdate?.(latest);
+                const settled = settleTerminalTextEventTask(latest);
+                if (settled) return settled;
+            } catch (queryError) {
+                if (options.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+                if (queryError instanceof TaskTextStreamFatalError) throw queryError;
+            }
             lastStreamError = error;
         }
         await delay(intervalMs, options.signal);
@@ -590,10 +600,14 @@ function isTaskStatus(value: unknown): value is TaskStatus {
 
 class TaskTextStreamFatalError extends Error {
     code?: string;
-    constructor(message: string, code?: string) {
+    taskOutcome?: TaskOutcome;
+    failureDiagnostics?: import("@/lib/generation-error").GenerationFailureDiagnostics;
+    constructor(message: string, code?: string, taskOutcome?: TaskOutcome, failureDiagnostics?: import("@/lib/generation-error").GenerationFailureDiagnostics) {
         super(message);
         this.name = "TaskTextStreamFatalError";
         if (code) this.code = code;
+        if (taskOutcome) this.taskOutcome = taskOutcome;
+        if (failureDiagnostics) this.failureDiagnostics = failureDiagnostics;
     }
 }
 
@@ -607,14 +621,52 @@ async function taskTextStreamHTTPError(response: Response) {
     return `任务文本流请求失败（HTTP ${response.status}）`;
 }
 
-function taskWaitTimeoutMs(task?: GenerationTask) {
-    const type = task?.type || "";
-    if (type === "depth_capture") return 122 * 60 * 1000;
-    if (type.includes("storyboard")) return 13 * 60 * 1000;
-    if (type.includes("video")) return 32 * 60 * 1000;
-    if (type.includes("image")) return 10 * 60 * 1000;
-    if (type.includes("text") || type.includes("audio")) return 12 * 60 * 1000;
-    return 10 * 60 * 1000;
+function isPausedGenerationDelivery(task: Pick<GenerationTask, "stage" | "outputs">) {
+    if (task.stage === "delivery_paused" || task.stage === "delivery_timed_out") return true;
+    return (task.outputs ?? []).some(item => item?.materializationErrorCode === "delivery_paused" || item?.materializationErrorCode === "delivery_timed_out");
+}
+
+function settleGenerationTaskWait(task: GenerationTask):
+    | { kind: "ready"; task: GenerationTask }
+    | { kind: "failed"; outcome?: TaskOutcome }
+    | { kind: "waiting"; outcome?: TaskOutcome } {
+    const explicitOutcome = normalizeTaskOutcome(task.outcome);
+    if (explicitOutcome) {
+        if (explicitOutcome.phase === "ready") return { kind: "ready", task };
+        if (explicitOutcome.phase === "failed") return { kind: "failed", outcome: explicitOutcome };
+        if (explicitOutcome.phase === "retrievable" && task.status === "succeeded" && isPausedGenerationDelivery(task)) {
+            return { kind: "ready", task };
+        }
+        return { kind: "waiting", outcome: explicitOutcome };
+    }
+    if (task.status === "succeeded") return { kind: "ready", task };
+    if (task.status === "failed" || task.status === "cancelled") return { kind: "failed" };
+    return { kind: "waiting" };
+}
+
+function generationTaskWaitFailureMessage(task: GenerationTask, outcome?: TaskOutcome) {
+    if (task.error) return generationErrorMessage(task.errorCode ? { code: task.errorCode, message: task.error } : task.error);
+    if (task.status === "cancelled") return "任务已取消";
+    if (outcome?.phase === "failed") return taskOutcomeCopy(outcome).message;
+    return "任务失败";
+}
+
+function settleTerminalTextEventTask(task: GenerationTask): GenerationTask | undefined {
+    const settled = settleGenerationTaskWait(task);
+    if (settled.kind === "ready") return settled.task;
+    if (settled.kind === "failed") {
+        throw new TaskTextStreamFatalError(
+            generationTaskWaitFailureMessage(task, settled.outcome),
+            task.errorCode,
+            settled.outcome ?? task.outcome,
+            task.failureDiagnostics,
+        );
+    }
+    return undefined;
+}
+
+function explicitObservationTimeoutMs(timeoutMs?: number) {
+    return typeof timeoutMs === "number" && Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : Number.POSITIVE_INFINITY;
 }
 
 function delay(ms: number, signal?: AbortSignal) {
