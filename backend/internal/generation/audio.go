@@ -29,7 +29,7 @@ func RunAudioTask(ctx context.Context, input Input) (map[string]interface{}, err
 	if managedConnection(input.Config) {
 		return runLegacyManagedAudio(ctx, input)
 	}
-	if input.Config.InterfaceType == "audio-generations" {
+	if input.Config.InterfaceType == "audio-generations" || (input.Config.InterfaceType == "async-audio" && usesAudioGenerationsEndpoint(input.Config.Model)) {
 		return runAudioGenerationsTask(ctx, input)
 	}
 	if input.Config.InterfaceType == "" {

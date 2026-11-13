@@ -23,7 +23,7 @@ func TestAudioGenerationsProtocolSubmitsPollsAndDownloads(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				t.Fatal(err)
 			}
-			if body["model"] != "fixture-audio" || body["prompt"] != "fixture prompt" || body["voice"] != "fixture-voice" || body["is_instrumental"] != true {
+			if body["model"] != "mureka-v9-fixture" || body["prompt"] != "fixture prompt" || body["voice"] != "fixture-voice" || body["is_instrumental"] != true {
 				t.Fatalf("unexpected submit body: %#v", body)
 			}
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"task_id": "task-1", "status": "queued"})
@@ -45,7 +45,7 @@ func TestAudioGenerationsProtocolSubmitsPollsAndDownloads(t *testing.T) {
 	result, err := RunAudioTask(context.Background(), Input{
 		Mode:     "audio",
 		Prompt:   "fixture prompt",
-		Config:   Config{BaseURL: server.URL, APIKey: "fixture-key", Model: "fixture-audio", InterfaceType: "audio-generations", AudioVoice: "fixture-voice", AudioFormat: "mp3", AudioSpeed: "1"},
+		Config:   Config{BaseURL: server.URL, APIKey: "fixture-key", Model: "mureka-v9-fixture", InterfaceType: "async-audio", AudioVoice: "fixture-voice", AudioFormat: "mp3", AudioSpeed: "1"},
 		Metadata: map[string]interface{}{"audioIsInstrumental": true},
 	})
 	if err != nil {

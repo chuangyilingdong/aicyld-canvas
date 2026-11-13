@@ -163,3 +163,11 @@ func stringValue(value interface{}) string {
 		return fmt.Sprint(typed)
 	}
 }
+
+func usesAudioGenerationsEndpoint(model string) bool {
+	id := strings.ToLower(strings.TrimSpace(model))
+	if index := strings.LastIndex(id, "::"); index >= 0 {
+		id = id[index+2:]
+	}
+	return strings.Contains(id, "doubao-seed-audio") || strings.Contains(id, "mureka") || strings.Contains(id, "minimax-music")
+}
