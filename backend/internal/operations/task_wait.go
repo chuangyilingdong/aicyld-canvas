@@ -18,7 +18,7 @@ const (
 
 func registerTaskWaitOp(r *Registry) {
 	r.Register(Op{ExternalOnly: true, ID: "task.wait", Summary: "短时等待最多 8 个任务进入可交付或终态；超时返回 pending，不重复提交任务", ReadOnly: true, Scope: ScopeWorkspaceRead,
-		Params: json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"taskId":{"type":"string"},"taskIds":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":8},"canvasId":{"type":"string","description":"可选；与 nodeId 一起检查产物是否已绑定目标节点"},"nodeId":{"type":"string","description":"可选；与 canvasId 一起检查产物是否已绑定目标节点"},"timeoutMs":{"type":"integer","minimum":50,"maximum":25000,"default":5000}}}`),
+		Params:  json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"taskId":{"type":"string"},"taskIds":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":8},"canvasId":{"type":"string","description":"可选；与 nodeId 一起检查产物是否已绑定目标节点"},"nodeId":{"type":"string","description":"可选；与 canvasId 一起检查产物是否已绑定目标节点"},"timeoutMs":{"type":"integer","minimum":50,"maximum":25000,"default":5000}}}`),
 		Handler: opTaskWait})
 }
 

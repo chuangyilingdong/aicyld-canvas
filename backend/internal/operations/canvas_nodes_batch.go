@@ -8,7 +8,7 @@ import (
 
 func registerCanvasNodesBatchOps(r *Registry) {
 	r.Register(Op{ExternalOnly: true, ID: "canvas.nodes.get", Summary: "批量读取指定画布节点；单个节点缺失不会拒绝整批", ReadOnly: true, Scope: ScopeCanvas,
-		Params: json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"canvasId":{"type":"string"},"nodeIds":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":50}},"required":["canvasId","nodeIds"]}`),
+		Params:  json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"canvasId":{"type":"string"},"nodeIds":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":50}},"required":["canvasId","nodeIds"]}`),
 		Handler: opCanvasNodesGet})
 
 	patchProperties := canvasNodeConfigurePatchProperties()
@@ -24,7 +24,7 @@ func registerCanvasNodesBatchOps(r *Registry) {
 					"properties": map[string]any{
 						"nodeId": map[string]any{"type": "string"},
 						"kind":   map[string]any{"type": "string", "enum": []string{"image", "video", "audio"}},
-						"patch": map[string]any{"type": "object", "minProperties": 1, "additionalProperties": false, "properties": patchProperties},
+						"patch":  map[string]any{"type": "object", "minProperties": 1, "additionalProperties": false, "properties": patchProperties},
 					},
 					"required": []string{"nodeId", "kind", "patch"},
 				},
