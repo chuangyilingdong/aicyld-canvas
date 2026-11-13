@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { defaultModelCapabilityConfig } from "../src/lib/model-capabilities";
-import { normalizeSmartFilmShotSeconds, resizeSmartFilmShotDurations, smartFilmMaxClipSeconds } from "../src/lib/canvas/smart-film-options";
+import { isValidSmartFilmShotCount, normalizeSmartFilmShotCount, normalizeSmartFilmShotSeconds, resizeSmartFilmShotDurations, smartFilmMaxClipSeconds } from "../src/lib/canvas/smart-film-options";
 
 test("smart film keeps per-shot duration inside the selected video model limit", () => {
     const video = defaultModelCapabilityConfig("openai-videos").video!;
@@ -9,6 +9,21 @@ test("smart film keeps per-shot duration inside the selected video model limit",
     expect(smartFilmMaxClipSeconds(video)).toBe(8);
     expect(normalizeSmartFilmShotSeconds(9, video)).toBe(8);
     expect(resizeSmartFilmShotDurations([4], 4, video)).toEqual([4, 6, 6, 6]);
+});
+
+test("smart film accepts a custom shot count across the backend range", () => {
+    const video = defaultModelCapabilityConfig("openai-videos").video!;
+    video.duration = { selection: "enum", values: [5, 10], default: 5 };
+
+    expect(normalizeSmartFilmShotCount(12)).toBe(12);
+    expect(normalizeSmartFilmShotCount(null)).toBe(6);
+    expect(normalizeSmartFilmShotCount(0)).toBe(1);
+    expect(normalizeSmartFilmShotCount(201)).toBe(200);
+    expect(isValidSmartFilmShotCount(12)).toBe(true);
+    expect(isValidSmartFilmShotCount(0)).toBe(false);
+    expect(isValidSmartFilmShotCount(20.5)).toBe(false);
+    expect(resizeSmartFilmShotDurations([5], 25, video)).toHaveLength(25);
+    expect(resizeSmartFilmShotDurations([5], 201, video)).toHaveLength(200);
 });
 
 test("smart film starter persists models, style and explicit per-shot durations", async () => {

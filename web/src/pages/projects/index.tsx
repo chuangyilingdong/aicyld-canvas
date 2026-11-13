@@ -3,7 +3,7 @@ import { CachedResourceImage } from "@/components/cached-resource-image";
 import { MediaPlaceholder } from "@/components/ui/product/media-placeholder";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { App, Button, Dropdown, Form, Input, Modal, Select, Switch } from "antd";
+import { App, Button, Dropdown, Form, Input, InputNumber, Modal, Select, Switch } from "antd";
 import { ArrowRight, Archive, BookOpenText, Clapperboard, FileText, FolderKanban, Images, LayoutGrid, MoreHorizontal, Palette, Pencil, Plus, Search, Sparkles } from "lucide-react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 
@@ -15,6 +15,7 @@ import { ModelPicker } from "@/components/model-picker";
 import { isMusicAudioModel } from "@/lib/audio-generation";
 import { canvasFeatureModel } from "@/lib/canvas/feature-models";
 import { createStyleProfileSnapshot, parseStyleProfile, serializeStyleProfile } from "@/lib/canvas/style-profile";
+import { isValidSmartFilmShotCount, normalizeSmartFilmShotCount, SMART_FILM_DEFAULT_SHOT_COUNT, SMART_FILM_MAX_SHOT_COUNT, SMART_FILM_MIN_SHOT_COUNT } from "@/lib/canvas/smart-film-options";
 import { projectSummaryCompletion, projectSummaryStage } from "@/lib/project-workbench";
 import { settingsPath } from "@/lib/settings-navigation";
 import { PromptTemplateOperation, parseGeneratedStory, promptTemplateTaskPlaceholder, shortDramaOutlineVariables } from "@/lib/prompts";
@@ -57,7 +58,7 @@ export default function ProjectsPage() {
     const [generationPreview, setGenerationPreview] = useState("");
     const [smartFilmOpen, setSmartFilmOpen] = useState(false);
     const [smartFilmTopic, setSmartFilmTopic] = useState("");
-    const [smartFilmShotCount, setSmartFilmShotCount] = useState("6");
+    const [smartFilmShotCount, setSmartFilmShotCount] = useState<number | null>(SMART_FILM_DEFAULT_SHOT_COUNT);
     const [smartFilmAspectRatio, setSmartFilmAspectRatio] = useState("9:16");
     const [smartFilmTextModel, setSmartFilmTextModel] = useState("");
     const [smartFilmImageModel, setSmartFilmImageModel] = useState("");
@@ -72,6 +73,8 @@ export default function ProjectsPage() {
         () => canvasFeatureModel("audio.music") || (effectiveConfig.audioModels || []).find(isMusicAudioModel) || "",
         [effectiveConfig],
     );
+    const smartFilmShotCountValid = isValidSmartFilmShotCount(smartFilmShotCount);
+    const smartFilmShotCountValue = normalizeSmartFilmShotCount(smartFilmShotCount);
     const foldersQuery = useQuery({ queryKey: ["project-folders"], queryFn: listProjectFolders });
     const createOpen = searchParams.get("create") === "1";
     const setCreateOpen = (open: boolean) => {
@@ -109,6 +112,10 @@ export default function ProjectsPage() {
             setSmartFilmEstimate({ loading: false });
             return;
         }
+        if (!smartFilmShotCountValid) {
+            setSmartFilmEstimate({ loading: false, error: `请输入 ${SMART_FILM_MIN_SHOT_COUNT}–${SMART_FILM_MAX_SHOT_COUNT} 之间的整数分镜数量` });
+            return;
+        }
         const imageModel = smartFilmImageModel || effectiveConfig.imageModel;
         const videoModel = smartFilmVideoModel || effectiveConfig.videoModel;
         if (!imageModel || !videoModel) {
@@ -119,7 +126,7 @@ export default function ProjectsPage() {
         const timer = window.setTimeout(async () => {
             setSmartFilmEstimate({ loading: true });
             try {
-                const shotCount = Math.max(1, Number(smartFilmShotCount) || 6);
+                const shotCount = smartFilmShotCountValue;
                 const [imageInput, videoInput] = await Promise.all([
                     prepareBackendGenerationTask({
                         projectId: "smart-film-estimate",
@@ -154,7 +161,7 @@ export default function ProjectsPage() {
             cancelled = true;
             window.clearTimeout(timer);
         };
-    }, [effectiveConfig, smartFilmAspectRatio, smartFilmAutoRun, smartFilmImageModel, smartFilmOpen, smartFilmShotCount, smartFilmVideoModel]);
+    }, [effectiveConfig, smartFilmAspectRatio, smartFilmAutoRun, smartFilmImageModel, smartFilmOpen, smartFilmShotCountValid, smartFilmShotCountValue, smartFilmVideoModel]);
     useEffect(() => {
         if (!createOpen) return;
         createForm.setFieldsValue({
@@ -240,6 +247,11 @@ export default function ProjectsPage() {
         const imageModel = smartFilmImageModel || effectiveConfig.imageModel;
         const videoModel = smartFilmVideoModel || effectiveConfig.videoModel;
         if (!topic || smartFilmGenerating) return;
+        if (!smartFilmShotCountValid) {
+            modal.warning({ title: "分镜数量无效", content: `请输入 ${SMART_FILM_MIN_SHOT_COUNT}–${SMART_FILM_MAX_SHOT_COUNT} 之间的整数。`, okText: "知道了" });
+            return;
+        }
+        const shotCount = normalizeSmartFilmShotCount(smartFilmShotCount);
         if (!textModel || !imageModel || !videoModel) {
             modal.warning({
                 title: "请先选择完整模型",
@@ -310,7 +322,7 @@ export default function ProjectsPage() {
             } catch {
                 message.warning("角色、场景和道具提取失败，继续生成分镜");
             }
-            setSmartFilmStatus(`正在规划 ${smartFilmShotCount} 个镜头…`);
+            setSmartFilmStatus(`正在规划 ${shotCount} 个镜头…`);
             const generated = await generateChapterStoryboard({
                 projectId: project.project.id,
                 chapterId: unit.id,
@@ -329,12 +341,15 @@ export default function ProjectsPage() {
                 selectedSkillIds: [],
                 approvedRevision: core.project.revision,
                 approvedShotIds: [],
-                shotCount: Number(smartFilmShotCount),
+                shotCount,
                 userRequirements: `这是一条从主题直接启动的成片项目。主题：${topic}\n画面以 AI 生成图片和视频为主，分镜要能直接继续生成首帧和镜头视频。`,
             });
             if (!generated.rows.length) throw new Error("模型没有返回有效分镜，请重试");
+            if (generated.rows.length < shotCount) {
+                throw new Error(`模型只返回了 ${generated.rows.length} 个分镜，少于要求的 ${shotCount} 个，请重试`);
+            }
             setSmartFilmStatus("正在写入分镜…");
-            const shots = storyboardRowsToProjectShots(generated.rows);
+            const shots = storyboardRowsToProjectShots(generated.rows.slice(0, shotCount));
             await replaceProjectUnitShots(project.project.id, unit.id, shots, [], core.project.revision, { sourceTaskId: generated.taskId });
             await Promise.all([
                 queryClient.invalidateQueries({ queryKey: ["projects"] }),
@@ -559,7 +574,7 @@ export default function ProjectsPage() {
                         />
                     </div>
                     <div className="grid gap-3 sm:grid-cols-2">
-                        <label className="space-y-1.5 text-xs font-medium text-foreground/60"><span>分镜数量</span><Select className="w-full" value={smartFilmShotCount} onChange={setSmartFilmShotCount} disabled={smartFilmGenerating} options={[{ label: "4 镜 · 快速样片", value: "4" }, { label: "6 镜 · 标准短视频", value: "6" }, { label: "8 镜 · 更完整叙事", value: "8" }, { label: "10 镜 · 深度内容", value: "10" }]} /></label>
+                        <label className="space-y-1.5 text-xs font-medium text-foreground/60"><span>分镜数量</span><InputNumber className="w-full" value={smartFilmShotCount} onChange={setSmartFilmShotCount} disabled={smartFilmGenerating} min={SMART_FILM_MIN_SHOT_COUNT} max={SMART_FILM_MAX_SHOT_COUNT} step={1} precision={0} suffix="镜" aria-label="分镜数量" /></label>
                         <label className="space-y-1.5 text-xs font-medium text-foreground/60"><span>成片画幅</span><Select className="w-full" value={smartFilmAspectRatio} onChange={setSmartFilmAspectRatio} disabled={smartFilmGenerating} options={[{ label: "9:16 竖屏", value: "9:16" }, { label: "16:9 横屏", value: "16:9" }, { label: "1:1 方形", value: "1:1" }]} /></label>
                     </div>
                     <div className="grid gap-3 sm:grid-cols-3">
@@ -576,7 +591,7 @@ export default function ProjectsPage() {
                         <Switch checked={smartFilmAutoRun} onChange={setSmartFilmAutoRun} disabled={smartFilmGenerating} aria-label="全自动制作成片" />
                     </div>
                     {smartFilmAutoRun ? <div className="rounded-xl border border-border/70 px-4 py-3 text-xs leading-5 text-foreground/55">
-                        {smartFilmEstimate.loading ? "正在计算全流程预估费用…" : smartFilmEstimate.error ? smartFilmEstimate.error : smartFilmEstimate.totalPoints !== undefined ? `预计 ${smartFilmShotCount} 镜约 ${smartFilmEstimate.totalPoints} 积分（分镜图 ${smartFilmEstimate.imagePoints} + 视频 ${smartFilmEstimate.videoPoints}），旁白与 BGM 按实际任务另计。按每镜约 5 秒估算，实际以任务账单为准。` : "选择模型后显示预估费用"}
+                        {smartFilmEstimate.loading ? "正在计算全流程预估费用…" : smartFilmEstimate.error ? smartFilmEstimate.error : smartFilmEstimate.totalPoints !== undefined ? `预计 ${smartFilmShotCountValue} 镜约 ${smartFilmEstimate.totalPoints} 积分（分镜图 ${smartFilmEstimate.imagePoints} + 视频 ${smartFilmEstimate.videoPoints}），旁白与 BGM 按实际任务另计。按每镜约 5 秒估算，实际以任务账单为准。` : "选择模型后显示预估费用"}
                     </div> : null}
                     <div className="rounded-xl bg-[color-mix(in_srgb,var(--workspace-accent)_7%,transparent)] px-4 py-3 text-xs leading-6 text-foreground/60">
                         {smartFilmAutoRun ? "主题 → 分镜 → 全部分镜图 → 全部镜头视频 → 旁白 + BGM → MP4/SRT 成片。执行期间请保持页面打开。" : "主题 → 分镜。图片和视频可在分镜工作台继续手动生成。"}图片和视频生成使用上方选择的模型，旁白与 BGM 使用平台音频功能模型。
@@ -584,7 +599,7 @@ export default function ProjectsPage() {
                     {smartFilmStatus ? <p className="text-xs text-foreground/55" role="status">{smartFilmStatus}</p> : null}
                     <div className="flex justify-end gap-2">
                         <Button disabled={smartFilmGenerating} onClick={() => setSmartFilmOpen(false)}>取消</Button>
-                        <Button type="primary" icon={<Sparkles className="size-3.5" />} loading={smartFilmGenerating} disabled={!smartFilmTopic.trim()} onClick={() => void createSmartFilm()}>{smartFilmGenerating ? "正在准备分镜" : smartFilmAutoRun ? "创建并自动成片" : "创建并生成分镜"}</Button>
+                        <Button type="primary" icon={<Sparkles className="size-3.5" />} loading={smartFilmGenerating} disabled={!smartFilmTopic.trim() || !smartFilmShotCountValid} onClick={() => void createSmartFilm()}>{smartFilmGenerating ? "正在准备分镜" : smartFilmAutoRun ? "创建并自动成片" : "创建并生成分镜"}</Button>
                     </div>
                 </div>
             </Modal>
