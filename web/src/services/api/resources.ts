@@ -54,6 +54,8 @@ export type ResourceUploadMeta = {
     durationMs?: number;
     fileName?: string;
     idempotencyKey?: string;
+    /** Defaults to true when no explicit operation key is supplied. */
+    contentDedupe?: boolean;
 };
 
 /**
@@ -200,6 +202,23 @@ const CHUNK_UPLOAD_THRESHOLD = 50 << 20;
 const CHUNK_UPLOAD_RETRIES = 2;
 const MULTIPART_UPLOAD_RETRIES = 3;
 const UPLOAD_RETRY_BASE_DELAY_MS = 300;
+const CONTENT_IDENTITY_MAX_BYTES = 64 << 20;
+
+async function contentUploadIdempotencyKey(file: Blob, kind: "image" | "video" | "audio" | "file") {
+    if (file.size <= CONTENT_IDENTITY_MAX_BYTES) {
+        try {
+            const digest = await globalThis.crypto?.subtle?.digest("SHA-256", await file.arrayBuffer());
+            if (digest) {
+                const hash = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+                return `resource-content:${kind}:${file.type || "application/octet-stream"}:${file.size}:${hash}`;
+            }
+        } catch {
+            // Older browsers and test shims may not expose Web Crypto; keep the
+            // request-level retry identity so a network replay stays idempotent.
+        }
+    }
+    return "";
+}
 
 export async function uploadResourceFile(
     file: Blob,
@@ -208,9 +227,11 @@ export async function uploadResourceFile(
     onProgress?: (uploadedBytes: number, totalBytes: number) => void,
 ): Promise<RemoteResource> {
     const name = meta?.fileName || (file instanceof File ? file.name : `${kind}.${extensionFromMime(file.type, kind)}`);
-    // Keep one identity across every retry. A lost response must replay the
-    // server-side idempotency result instead of creating a second resource.
-    const retryMeta = { ...meta, idempotencyKey: meta?.idempotencyKey?.trim() || `resource-upload:${createClientId()}` };
+    // Reuse the same content identity across separate selections, not only
+    // request retries. Resource uploads are the first boundary where the same
+    // file can otherwise become several canonical resources and assets.
+    const contentIdentity = (meta?.contentDedupe ?? !meta?.idempotencyKey?.trim()) ? await contentUploadIdempotencyKey(file, kind) : "";
+    const retryMeta = { ...meta, idempotencyKey: contentIdentity || meta?.idempotencyKey?.trim() || `resource-upload:${createClientId()}` };
     const progress = startOperation(name, { totalBytes: file.size, detail: isLocalRuntimeMode() ? "正在保存到本地资源目录" : "正在准备上传" });
     const report = (loaded: number, total: number) => { progress.progress(loaded, total); onProgress?.(loaded, total); };
     // 分片与 multipart 两条路径的失败都要归一成 ResourceUploadError，

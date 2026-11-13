@@ -103,10 +103,35 @@ describe("资源直传失败分类", () => {
             expect(resource.id).toBe("res-replayed");
             expect(attempts).toBe(2);
             expect(keys).toHaveLength(2);
-            expect(keys[0]).toMatch(/^resource-upload:/);
+            expect(keys[0]).toMatch(/^resource-content:image:image\/png:1:/);
             expect(keys[1]).toBe(keys[0]);
         } finally {
             retryWait.delay = previousDelay;
+            apiClient.defaults.adapter = previousAdapter;
+        }
+    });
+
+    test("同一文件内容跨选择复用同一个资源身份", async () => {
+        const previousAdapter = apiClient.defaults.adapter;
+        const keys: string[] = [];
+        apiClient.defaults.adapter = async (config) => {
+            keys.push(String(config.headers.get("X-Idempotency-Key")));
+            return {
+                config,
+                status: 200,
+                statusText: "OK",
+                headers: {},
+                data: { code: 0, msg: "", data: { resource: { id: `res-${keys.length}`, kind: "image", status: "ready", size: 4 } } },
+            };
+        };
+        try {
+            await uploadResourceFile(new Blob(["same"], { type: "image/png" }), "image", { fileName: "first.png" });
+            await uploadResourceFile(new Blob(["same"], { type: "image/png" }), "image", { fileName: "renamed.png" });
+            await uploadResourceFile(new Blob(["diff"], { type: "image/png" }), "image", { fileName: "first.png" });
+            expect(keys).toHaveLength(3);
+            expect(keys[1]).toBe(keys[0]);
+            expect(keys[2]).not.toBe(keys[0]);
+        } finally {
             apiClient.defaults.adapter = previousAdapter;
         }
     });

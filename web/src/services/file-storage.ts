@@ -100,7 +100,7 @@ export async function uploadMediaFile(input: Blob, prefix = "file", onProgress?:
         // Browser local mode keeps IndexedDB as its offline/development store.
         try {
             const kind = isVideo ? "video" : prefix === "audio" || blob.type.startsWith("audio/") ? "audio" : "file";
-            const resource = await uploadResourceFile(blob, kind, { ...meta, fileName: input instanceof File ? input.name : undefined, idempotencyKey: storageKey }, onProgress);
+            const resource = await uploadResourceFile(blob, kind, { ...meta, fileName: input instanceof File ? input.name : undefined }, onProgress);
             try {
                 await primeResourceBlobCache(resourceStorageKey(resource.id), blob);
             } catch (error) {

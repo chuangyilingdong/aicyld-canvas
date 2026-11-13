@@ -5,7 +5,7 @@ import { getActiveUserScope } from "@/lib/user-scope";
 import { readUploadImageSize } from "@/lib/canvas/canvas-file-upload";
 import { probeMediaMetadata, type MediaMetadata } from "@/lib/media-metadata";
 import { ownedResourceIdFromMediaRef, resourceFileUrl, resourceStorageKey, uploadResourceFile } from "@/services/api/resources";
-import { putWorkspaceAsset } from "@/services/api/workspace-data";
+import { getWorkspaceAsset, putWorkspaceAsset } from "@/services/api/workspace-data";
 import { runAssetStoreProjection, useAssetStore } from "@/stores/use-asset-store";
 import { mergeWorkspaceAssetReceipt } from "@/services/workspace-asset-repository";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
@@ -38,7 +38,7 @@ export async function uploadAssistantAttachment(file: File, identity = nanoid())
     const kind = attachmentKind(file.type);
     if (!kind) throw new Error("请选择图片、视频或音频文件");
     const metadata: MediaMetadata | undefined = kind === "image" ? await readUploadImageSize(file) : await probeMediaMetadata(file);
-    const resource = await uploadResourceFile(file, kind, { ...metadata, fileName: file.name, idempotencyKey: `assistant:${identity}` });
+    const resource = await uploadResourceFile(file, kind, { ...metadata, fileName: file.name });
     if (!resource.id || resource.status !== "ready") throw new Error("素材文件尚未保存成功，请重试上传");
     const url = resourceFileUrl(resource.id), now = new Date().toISOString();
     const positive = (value?: number) => value !== undefined && Number.isFinite(value) && value > 0 ? value : undefined;
@@ -50,15 +50,24 @@ export async function uploadAssistantAttachment(file: File, identity = nanoid())
             durationMs, bytes: resource.size || file.size, mimeType: resource.mimeType || file.type },
     });
     const receipt = await putWorkspaceAsset(identity, asset);
-    if (receipt.asset?.id !== identity) throw new Error("素材登记没有完成，请重新读取素材库后再试");
+    if (!receipt.asset?.id) throw new Error("素材登记没有完成，请重新读取素材库后再试");
+    let saved = asset;
+    if (receipt.asset.id !== identity) {
+        // The server keeps one active asset per resource. Reusing the same file
+        // can therefore return an older canonical asset instead of this draft ID.
+        const canonical = await getWorkspaceAsset(receipt.asset.id);
+        saved = parseAssetRecord(canonical.asset);
+    } else {
+        saved = parseAssetRecord({ ...asset, ...mergeWorkspaceAssetReceipt(asset, asset, receipt.asset),
+            createdAt: receipt.asset.createdAt || asset.createdAt, updatedAt: receipt.asset.updatedAt || asset.updatedAt });
+    }
     // This is an accepted canonical write, not a second asset or a new local draft.
     runAssetStoreProjection(() => useAssetStore.setState(state => {
-        const live = state.assets.find(item => item.id === identity);
-        const saved = live || parseAssetRecord({ ...asset, ...mergeWorkspaceAssetReceipt(asset, asset, receipt.asset),
-            createdAt: receipt.asset.createdAt || asset.createdAt, updatedAt: receipt.asset.updatedAt || asset.updatedAt });
-        return { assets: live ? state.assets : [...state.assets, saved] };
+        const assets = saved.id === identity ? state.assets : state.assets.filter(item => item.id !== identity);
+        const exists = assets.some(item => item.id === saved.id);
+        return { assets: exists ? assets.map(item => item.id === saved.id ? saved : item) : [...assets, saved] };
     }));
-    return { resourceId: resource.id, assetId: identity, kind, name: file.name, mimeType: resource.mimeType || file.type, bytes: resource.size || file.size, durationMs, purpose: "analysis" };
+    return { resourceId: resource.id, assetId: saved.id, kind, name: file.name, mimeType: resource.mimeType || file.type, bytes: resource.size || file.size, durationMs, purpose: "analysis" };
 }
 export function attachmentFromCanvasReference(reference: CanvasResourceReference): AssistantAttachment {
     if (!["image", "video", "audio"].includes(reference.kind)) throw new Error("请选择图片、视频或音频素材");

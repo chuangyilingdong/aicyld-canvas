@@ -70,7 +70,7 @@ export async function uploadImage(input: string | Blob, onProgress?: (uploadedBy
         // as the canonical durable store in local mode; IndexedDB remains a safe
         // browser fallback when the backend is temporarily unavailable.
         try {
-            const resource = await uploadResourceFile(blob, "image", { width: meta.width, height: meta.height, fileName: input instanceof File ? input.name : undefined, idempotencyKey: storageKey }, onProgress);
+            const resource = await uploadResourceFile(blob, "image", { width: meta.width, height: meta.height, fileName: input instanceof File ? input.name : undefined }, onProgress);
             try {
                 await primeResourceBlobCache(resourceStorageKey(resource.id), blob);
             } catch (error) {
