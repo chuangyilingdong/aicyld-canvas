@@ -46,3 +46,25 @@ python3 scripts/canvas-asset-integrity-audit.py \
 - `ok=true`：以上两项同时成立。
 
 发现缺文件时先对照 OSS manifest 的 `restorePath`，再决定恢复或归档；不要直接删除资源记录。
+
+## 归档失效素材
+
+`scripts/archive-missing-canvas-assets.py` 会把缺本地文件或没有 Resource 的活动媒体素材标记为 `archived`。默认只预览，不修改数据：
+
+```bash
+python3 scripts/archive-missing-canvas-assets.py \
+  --db /srv/aicyld/canvas/data/open_ai_canvas.db \
+  --resources /srv/aicyld/canvas/data/resources
+```
+
+确认清单后执行：
+
+```bash
+python3 scripts/archive-missing-canvas-assets.py \
+  --db /srv/aicyld/canvas/data/open_ai_canvas.db \
+  --resources /srv/aicyld/canvas/data/resources \
+  --backup /srv/aicyld/canvas/backups/open_ai_canvas.db.pre-missing-assets-$(date -u +%Y%m%d-%H%M%S) \
+  --apply
+```
+
+该操作只归档 Asset，不删除 Resource、资源文件、画布文档或历史快照。执行后会再次扫描，仍有失效活动素材时返回非零退出码。
