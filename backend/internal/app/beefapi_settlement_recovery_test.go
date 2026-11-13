@@ -290,8 +290,8 @@ func TestBeefAPIImageJobSettlementPendingRefundedAndAbsent(t *testing.T) {
 		if got.BeefBillingState != nil {
 			t.Fatalf("expected BeefBillingState to remain nil when billing_state key is absent, got %q", *got.BeefBillingState)
 		}
-		if got.NextPollAt != nil {
-			t.Fatalf("expected NextPollAt to be nil when billing_state key is absent")
+		if got.NextPollAt == nil {
+			t.Fatalf("expected managed image without billing_state to be rechecked")
 		}
 		if got.Outcome == nil || got.Outcome.Phase != "failed" || got.Outcome.Regenerate != "confirm" {
 			t.Fatalf("absent billing_state fallback outcome = %+v", got.Outcome)

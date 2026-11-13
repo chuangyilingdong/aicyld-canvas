@@ -82,10 +82,17 @@ func ImageRecoveryNeedsPolling(task model.Task) bool {
 	return task.RecoveryOutcome == nil || *task.RecoveryOutcome == "" || imageSettlementNeedsPolling(task)
 }
 
+func imageRecoveryTerminallySettled(task model.Task) bool {
+	return task.BeefBillingState != nil && !task.MediaSettlementPending()
+}
+
 // 托管任务的「无法取回」会定期向 BeefAPI 复查：早期客户端曾只凭本地请求时长下这个结论；
 // 现在本地只在「原 Key 查不到原编号、冻结原请求也已过期」时下（ResolveMissingManagedSubmission），
 // BeefAPI 之后能查到这次提交时，复查会按它的结论纠正。
 func (s *Service) ManagedImageNeedsRecheck(task model.Task) bool {
+	if imageRecoveryTerminallySettled(task) {
+		return false
+	}
 	if task.RecoveryOutcome == nil || *task.RecoveryOutcome != localtask.RecoveryUnrecoverable {
 		return false
 	}
@@ -128,8 +135,11 @@ func (s *Service) RecoverFailedImage(ctx context.Context, candidate model.Task) 
 		return nil
 	}
 	if !ImageRecoveryNeedsPolling(*task) && !recheck {
-		// 非托管或已明确无法取回的任务无需持续占用恢复租约。设置下一次
-		// 检查时间，避免每轮扫描都刷新 updated_at 并阻塞计费对账。
+		// 非托管或已明确无法取回的任务无需持续占用恢复租约。结算已终态时
+		// 直接清空轮询；其他情况设置下一次检查，避免每轮刷新 updated_at。
+		if imageRecoveryTerminallySettled(*task) {
+			return s.repo.FinishFailedImageRecovery(*task, task.RecoveryOutcome, nil)
+		}
 		next := time.Now().Add(24 * time.Hour)
 		return s.repo.FinishFailedImageRecovery(*task, task.RecoveryOutcome, &next)
 	}
@@ -175,7 +185,7 @@ func (s *Service) RecoverFailedImage(ctx context.Context, candidate model.Task) 
 		}
 		at := time.Now().Add(delay)
 		next = &at
-	} else if outcome == localtask.RecoveryUnrecoverable {
+	} else if outcome == localtask.RecoveryUnrecoverable && !imageRecoveryTerminallySettled(*task) {
 		// 托管图片的「无法取回」仍会定期向 BeefAPI 复查（ManagedImageNeedsRecheck），
 		// 留出间隔，避免每轮扫描都查一次；非托管任务无需高频复查。
 		concluded := *task
