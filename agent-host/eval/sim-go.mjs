@@ -11,6 +11,12 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURE_PATH = path.resolve(__dirname, '../operation-descriptors.fixture.json');
 const REPO_SKILL_PATH = path.resolve(__dirname, '../../../skills/short-drama-storyboard/SKILL.md');
+const AGENT_GUIDE_PATH = path.resolve(__dirname, '../../plugins/beeftv-skills/skills/beeftv-canvas/SKILL.md');
+
+const AGENT_GUIDE_MD = fs.existsSync(AGENT_GUIDE_PATH)
+  ? fs.readFileSync(AGENT_GUIDE_PATH, 'utf8').trim() + '\n'
+  : '# AICYLD 画布工作方法\n\n先读画布，再写；付费生成先提议，等待任务使用 task.wait。\n';
+const AGENT_GUIDE_HASH = sha256Hex(AGENT_GUIDE_MD);
 
 const FALLBACK_SHORT_DRAMA_SKILL_MD = `---
 name: 短剧分镜到首帧
@@ -794,6 +800,104 @@ export function createSimGo(options = {}) {
     return rec;
   }
 
+  function applyNodeConfigurePatch(node, kind, patch) {
+    const cap = NODE_CAPABILITIES[kind];
+    node.metadata ||= {};
+    for (const [name, val] of Object.entries(patch)) {
+      if (!cap.patchFields.has(name) || name === 'title' || name === 'content') {
+        throw invalidArg('unsupported_field', `该类型不支持参数 ${name}`);
+      }
+      if (name === 'count') {
+        const count = Number(val);
+        if (!Number.isSafeInteger(count) || count < 1 || count > 8) {
+          throw invalidArg('invalid_parameter', 'count 必须是 1..8 的整数');
+        }
+        node.metadata.count = count;
+        continue;
+      }
+      if (name === 'prompt') {
+        if (typeof val !== 'string') throw invalidArg('invalid_parameter', 'prompt 必须是字符串');
+        node.metadata.composerContent = val;
+        delete node.metadata.promptTemplateOperation;
+        delete node.metadata.promptTemplateVariables;
+        continue;
+      }
+      if (typeof val !== 'string' || !val.trim()) {
+        throw invalidArg('invalid_parameter', `${name} 必须是有效字符串`);
+      }
+      if (name === 'model') {
+        const choice = resolveGenerationModel(kind, val);
+        if (choice.kindMismatch) throw invalidArg('generation_model_kind_mismatch', '所选模型不支持该媒体类型');
+        if (!choice.modelKey) throw preconditionFailed('generation_model_unavailable', '所选模型当前不可用');
+        node.metadata.model = choice.modelKey;
+        continue;
+      }
+      node.metadata[name] = val;
+    }
+  }
+
+  function taskWaitState(task) {
+    if (!task) return ['missing', true];
+    if (task.status === 'queued') return ['queued', false];
+    if (task.status === 'running') return ['running', false];
+    if (task.status === 'cancelled') return ['cancelled', true];
+    if (task.status === 'failed') {
+      if (['retrievable', 'fetching', 'running'].includes(task.outcome?.phase)) return ['downloading', false];
+      return ['failed', true];
+    }
+    if (task.status === 'succeeded') {
+      const state = String(task.resultState || '').toLowerCase();
+      if (state === 'failed_retryable' || state === 'failed_permanent') return ['failed_materialization', true];
+      if (state === 'ready' || task.outcome?.phase === 'ready') return ['completed', true];
+      if ((task.delivery?.outputs || []).some((output) => ['downloading', 'retrying', 'waiting'].includes(output.state))) return ['downloading', false];
+      if (!state && !(task.outputs || []).length) return ['completed', true];
+      return ['saving', false];
+    }
+    return [String(task.status || 'unknown'), true];
+  }
+
+  function taskWaitObservation(params) {
+    const ids = [...new Set([params.taskId, ...(Array.isArray(params.taskIds) ? params.taskIds : [])]
+      .map((value) => String(value || '').trim()).filter(Boolean))];
+    if (!ids.length) throw invalidArg('invalid_params', 'taskId 与 taskIds 至少提供一个');
+    if (ids.length > 8) throw invalidArg('invalid_params', '一次最多等待 8 个任务');
+    const missing = ids.filter((id) => !tasks.has(id));
+    if (missing.length) throw notFound('task_not_found', '部分任务不存在', { taskIds: missing });
+    const items = ids.map((id) => {
+      const task = tasks.get(id);
+      const [state, terminal] = taskWaitState(task);
+      return { taskId: id, type: task.type, status: task.status, state, terminal, progress: task.progress, outputs: clone(task.outputs || []), resultState: task.resultState || '', error: task.error || null };
+    });
+    const failedTaskIds = items.filter((item) => item.terminal && item.state !== 'completed').map((item) => item.taskId);
+    const completedTaskIds = items.filter((item) => item.state === 'completed').map((item) => item.taskId);
+    const observation = { taskIds: ids, tasks: items, pending: items.some((item) => !item.terminal), failedTaskIds, completedTaskIds };
+    const canvasId = String(params.canvasId || '').trim();
+    const nodeId = String(params.nodeId || '').trim();
+    if (!!canvasId !== !!nodeId) throw invalidArg('invalid_params', 'canvasId 与 nodeId 必须同时提供或同时省略');
+    if (canvasId && nodeId) {
+      const doc = canvases.get(canvasId);
+      if (!doc) throw notFound('canvas_not_found', '画布不存在');
+      const node = (doc.nodes || []).find((item) => item.id === nodeId);
+      const bound = Boolean(node && ids.includes(String(node.metadata?.taskId || '')) && node.metadata?.status === 'success' && String(node.metadata?.storageKey || '').startsWith('resource:'));
+      observation.binding = { canvasId, nodeId, nodeFound: Boolean(node), bound, revision: doc.revision, ...(node ? { node: clone(node) } : {}) };
+      if (!observation.pending && !failedTaskIds.length && !bound) observation.pending = true;
+    }
+    return observation;
+  }
+
+  async function waitForTaskObservation(params) {
+    const timeoutMs = Math.min(25000, Math.max(50, Number(params.timeoutMs || 5000)));
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const observation = taskWaitObservation(params);
+      if (!observation.pending || Date.now() >= deadline) {
+        observation.timedOut = observation.pending;
+        return observation;
+      }
+      await new Promise((resolve) => setTimeout(resolve, Math.min(250, Math.max(1, deadline - Date.now()))));
+    }
+  }
+
   function executeOp(opIdName, rawParams = {}, opKey = '', turnId = '') {
     const descriptor = descriptorMap.get(opIdName);
     if (!descriptor) {
@@ -825,6 +929,24 @@ export function createSimGo(options = {}) {
         const doc = canvases.get(canvasId);
         if (!doc) throw notFound('canvas_not_found', `画布不存在: ${canvasId}`);
         result = { canvasId, canvas: clone(doc) };
+        break;
+      }
+      case 'canvas.nodes.get': {
+        const canvasId = String(rawParams.canvasId || '').trim();
+        const nodeIds = [...new Set((Array.isArray(rawParams.nodeIds) ? rawParams.nodeIds : [])
+          .map((value) => String(value || '').trim()).filter(Boolean))];
+        if (!canvasId || nodeIds.length === 0 || nodeIds.length > 50) {
+          throw invalidArg('invalid_params', 'canvasId 与 1–50 个 nodeIds 必填');
+        }
+        const doc = canvases.get(canvasId);
+        if (!doc) throw notFound('canvas_not_found', '画布不存在');
+        const nodes = [];
+        const missingNodeIds = [];
+        for (const nodeId of nodeIds) {
+          const node = (doc.nodes || []).find((item) => item.id === nodeId);
+          if (node) nodes.push(clone(node)); else missingNodeIds.push(nodeId);
+        }
+        result = { canvasId, revision: doc.revision, nodes, missingNodeIds };
         break;
       }
       case 'canvas.search': {
@@ -971,43 +1093,49 @@ export function createSimGo(options = {}) {
         const node = (doc.nodes || []).find((n) => n.id === nodeId);
         if (!node) throw notFound('node_not_found', '节点不在当前画布');
         if (node.type !== kind) throw invalidArg('node_kind_mismatch', '参数类型与目标节点不一致');
-        const cap = NODE_CAPABILITIES[kind];
-        node.metadata ||= {};
-        for (const [name, val] of Object.entries(patch)) {
-          if (!cap.patchFields.has(name) || name === 'title' || name === 'content') {
-            throw invalidArg('unsupported_field', `该类型不支持参数 ${name}`);
-          }
-          if (name === 'count') {
-            const count = Number(val);
-            if (!Number.isSafeInteger(count) || count < 1 || count > 8) {
-              throw invalidArg('invalid_parameter', 'count 必须是 1..8 的整数');
-            }
-            node.metadata.count = count;
-            continue;
-          }
-          if (name === 'prompt') {
-            if (typeof val !== 'string') {
-              throw invalidArg('invalid_parameter', 'prompt 必须是字符串');
-            }
-            node.metadata.composerContent = val;
-            delete node.metadata.promptTemplateOperation;
-            delete node.metadata.promptTemplateVariables;
-            continue;
-          }
-          if (typeof val !== 'string' || !val.trim()) {
-            throw invalidArg('invalid_parameter', `${name} 必须是有效字符串`);
-          }
-          if (name === 'model') {
-            const choice = resolveGenerationModel(kind, val);
-            if (choice.kindMismatch) throw invalidArg('generation_model_kind_mismatch', '所选模型不支持该媒体类型');
-            if (!choice.modelKey) throw preconditionFailed('generation_model_unavailable', '所选模型当前不可用');
-            node.metadata.model = choice.modelKey;
-            continue;
-          }
-          node.metadata[name] = val;
-        }
+        applyNodeConfigurePatch(node, kind, patch);
         const saved = saveCanvas(canvasId, doc, expectedRevision, 'canvas.node.configure', turnId);
         result = { canvasId, nodeId, revision: saved.revision, node: clone(node), draftConfigured: true };
+        break;
+      }
+      case 'canvas.nodes.configure': {
+        const canvasId = String(rawParams.canvasId || '').trim();
+        const expectedRevision = Number(rawParams.expectedRevision);
+        const items = Array.isArray(rawParams.nodes) ? rawParams.nodes : [];
+        if (!canvasId || !Number.isSafeInteger(expectedRevision) || expectedRevision <= 0 || items.length === 0 || items.length > 20) {
+          throw invalidArg('invalid_params', '需要画布、当前版本和 1–20 个节点配置');
+        }
+        const doc = clone(ensureCanvas(canvasId));
+        if (doc.revision !== expectedRevision) {
+          counts.revisionConflicts += 1;
+          throw conflict('revision_conflict', '画布已变化，请重新读取', { currentRevision: doc.revision });
+        }
+        const seen = new Set();
+        const configuredNodeIds = [];
+        for (let index = 0; index < items.length; index++) {
+          const item = items[index] || {};
+          const nodeId = String(item.nodeId || '').trim();
+          const kind = String(item.kind || '').trim();
+          const patch = item.patch;
+          if (!nodeId || !patch || typeof patch !== 'object' || Object.keys(patch).length === 0) {
+            throw invalidArg('invalid_params', '每个节点都需要 nodeId 和非空 patch', { index, nodeId });
+          }
+          if (seen.has(nodeId)) throw invalidArg('duplicate_node_id', '同一批次不能重复配置同一个节点', { index, nodeId });
+          seen.add(nodeId);
+          if (!['image', 'video', 'audio'].includes(kind)) throw invalidArg('unsupported_node_kind', '仅媒体生成节点支持参数配置', { index, nodeId });
+          const node = (doc.nodes || []).find((candidate) => candidate.id === nodeId);
+          if (!node) throw notFound('node_not_found', '节点不在当前画布', { index, nodeId });
+          if (node.type !== kind) throw invalidArg('node_kind_mismatch', '参数类型与目标节点不一致', { index, nodeId });
+          try {
+            applyNodeConfigurePatch(node, kind, patch);
+          } catch (error) {
+            error.details = { ...(error.details || {}), index, nodeId };
+            throw error;
+          }
+          configuredNodeIds.push(nodeId);
+        }
+        const saved = saveCanvas(canvasId, doc, expectedRevision, 'canvas.nodes.configure', turnId);
+        result = { canvasId, revision: saved.revision, configuredNodeIds, nodes: configuredNodeIds.map((id) => clone((saved.nodes || []).find((node) => node.id === id))), draftConfigured: true };
         break;
       }
       case 'canvas.node.move': {
@@ -1719,6 +1847,15 @@ export function createSimGo(options = {}) {
         };
         break;
       }
+      case 'task.wait': {
+        result = taskWaitObservation(rawParams);
+        result.timedOut = false;
+        break;
+      }
+      case 'agent.guide': {
+        result = { name: 'aicyld-canvas-agent', version: '1', contentHash: AGENT_GUIDE_HASH, text: AGENT_GUIDE_MD };
+        break;
+      }
       case 'model.catalog': {
         result = { models: clone(models), revision: 1 };
         break;
@@ -2408,8 +2545,9 @@ export function createSimGo(options = {}) {
     });
   }
 
-  function executeHttpOp(opIdName, rawParams, opKey, turnId) {
+  async function executeHttpOp(opIdName, rawParams, opKey, turnId) {
     try {
+      if (opIdName === 'task.wait') return { op: 'task.wait', replayed: false, result: await waitForTaskObservation(rawParams) };
       return executeOp(opIdName, rawParams, opKey, turnId);
     } catch (error) {
       logOpFailure(opIdName, rawParams, opKey, turnId, error);
@@ -2442,7 +2580,7 @@ export function createSimGo(options = {}) {
         const turnId = String(req.headers['x-beeftv-agent-turn'] || body.turnId || '').trim();
         const opKey = String(body.opId || body.operationId || body.params?.operationId || '').trim();
         const params = body.params !== undefined ? body.params : body;
-        const data = executeHttpOp(opIdName, params, opKey, turnId);
+        const data = await executeHttpOp(opIdName, params, opKey, turnId);
         sendOk(res, data);
         return;
       }
@@ -2453,7 +2591,7 @@ export function createSimGo(options = {}) {
         const turnId = String(req.headers['x-beeftv-agent-turn'] || body.turnId || '').trim();
         const opKey = String(body.opId || body.operationId || body.params?.operationId || '').trim();
         const params = body.params !== undefined ? body.params : body;
-        const data = executeHttpOp(opIdName, params, opKey, turnId);
+        const data = await executeHttpOp(opIdName, params, opKey, turnId);
         sendOk(res, data);
         return;
       }

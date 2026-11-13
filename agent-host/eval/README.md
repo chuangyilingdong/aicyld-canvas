@@ -122,6 +122,8 @@ S8–S11 的计分只使用结构化数据：画布节点、生成方案、`opLo
 
 `eval/run-external-eval.mjs` 用同一个模拟器和同一套场景判分，换成外部 Agent 来回答：每个用户回合启动一次 `claude -p` 或 `codex exec`（第二轮起接着上一轮会话），通过 `beeftv mcp serve` 读写模拟器，并装好 `plugins/beeftv-skills` 里的画布技能。外部 Agent 的配置目录是临时目录，不读写本机真实的 `~/.claude` 或 `~/.codex`；Claude Code 只开放技能加载和 BeefTV 工具。
 
+模拟器支持外部专用的 `task.wait`、`canvas.nodes.get`、`canvas.nodes.configure` 与 `agent.guide`。其中 `task.wait` 走真实 HTTP 时会在写明的超时内轮询原任务；直接调用 `executeOp` 时只返回当前观察快照，便于确定性单测。
+
 ```bash
 cd backend && go build -o /tmp/beeftv ./cmd/beeftv && cd ../agent-host
 # Claude Code（Anthropic 兼容网关）

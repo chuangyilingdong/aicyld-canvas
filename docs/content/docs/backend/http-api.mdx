@@ -239,6 +239,8 @@ MiniMax speech 的 OpenAI 音频兼容目录通过 `audioOptions` 提供官方�
 字段落点由画布能力描述符声明（例如生成类节点的可编辑提示词落在 `metadata.composerContent`，也就是画布编辑器
 读取的字段），操作层不自行拼文档形状。
 
+外部 Agent 还可使用四个专用操作：`canvas.nodes.get` 一次读取 1–50 个已知节点并返回 `missingNodeIds`；`canvas.nodes.configure` 一次原子配置最多 20 个媒体节点，全部校验通过后只推进一次 revision；`task.wait` 短时等待最多 8 个原任务，单次最长 25 秒，超时返回 `pending` 而不是失败；`agent.guide` 返回与外部画布技能同一份说明及内容哈希。四者均为外部专用，内置创作助手不可见，也不能凭外部操作绕过轮次权限。
+
 参数解析在所有层上都严格：顶层以及 `patch`、`nodes` 等嵌套对象出现未知字段时整批拒绝（`unknown_field`），
 不会部分执行却推进 revision。schema 声明的 `params.operationId` 与请求信封的 `opId` 同时出现而又不一致时返回
 `operation_id_conflict`，不会自行挑选其中一个身份。外部 MCP/CLI 的能力描述保留 `operationId` 作为稳定幂等键；

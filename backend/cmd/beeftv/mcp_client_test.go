@@ -106,6 +106,7 @@ func TestMCPClientLoop(t *testing.T) {
 		}
 	}
 	var create *mcp.Tool
+	var batchConfigure *mcp.Tool
 	var sawPropose bool
 	for _, tool := range tools.Tools {
 		if tool.Name == "canvas.generation.propose" {
@@ -117,6 +118,12 @@ func TestMCPClientLoop(t *testing.T) {
 		if tool.Name == "canvas.get" && (tool.Annotations == nil || !tool.Annotations.ReadOnlyHint) {
 			t.Fatal("read-only canvas.get must advertise readOnlyHint")
 		}
+		if (tool.Name == "task.wait" || tool.Name == "agent.guide") && (tool.Annotations == nil || !tool.Annotations.ReadOnlyHint) {
+			t.Fatalf("read-only %s must advertise readOnlyHint", tool.Name)
+		}
+		if tool.Name == "canvas.nodes.configure" {
+			batchConfigure = tool
+		}
 		if tool.Name == "canvas.nodes.create" {
 			if tool.Annotations != nil && tool.Annotations.ReadOnlyHint {
 				t.Fatal("write tool advertised read-only")
@@ -124,8 +131,8 @@ func TestMCPClientLoop(t *testing.T) {
 			create = tool
 		}
 	}
-	if create == nil || !sawPropose {
-		t.Fatal("缺少 canvas.nodes.create 或 canvas.generation.propose")
+	if create == nil || batchConfigure == nil || !sawPropose {
+		t.Fatal("缺少 canvas.nodes.create、canvas.nodes.configure 或 canvas.generation.propose")
 	}
 	schema, _ := json.Marshal(create.InputSchema)
 	if !bytes.Contains(schema, []byte("operationId")) {
@@ -141,6 +148,10 @@ func TestMCPClientLoop(t *testing.T) {
 	}
 	if _, ok := declared.Properties["operationId"]; !ok {
 		t.Fatalf("写工具 schema 的 properties 缺少 operationId: %s", string(schema))
+	}
+	batchSchema, _ := json.Marshal(batchConfigure.InputSchema)
+	if !bytes.Contains(batchSchema, []byte("operationId")) || !bytes.Contains(batchSchema, []byte("canvasId")) {
+		t.Fatalf("批量配置 schema 缺少 operationId 或 canvasId: %s", string(batchSchema))
 	}
 	requiresOperationID := false
 	for _, name := range declared.Required {

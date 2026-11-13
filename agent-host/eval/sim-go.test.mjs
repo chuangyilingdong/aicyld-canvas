@@ -23,6 +23,55 @@ import {
 import http from 'node:http';
 
 describe('sim-go 内存版 Go 业务权威模拟器测试', () => {
+  test('外部 Agent 可批量读节点、原子配置、短时等待任务并读取指南', async () => {
+    const sim = createSimGo();
+    await sim.listen(0);
+    try {
+      sim.ensureCanvas('canvas-agent-basic', {
+        id: 'canvas-agent-basic', revision: 1,
+        nodes: [
+          { id: 'img', type: 'image', title: '首帧', metadata: {} },
+          { id: 'vid', type: 'video', title: '视频', metadata: {} },
+        ],
+        connections: [],
+      });
+      const nodes = sim.executeOp('canvas.nodes.get', {
+        canvasId: 'canvas-agent-basic', nodeIds: ['vid', 'img', 'vid', 'missing'],
+      }).result;
+      expect(nodes.nodes.map((node) => node.id)).toEqual(['vid', 'img']);
+      expect(nodes.missingNodeIds).toEqual(['missing']);
+
+      const configured = sim.executeOp('canvas.nodes.configure', {
+        canvasId: 'canvas-agent-basic', expectedRevision: 1,
+        nodes: [
+          { nodeId: 'img', kind: 'image', patch: { prompt: '雨夜街道' } },
+          { nodeId: 'vid', kind: 'video', patch: { prompt: '镜头推进', seconds: '5' } },
+        ],
+      }, 'op-agent-configure').result;
+      expect(configured.revision).toBe(2);
+      const after = sim.executeOp('canvas.get', { canvasId: 'canvas-agent-basic' }).result.canvas;
+      expect(after.nodes.find((node) => node.id === 'img').metadata.composerContent).toBe('雨夜街道');
+      expect(after.nodes.find((node) => node.id === 'vid').metadata.seconds).toBe('5');
+
+      sim.tasks.set('task-running', { id: 'task-running', type: 'video', status: 'running', progress: 50, outputs: [] });
+      const response = await fetch(`${sim.opsUrl}/ops/task.wait`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ params: { taskId: 'task-running', timeoutMs: 50 } }),
+      });
+      const waited = (await response.json()).data.result;
+      expect(waited.pending).toBe(true);
+      expect(waited.timedOut).toBe(true);
+      expect(waited.taskIds).toEqual(['task-running']);
+
+      const guide = sim.executeOp('agent.guide', {}).result;
+      expect(guide.name).toBe('aicyld-canvas-agent');
+      expect(guide.contentHash).toHaveLength(64);
+      expect(guide.text).toContain('task.wait');
+    } finally {
+      await sim.close();
+    }
+  });
+
   test('支持 /api/ops、画布 CRUD、CAS revision 冲突检测与 opId 幂等重放', async () => {
     const sim = createSimGo({ hostToken: 'secret-token' });
     await sim.listen(0);
