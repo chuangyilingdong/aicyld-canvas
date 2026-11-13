@@ -12,7 +12,6 @@ on:
       - codex/canvas-billing-ui-20261104
       - codex/canvas-gpt-image-26-20261106
       - codex/canvas-beef-remaining-20261109
-      - codex/canvas-smart-film-20261113
     tags:
       - "v*"
 
