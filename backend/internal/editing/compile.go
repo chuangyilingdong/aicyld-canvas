@@ -328,7 +328,9 @@ func validateSourceTiming(clip Clip, source SourceMeta, sourcesProvided bool) er
 	if !sourcesProvided || source.DurationMs <= 0 || clip.Kind == KindImage {
 		return nil
 	}
-	if clip.SourceStartMs+clip.DurationMs > source.DurationMs+DurationToleranceMs {
+	// Audio is padded with silence to the timeline duration by the renderer, so
+	// a short voice/BGM source must not reject an otherwise valid timeline.
+	if clip.Kind != KindAudio && clip.SourceStartMs+clip.DurationMs > source.DurationMs+DurationToleranceMs {
 		return fmt.Errorf("%w：%s", ErrInsufficientDuration, clipLabel(clip))
 	}
 	return nil

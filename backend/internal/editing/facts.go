@@ -54,7 +54,9 @@ func ApplySourceFacts(plan *Plan, facts map[string]SourceFacts) error {
 		if fact.DurationMs <= 0 {
 			return fmt.Errorf("%w：%s", ErrUnreadableSource, clip.ClipID)
 		}
-		if clip.SourceStartMs+clip.DurationMs > fact.DurationMs+DurationToleranceMs {
+		// Audio clips may be shorter than their timeline slot; native rendering
+		// pads them with silence and trims to the requested output duration.
+		if clip.SourceStartMs >= fact.DurationMs {
 			return fmt.Errorf("%w：%s", ErrInsufficientDuration, clip.ClipID)
 		}
 	}

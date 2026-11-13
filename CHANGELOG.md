@@ -133,6 +133,7 @@ All notable public changes to BeefTV are documented in this file.
 
 - 智能成片：从主题自动提取角色、场景和道具并生成分镜，支持分别选择文本、图片、视频模型，预估全流程积分；自动补齐分镜图和镜头视频，分镜图作为视频参考，视频完成后使用平台 TTS 与 `audio.music` 模型生成旁白和 BGM，并进入 MP4/SRT 交付。刷新或重新打开自动项目会继续未完成阶段。
 - 音频生成：新增 New API `/v1/audio/generations` 原生协议，支持平台 Seed Audio 与 Mureka 音乐模型的提交、轮询和结果下载。
+- 成片合成：短旁白或 BGM 会自动补静音并按时间线时长裁切，不再因素材短于镜头而拒绝出片。
 - Canvas references: dragging a connection now inserts the same `@reference` token as pick-connect/Alt-click, so a connected resource no longer leaves the generation button grey solely because the prompt stayed empty.
 - Skills: hosted deployments no longer expose the server's shared `~/.agents/skills` directory; the local skill source remains available only in the desktop runtime.
 - Canvas interaction: insert references at the caret, double-click previews, pick-connect/Alt connection, Alt-drag duplication, and multi-select batch downloads.
