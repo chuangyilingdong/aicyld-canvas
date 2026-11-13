@@ -208,6 +208,37 @@ func TestMCPClientLoop(t *testing.T) {
 	if !toolTextContains(read, canvasID) {
 		t.Fatalf("只读工具未返回画布内容: %s", toolText(read))
 	}
+
+	// 5) 外部专用批量读、批量配置与指南形成完整基础闭环
+	var created struct {
+		Result struct {
+			Created []struct {
+				ID string `json:"id"`
+			} `json:"created"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(toolText(first)), &created); err != nil || len(created.Result.Created) != 1 {
+		t.Fatalf("解析创建回执失败: err=%v text=%s", err, toolText(first))
+	}
+	nodeID := created.Result.Created[0].ID
+	nodesRead, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "canvas.nodes.get", Arguments: map[string]any{
+		"canvasId": canvasID, "nodeIds": []any{nodeID, nodeID, "missing-node"},
+	}})
+	if err != nil || nodesRead.IsError || !toolTextContains(nodesRead, nodeID) || !toolTextContains(nodesRead, "missing-node") {
+		t.Fatalf("批量读取节点失败: err=%v result=%s", err, toolText(nodesRead))
+	}
+	configured, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "canvas.nodes.configure", Arguments: map[string]any{
+		"canvasId": canvasID, "expectedRevision": 2,
+		"nodes": []any{map[string]any{"nodeId": nodeID, "kind": "image", "patch": map[string]any{"prompt": "MCP 批量配置"}}},
+		"operationId": "mcp-agent-batch-configure",
+	}})
+	if err != nil || configured.IsError || !toolTextContains(configured, nodeID) {
+		t.Fatalf("批量配置节点失败: err=%v result=%s", err, toolText(configured))
+	}
+	guide, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "agent.guide", Arguments: map[string]any{}})
+	if err != nil || guide.IsError || !toolTextContains(guide, "aicyld-canvas-agent") || !toolTextContains(guide, "task.wait") {
+		t.Fatalf("读取外部 Agent 指南失败: err=%v result=%s", err, toolText(guide))
+	}
 	if err := session.Close(); err != nil {
 		t.Fatalf("关闭会话失败: %v", err)
 	}
