@@ -18,7 +18,7 @@ import { resolveCanvasStyleExecution } from "@/lib/canvas/canvas-style-execution
 import { imagePromptLengthError } from "@/lib/canvas/image-prompt-limits";
 import { generationErrorMessage } from "@/lib/generation-error";
 import { navigateToSettings } from "@/lib/settings-navigation";
-import { modelGroupReferenceLimits, modelRequestOptions, type ModelRequirements } from "@/lib/model-selection";
+import { modelCompatibilityError, modelGroupReferenceLimits, modelRequestOptions, type ModelRequirements } from "@/lib/model-selection";
 import { referencedAssetIdsInPrompt } from "@/lib/canvas/canvas-resource-references";
 import type { Skill } from "@/services/api/skills";
 import { skillRuntime } from "@/services/skill-runtime";
@@ -348,6 +348,17 @@ export function useCanvasGenerationExecutor({
                             }
                         }
                         const generationContext = { ...rawGenerationContext, prompt: effectivePrompt };
+                        if (!usesWorkflowProvider) {
+                            const compatibilityError = modelCompatibilityError(
+                                inputConfig,
+                                generationConfig.model,
+                                generationModelRequirements(mode, generationContext, sourceNode, generationConfig),
+                            );
+                            if (compatibilityError) {
+                                reportError(new Error(compatibilityError));
+                                return;
+                            }
+                        }
                         if (isNodeRegenerateConfirm(sourceNode?.metadata) && modal?.confirm) {
                             const copy = taskOutcomeCopy(readNodeTaskOutcome(sourceNode?.metadata));
                             stage = "duplicate_confirmation";

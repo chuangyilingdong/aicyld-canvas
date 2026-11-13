@@ -2,6 +2,7 @@ import { defaultImageCapabilityConfig, modelCapabilityConfigFor, normalizeImageV
 import { normalizeVideoBoolean, normalizeVideoResolutionValue, videoResolutionComparisonKey } from "@/lib/video-generation-options";
 import { imageSizePresets } from "@/lib/image-size-presets";
 import { sanitizeVideoPriceQuote, seedancePortraitLabel, seedancePortraitModel } from "@/lib/seedance-portrait";
+import { textMediaReferenceLimit } from "@/lib/media-review-model";
 import { channelModelProfile, filterModelsByCapability, modelOptionName, normalizeModelOptionValue, resolveModelChannel, selectableModelsByCapability, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
 
 export type ModelInputSummary = {
@@ -134,7 +135,18 @@ export function modelCompatibilityError(config: AiConfig, model: string, require
     if (!input) return "";
 
     if (capability === "text") {
-        return input.audioCount > 0 ? "文本模型不支持参考音频" : "";
+        if (input.audioCount > 0) return "文本模型不支持参考音频";
+        const videoLimit = textMediaReferenceLimit(config, model, "video");
+        if (input.videoCount > 0) {
+            if (videoLimit === 0) return "文本模型不支持参考视频，请选择支持视频输入的多模态模型";
+            if (videoLimit !== null && input.videoCount > videoLimit) return `最多支持 ${videoLimit} 个参考视频`;
+        }
+        const imageLimit = textMediaReferenceLimit(config, model, "image");
+        if (input.imageCount > 0) {
+            if (imageLimit === 0) return "文本模型不支持参考图片，请选择支持图片输入的多模态模型";
+            if (imageLimit !== null && input.imageCount > imageLimit) return `最多支持 ${imageLimit} 张参考图片`;
+        }
+        return "";
     }
 
     if (input.characterCount > 1) return "角色配音一次只能引用一个角色卡";

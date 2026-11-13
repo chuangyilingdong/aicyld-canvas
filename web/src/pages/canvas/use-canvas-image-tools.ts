@@ -26,17 +26,18 @@ import { IMAGE_PROMPT_REVERSE, VIDEO_PROMPT_REVERSE } from "@/lib/prompts";
 import { createPortraitTextureNode } from "@/lib/canvas/canvas-image-source";
 import { mediaResultMetadata } from "@/lib/canvas/canvas-node-semantics";
 import { generationErrorMessage } from "@/lib/generation-error";
+import { resolveTextMediaModel } from "@/lib/media-review-model";
 import { buildCanvasGenerationQuoteInput } from "@/lib/canvas/canvas-generation-quote-input";
 import { totalGenerationQuotePoints } from "@/lib/canvas/canvas-generation-quote-plan";
 import { confirmCanvasBillingQuote } from "@/components/canvas/canvas-billing-confirmation";
 import { quoteGenerationTask } from "@/services/api/task-billing";
 import { modelCapabilityConfigFor } from "@/lib/model-capabilities";
 import { defaultImageParamsForModel, normalizeMaskEditQuality, normalizeMaskEditSize, resolveMaskEditModel } from "@/lib/model-selection";
-import { canvasFeatureModel, resolveImageEditModel, withPlatformImageEditModel } from "@/lib/canvas/feature-models";
+import { resolveImageEditModel, withPlatformImageEditModel } from "@/lib/canvas/feature-models";
 import { navigateToSettings } from "@/lib/settings-navigation";
 import { resolveImageUrl, uploadImage } from "@/services/image-storage";
 import type { GenerationTask } from "@/services/api/task-center";
-import { defaultConfig, resolveModelRequestConfig, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
+import { resolveModelRequestConfig, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData } from "@/types/canvas";
 import type { CanvasPageUiStoreHook } from "@/stores/canvas/use-canvas-page-ui-store";
 import type { createCanvasMediaOperation } from "./canvas-media-operation";
@@ -141,6 +142,12 @@ export function useCanvasImageTools({
             return;
         }
         const reverseInstruction = isVideo ? VIDEO_PROMPT_REVERSE : IMAGE_PROMPT_REVERSE;
+        const referenceKind = isVideo ? "video" : "image";
+        const model = resolveTextMediaModel(effectiveConfig, referenceKind);
+        if (!model) {
+            message.warning(`当前没有支持${isVideo ? "视频" : "图片"}输入的多模态模型，请先在设置中配置影音理解模型`);
+            return;
+        }
         const gap = 96;
         const textSpec = NODE_DEFAULT_SIZE[CanvasNodeType.Text];
         const resultSpec = NODE_DEFAULT_SIZE[CanvasNodeType.Text];
@@ -151,7 +158,7 @@ export function useCanvasImageTools({
         };
         const resultNode = {
             ...createCanvasNode(CanvasNodeType.Text, { x: textNode.position.x + textNode.width + gap + resultSpec.width / 2, y: centerY }, {
-                content: "", generationMode: "text", model: canvasFeatureModel("text.chat") || effectiveConfig.textModel || effectiveConfig.model || defaultConfig.textModel,
+                content: "", generationMode: "text", model,
                 count: 1, composerContent: isVideo ? "参考视频：@视频1\n任务说明：@文本1" : "参考图片：@图片1\n任务说明：@文本1",
             }),
             title: isVideo ? "视频反推提示词结果" : "反推提示词结果",
@@ -162,7 +169,7 @@ export function useCanvasImageTools({
         pageUi.getState().setSelectedConnectionId(null);
         pageUi.getState().setDialogNodeId(resultNode.id);
         pageUi.getState().setContextMenu(null);
-    }, [pageUi, projectId, effectiveConfig.model, effectiveConfig.textModel, message, setConnections, setNodes]);
+    }, [pageUi, projectId, effectiveConfig, message, setConnections, setNodes]);
 
     const openPortraitTextureEditor = useCallback((node: CanvasNodeData) => {
         if (node.type !== CanvasNodeType.Image || !node.metadata?.content) {

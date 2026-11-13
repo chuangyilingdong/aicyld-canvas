@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { mediaReviewModelOptions, normalizeMediaReviewModel } from "@/lib/media-review-model";
+import { mediaReviewModelOptions, normalizeMediaReviewModel, resolveTextMediaModel, textMediaReferenceLimit } from "@/lib/media-review-model";
+import { modelCompatibilityError } from "@/lib/model-selection";
 import { createModelChannel, defaultConfig, normalizeConfigSnapshot } from "@/stores/use-config-store";
 import { mergeManagedBeefAPICatalog, withChannels } from "@/pages/settings/channel-settings-pane";
 
@@ -40,4 +41,50 @@ test("catalog aliases are selectable without silently choosing another model", (
     const aliased = { ...config, channels: [channel] };
     expect(mediaReviewModelOptions(aliased)).toEqual(["beefapi::catalog-wand"]);
     expect(normalizeMediaReviewModel(aliased, `beefapi::${model}`)).toBe("beefapi::catalog-wand");
+});
+
+test("reverse-prompt model selection prefers a video-capable media model", () => {
+    expect(resolveTextMediaModel(config, "video")).toBe(`beefapi::${model}`);
+    expect(resolveTextMediaModel(config, "image")).toBe(`beefapi::${model}`);
+
+    const visionModel = "vision-text-model";
+    const visionChannel = createModelChannel({
+        id: "vision",
+        models: [visionModel],
+        modelProfiles: [{
+            model: visionModel,
+            capability: "text",
+            protocol: "chat-completion",
+            capabilityConfig: {
+                version: 1,
+                text: { references: { promptMaxChars: 32000, maxImages: 2, maxImageBytes: 10_000_000, maxVideos: 2, maxVideoBytes: 50_000_000 } },
+            },
+        }],
+    });
+    const visionConfig = { ...defaultConfig, channels: [visionChannel] };
+    expect(resolveTextMediaModel(visionConfig, "video")).toBe(`vision::${visionModel}`);
+    expect(textMediaReferenceLimit(visionConfig, `vision::${visionModel}`, "video")).toBe(2);
+});
+
+test("text models with zero media references are rejected before submission", () => {
+    const textModel = "deepseek-v4.1-flash";
+    const textChannel = createModelChannel({
+        id: "deepseek",
+        models: [textModel],
+        modelProfiles: [{
+            model: textModel,
+            capability: "text",
+            protocol: "chat-completion",
+            capabilityConfig: {
+                version: 1,
+                text: { references: { promptMaxChars: 32000, maxImages: 0, maxImageBytes: 0, maxVideos: 0, maxVideoBytes: 0 } },
+            },
+        }],
+    });
+    const textConfig = { ...defaultConfig, channels: [textChannel], textModel: `deepseek::${textModel}` };
+    const input = { textCount: 1, imageCount: 0, videoCount: 1, audioCount: 0, characterCount: 0 };
+
+    expect(textMediaReferenceLimit(textConfig, `deepseek::${textModel}`, "video")).toBe(0);
+    expect(resolveTextMediaModel(textConfig, "video")).toBe("");
+    expect(modelCompatibilityError(textConfig, `deepseek::${textModel}`, { capability: "text", input })).toContain("不支持参考视频");
 });
