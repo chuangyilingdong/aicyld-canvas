@@ -260,6 +260,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.value }}
+          target_commitish: ${{ github.sha }}
           name: AICYLD Canvas ${{ steps.version.outputs.value }}
           files: |
             out/aicyld-canvas-*.tar.gz
