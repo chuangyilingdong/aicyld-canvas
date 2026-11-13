@@ -14,7 +14,6 @@ import { CanvasFolderCard } from "@/components/canvas/canvas-folder-card";
 import { CanvasDeleteConfirmation } from "@/components/canvas/canvas-delete-confirmation";
 import { RecycleBinDialog } from "@/components/canvas/recycle-bin-dialog";
 import { LibraryCardShell } from "@/components/canvas/library-card-shell";
-import { SmartFilmStarterModal } from "@/components/canvas/smart-film-starter-modal";
 import { flushCanvasStorePersistence, useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { useCanvasUiStore } from "@/stores/canvas/use-canvas-ui-store";
 import { canvasExportProgressLabel, exportCanvasProjectsByIds, type CanvasExportProgress } from "@/lib/canvas/canvas-export";
@@ -43,7 +42,7 @@ export default function CanvasPage() {
     const { message } = App.useApp();
     const brandName = useAppearanceStore((state) => state.appearance.brandName);
     const navigate = useNavigate();
-    const [searchParams, setSearchParams] = useSearchParams();
+    const [searchParams] = useSearchParams();
     const inputRef = useRef<HTMLInputElement>(null);
     const autoOpenRef = useRef(false);
     const [keyword, setKeyword] = useState("");
@@ -57,18 +56,13 @@ export default function CanvasPage() {
     const loadMoreRef = useRef<HTMLDivElement>(null);
     const [loadedProjectCount, setLoadedProjectCount] = useState(50);
     const [creationError, setCreationError] = useState(false);
-    const [smartFilmOpen, setSmartFilmOpen] = useState(false);
     const exportController = useRef<AbortController | null>(null);
     const [exportProgress, setExportProgress] = useState<CanvasExportProgress | null>(null);
     const [exportError, setExportError] = useState("");
     useEffect(() => () => exportController.current?.abort(), []);
     useEffect(() => {
-        if (searchParams.get("smart") !== "1") return;
-        setSmartFilmOpen(true);
-        const next = new URLSearchParams(searchParams);
-        next.delete("smart");
-        setSearchParams(next, { replace: true });
-    }, [searchParams, setSearchParams]);
+        if (searchParams.get("smart") === "1") navigate("/smart-film", { replace: true });
+    }, [navigate, searchParams]);
     const hydrated = useCanvasStore((state) => state.hydrated);
     const localProjects = useCanvasStore((state) => state.projects);
     const folders = useCanvasStore((state) => state.folders);
@@ -340,7 +334,7 @@ export default function CanvasPage() {
                 leading={activeFolder ? <button type="button" className="libtv-project-breadcrumb-button" onClick={() => setFolderFilter("all")}>全部项目 /</button> : undefined}
                 actions={(
                     <div className="libtv-project-actions">
-                    <Button icon={<Clapperboard />} onClick={() => setSmartFilmOpen(true)}>智能成片</Button>
+                    <Button icon={<Clapperboard />} onClick={() => navigate("/smart-film")}>智能成片</Button>
                     <ExpandableSearch value={keyword} placeholder="搜索项目" onChange={setKeyword} />
                     <Button icon={<Upload />} disabled={!hydrated} onClick={() => inputRef.current?.click()}>导入画布</Button>
                     <Button icon={<Trash2 />} onClick={() => setHistoryOpen(true)}>回收站</Button>
@@ -499,7 +493,6 @@ export default function CanvasPage() {
                     onChange={setAssociationProjectId}
                 />
             </Modal>
-            <SmartFilmStarterModal open={smartFilmOpen} onClose={() => setSmartFilmOpen(false)} />
             <RecycleBinDialog open={historyOpen} onClose={() => setHistoryOpen(false)} />
             {deletingFolder ? <CanvasDeleteConfirmation title={`删除文件夹「${deletingFolder.name}」？`}
                 description={`将删除此文件夹及其中 ${localProjects.filter((project) => project.folderId === deletingFolder.id).length} 个画布，画布里的节点和连线也会一起移除。`}

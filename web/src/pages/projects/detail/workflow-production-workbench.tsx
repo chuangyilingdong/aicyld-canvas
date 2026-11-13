@@ -16,7 +16,7 @@ import { ModelPicker } from "@/components/model-picker";
 import { initialWorkbenchModel, refreshedWorkbenchModel } from "./workflow-model-selection";
 import { isMusicAudioModel } from "@/lib/audio-generation";
 import { canvasFeatureModel } from "@/lib/canvas/feature-models";
-import { parseStyleProfile } from "@/lib/canvas/style-profile";
+import { applyProjectStyleToGenerationPrompt, projectStyleHint } from "./workflow-generation-style";
 import { modelCapabilityConfigFor, normalizeImageValue, normalizeVideoValue, videoDurationOptions } from "@/lib/model-capabilities";
 import { customShotTitle, formatShotOrdinal, normalizeDefaultShotTitle } from "@/lib/shot-label";
 import { resolveCompatibleModel, resolveModelVideoBooleanOptions, type ModelRequirements } from "@/lib/model-selection";
@@ -340,10 +340,11 @@ export default function WorkflowProductionWorkbench(props: Props) {
             skills: availableSkills,
             selectedSkillIds,
         });
+        const styledGeneration = applyProjectStyleToGenerationPrompt({ prompt: skillExecution.prompt, styleProfileJson: detail.project.styleProfileJson, mode, model: input.model, config: input.config });
         const task = await submitBackendGenerationTask({
             projectId,
             mode,
-            prompt: skillExecution.prompt,
+            prompt: styledGeneration.prompt,
             config: input.config,
             referenceImages: shotAssetReferenceContext.referenceImages,
             referenceAudios,
@@ -358,7 +359,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                 role: "output",
                 source: "short-drama-workflow",
                 ...(mode === "video" && shotAssetReferenceContext.referenceImages.length ? { videoEditOperation: "reference_to_video" } : {}),
-                resolvedCharacterVersions: shotAssetReferenceContext.resolvedCharacterVersions,
+                resolvedCharacterVersions: shotAssetReferenceContext.resolvedCharacterVersions, ...(styledGeneration.plan ? { styleExecutionPlan: styledGeneration.plan } : {}),
                 artifactMetadata: { model: input.model, aspectRatio, resolution, durationSeconds: input.values.durationSeconds, ...skillExecution.metadata },
             },
         });
@@ -433,8 +434,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
         if (existingMusic?.status === "ready" && existingMusic.resourceId) return "";
 
         const durationSeconds = Math.max(5, Math.round(shots.reduce((total, shot) => total + Math.max(1, shot.durationMs / 1000), 0)));
-        const style = parseStyleProfile(detail.project.styleProfileJson);
-        const styleHint = [style?.title, style?.prompt].filter(Boolean).join("：");
+        const styleHint = projectStyleHint(detail.project.styleProfileJson);
         const prompt = [
             `为短视频《${detail.project.name}》创作一段纯器乐背景音乐。`,
             `内容主题：${(detail.project.description || detail.project.name).trim()}`,
