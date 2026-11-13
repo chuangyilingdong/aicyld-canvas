@@ -2,6 +2,11 @@
 
 All notable public changes to BeefTV are documented in this file.
 
+## v2.1.3-aicyld.59
+
+- 分镜脚本：单次 `canvas_script_prepare` 最多 8 行，超出后使用 `canvas_script_rows_append` 按每批 8 行继续追加。
+- 整片提案：`productionNodeIds` 每批最多 24 个目标，超出时拆成多批确认，避免一次提案过大或失败后反复重做。
+
 ## v2.1.3-aicyld.58
 
 - 长耗时任务：前端等待改为以服务端最终状态为准，不再按图片、视频类型提前超时；任务失败时保留服务端结论、错误码和诊断信息。

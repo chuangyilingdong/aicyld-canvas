@@ -26,6 +26,12 @@ test('storyboard image and video nodes are bound back to their rows with the row
   }
 });
 
+test('long storyboards are prepared and proposed in bounded batches', () => {
+  for (const instruction of ['单次最多 8 行', 'canvas_script_rows_append', '每批追加 8 行', '一次提案最多 24 个目标', '每批≤24']) {
+    expect(SYSTEM_PROMPT).toContain(instruction);
+  }
+});
+
 test('producer workflow respects studio changes, maintains plan_update, and inspects generated media', () => {
   for (const instruction of ['制作现场摘要', '不要用旧草稿覆盖用户的改动', 'plan_update', 'needs_user', '查看产物是否符合分镜要求', '只针对失败或缺失的节点重新提议']) {
     expect(SYSTEM_PROMPT).toContain(instruction);
