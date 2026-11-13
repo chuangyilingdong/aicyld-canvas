@@ -369,9 +369,6 @@ func planRegisteredTaskOutput(now time.Time, taskID, outputJSON, metadata, resou
 		}
 		return plan, nil
 	}
-	if step.Status == model.WorkflowStepStatusCompleted {
-		return plan, nil
-	}
 	if step.Status == model.WorkflowStepStatusFailed || step.Status == model.WorkflowStepStatusSkipped {
 		return repository.WorkflowOutputPlan{}, kernel.BadAuthRequest("当前工作流步骤不能登记成功产物")
 	}

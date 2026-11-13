@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"infinite-canvas/backend/internal/model"
+	"infinite-canvas/backend/internal/repository"
 
 	"gorm.io/gorm"
 )
@@ -25,6 +26,28 @@ func TestCanonicalTaskOutputResourceWalksNestedResultJSON(t *testing.T) {
 	)
 	if id != "resource-storage-1" || mediaType != "video" {
 		t.Fatalf("storageKey resource = %q %q", id, mediaType)
+	}
+}
+
+func TestPlanRegisteredTaskOutputReplacesCompletedUnitStep(t *testing.T) {
+	now := time.Now()
+	completedAt := now.Add(-time.Minute)
+	current := repository.WorkflowOutputCurrent{
+		Step: model.WorkflowStepInstance{
+			ID: "delivery-step", StepKey: "delivery", Status: model.WorkflowStepStatusCompleted,
+			OutputJSON: `{"resourceId":"old"}`, CompletedAt: &completedAt,
+		},
+		Instance: model.WorkflowInstance{ID: "workflow-instance", Status: model.WorkflowStatusActive, Revision: 3},
+	}
+	plan, err := planRegisteredTaskOutput(now, "render-task-2", `{"resourceId":"new"}`, "", "new-resource", "delivery", "", current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Step == nil || plan.Step.OutputJSON != `{"resourceId":"new"}` || plan.Step.Status != model.WorkflowStepStatusCompleted {
+		t.Fatalf("completed step was not replaced: %#v", plan.Step)
+	}
+	if plan.Instance == nil || plan.Instance.Revision != 4 {
+		t.Fatalf("workflow revision was not advanced: %#v", plan.Instance)
 	}
 }
 
