@@ -92,6 +92,8 @@ jobs:
           test/canvas-personal-asset-loading.test.ts
           test/canvas-text-prompt-controls.test.ts
           test/workspace-asset-upload.test.ts
+          test/canvas-node-toolbar.test.ts
+          test/media-upscale.test.ts
           test/assets-collection-layout.test.ts
           test/assistant-production-card.test.tsx
           test/canvas-assistant-proposal-snapshot.test.ts

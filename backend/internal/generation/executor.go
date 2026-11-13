@@ -32,6 +32,9 @@ func Execute(ctx context.Context, input Input) (map[string]any, error) {
 		}
 		input.Prompt = compiled
 	}
+	if input.SubtitleErase != nil && strings.TrimSpace(input.Prompt) == "" {
+		input.Prompt = "视频去字幕"
+	}
 	if strings.TrimSpace(input.Prompt) == "" && !(input.Mode == "video" && strings.TrimSpace(metadataString(input.Metadata, "videoDraftTaskId")) != "") {
 		return nil, errors.New("prompt is required")
 	}
@@ -51,6 +54,12 @@ func Execute(ctx context.Context, input Input) (map[string]any, error) {
 			return nil, err
 		}
 		return RunUpscaleTask(ctx, input)
+	}
+	if input.SubtitleErase != nil {
+		if err := requireTaskRuntime(ctx); err != nil {
+			return nil, err
+		}
+		return RunSubtitleEraseTask(ctx, input)
 	}
 
 	if workflow.IsProviderInterface(input.Config.InterfaceType) {

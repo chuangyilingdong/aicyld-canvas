@@ -101,6 +101,7 @@ export type ToolbarHandlers = {
     onNodeTrimVideoSegments: (node: CanvasNodeData) => void;
     onNodeCropVideo: (node: CanvasNodeData) => void;
     onNodeDepthCapture: (node: CanvasNodeData) => void;
+    onNodeSubtitleErase: (node: CanvasNodeData) => void;
     onNodeSubtitles: (node: CanvasNodeData) => void;
     onNodeTimeline: (node: CanvasNodeData) => void;
     onNodeReversePrompt: (node: CanvasNodeData) => void;

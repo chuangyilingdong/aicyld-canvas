@@ -443,6 +443,7 @@ export type CanvasNodeMetadata = {
     };
     videoCrop?: { x: number; y: number; width: number; height: number };
     videoCropSourceNodeId?: string;
+    videoSubtitleEraseSourceNodeId?: string;
     videoRetakeSourceNodeId?: string;
     videoRetakeCount?: number;
     videoRetakeMax?: number;

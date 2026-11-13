@@ -28,6 +28,8 @@ import { CanvasActiveTaskPanel } from "@/components/canvas/canvas-active-task-pa
 import { CanvasAssetTray } from "@/components/canvas/canvas-asset-tray";
 import { CanvasProjectSidebar } from "@/components/canvas/canvas-project-sidebar";
 import { CanvasNodeToolbar } from "@/components/canvas/canvas-node-toolbar";
+import { canRecoverManagedToolNode, isVideoSubtitleEraseNode } from "@/lib/canvas/canvas-ai-upscale-task";
+import { canvasNodeFailureView } from "@/lib/canvas/canvas-node-failure-view";
 import { useCanvasUpscaleBatch } from "./use-canvas-upscale-batch";
 import { CanvasFileDropOverlay } from "@/components/canvas/canvas-file-drop-overlay";
 import { InfiniteCanvas } from "@/components/canvas/infinite-canvas";
@@ -1188,9 +1190,17 @@ function InfiniteCanvasPage() {
         (node: CanvasNodeData) => {
             if (node.metadata?.workflowOperation?.id.endsWith(".ai-upscale")) {
                 const processor = nodesRef.current.find(item => item.id === node.metadata?.generatedFromProcessingNodeId);
-                if (node.metadata.taskId) void recoverAIUpscale(node).catch(error => message.error(generationErrorMessage(error)));
-                else if (processor) void startUpscaleBatch(processor).catch(error => message.error(generationErrorMessage(error)));
+                if (canRecoverManagedToolNode(node) || (!processor && node.metadata.taskClientOperationId)) void recoverAIUpscale(node).catch(error => message.error(generationErrorMessage(error)));
+                else if (processor && !canvasNodeFailureView(node).regenerateBlocked) void startUpscaleBatch(processor).catch(error => message.error(generationErrorMessage(error)));
                 else message.info("请在超分处理节点中查询原批次，暂勿重复提交");
+                return;
+            }
+            if (isVideoSubtitleEraseNode(node)) {
+                const sourceId = node.metadata?.videoSubtitleEraseSourceNodeId || node.metadata?.generatedFromNodeId;
+                const source = nodesRef.current.find(item => item.id === sourceId);
+                if (canRecoverManagedToolNode(node)) void mediaTools.recoverVideoSubtitleErase(node).catch(error => message.error(generationErrorMessage(error)));
+                else if (source && !canvasNodeFailureView(node).regenerateBlocked) mediaTools.openVideoSubtitleErase(source);
+                else setGenerationHistoryOpen(true);
                 return;
             }
             const plan = canvasNodeRetryPlan(node, nodesRef.current);
@@ -1225,7 +1235,7 @@ function InfiniteCanvasPage() {
             }
             void handleRetryNode(node);
         },
-        [generateScriptRows, handleRetryNode, message, nodesRef, reconcileImageBatchRootNode, retryDepthCaptureNode, retryImageBatchChildren, setGenerationHistoryOpen, recoverAIUpscale, startUpscaleBatch],
+        [generateScriptRows, handleRetryNode, mediaTools, message, nodesRef, reconcileImageBatchRootNode, retryDepthCaptureNode, retryImageBatchChildren, setGenerationHistoryOpen, recoverAIUpscale, startUpscaleBatch],
     );
 
     // 改动卡片的「在画布上查看」：选中这些节点并把视野带过去，再点亮一下。
@@ -1825,12 +1835,11 @@ function InfiniteCanvasPage() {
                             onDraftToFinal={generation.generateFinalVideoFromDraftNode} onVideoEditOperation={generation.createVideoEditNodeFromVideo}
                             onAngle={(node) => { setDialogNodeId(null); setAngleNodeId((current) => (current === node.id ? null : node.id)); }}
                             onLighting={(node) => { setDialogNodeId(null); setLightingNodeId((current) => (current === node.id ? null : node.id)); }}
-                            onPanorama={openPanoramaConfig}
-                            onViewImage={(node) => setPreviewNodeId(node.id)}
-                            onExtractVideoFrames={extractVideoFrameAt}
-                            onExtractAudioFromVideo={(node) => void extractAudioFromVideo(node)}
+                            onPanorama={openPanoramaConfig} onViewImage={(node) => setPreviewNodeId(node.id)}
+                            onExtractVideoFrames={extractVideoFrameAt} onExtractAudioFromVideo={(node) => void extractAudioFromVideo(node)}
                             // 视频剪辑使用视频节点下方的内嵌时间轴，不再打开旧的片段重拍弹窗。
                             onTrimVideoSegments={openInlineVideoTrim}
+                            onSubtitleErase={mediaTools.openVideoSubtitleErase}
                             onDepthCapture={(node) => void depthCaptureNode(node)}
                             onSubtitles={(node) => setSubtitleNodeId(node.id)}
                             onTimeline={(node) => setTimelineNodeId(node.id)}

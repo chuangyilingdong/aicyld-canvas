@@ -27,6 +27,7 @@ import { CanvasTextEditorModal } from "@/components/canvas/canvas-text-editor-mo
 import { CanvasTimelineDialog } from "@/components/canvas/canvas-timeline-dialog";
 import { CanvasVersionCompareModal } from "@/components/canvas/canvas-version-compare-modal";
 import { CanvasVideoFrameDialog } from "@/components/canvas/canvas-video-frame-dialog";
+import { CanvasVideoSubtitleEraseDialog } from "@/components/canvas/video-subtitle-erase-dialog";
 import type { CanvasImageUpscaleParams } from "@/components/canvas/canvas-node-upscale-dialog";
 import type { CanvasVideoFrameParams } from "@/components/canvas/canvas-video-frame-dialog";
 import { WorkspaceState } from "@/components/layout/workspace-state";
@@ -110,6 +111,7 @@ export function CanvasProjectEditorDialogs({
     const { nodeById, infoNode, previewNode, activeScriptNode, activeDirectorScene, versionCompareNodes } = renderModel;
     const findNode = (id: string | null) => id ? nodeById.get(id) || null : null;
     const subtitleNode = findNode(dialogs.subtitleNodeId);
+    const subtitleEraseNode = findNode(mediaTools.subtitleEraseNodeId);
     const timelineNode = findNode(dialogs.timelineNodeId);
     const frameNode = findNode(mediaTools.frameDialogNodeId);
     const characterNode = findNode(dialogs.characterReferenceNodeId);
@@ -148,6 +150,7 @@ export function CanvasProjectEditorDialogs({
             <CanvasStylePickerModal open={dialogs.stylePickerOpen} value={renderModel.activeStylePresetId} applying={styles.styleApplying} onClose={() => dialogs.setStylePickerOpen(false)} onSelect={styles.selectCanvasStyle} />
             <CanvasNodeInfoModal node={infoNode} open={Boolean(infoNode)} onClose={() => dialogs.setInfoNodeId(null)} onMetadataChange={nodeEditor.handleConfigNodeChange} />
             {subtitleNode ? <CanvasSubtitleDialog node={subtitleNode} open={Boolean(subtitleNode)} projectId={projectId} config={config} onClose={() => dialogs.setSubtitleNodeId(null)} onSave={saveSubtitles} /> : null}
+            {subtitleEraseNode ? <CanvasVideoSubtitleEraseDialog node={subtitleEraseNode} open={Boolean(subtitleEraseNode)} onClose={() => mediaTools.setSubtitleEraseNodeId(null)} onPrepareResource={mediaTools.prepareUpscaleResource} onConfirm={mediaTools.submitVideoSubtitleErase} /> : null}
             {frameNode ? <CanvasVideoFrameDialog node={frameNode} open={Boolean(frameNode)} onClose={mediaTools.closeFrameDialog} onConfirm={params => { if (frameNode) void mediaTools.extractVideoFrames(frameNode, params); }} /> : null}
             {timelineNode ? (
                 <CanvasTimelineDialog

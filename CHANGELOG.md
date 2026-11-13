@@ -2,6 +2,12 @@
 
 All notable public changes to BeefTV are documented in this file.
 
+## v2.1.3-aicyld.60
+
+- 视频处理：视频节点新增“视频去字幕”，支持自动识别或框选区域、标准无痕或花字增强，并在提交前显示预估费用。
+- 动态模型目录：超分模型由服务端 `media-upscale/capabilities` 下发，不再依赖前端硬编码；目录暂时不可用时保留现有默认模型。
+- 结果恢复：去字幕与超分继续复用原任务恢复流程，支持保留原视频音轨，失败后区分“取回原结果”和“重新配置”，避免重复扣费。
+
 ## v2.1.3-aicyld.59
 
 - 分镜脚本：单次 `canvas_script_prepare` 最多 8 行，超出后使用 `canvas_script_rows_append` 按每批 8 行继续追加。
