@@ -1,6 +1,6 @@
 import { createClientId } from "@/lib/client-id";
 import { Button, Dropdown, Tooltip } from "antd";
-import { History, MessageSquarePlus, Trash2, X, ArrowUpRight } from "lucide-react";
+import { Check, History, MessageSquarePlus, Plus, Trash2, X, ArrowUpRight } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { AppDrawer } from "@/components/ui/product/app-drawer";
@@ -42,6 +42,43 @@ type Props = {
 const PLAN_STATUS_TEXT: Record<AssistantPlan["items"][number]["status"], string> = { todo: "待做", doing: "进行中", done: "已完成", needs_user: "等待确认", blocked: "需要处理" };
 
 export const ASSISTANT_SLOW_RESPONSE_DELAY_MS = 12_000;
+
+type AssistantSkillPickerProps = {
+    skills: Skill[];
+    selected: AssistantSkillSelection[];
+    loading: boolean;
+    error: string;
+    readOnly: boolean;
+    onToggle: (skill: Skill) => void;
+    onRetry: () => void;
+    onInstall: () => void;
+    onDone: () => void;
+};
+
+function AssistantSkillPicker({ skills, selected, loading, error, readOnly, onToggle, onRetry, onInstall, onDone }: AssistantSkillPickerProps) {
+    const selectedIds = new Set(selected.map(item => item.skillId));
+    const ordered = [...skills].sort((left, right) => Number(selectedIds.has(right.skillId)) - Number(selectedIds.has(left.skillId)));
+    return <div className="canvas-assistant-picker canvas-assistant-skill-picker" data-canvas-assistant-popover="skills" role="group" aria-label="技能选择">
+        <div className="canvas-assistant-picker-heading">
+            <strong>选择本轮技能</strong>
+            <span>已安装 {skills.length} 个，已启用 {selected.length} 个。未启用的技能不会用于本轮。</span>
+        </div>
+        {loading ? <span>正在读取技能…</span> : error ? <div className="canvas-assistant-picker-error"><span role="status">{error}</span><Button size="small" onClick={onRetry}>重新读取</Button></div> : ordered.length ? <div className="canvas-assistant-skill-list">
+            {ordered.map(skill => {
+                const enabled = selectedIds.has(skill.skillId);
+                return <button key={skill.skillId} type="button" className="canvas-assistant-skill-option" aria-pressed={enabled} onClick={() => onToggle(skill)}>
+                    <span className="canvas-assistant-skill-option-icon" aria-hidden="true">{enabled ? <Check size={14} /> : <Plus size={14} />}</span>
+                    <span className="canvas-assistant-skill-option-copy"><span>{skill.skillName} · {skill.version}</span><small>{enabled ? "已启用，本轮会使用" : "已安装，点击启用"}</small></span>
+                    <span className="canvas-assistant-skill-option-state">{enabled ? "已启用" : "启用"}</span>
+                </button>;
+            })}
+        </div> : <p className="canvas-assistant-picker-empty">还没有已安装的技能。安装后仍需点击启用，才会用于本轮。</p>}
+        <div className="canvas-assistant-picker-footer">
+            <Button size="small" disabled={readOnly} onClick={onInstall}>安装技能</Button>
+            <Button size="small" type="primary" onClick={onDone}>完成</Button>
+        </div>
+    </div>;
+}
 
 export function AssistantSlowResponseNotice({ active, delayMs = ASSISTANT_SLOW_RESPONSE_DELAY_MS }: { active: boolean; delayMs?: number }) {
     const [visible, setVisible] = useState(false);
@@ -151,6 +188,27 @@ export function CanvasAssistantSidebar(props: Props) {
         finally { setSkillsLoading(false); }
     }, []);
 
+    useEffect(() => {
+        if (!skillsOpen && !referencePickerOpen) return;
+        const dismiss = (event: PointerEvent) => {
+            const target = event.target;
+            if (target instanceof Element && target.closest("[data-canvas-assistant-popover],[data-canvas-assistant-popover-trigger]")) return;
+            setSkillsOpen(false);
+            setReferencePickerOpen(false);
+        };
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key !== "Escape") return;
+            setSkillsOpen(false);
+            setReferencePickerOpen(false);
+        };
+        document.addEventListener("pointerdown", dismiss, true);
+        document.addEventListener("keydown", onKeyDown);
+        return () => {
+            document.removeEventListener("pointerdown", dismiss, true);
+            document.removeEventListener("keydown", onKeyDown);
+        };
+    }, [referencePickerOpen, skillsOpen]);
+
     // 新的一条选择又可以被带上：用户移除只对当前这条消息生效。
     useEffect(() => {
         setSelectionAttached(true);
@@ -179,7 +237,7 @@ export function CanvasAssistantSidebar(props: Props) {
         followLatestRef.current = true;
         setDraft("");
         setResultSelection(null);
-        setAttachments([]); setSelectedSkills([]);
+        setAttachments([]); setSelectedSkills([]); setSkillsOpen(false); setReferencePickerOpen(false);
         // @ 引用到的素材库素材由界面按用户原文推导后交给后端校验归属：
         // 模型不能自己声明要读哪些素材。
         const assetReferences = [...new Set([...referencedAssetIdsInPrompt(text), ...attachments.flatMap(item => item.assetId ? [item.assetId] : [])])]
@@ -387,15 +445,28 @@ export function CanvasAssistantSidebar(props: Props) {
                 onFiles={addFiles}
                 onOpenReferences={() => { setReferencePickerOpen(value => !value); setSkillsOpen(false); }}
                 onOpenSkills={() => { setSkillsOpen(value => !value); setReferencePickerOpen(false); void loadSkills(); }}
+                skillsOpen={skillsOpen}
+                referencesOpen={referencePickerOpen}
+                selectedSkillCount={selectedSkills.length}
                 inputContent={<>
                     <CanvasAssistantAttachments attachments={inputReady ? attachments : []} onChange={(index, value) => setAttachments(items => items.map((item, i) => i === index ? value : item))} onRemove={index => setAttachments(items => items.filter((_, i) => i !== index))} />
                     {(inputReady ? uploads : []).map(item => <div key={item.id} className="canvas-assistant-notice" role="status"><span>{item.file.name} · {item.busy ? "正在保存素材…" : item.error}</span>
                         {!item.busy ? <><Button size="small" onClick={() => void upload(item.id, item.file)}>重试上传</Button><Button size="small" onClick={() => setUploads(items => items.filter(value => value.id !== item.id))}>移除</Button></> : null}</div>)}
                     {inputError ? <p className="canvas-assistant-meta" role="status">{inputError}</p> : null}
                     {draftLoaded && loadedDraftIdentity !== draftIdentity ? <Button size="small" onClick={() => setDraftReadAttempt(value => value + 1)}>重新读取草稿</Button> : null}
-                    {(inputReady ? selectedSkills : []).map(skill => <span className="canvas-assistant-chip" key={skill.skillId}>技能：{skill.skillName || skill.skillId} · {skill.version || skill.versionId}<button aria-label={`移除技能 ${skill.skillName || skill.skillId}`} onClick={() => setSelectedSkills(items => items.filter(item => item.skillId !== skill.skillId))}><X size={12} /></button></span>)}
-                    {skillsOpen && inputReady ? <div className="canvas-assistant-picker" aria-label="已安装技能">{skillsLoading ? <span>正在读取技能…</span> : skillsError ? <><span role="status">{skillsError}</span><Button size="small" onClick={() => void loadSkills()}>重新读取</Button></> : availableSkills.length ? availableSkills.map(skill => <button key={skill.skillId} type="button" aria-pressed={selectedSkills.some(item => item.skillId === skill.skillId)} onClick={() => setSelectedSkills(items => items.some(item => item.skillId === skill.skillId) ? items.filter(item => item.skillId !== skill.skillId) : [...items, { skillId: skill.skillId, versionId: skill.versionId, contentHash: skill.contentHash, skillName: skill.skillName, version: skill.version }])}>{skill.skillName} · {skill.version}</button>) : <span>还没有已安装的技能。</span>}<Button size="small" disabled={readOnly} onClick={() => { setSkillInstallGeneration(inputGeneration.current); setSkillInstallOpen(true); }}>安装技能</Button></div> : null}
-                    {referencePickerOpen && inputReady ? <div className="canvas-assistant-picker" aria-label="画布参考素材">{mediaReferences.length ? mediaReferences.map(reference => <button type="button" key={reference.id} onClick={() => { try { if (attachmentCount.current >= 8) throw new Error("一次最多添加 8 份参考素材"); const item = attachmentFromCanvasReference(reference); attachmentCount.current++; setAttachments(items => [...items, item]); setReferencePickerOpen(false); } catch (error) { setInputError(error instanceof Error ? error.message : "无法添加素材"); } }}>{reference.title || reference.label}</button>) : <span className="canvas-assistant-meta">当前画布暂无可用素材</span>}</div> : null}
+                    {(inputReady ? selectedSkills : []).map(skill => <span className="canvas-assistant-chip" key={skill.skillId}>本轮技能：{skill.skillName || skill.skillId} · {skill.version || skill.versionId}<button aria-label={`移除技能 ${skill.skillName || skill.skillId}`} onClick={() => setSelectedSkills(items => items.filter(item => item.skillId !== skill.skillId))}><X size={12} /></button></span>)}
+                    {skillsOpen && inputReady ? <AssistantSkillPicker
+                        skills={availableSkills}
+                        selected={selectedSkills}
+                        loading={skillsLoading}
+                        error={skillsError}
+                        readOnly={readOnly}
+                        onToggle={skill => setSelectedSkills(items => items.some(item => item.skillId === skill.skillId) ? items.filter(item => item.skillId !== skill.skillId) : [...items, { skillId: skill.skillId, versionId: skill.versionId, contentHash: skill.contentHash, skillName: skill.skillName, version: skill.version }])}
+                        onRetry={() => void loadSkills()}
+                        onInstall={() => { setSkillInstallGeneration(inputGeneration.current); setSkillInstallOpen(true); }}
+                        onDone={() => setSkillsOpen(false)}
+                    /> : null}
+                    {referencePickerOpen && inputReady ? <div className="canvas-assistant-picker canvas-assistant-reference-picker" data-canvas-assistant-popover="references" aria-label="画布参考素材">{mediaReferences.length ? mediaReferences.map(reference => <button type="button" key={reference.id} onClick={() => { try { if (attachmentCount.current >= 8) throw new Error("一次最多添加 8 份参考素材"); const item = attachmentFromCanvasReference(reference); attachmentCount.current++; setAttachments(items => [...items, item]); setReferencePickerOpen(false); } catch (error) { setInputError(error instanceof Error ? error.message : "无法添加素材"); } }}>{reference.title || reference.label}</button>) : <span className="canvas-assistant-meta">当前画布暂无可用素材</span>}</div> : null}
                 </>}
             />
             <SkillInstallModal open={skillInstallOpen} onClose={() => setSkillInstallOpen(false)} onInstalled={skill => {

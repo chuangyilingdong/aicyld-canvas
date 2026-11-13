@@ -141,7 +141,17 @@ test("real Sidebar handles file, paste, drop, attachment-only, purpose/range, dr
     expect(imagePurposes).toContain("首帧"); expect(imagePurposes).toContain("人物参考");
     expect(imagePurposes).not.toContain("声音参考"); expect(imagePurposes).not.toContain("节奏参考");
     await page.getByRole("combobox", { name: "portrait.jpg 的用途" }).press("Escape");
-    await page.getByRole("button", { name: "选择技能", exact: true }).click(); await page.getByRole("button", { name: "分镜 · 1.0", exact: true }).click();
+    await page.getByRole("button", { name: "选择技能", exact: true }).click();
+    await page.getByText("选择本轮技能", { exact: true }).waitFor();
+    await page.getByText("已安装，点击启用", { exact: true }).waitFor();
+    await page.getByRole("textbox", { name: "给助手的消息" }).click();
+    expect(await page.getByText("选择本轮技能", { exact: true }).count()).toBe(0);
+    await page.getByRole("button", { name: "选择技能", exact: true }).click();
+    await page.keyboard.press("Escape");
+    expect(await page.getByText("选择本轮技能", { exact: true }).count()).toBe(0);
+    await page.getByRole("button", { name: "选择技能", exact: true }).click();
+    await page.getByRole("button", { name: /分镜 · 1\.0/ }).click();
+    await page.getByRole("button", { name: /完\s*成/ }).click();
     await page.getByRole("button", { name: "发送", exact: true }).click();
     await page.getByText("已读取提供的参考素材。", { exact: true }).waitFor();
     expect(chats[0]?.message).toBe(""); expect(chats[0]?.attachments[0]?.assetId).toBeDefined();
@@ -373,7 +383,7 @@ for (const mode of ["markdown", "zip"] as const) {
         const page = await browser.newPage();
         await page.goto(server.url.toString().replace("localhost", "127.0.0.1"));
         await page.getByRole("button", { name: "选择技能", exact: true }).click();
-        await page.getByText("还没有已安装的技能。", { exact: true }).waitFor();
+        await page.getByText("还没有已安装的技能。安装后仍需点击启用，才会用于本轮。", { exact: true }).waitFor();
         await page.getByRole("button", { name: "安装技能", exact: true }).click();
         const dialog = page.getByRole("dialog", { name: "安装技能" });
         expect(await dialog.getByText("公开状态", { exact: true }).isVisible()).toBe(false);
@@ -383,7 +393,7 @@ for (const mode of ["markdown", "zip"] as const) {
         await dialog.getByRole("button", { name: "安装技能", exact: true }).click();
         await dialog.waitFor({ state: "hidden" });
         await page.getByRole("button", { name: "移除技能 咖啡审片", exact: true }).waitFor();
-        await page.getByRole("button", { name: "咖啡审片 · 2.0", exact: true }).waitFor();
+        await page.getByRole("button", { name: /咖啡审片 · 2\.0/ }).waitFor();
         expect(skillInstalls.at(-1)).toEqual({ sourceType: mode, isPrivate: "true", fileName: mode === "zip" ? "coffee.zip" : "SKILL.md" });
         await page.getByRole("textbox", { name: "给助手的消息" }).fill("请审查咖啡短片");
         const sent = page.waitForResponse(response => response.url().endsWith("/assistant/chat"));

@@ -31,6 +31,9 @@ type Props = {
     onFiles?: (files: File[]) => void;
     onOpenSkills?: () => void;
     onOpenReferences?: () => void;
+    skillsOpen?: boolean;
+    referencesOpen?: boolean;
+    selectedSkillCount?: number;
     inputContent?: React.ReactNode;
     permissionMode?: AssistantPermissionMode;
     permissionLocked?: boolean;
@@ -57,6 +60,9 @@ export function CanvasAssistantComposer({
     onFiles,
     onOpenSkills,
     onOpenReferences,
+    skillsOpen,
+    referencesOpen,
+    selectedSkillCount = 0,
     inputContent,
     permissionMode = "canvas",
     permissionLocked,
@@ -103,8 +109,8 @@ export function CanvasAssistantComposer({
 
             <div className="canvas-assistant-composer-tools">
                 {onFiles ? <Tooltip title="添加参考素材"><Button type="text" size="small" aria-label="添加参考素材" disabled={disabled || inputBusy} icon={<Paperclip size={15} />} onClick={() => fileInput.current?.click()} /></Tooltip> : null}
-                {onOpenSkills ? <Tooltip title="选择技能"><Button type="text" size="small" aria-label="选择技能" disabled={disabled} icon={<Sparkles size={15} />} onClick={onOpenSkills} /></Tooltip> : null}
-                {onOpenReferences ? <Button type="text" size="small" disabled={disabled} onClick={onOpenReferences}>画布素材</Button> : null}
+                {onOpenSkills ? <Tooltip title={selectedSkillCount ? `选择技能（本轮已启用 ${selectedSkillCount} 个）` : "选择技能"}><Button type="text" size="small" aria-label="选择技能" aria-expanded={skillsOpen} aria-haspopup="true" data-canvas-assistant-popover-trigger="skills" disabled={disabled} icon={<Sparkles size={15} />} onClick={onOpenSkills} /></Tooltip> : null}
+                {onOpenReferences ? <Button type="text" size="small" aria-expanded={referencesOpen} aria-haspopup="true" data-canvas-assistant-popover-trigger="references" disabled={disabled} onClick={onOpenReferences}>画布素材</Button> : null}
             </div>
             <div className="canvas-assistant-composer-footer">
                 <div className="canvas-assistant-composer-settings">
