@@ -14,7 +14,7 @@
 
 | 字段 | 类型 | 必填 | 含义 |
 | --- | --- | --- | --- |
-| `apiKey` | secret | 是 | API Key |
+| `apiKey` | secret | 否 | API Key。Ollama 默认无鉴权，可留空。 |
 
 ## 统一字段映射
 
@@ -90,7 +90,7 @@
   "id": "ollama-chat",
   "name": "Ollama Chat",
   "version": "2.0.0",
-  "author": "灵动TV Contributors",
+  "author": "BeefTV Contributors",
   "description": "Ollama Chat 独立请求协议插件。",
   "documentation": "<当前插件的完整 documentation，由 README.md 与 docs/interface.md 拼接而成；为避免 JSON 递归，此处不重复展开正文。>",
   "permissions": [
@@ -103,7 +103,7 @@
         "name": "apiKey",
         "type": "secret",
         "label": "API Key",
-        "required": true
+        "required": false
       }
     ]
   },

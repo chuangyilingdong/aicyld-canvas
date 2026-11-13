@@ -20,6 +20,7 @@ type sqliteIndexContract struct {
 var reconciledIndexes = []sqliteIndexContract{
 	{table: "tasks", name: "idx_tasks_user_client_op", columns: []string{"user_id", "client_operation_id"}, unique: true},
 	{table: "agent_op_records", name: "idx_agent_op_records_turn_id", columns: []string{"turn_id"}, unique: false},
+	{table: "agent_op_records", name: "idx_agent_op_records_user_op_status", columns: []string{"user_id", "op", "status"}, unique: false},
 }
 
 // Names alone do not prove uniqueness, scope or column order. All names here

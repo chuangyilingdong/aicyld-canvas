@@ -1,31 +1,56 @@
 package handler
 
 import (
+	"context"
+	"github.com/gin-gonic/gin"
+	"infinite-canvas/backend/internal/model"
+	"infinite-canvas/backend/internal/topaz"
 	"net/http"
 	"time"
-
-	"infinite-canvas/backend/internal/app"
-
-	"github.com/gin-gonic/gin"
 )
 
-func registerMediaUpscaleRoutes(r *gin.RouterGroup, svc *app.Service) {
-	r.GET("/media-upscale/capabilities", func(c *gin.Context) {
-		if _, err := currentUser(c, svc); err != nil {
-			failService(c, err)
+type mediaUpscaleService interface {
+	workspaceOwners
+	runtimePolicies
+	RecoverMediaUpscale(ctx context.Context, user, id string) (*model.Task, error)
+	MediaUpscaleCapabilities(ctx context.Context) map[string]any
+	EstimateMediaUpscale(ctx context.Context, user string, request topaz.Request) (map[string]any, error)
+	CreateMediaUpscale(ctx context.Context, user string, request topaz.Request) (*model.Task, error)
+}
+
+func registerMediaUpscaleRoutes(r *gin.RouterGroup, svc mediaUpscaleService) {
+	r.POST("/media-upscale/tasks/:id/recover", func(c *gin.Context) {
+		if !requireTrustedDesktopWritePrincipal(c, "原任务恢复只能由当前桌面界面发起") {
 			return
 		}
-		ok(c, svc.MediaUpscaleCapabilities())
+		user, e := currentUser(c, svc)
+		if e != nil {
+			failService(c, e)
+			return
+		}
+		task, e := svc.RecoverMediaUpscale(c.Request.Context(), user.ID, c.Param("id"))
+		if e != nil {
+			failService(c, e)
+			return
+		}
+		ok(c, task)
 	})
-	for _, action := range []string{"estimate", "tasks"} {
-		action := action
+	r.GET("/media-upscale/capabilities", func(c *gin.Context) {
+		if _, e := currentUser(c, svc); e != nil {
+			failService(c, e)
+			return
+		}
+		ok(c, svc.MediaUpscaleCapabilities(c.Request.Context()))
+	})
+	for _, path := range []string{"estimate", "tasks"} {
+		action := path
 		r.POST("/media-upscale/"+action, func(c *gin.Context) {
-			if !requireTrustedDesktopWritePrincipal(c, "视频超分只能由当前画布界面发起") {
+			if !requireTrustedDesktopWritePrincipal(c, "超分只能由当前桌面界面发起") {
 				return
 			}
-			user, err := currentUser(c, svc)
-			if err != nil {
-				failService(c, err)
+			user, e := currentUser(c, svc)
+			if e != nil {
+				failService(c, e)
 				return
 			}
 			policy, available := loadRuntimePolicy(c, svc)
@@ -33,23 +58,23 @@ func registerMediaUpscaleRoutes(r *gin.RouterGroup, svc *app.Service) {
 				return
 			}
 			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)
-			var request app.MediaUpscaleRequest
-			if err := c.ShouldBindJSON(&request); err != nil {
-				fail(c, http.StatusBadRequest, err)
+			var req topaz.Request
+			if e = c.ShouldBindJSON(&req); e != nil {
+				fail(c, 400, e)
 				return
 			}
 			if action == "estimate" {
-				quote, err := svc.EstimateMediaUpscale(c.Request.Context(), user.ID, request)
-				if err != nil {
-					failService(c, err)
+				value, e := svc.EstimateMediaUpscale(c.Request.Context(), user.ID, req)
+				if e != nil {
+					failService(c, e)
 					return
 				}
-				ok(c, quote)
+				ok(c, value)
 				return
 			}
-			task, err := svc.CreateMediaUpscale(c.Request.Context(), user.ID, request)
-			if err != nil {
-				failService(c, err)
+			task, e := svc.CreateMediaUpscale(c.Request.Context(), user.ID, req)
+			if e != nil {
+				failService(c, e)
 				return
 			}
 			ok(c, task)

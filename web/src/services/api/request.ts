@@ -1,6 +1,5 @@
 import axios, { type AxiosRequestConfig, type AxiosResponse } from "axios";
 
-import { assertUserScope, isUserScopeAbandonedError, type CapturedUserScope } from "@/lib/user-scope-guard";
 
 export type ApiParams = Record<string, string | string[] | number | number[] | undefined>;
 
@@ -35,7 +34,7 @@ export class ApiError extends Error {
         this.reason = options.reason;
         this.details = options.details;
         this.requestId = options.requestId;
-        this.retryable = options.retryable ?? isRetryableStatus(options.status ?? options.code);
+        this.retryable = options.reason === "local_credential_failed" || options.reason === "local_disk_full" ? false : options.retryable ?? isRetryableStatus(options.status ?? options.code);
         this.retryAfterMs = options.retryAfterMs;
         this.cause = options.cause;
     }
@@ -48,14 +47,21 @@ export function getTransportFailureKind(error: unknown): "timeout" | "network" |
 }
 
 // 所有后端 JSON 请求共用同一实例，避免认证、Base URL 和错误语义在模块间漂移。
-export let apiBaseURL = import.meta.env.VITE_CANVAS_BACKEND_URL || "/api";
+export let apiBaseURL = import.meta.env?.VITE_CANVAS_BACKEND_URL || "/api";
 // 本地预览和桌面模式都必须在后端暂不可用时尽快降级到本地工作区；
 // 没有超时会让启动水合一直停留在 loading，Playwright 和用户都看不到页面。
 export const apiClient = axios.create({ baseURL: apiBaseURL, withCredentials: true, timeout: 4_000 });
 
 /** 主站登录页地址；托管部署下会话失效时跳转过去，并带回跳地址。 */
 export function signInURL(): string {
-    const base = import.meta.env.VITE_AICYLD_LOGIN_URL || "https://aicyld.com.cn/login";
+    const configured = (() => {
+        try {
+            return import.meta.env.VITE_AICYLD_LOGIN_URL;
+        } catch {
+            return undefined;
+        }
+    })();
+    const base = configured || "https://aicyld.com.cn/login";
     const current = typeof window === "undefined" ? "" : window.location.href;
     return `${base}?redirect=${encodeURIComponent(current)}`;
 }
@@ -65,11 +71,17 @@ export function isSignInRequiredError(error: unknown): boolean {
     return error instanceof ApiError && error.status === 401;
 }
 
-// 会话失效时统一切到主站登录页，避免子域停留在半登录状态。
 apiClient.interceptors.response.use(
     (response) => response,
     (error) => {
-        if (axios.isAxiosError(error) && error.response?.status === 401 && typeof window !== "undefined") {
+        const hosted = (() => {
+            try {
+                return import.meta.env.VITE_CANVAS_HOSTED === "1";
+            } catch {
+                return false;
+            }
+        })();
+        if (hosted && axios.isAxiosError(error) && error.response?.status === 401 && typeof window !== "undefined") {
             window.location.replace(signInURL());
         }
         return Promise.reject(error);
@@ -110,7 +122,7 @@ export async function request<T>(promise: Promise<{ data: BackendEnvelope<T>; st
 }
 
 function unwrapTransportError(error: unknown): never {
-    if (error instanceof ApiError || (error instanceof DOMException && error.name === "AbortError") || isUserScopeAbandonedError(error)) {
+    if (error instanceof ApiError || (error instanceof DOMException && error.name === "AbortError")) {
         throw error;
     }
     if (axios.isCancel(error) || (axios.isAxiosError(error) && error.code === axios.AxiosError.ERR_CANCELED)) {
@@ -172,24 +184,18 @@ function retryAfterMilliseconds(headers: unknown) {
     return Math.max(0, retryAt - Date.now());
 }
 
-export type HttpRequestConfig = Omit<AxiosRequestConfig, "method" | "url" | "data" | "baseURL"> & {
-    expectedScope?: CapturedUserScope;
-};
+export type HttpRequestConfig = Omit<AxiosRequestConfig, "method" | "url" | "data" | "baseURL">;
 
-function assertExpectedHttpScope(config?: { expectedScope?: CapturedUserScope }) {
-    if (config?.expectedScope) assertUserScope(config.expectedScope);
+const HEAVY_CANVAS_DOCUMENT_TIMEOUT_MS = 180_000;
+
+function isHeavyCanvasDocumentWrite(method: string, url: string) {
+    if (method === "get" || method === "delete") return false;
+    return url === "/ops/canvas.document.commit" || /^\/canvas-projects\/[^/?#]+$/.test(url);
 }
 
-apiClient.interceptors.request.use((config) => {
-    assertExpectedHttpScope(config as HttpRequestConfig);
-    return config;
-});
-
-async function send<T>(method: string, url: string, data?: unknown, config?: HttpRequestConfig) {
-    assertExpectedHttpScope(config);
-    const result = await request<T>(apiClient.request<BackendEnvelope<T>>({ method, url, data, ...config }));
-    assertExpectedHttpScope(config);
-    return result;
+function send<T>(method: string, url: string, data?: unknown, config?: HttpRequestConfig) {
+    const timeout = config?.timeout ?? (isHeavyCanvasDocumentWrite(method, url) ? HEAVY_CANVAS_DOCUMENT_TIMEOUT_MS : undefined);
+    return request<T>(apiClient.request<BackendEnvelope<T>>({ method, url, data, ...(timeout !== undefined ? { timeout } : {}), ...config }));
 }
 
 /**
@@ -202,12 +208,9 @@ export const http = {
     put: <T>(url: string, data?: unknown, config?: HttpRequestConfig) => send<T>("put", url, data, config),
     patch: <T>(url: string, data?: unknown, config?: HttpRequestConfig) => send<T>("patch", url, data, config),
     delete: <T>(url: string, config?: HttpRequestConfig) => send<T>("delete", url, undefined, config),
-    async raw<T>(config: AxiosRequestConfig & { expectedScope?: CapturedUserScope }): Promise<AxiosResponse<T>> {
+    async raw<T>(config: AxiosRequestConfig): Promise<AxiosResponse<T>> {
         try {
-            assertExpectedHttpScope(config);
-            const result = await apiClient.request<T>(config);
-            assertExpectedHttpScope(config);
-            return result;
+            return await apiClient.request<T>(config);
         } catch (error) {
             throw unwrapTransportError(error);
         }

@@ -48,6 +48,7 @@ const audioBytes = new Uint8Array([5, 4, 3, 2, 1]);
 const drawingPreviewBytes = new Uint8Array([11, 12, 13, 14, 15]);
 const folderCoverBytes = new Uint8Array([16, 17, 18, 19]);
 let built = false;
+const sqliteIntegrationTest = Bun.which("go") ? test : test.skip;
 
 type RunningServer = {
     dataDir: string;
@@ -268,7 +269,7 @@ afterAll(() => {
     rmSync(serverBin, { force: true });
 });
 
-test("valid archive restores into isolated SQLite, survives backend restart, and keeps media bytes plus timeline", async () => {
+sqliteIntegrationTest("valid archive restores into isolated SQLite, survives backend restart, and keeps media bytes plus timeline", async () => {
     const dataDir = mkdtempSync(join(tmpdir(), "beeftv-archive-sqlite-"));
     let server: RunningServer | undefined;
     try {
@@ -350,7 +351,7 @@ test("valid archive restores into isolated SQLite, survives backend restart, and
     }
 }, 180_000);
 
-test("canonical readback still rejects lost nodes, connections, or title and rolls back SQLite restore", async () => {
+sqliteIntegrationTest("canonical readback still rejects lost nodes, connections, or title and rolls back SQLite restore", async () => {
     const dataDir = mkdtempSync(join(tmpdir(), "beeftv-archive-sqlite-content-"));
     let server: RunningServer | undefined;
     try {
@@ -377,7 +378,7 @@ test("canonical readback still rejects lost nodes, connections, or title and rol
     }
 }, 180_000);
 
-test("missing archive entry and persist failure do not create a saved SQLite canvas", async () => {
+sqliteIntegrationTest("missing archive entry and persist failure do not create a saved SQLite canvas", async () => {
     const dataDir = mkdtempSync(join(tmpdir(), "beeftv-archive-sqlite-neg-"));
     let server: RunningServer | undefined;
     try {

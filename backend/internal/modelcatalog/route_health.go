@@ -42,7 +42,7 @@ func (r *Router) BlockLogicalRouteForFailure(attempt *model.RouteAttempt, info F
 	duration := time.Duration(0)
 	if attempt.FailureCode == "upstream_401" || attempt.FailureCode == "upstream_403" {
 		key, duration = "channel:"+attempt.ChannelID, 10*time.Minute
-	} else if attempt.FailureCode == "upstream_404" {
+	} else if attempt.FailureCode == "upstream_404" || attempt.FailureCode == "upstream_405" || attempt.FailureCode == "upstream_501" {
 		key, duration = "channel-model:"+attempt.ChannelModelID, 10*time.Minute
 	} else if attempt.FailureCode == "upstream_429" {
 		key, duration = "channel:"+attempt.ChannelID, 30*time.Second
@@ -63,11 +63,14 @@ func RouteFailureCode(info FailureInfo) string {
 	if info.SlotCode != "" {
 		return info.SlotCode
 	}
-	if info.RequestNotSent {
-		return "request_not_sent"
-	}
 	if info.StatusCode > 0 {
 		return fmt.Sprintf("upstream_%d", info.StatusCode)
+	}
+	if info.PreparationFailed && !info.ImageRecovery {
+		return "request_not_sent"
+	}
+	if info.TerminalProviderFailure || info.ExplicitRejection {
+		return "upstream_failed"
 	}
 	return "submission_unknown"
 }
@@ -76,17 +79,17 @@ func SafeRouteRejection(info FailureInfo) bool {
 	if info.ImageRecovery {
 		return false
 	}
-	if info.RequestNotSent {
+	if info.ExplicitRejection {
+		return true
+	}
+	if info.PreparationFailed {
 		return true
 	}
 	if info.SlotCode != "" {
 		return true
 	}
 	switch info.StatusCode {
-	// 这些状态码代表上游明确拒绝了这次请求（没有创建任务），重试是安全的；
-	// 400 尤其重要：Seedream 之类的参数校验失败会回 400，若归为「提交结果未知」，
-	// 用户会被告知「上游任务可能仍在执行，不要重试」，实际根本没有任务。
-	case 400, 401, 402, 403, 404, 405, 406, 413, 415, 422, 429:
+	case 401, 402, 403, 404, 405, 429, 501:
 		return true
 	}
 	return false

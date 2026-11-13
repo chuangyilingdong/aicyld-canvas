@@ -1,7 +1,6 @@
 package task
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -45,10 +44,10 @@ func (s *Service) admit(userID string, req CreateRequest) (*model.Task, error) {
 		return nil, drainError(DrainCreateMessage)
 	}
 	prompt := strings.TrimSpace(req.Prompt)
-	if prompt == "" {
+	taskType := strings.TrimSpace(req.Type)
+	if prompt == "" && !allowsEmptyPrompt(taskType, req.Input) {
 		return nil, kernel.BadAuthRequest(PromptRequiredMessage)
 	}
-	taskType := strings.TrimSpace(req.Type)
 	if err := ValidateType(taskType); err != nil {
 		return nil, kernel.BadAuthRequest(err.Error())
 	}
@@ -65,6 +64,7 @@ func (s *Service) admit(userID string, req CreateRequest) (*model.Task, error) {
 	}
 	selected, err := s.deps.Catalog.Select(userID, SelectRequest{
 		Input:          normalizedInput,
+		Model:          req.Model,
 		LogicalModelID: strings.TrimSpace(req.LogicalModelID),
 		Type:           taskType,
 		Operation:      req.Operation,
@@ -160,13 +160,6 @@ func (s *Service) admit(userID string, req CreateRequest) (*model.Task, error) {
 			return nil, encodeErr
 		}
 		task.InputJSON = encoded
-		if s.deps.Billing != nil {
-			quote, quoteErr := s.deps.Billing.Quote(context.Background(), userID, &task)
-			if quoteErr != nil {
-				return nil, quoteErr
-			}
-			task.BillingQuote = quote
-		}
 		return &task, nil
 	}
 	if err := s.deps.Secrets.Protect(normalizedInput); err != nil {
@@ -177,21 +170,13 @@ func (s *Service) admit(userID string, req CreateRequest) (*model.Task, error) {
 		return nil, err
 	}
 	task.InputJSON = inputJSON
-	if s.deps.Billing != nil {
-		reservation, reserveErr := s.deps.Billing.Reserve(context.Background(), userID, &task)
-		if reserveErr != nil {
-			return nil, reserveErr
-		}
-		if reservation != nil && reservation.Enabled {
-			task.BillingHoldID = reservation.HoldID
-			task.BillingStatus = reservation.Status
-			task.BillingPoints = reservation.Points
-		}
+	billingReserved, err := s.reserveBilling(userID, &task)
+	if err != nil {
+		return nil, err
 	}
 	releaseBilling := func(reason string) {
-		if s.deps.Billing != nil && task.BillingHoldID != "" {
-			_, _ = s.deps.Billing.Release(context.Background(), &task, reason)
-			task.BillingStatus = "refunded"
+		if billingReserved {
+			s.releaseBilling(&task, reason)
 		}
 	}
 	if s.deps.Persist == nil {
@@ -223,6 +208,21 @@ func (s *Service) requireAdmitCollaborators() error {
 		return unavailable()
 	}
 	return nil
+}
+
+func allowsEmptyPrompt(taskType string, input map[string]any) bool {
+	if taskType != "canvas_video" && !strings.HasPrefix(taskType, "video_") {
+		return false
+	}
+	if input == nil {
+		return false
+	}
+	metadata, _ := input["metadata"].(map[string]any)
+	if metadata == nil {
+		return false
+	}
+	draftID, _ := metadata["videoDraftTaskId"].(string)
+	return strings.TrimSpace(draftID) != ""
 }
 
 func encodeTaskInput(input map[string]any) (string, error) {

@@ -1,4 +1,4 @@
-import { canvasNodeToAsset, declaredCanvasNodeAssetCategory, findCanvasNodeAsset, type CanvasAssetSource } from "@/lib/canvas/canvas-node-asset";
+import { assetResourceId, canvasNodeResourceId, canvasNodeToAsset, declaredCanvasNodeAssetCategory, findCanvasNodeAsset, type CanvasAssetSource } from "@/lib/canvas/canvas-node-asset";
 import { canvasVideoAssetPreviewUrl } from "@/lib/canvas/canvas-media-preview";
 import { readImageMeta } from "@/lib/image-utils";
 import { parseAssetRecord } from "@/lib/asset-record";
@@ -16,7 +16,6 @@ import { getImageBlob, resolveImageUrl, setImageBlob } from "@/services/image-st
 import { generationArtifactStorageKey, loadOrStoreGenerationArtifact } from "@/services/generation-artifact-sink";
 import { createProviderNeutralGenerationTaskEffectStore } from "@/services/provider-neutral-generation-effects";
 import { getActiveUserScope } from "@/lib/user-scope";
-import { assertUserScope, captureUserScope, type CapturedUserScope } from "@/lib/user-scope-guard";
 import { runGenerationConsumer } from "@/services/generation-consumer-lifecycle";
 import { flushAssetStorePersistence, useAssetStore, type Asset, type AssetCategory, type NewAsset } from "@/stores/use-asset-store";
 import type { CanvasNodeData } from "@/types/canvas";
@@ -38,7 +37,6 @@ export type EnsureCanvasNodeAssetOptions = {
     category?: AssetCategory;
     folderId?: string;
     signal?: AbortSignal;
-    expectedScope?: CapturedUserScope;
 };
 
 export type CanvasNodeAssetResult = {
@@ -50,15 +48,13 @@ export type CanvasNodeAssetResult = {
 
 type MaterializedLocalAssetDependencies = {
     localWorkspace: () => boolean;
-    putAsset: (id: string, asset: Asset, expectedScope?: CapturedUserScope) => Promise<void>;
+    putAsset: (id: string, asset: Asset) => Promise<void>;
 };
 
 const defaultMaterializedLocalAssetDependencies: MaterializedLocalAssetDependencies = {
     localWorkspace: isLocalWorkspaceMode,
-    putAsset: async (id, asset, expectedScope) => {
-        const expected = expectedScope ?? captureUserScope();
-        assertUserScope(expected);
-        await http.put(`/assets/${encodeURIComponent(id)}`, { asset }, { expectedScope: expected });
+    putAsset: async (id, asset) => {
+        await http.put(`/assets/${encodeURIComponent(id)}`, { asset });
     },
 };
 
@@ -66,14 +62,11 @@ const defaultMaterializedLocalAssetDependencies: MaterializedLocalAssetDependenc
 export async function registerMaterializedLocalAsset(
     asset: Asset,
     dependencies: MaterializedLocalAssetDependencies = defaultMaterializedLocalAssetDependencies,
-    expectedScope?: CapturedUserScope,
 ) {
-    const expected = expectedScope ?? captureUserScope();
-    assertUserScope(expected);
     if (!dependencies.localWorkspace()) return;
     const storageKey = "storageKey" in asset.data ? asset.data.storageKey : undefined;
     if (!storageKey || !resourceIdFromStorageKey(storageKey)) return;
-    await dependencies.putAsset(asset.id, asset, expected);
+    await dependencies.putAsset(asset.id, asset);
 }
 
 export async function registerMaterializedTaskAssets(
@@ -97,7 +90,6 @@ type CanvasAssetSyncRetryOptions = {
     signal?: AbortSignal;
     maxRetries?: number;
     wait?: (delayMs: number, signal?: AbortSignal) => Promise<void>;
-    expectedScope?: CapturedUserScope;
 };
 
 function waitForCanvasAssetSyncRetry(delayMs: number, signal?: AbortSignal) {
@@ -119,50 +111,38 @@ function waitForCanvasAssetSyncRetry(delayMs: number, signal?: AbortSignal) {
 }
 
 export async function retryCanvasAssetSyncAfterRateLimit<T>(operation: () => Promise<T>, options: CanvasAssetSyncRetryOptions = {}): Promise<T> {
-    const expected = options.expectedScope ?? captureUserScope();
     const maxRetries = Math.max(0, options.maxRetries ?? 2);
     const wait = options.wait ?? waitForCanvasAssetSyncRetry;
     for (let attempt = 0; ; attempt += 1) {
         throwIfAborted(options.signal);
-        assertUserScope(expected);
         try {
             return await operation();
         } catch (error) {
             if (!(error instanceof ApiError) || error.status !== 429 || attempt >= maxRetries) throw error;
             const delayMs = Math.min(MAX_RATE_LIMIT_RETRY_MS, Math.max(0, error.retryAfterMs ?? DEFAULT_RATE_LIMIT_RETRY_MS));
             await wait(delayMs, options.signal);
-            assertUserScope(expected);
         }
     }
 }
 
 export function ensureCanvasNodeAsset(options: EnsureCanvasNodeAssetOptions) {
-    const expected = options.expectedScope ?? captureUserScope();
     const identity = options.taskId || options.node.metadata?.taskId || options.node.metadata?.storageKey || options.node.id;
-    const key = [expected.userScope, String(expected.epoch), options.domainProjectId || "personal", options.canvasId, options.node.id, identity].join(":");
+    const key = [getActiveUserScope(), options.domainProjectId || "personal", options.canvasId, options.node.id, identity].join(":");
     const pending = pendingAssetSyncs.get(key);
     if (pending) return pending;
-    const request = runGenerationConsumer(options.signal, (signal) => persistCanvasNodeAsset({ ...options, signal, expectedScope: expected })).finally(() => pendingAssetSyncs.delete(key));
+    const request = runGenerationConsumer(options.signal, (signal) => persistCanvasNodeAsset({ ...options, signal })).finally(() => pendingAssetSyncs.delete(key));
     pendingAssetSyncs.set(key, request);
     return request;
 }
 
 async function persistCanvasNodeAsset(options: EnsureCanvasNodeAssetOptions): Promise<CanvasNodeAssetResult> {
-    const expected = options.expectedScope ?? captureUserScope();
     throwIfAborted(options.signal);
-    assertUserScope(expected);
     const store = useAssetStore.getState();
     let asset = findCanvasNodeAsset(store.assets, options.node, options.canvasId, options.taskId);
     const declaredCategory = options.category || declaredCanvasNodeAssetCategory(options.node);
     let created = false;
     if (!asset) {
-        // 节点上已经有素材 id（可能来自服务端/其它设备，本地素材库还没同步回来）：
-        // 这时**不要**另造一条本地素材——那会让画布带上一个服务端不认识的 id，
-        // 之后每次提交都会被画布媒体校验拒绝。沿用声明的 id，等素材同步回来自然匹配。
-        const declaredAssetId = String(options.node.metadata?.assetId || "").trim();
-        if (declaredAssetId) {
-            return { assetId: declaredAssetId, created: false, linkedToProject: false, confirmed: true };
-        }
+        asset = await hydrateCanvasNodeDeclaredAsset(options.node, options.signal);
     }
     if (!asset) {
         const input = canvasNodeToAsset(options.node, { canvasId: options.canvasId, source: options.source, taskId: options.taskId });
@@ -172,39 +152,64 @@ async function persistCanvasNodeAsset(options: EnsureCanvasNodeAssetOptions): Pr
         created = true;
     }
     if (!asset) throw new Error("素材写入本地失败");
-    if (declaredCategory && asset.category !== declaredCategory) {
+    const inferredResourceId = canvasNodeResourceId(options.node) || assetResourceId(asset);
+    const canonicalStorageKey = inferredResourceId ? `resource:${inferredResourceId}` : undefined;
+    const currentStorageKey = "storageKey" in asset.data ? asset.data.storageKey : undefined;
+    if (canonicalStorageKey && asset.kind !== "text" && asset.kind !== "entity" && (!resourceIdFromStorageKey(currentStorageKey) || asset.pendingRemoteUpload)) {
+        store.updateAsset(asset.id, {
+            ...(declaredCategory && asset.category !== declaredCategory ? { category: declaredCategory } : {}),
+            pendingRemoteUpload: false,
+            remoteUploadError: undefined,
+            data: { ...asset.data, storageKey: canonicalStorageKey } as Asset["data"],
+            metadata: { ...asset.metadata, resourceKey: canonicalStorageKey },
+        });
+        asset = useAssetStore.getState().assets.find((item) => item.id === asset?.id) || asset;
+    } else if (declaredCategory && asset.category !== declaredCategory) {
         store.updateAsset(asset.id, { category: declaredCategory });
         asset = useAssetStore.getState().assets.find((item) => item.id === asset?.id) || asset;
     }
     const storageKey = "storageKey" in asset.data ? asset.data.storageKey : undefined;
     const confirmed = workspaceAssetHasCanonicalMediaPersist(asset);
     if (!confirmed) {
-        await flushAssetStorePersistence(expected);
-        assertUserScope(expected);
-        // 未回写服务端的素材 id 不能写进画布文档（服务端校验会整份拒绝），
-        // 调用方拿到空 id 会保持节点原状，等下一条同步链路补齐。
-        return { assetId: "", created, linkedToProject: false, confirmed: false };
+        await flushAssetStorePersistence();
+        return { assetId: asset.id, created, linkedToProject: false, confirmed: false };
     }
     // Browser-local IndexedDB is the durable store, but a proxied Go canvas
     // repository still requires an owned Asset for resource: keys. Desktop and
     // hosted commits go through persistWorkspaceAssetLink's typed APIs instead.
     if (usesBrowserLocalResourceStore() && isLocalWorkspaceMode() && storageKey && resourceIdFromStorageKey(storageKey)) {
-        assertUserScope(expected);
-        await http.put(`/assets/${encodeURIComponent(asset.id)}`, { asset }, { signal: options.signal, expectedScope: expected });
+        await http.put(`/assets/${encodeURIComponent(asset.id)}`, { asset }, { signal: options.signal });
         throwIfAborted(options.signal);
-        assertUserScope(expected);
     }
-    await persistWorkspaceAssetLink({
+    const persistedAsset = await persistWorkspaceAssetLink({
         asset,
         domainProjectId: options.domainProjectId,
         category: declaredCategory,
         folderId: options.folderId,
         source: "canvas",
         signal: options.signal,
-        expectedScope: expected,
     });
-    assertUserScope(expected);
-    return { assetId: asset.id, created, linkedToProject: Boolean(options.domainProjectId), confirmed: true };
+    return { assetId: persistedAsset.id, created, linkedToProject: Boolean(options.domainProjectId), confirmed: true };
+}
+
+async function hydrateCanvasNodeDeclaredAsset(node: CanvasNodeData, signal?: AbortSignal): Promise<Asset | undefined> {
+    const id = String(node.metadata?.assetId || "").trim();
+    if (!id) return undefined;
+    try {
+        const payload = await getWorkspaceAsset(id, signal);
+        const asset = parseAssetRecord(payload.asset);
+        if (asset.kind !== node.type) return undefined;
+        const nodeResourceID = canvasNodeResourceId(node);
+        const assetResourceID = assetResourceId(asset);
+        if (nodeResourceID && assetResourceID && nodeResourceID !== assetResourceID) return undefined;
+        useAssetStore.setState((state) => (state.assets.some((item) => item.id === asset.id)
+            ? state
+            : { assets: [asset, ...state.assets] }));
+        return asset;
+    } catch (error) {
+        if (error instanceof ApiError && error.status === 404) return undefined;
+        throw error;
+    }
 }
 
 function generationTaskResult(task: GenerationTask): BackendGenerationResult {
@@ -283,7 +288,7 @@ export async function hydrateBackendGeneratedAsset(
     throwIfAborted(signal);
     const id = assetId.trim();
     if (!id) throw new Error("任务产物尚未由后端交付");
-    const getAsset = dependencies.getAsset ?? defaultHydrateBackendGeneratedAssetDependencies.getAsset!;
+    const getAsset = dependencies.getAsset ?? ((id, signal) => getWorkspaceAsset(id, signal).then((payload) => ({ asset: payload.asset })));
     const readAssets = dependencies.readAssets ?? defaultHydrateBackendGeneratedAssetDependencies.readAssets!;
     const writeAsset = dependencies.writeAsset ?? defaultHydrateBackendGeneratedAssetDependencies.writeAsset!;
     const existing = readAssets().find((asset) => asset.id === id);
@@ -384,6 +389,8 @@ async function generationOutputAsset(input: Parameters<MaterializeGenerationTask
         conversationId: input.task.clientContext?.conversationId,
         messageId: input.task.clientContext?.messageId,
         batchIndex: input.task.clientContext?.batchIndex,
+        prompt: input.task.prompt,
+        model: input.task.model,
     };
 
     if (input.output.mediaType === "image") {

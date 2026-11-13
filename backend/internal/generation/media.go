@@ -16,15 +16,16 @@ func HydrateMedia(ctx context.Context, userID string, input *Input, policy Media
 		return nil
 	}
 	groups := [][]Media{input.ReferenceImages, input.ReferenceVideos, input.ReferenceAudios}
-	for _, group := range groups {
+	for kind, group := range groups {
+		groupPolicy := mediaPolicyForKind(ctx, *input, []string{"image", "video", "audio"}[kind], policy)
 		for index := range group {
-			if err := HydrateOne(ctx, userID, &group[index], policy); err != nil {
-				return err
+			if err := HydrateOne(ctx, userID, &group[index], groupPolicy); err != nil {
+				return fmt.Errorf("%s %d：%w", []string{"参考图片", "参考视频", "参考音频"}[kind], index+1, err)
 			}
 		}
 	}
 	if input.Mask != nil {
-		return HydrateOne(ctx, userID, input.Mask, policy)
+		return HydrateOne(ctx, userID, input.Mask, mediaPolicyForKind(ctx, *input, "mask", policy))
 	}
 	return nil
 }
@@ -60,6 +61,21 @@ func HydrateOne(ctx context.Context, userID string, media *Media, policy MediaHy
 		applyResourceMetadata(media, resource)
 		return nil
 	}
+	if runtime.Resources.LocalMode() && policy.RequireURL && !policy.ManualURL && runtime.ReferenceStorage != nil {
+		enabled, err := runtime.ReferenceStorage.Enabled()
+		if err != nil {
+			return RequestPreparationError{Cause: ReferenceStoragePreparationError{Cause: err}}
+		}
+		if enabled {
+			link, err := runtime.ReferenceStorage.Upload(ctx, userID, resourceID)
+			if err != nil {
+				return RequestPreparationError{Cause: ReferenceStoragePreparationError{Cause: err}}
+			}
+			media.URL, media.DataURL = link, ""
+			applyResourceMetadata(media, resource)
+			return nil
+		}
+	}
 	if policy.PreferHTTPS {
 		if httpsURL, err := runtime.Resources.HTTPSPublicURL(resource, time.Now().Add(ResourceURLTTL)); err == nil {
 			media.URL = httpsURL
@@ -70,18 +86,11 @@ func HydrateOne(ctx context.Context, userID string, media *Media, policy MediaHy
 	}
 	useObjectURL := policy.RequireURL || (policy.PreferURL && resource.UsesObjectStorage())
 	if useObjectURL {
-		// 要求上游自己来取图的协议必须给 https 公开地址（/api/public/resources/... 会 307 到对象存储）。
-		// 这里不再按「本地模式」一刀切：托管部署即使跑在本地模式，只要配了 CANVAS_PUBLIC_BASE_URL
-		// 就能签出公网地址；签不出才报可读错误，而不是让上游拿到 data URL 后 400。
-		mintURL := runtime.Resources.PublicURL
-		if policy.RequireURL {
-			mintURL = runtime.Resources.HTTPSPublicURL
+		if runtime.Resources.LocalMode() && policy.RequireURL {
+			return errors.New("当前模型协议要求公网素材地址，本地工作区请改用支持内嵌素材的模型")
 		}
-		signedURL, err := mintURL(resource, time.Now().Add(ResourceURLTTL))
+		signedURL, err := runtime.Resources.PublicURL(resource, time.Now().Add(ResourceURLTTL))
 		if err != nil {
-			if policy.RequireURL {
-				return errors.New("当前模型协议要求公网素材地址，但本机没有配置上游可访问的公开地址（CANVAS_PUBLIC_BASE_URL）；请改用支持内嵌素材的模型")
-			}
 			return fmt.Errorf("生成参考素材地址失败：%w", err)
 		}
 		media.URL = signedURL

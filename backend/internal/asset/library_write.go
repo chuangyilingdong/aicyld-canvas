@@ -18,7 +18,16 @@ func (l *Library) UpsertUserAsset(userID string, raw json.RawMessage) (Summary, 
 	if err != nil {
 		return Summary{}, err
 	}
+	var canonical *model.Asset
 	err = l.host.WithStorageLock(func() error {
+		existing, err := l.activeMediaAssetByStorageKey(userID, item)
+		if err != nil {
+			return err
+		}
+		if existing != nil && existing.ID != item.ID {
+			canonical = existing
+			return nil
+		}
 		created, err := l.PrepareAssetWrites(userID, []model.Asset{item})
 		if err != nil {
 			return err
@@ -26,6 +35,13 @@ func (l *Library) UpsertUserAsset(userID string, raw json.RawMessage) (Summary, 
 		if err := l.repo.Transaction(func(tx *repository.Repository) error {
 			return l.WithRepository(tx).persistPreparedAsset(userID, &item)
 		}); err != nil {
+			if repository.IsUniqueConstraint(err) {
+				existing, lookupErr := l.activeMediaAssetByStorageKey(userID, item)
+				if lookupErr == nil && existing != nil {
+					canonical = existing
+					return nil
+				}
+			}
 			return err
 		}
 		if created > 0 {
@@ -36,7 +52,44 @@ func (l *Library) UpsertUserAsset(userID string, raw json.RawMessage) (Summary, 
 	if err != nil {
 		return Summary{}, err
 	}
+	if canonical != nil {
+		return summaryFromAsset(*canonical), nil
+	}
 	return summaryFromAsset(item), nil
+}
+
+// activeMediaAssetByStorageKey returns the one active Asset that already owns
+// the same Resource. Repeated canvas recovery and concurrent materialization
+// therefore converge on one record instead of creating another library item.
+func (l *Library) activeMediaAssetByStorageKey(userID string, item model.Asset) (*model.Asset, error) {
+	storageKey := mediaStorageKeyFromPayload(item.PayloadJSON)
+	if storageKey == "" || (item.Kind != "image" && item.Kind != "video" && item.Kind != "audio") {
+		return nil, nil
+	}
+	assets, err := l.repo.AssetsForUserMediaStorageKeys(userID, item.Kind, []string{storageKey})
+	if err != nil {
+		return nil, err
+	}
+	if len(assets) == 0 {
+		return nil, nil
+	}
+	return &assets[0], nil
+}
+
+func mediaStorageKeyFromPayload(payloadJSON string) string {
+	var payload struct {
+		Data struct {
+			StorageKey string `json:"storageKey"`
+		} `json:"data"`
+	}
+	if json.Unmarshal([]byte(payloadJSON), &payload) != nil {
+		return ""
+	}
+	storageKey := strings.TrimSpace(payload.Data.StorageKey)
+	if !strings.HasPrefix(storageKey, "resource:") || len(strings.TrimPrefix(storageKey, "resource:")) == 0 {
+		return ""
+	}
+	return storageKey
 }
 
 func (l *Library) DeleteUserAsset(userID string, id string, expectedStatus ...string) error {

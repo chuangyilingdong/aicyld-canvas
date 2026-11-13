@@ -44,6 +44,11 @@ const (
 	// 完成后调用 /tasks/:id/text-replay-complete 归并为最终正文。
 	TaskStatusTextReplay TaskStatus = "text_replay"
 
+	// CanvasBindRecoveryPrefix marks the background scanner's private canvas
+	// bind marker in tasks.recovery_outcome. The same column holds media
+	// recovery conclusions (no_result / unrecoverable) for failed tasks.
+	CanvasBindRecoveryPrefix = "canvas_bind:"
+
 	UserRoleAdmin UserRole = "admin"
 	UserRoleUser  UserRole = "user"
 
@@ -57,6 +62,7 @@ const (
 	ChannelInterfaceOpenAIResponse              ChannelInterfaceType = "openai-response"
 	ChannelInterfaceClaudeAPI                   ChannelInterfaceType = "claude-api"
 	ChannelInterfaceOpenAIImage                 ChannelInterfaceType = "openai-image"
+	ChannelInterfaceMidjourney                  ChannelInterfaceType = "midjourney"
 	ChannelInterfaceGrokImage                   ChannelInterfaceType = "grok-image"
 	ChannelInterfaceVolcengineArkImage          ChannelInterfaceType = "volcengine-ark-image"
 	ChannelInterfaceVolcengineArkAgentPlanImage ChannelInterfaceType = "volcengine-ark-agent-plan-image"
@@ -64,8 +70,6 @@ const (
 	ChannelInterfaceGeminiImage                 ChannelInterfaceType = "gemini-image"
 	ChannelInterfaceOpenAIAudio                 ChannelInterfaceType = "openai-audio"
 	ChannelInterfaceAsyncAudio                  ChannelInterfaceType = "async-audio"
-	ChannelInterfaceNewAPIImage                 ChannelInterfaceType = "newapi-image"
-	ChannelInterfaceMidjourney                  ChannelInterfaceType = "midjourney"
 	ChannelInterfaceNewAPIVideo                 ChannelInterfaceType = "newapi"
 	ChannelInterfaceNewAPIChannel1              ChannelInterfaceType = "newapi-channel-1"
 	ChannelInterfaceNewAPIChannel2              ChannelInterfaceType = "newapi-channel-2"

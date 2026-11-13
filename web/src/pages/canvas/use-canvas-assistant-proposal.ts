@@ -1,9 +1,8 @@
 import { useCallback, useRef, useState } from "react";
-import { App } from "antd";
 
 import { confirmAssistantProduction, confirmAssistantProposalRunnable, type AssistantGenerationProposal } from "@/services/api/agent-assistant";
-import { useCanvasBillingBalance } from "@/hooks/use-canvas-billing";
-import { armAssistantContinuation, registerAssistantSubmission, type AssistantSubmissionManifest } from "@/services/api/assistant-continuation";
+import { armAssistantContinuation, registerAssistantSubmission } from "@/services/api/assistant-continuation";
+import { refreshLocalCanvasProjectIfChanged } from "@/services/local-workspace-repository";
 import type { Skill } from "@/services/api/skills";
 import type { CanvasConnection, CanvasNodeData } from "@/types/canvas";
 
@@ -40,8 +39,6 @@ export function useCanvasAssistantProposal({
     continuePlan,
     onContinuationArmed,
 }: UseCanvasAssistantProposalOptions) {
-    const { message } = App.useApp();
-    const balanceQuery = useCanvasBillingBalance();
     const claimsRef = useRef(new Set<string>());
     const attemptedProductionsRef = useRef(new Set<string>());
     const [assistantProposalFeedback, setAssistantProposalFeedback] = useState<Record<string, string>>({});
@@ -80,13 +77,15 @@ export function useCanvasAssistantProposal({
                             proposal,
                             () => readAssistantProposalSourceState(owner.canvasId, nodesRef.current, connectionsRef.current, addedSkillsRef.current),
                             () => readPersistedAssistantProposalSource(owner.canvasId),
+                            { checkSettings: false },
                         );
                     }
                     if (!lifetime.matches(owner, projectIdRef.current)) return;
                     // An unknown HTTP result is recovered using the same immutable
                     // plan. The backend rechecks it and reuses accepted task IDs.
                     attemptedProductionsRef.current.add(confirmationKey);
-                    await confirmAssistantProduction(owner.canvasId, turnId, proposal);
+                    await confirmAssistantProduction(owner.canvasId, turnId, proposal, true);
+                    await refreshLocalCanvasProjectIfChanged(owner.canvasId);
                     if (!lifetime.matches(owner, projectIdRef.current)) return;
                     markHandledRef.current(proposalId);
                     onContinuationArmed?.();
@@ -99,11 +98,6 @@ export function useCanvasAssistantProposal({
                     claimsRef.current.delete(proposalId);
                     setRunningProposalIds(current => { const next = new Set(current); next.delete(proposalId); return next; });
                 });
-                return;
-            }
-            if (proposal.kind === "audio") {
-                setAssistantProposalFeedback(current => ({ ...current, [proposalId]: "请让助手把配音加入完整制作方案后再确认。" }));
-                setRunningProposalIds(current => { const next = new Set(current); next.delete(proposalId); return next; });
                 return;
             }
             void executeAssistantProposal({
@@ -121,20 +115,33 @@ export function useCanvasAssistantProposal({
                         if (error instanceof AssistantProposalBlockedError && (error.reason === "canvas_saving" || error.reason === "canvas_conflict") && lifetime.matches(owner, projectIdRef.current)) recordAssistantProposalCanvasRejection(owner.canvasId);
                         throw error;
                     });
-                    if (continuePlan && sessionId) { continuationId = (await armAssistantContinuation(owner.canvasId, sessionId, turnId, proposal)).id; onContinuationArmed?.(); }
                     return snapshot;
                 },
-                confirmBilling: async (quotes, nodeCount) => {
-                    const total = quotes.reduce((sum, quote) => sum + (quote.enabled ? quote.points : 0), 0);
-                    const balance = balanceQuery.data?.enabled ? balanceQuery.data.balance : quotes.find((quote) => typeof quote.balance === "number")?.balance;
-                    if (typeof balance === "number" && balance < total) {
-                        message.error(`整批方案预计消耗 ${total} 积分，当前余额 ${balance} 积分，请先充值后再生成`);
-                        return false;
+                confirmOrder: async (confirmedInputs) => {
+                    const canConfirmViaOrder = confirmedInputs.nodes
+                        .filter((node) => proposal.nodeIds.includes(node.id))
+                        .every((node) => {
+                            const count = Number(node.metadata?.count ?? 1);
+                            return (!Number.isFinite(count) || count <= 1)
+                                && node.metadata?.seedreamMode !== "layers"
+                                && Number(node.metadata?.seedreamMaxImages ?? 1) <= 1;
+                        });
+                    if (!canConfirmViaOrder) {
+                        if (continuePlan && sessionId) {
+                            continuationId = (await armAssistantContinuation(owner.canvasId, sessionId, turnId, proposal)).id;
+                            onContinuationArmed?.();
+                        }
+                        return null;
                     }
-                    if (total > 0) message.info(`整批方案预计消耗 ${total} 积分，将生成 ${nodeCount} 个节点`);
-                    return true;
+                    const result = await confirmAssistantProduction(owner.canvasId, turnId, proposal, Boolean(continuePlan && sessionId));
+                    await refreshLocalCanvasProjectIfChanged(owner.canvasId);
+                    if (result.continuationId) {
+                        continuationId = result.continuationId;
+                        onContinuationArmed?.();
+                    }
+                    return result;
                 },
-                generate: (id, kind, prompt, options) => generateForThisRun(id, kind, prompt, { ...options, ...(continuationId ? { onSubmissionPlan: (manifest: AssistantSubmissionManifest) => registerAssistantSubmission(continuationId!, manifest).then(() => undefined) } : {}) }),
+                generate: (id, kind, prompt, options) => generateForThisRun(id, kind, prompt, { ...options, ...(continuationId ? { onSubmissionPlan: manifest => registerAssistantSubmission(continuationId!, manifest).then(() => undefined) } : {}) }),
                 stillOwns: () => lifetime.matches(owner, projectIdRef.current),
                 markHandled: (proposalId) => markHandledRef.current(proposalId),
                 notify: (content) => {
@@ -148,7 +155,7 @@ export function useCanvasAssistantProposal({
                 });
             });
         },
-        [balanceQuery.data, connectionsRef, lifetime, message, nodesRef, projectId, continuationSessionId, continuePlan, onContinuationArmed],
+        [connectionsRef, lifetime, nodesRef, projectId, continuationSessionId, continuePlan, onContinuationArmed],
     );
 
     return { runAssistantProposal, assistantProposalFeedback, runningProposalIds };

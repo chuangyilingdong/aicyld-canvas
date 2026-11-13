@@ -1,14 +1,19 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Link } from "react-router";
 import { Check, ChevronDown, ChevronUp, Clapperboard, CloudUpload, Columns2, CopyPlus, Focus, FolderKanban, Gauge, History, Home, LayoutGrid, MoreHorizontal, Pencil, Plus, Redo2, Save, Search, Sparkles, Trash2, Undo2, Upload, Workflow, X, Zap } from "lucide-react";
-import { Button, Dropdown, Tooltip } from "antd";
+import { App, Button, Dropdown, Tooltip } from "antd";
 
 import { BrandLogoFrame } from "@/components/brand/brand-logo";
+import { PointsCenterModal } from "@/components/canvas/points-center-modal";
 import { canvasDockStyle } from "@/lib/canvas/canvas-aceternity-style";
 import type { CanvasContextSummary } from "@/lib/canvas/canvas-context-summary";
 import type { CanvasShortDramaProgress } from "@/lib/canvas/canvas-short-drama";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useCanvasBillingBalance } from "@/hooks/use-canvas-billing";
+import { exportCanvasProjectsByIds } from "@/lib/canvas/canvas-export";
+import { resolveWorkspaceExportCanvasIds } from "@/lib/canvas/canvas-workspace-project";
+import { loadCanvasProjectForEditing } from "@/services/local-workspace-sync";
+import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { useCanvasThemeStore } from "@/stores/canvas/use-canvas-theme-store";
 import { useUserStore } from "@/stores/use-user-store";
 import type { CanvasMediaPerformanceMode } from "@/types/canvas";
@@ -106,6 +111,7 @@ export function CanvasTopBar({
     onDuplicateProject,
     libtvReadonlyChrome = false,
 }: CanvasTopBarProps) {
+    const { message } = App.useApp();
     const theme = canvasThemes[useCanvasThemeStore((state) => state.theme)];
     const dockStyle = canvasDockStyle(theme, theme.node.text);
     const currentCanvasIndex = Math.max(0, projectCanvases.findIndex((canvas) => canvas.id === currentCanvasId));
@@ -129,6 +135,26 @@ export function CanvasTopBar({
     };
 
     const cancelCanvasRename = () => setRenameCanvas(null);
+
+    const runExport = async (canvasId: string | undefined, singleCanvasOnly: boolean) => {
+        if (!canvasId) return;
+        try {
+            const store = useCanvasStore.getState();
+            const ids = resolveWorkspaceExportCanvasIds(store.projects, [canvasId], { singleCanvasOnly });
+            await exportCanvasProjectsByIds(
+                ids,
+                async (id) => (await loadCanvasProjectForEditing(id).catch(() => undefined)) || store.openProject(id),
+                {
+                    singleCanvasOnly,
+                    folders: store.folders,
+                    allowMissingMedia: true,
+                    onSkipped: (count) => message?.warning?.(`已导出备份，已自动跳过 ${count} 个缺失或无法读取的素材`),
+                },
+            );
+        } catch (error) {
+            message?.error?.(error instanceof Error ? error.message : "导出失败，请重试");
+        }
+    };
 
 
     useEffect(() => {
@@ -184,6 +210,10 @@ export function CanvasTopBar({
                                     { key: "projects", label: <Link to="/canvas">全部项目</Link> },
                                     { type: "divider" },
                                     { key: "new", label: <Link to="/canvas?mode=new">创建新项目</Link> },
+                                    ...(currentCanvasId ? [
+                                        { key: "export-project", label: "导出项目（全部画布）", onClick: () => void runExport(currentCanvasId, false) },
+                                        { key: "export-canvas", label: "导出当前画布", onClick: () => void runExport(currentCanvasId, true) },
+                                    ] : []),
                                     { key: "delete", danger: true, label: "删除当前画布", onClick: onDeleteProject },
                                 ],
                             }}
@@ -192,7 +222,7 @@ export function CanvasTopBar({
                                 {libtvChrome ? (
                                     <span className="canvas-topbar-libtv-brand-mark" aria-hidden="true" />
                                 ) : (
-                                    <BrandLogoFrame className="canvas-topbar-brand-mark" logoClassName="canvas-topbar-brand-mark-image" alt="" fallback={<span className="canvas-topbar-brand-mark-fallback" aria-hidden="true">B</span>} />
+                                    <BrandLogoFrame className="canvas-topbar-brand-mark" logoClassName="canvas-topbar-brand-mark-image" alt="" fallback={<span className="canvas-topbar-brand-mark-fallback" aria-hidden="true">A</span>} />
                                 )}
                                 <ChevronDown className="size-2.5 opacity-55" aria-hidden="true" />
                             </button>
@@ -311,6 +341,7 @@ export function CanvasTopBar({
                                                                 { key: "new-window", label: "在新窗口打开", onClick: () => onOpenCanvasInNewWindow?.(canvas.id) },
                                                                 { key: "rename", label: "重命名画布", onClick: () => { setCanvasMenuOpen(true); setRenameCanvas({ id: canvas.id, title: canvasLabel }); } },
                                                                 { key: "duplicate", label: "复制画布", onClick: () => void onDuplicateCanvas?.(canvas.id) },
+                                                                { key: "export", label: "导出画布", onClick: () => void runExport(canvas.id, true) },
                                                                 { key: "delete", danger: true, label: "删除画布", onClick: () => void onDeleteCanvas?.(canvas.id) },
                                                             ],
                                                         }}
@@ -347,7 +378,7 @@ export function CanvasTopBar({
                 ) : null}
 
                 <div className="canvas-topbar-cluster canvas-topbar-local-cluster pointer-events-auto hidden items-center gap-1 lg:flex" style={dockStyle}>
-                    {onOpenWorkflows ? <Button type="text" className="canvas-topbar-action !h-9 !rounded-xl !px-2.5" style={{ color: theme.node.text, background: workflowsOpen ? theme.toolbar.activeBg : undefined }} aria-pressed={workflowsOpen} icon={<Workflow className="size-4" />} onClick={onOpenWorkflows}>工作流</Button> : null}
+                    {onOpenWorkflows ? <Button type="text" className="canvas-topbar-action canvas-topbar-workflow-button !h-9 !rounded-xl !px-2.5" style={{ color: theme.node.text, background: workflowsOpen ? theme.toolbar.activeBg : undefined }} aria-pressed={workflowsOpen} icon={<Workflow className="size-4" />} onClick={onOpenWorkflows}>工作流</Button> : null}
                     {onToggleAssistant ? (
                         <CanvasTopBarTooltip label="Agent（Ctrl/Cmd + J）">
                             <Button
@@ -367,6 +398,7 @@ export function CanvasTopBar({
                 </div>
 
                 <div className="canvas-topbar-cluster canvas-topbar-tools-cluster pointer-events-auto flex items-center gap-1.5 lg:hidden" style={dockStyle}>
+                    {onOpenWorkflows ? <CanvasTopBarTooltip label="工作流"><Button type="text" className="canvas-topbar-action canvas-topbar-workflow-button !h-10 !w-10 !min-w-10 !rounded-xl !p-0" style={{ color: theme.node.text, background: workflowsOpen ? theme.toolbar.activeBg : undefined }} aria-pressed={workflowsOpen} icon={<Workflow className="size-4" />} aria-label="工作流" onClick={onOpenWorkflows} /></CanvasTopBarTooltip> : null}
                     <CanvasTopBarTooltip label="搜索画布节点">
                         <Button
                             type="text"
@@ -450,19 +482,28 @@ export function CanvasTopBar({
 function CanvasAccountStatus({ style }: { style: CSSProperties }) {
     const user = useUserStore((state) => state.user);
     const balanceQuery = useCanvasBillingBalance();
+    const [pointsOpen, setPointsOpen] = useState(false);
+    const [pointsTab, setPointsTab] = useState<"detail" | "recharge">("detail");
     const displayName = user?.displayName || user?.username || "账户";
     const initial = Array.from(displayName.trim())[0] || "U";
     const balance = balanceQuery.data?.enabled ? balanceQuery.data.balance : null;
-    const balanceLabel = balanceQuery.isPending ? "—" : String(balance ?? 0);
+    const balanceLabel = balanceQuery.isPending ? "—" : balance === null ? "--" : balance.toLocaleString("zh-CN");
 
     return (
         <div className="canvas-topbar-cluster canvas-topbar-account-cluster pointer-events-auto flex items-center gap-1.5" style={style} aria-label="账户与积分">
             <Tooltip title={balance === null ? "当前无法读取积分余额" : `当前可用积分：${balance}`} placement="bottom">
-                <span className="inline-flex h-8 items-center gap-1.5 rounded-xl border border-white/10 bg-black/15 px-2.5 text-xs font-medium tabular-nums" aria-label={`当前积分 ${balanceLabel}`}>
+                <button type="button" onClick={() => { setPointsTab("detail"); setPointsOpen(true); }} className="inline-flex h-8 items-center gap-1.5 rounded-xl border border-white/10 bg-black/15 px-2.5 text-xs font-medium tabular-nums transition-colors hover:bg-white/10" aria-label={`查看积分，当前 ${balanceLabel} 积分`}>
                     <Zap className="size-3.5" strokeWidth={2.2} />
                     <span>{balanceLabel}</span>
-                </span>
+                </button>
             </Tooltip>
+            <Tooltip title="充值积分" placement="bottom">
+                <button type="button" onClick={() => { setPointsTab("recharge"); setPointsOpen(true); }} className="inline-flex h-8 items-center gap-1 rounded-xl border border-white/10 bg-black/15 px-2.5 text-xs font-medium transition-colors hover:bg-white/10" aria-label="充值积分">
+                    <Plus className="size-3.5" strokeWidth={2.2} />
+                    <span>充值</span>
+                </button>
+            </Tooltip>
+            <PointsCenterModal open={pointsOpen} initialTab={pointsTab} onClose={() => setPointsOpen(false)} onBalanceChange={() => void balanceQuery.refetch()} />
             <Tooltip title={displayName} placement="bottom">
                 <span className="grid size-8 place-items-center overflow-hidden rounded-full border border-white/10 bg-emerald-500 text-xs font-semibold text-white" aria-label={displayName}>
                     {user?.avatarUrl ? <img src={user.avatarUrl} alt="" className="size-full object-cover" referrerPolicy="no-referrer" loading="lazy" decoding="async" /> : initial}

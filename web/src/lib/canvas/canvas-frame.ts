@@ -8,8 +8,8 @@ export const FRAME_COLLAPSED_HEIGHT = 144;
 export const FOLDER_COLLAPSED_WIDTH = 360;
 export const FOLDER_COLLAPSED_HEIGHT = 280;
 
-export function isFrameNode(node?: CanvasNodeData | null): node is CanvasNodeData & { type: CanvasNodeType.Frame } {
-    return node?.type === CanvasNodeType.Frame;
+export function isFrameNode(node?: CanvasNodeData | null): node is CanvasNodeData & { type: CanvasNodeType.Frame | CanvasNodeType.Workflow } {
+    return node?.type === CanvasNodeType.Frame || node?.type === CanvasNodeType.Workflow;
 }
 
 export function isCanvasFolderNode(node?: CanvasNodeData | null) {
@@ -17,11 +17,12 @@ export function isCanvasFolderNode(node?: CanvasNodeData | null) {
 }
 
 export function canFrameContain(node: CanvasNodeData) {
+    if (node.metadata?.workflowSlot || node.metadata?.reusableWorkflow) return true;
     return node.type === CanvasNodeType.Image || node.type === CanvasNodeType.Text || node.type === CanvasNodeType.Drawing || node.type === CanvasNodeType.Script || node.type === CanvasNodeType.Video;
 }
 
 export function canFolderContain(node: CanvasNodeData) {
-    return node.type !== CanvasNodeType.Frame;
+    return !isFrameNode(node);
 }
 
 export function canLinkedFolderArchive(node: CanvasNodeData) {
@@ -77,6 +78,7 @@ export function findFrameDropTargetFromIndex(index: CanvasFrameDropIndex, dragge
 }
 
 function isValidFrameDropTarget(frame: CanvasNodeData, dragged: CanvasNodeData[], draggedNodeIds: Set<string>, offset: Position = { x: 0, y: 0 }) {
+    if (frame.type === CanvasNodeType.Workflow) return false;
     if (!isFrameNode(frame) || (frame.metadata?.frame?.collapsed && !isCanvasFolderNode(frame)) || draggedNodeIds.has(frame.id)) return false;
     const canContain = frame.metadata?.folder?.assetFolderId ? canLinkedFolderArchive : isCanvasFolderNode(frame) ? canFolderContain : canFrameContain;
     if (!dragged.every(canContain)) return false;
@@ -135,6 +137,22 @@ export function applyFrameDrop(nodes: CanvasNodeData[], draggedNodeIds: Set<stri
     );
 }
 
+export function packNodesIntoCollapsedFolder(
+    nodes: CanvasNodeData[],
+    selectedNodeIds: ReadonlySet<string>,
+    createFolderNode: (position: Position, count: number) => CanvasNodeData,
+) {
+    const candidates = nodes
+        .filter((node) => selectedNodeIds.has(node.id) && !node.metadata?.locked && canFolderContain(node))
+        .sort((a, b) => a.position.y - b.position.y || a.position.x - b.position.x);
+    if (candidates.length < 2) return null;
+    const left = Math.min(...candidates.map((node) => node.position.x));
+    const top = Math.min(...candidates.map((node) => node.position.y));
+    const folder = createFolderNode({ x: left, y: top }, candidates.length);
+    const nextNodes = applyFrameDrop([...nodes, folder], new Set(candidates.map((node) => node.id)), folder.id);
+    return { nodes: nextNodes, folderId: folder.id, count: candidates.length };
+}
+
 function layoutCollapsedFolderChildren(nodes: CanvasNodeData[], folder: CanvasNodeData) {
     const children = getFrameChildren(folder.id, nodes);
     if (!children.length) return nodes;
@@ -170,6 +188,53 @@ function layoutCollapsedFolderChildren(nodes: CanvasNodeData[], folder: CanvasNo
             },
         };
     });
+}
+
+export function unpackCanvasFolder(nodes: CanvasNodeData[], folderId: string) {
+    const folder = nodes.find((node) => node.id === folderId && isCanvasFolderNode(node));
+    if (!folder || folder.metadata?.folder?.assetFolderId) return null;
+    const children = getFrameChildren(folderId, nodes);
+    if (!children.length) {
+        return { nodes: nodes.filter((node) => node.id !== folderId), unpackedIds: [] as string[] };
+    }
+    const gap = 24;
+    const columns = Math.min(3, Math.ceil(Math.sqrt(children.length)));
+    const cellWidth = Math.max(...children.map((node) => node.width));
+    const cellHeight = Math.max(...children.map((node) => node.height));
+    const indexById = new Map(children.map((node, index) => [node.id, index]));
+    const nextNodes = nodes
+        .filter((node) => node.id !== folderId)
+        .map((node) => {
+            const index = indexById.get(node.id);
+            if (index === undefined) return node;
+            const column = index % columns;
+            const row = Math.floor(index / columns);
+            return {
+                ...node,
+                parentId: undefined,
+                position: {
+                    x: folder.position.x + column * (cellWidth + gap) + (cellWidth - node.width) / 2,
+                    y: folder.position.y + row * (cellHeight + gap) + (cellHeight - node.height) / 2,
+                },
+            };
+        });
+    return { nodes: nextNodes, unpackedIds: children.map((node) => node.id) };
+}
+
+export function extractNodeFromCanvasFolder(nodes: CanvasNodeData[], nodeId: string) {
+    const child = nodes.find((node) => node.id === nodeId);
+    const folder = child?.parentId ? nodes.find((node) => node.id === child.parentId && isCanvasFolderNode(node)) : null;
+    if (!child || !folder) return null;
+    const nextPosition = {
+        x: folder.position.x + folder.width + 36,
+        y: folder.position.y + Math.max(0, (folder.height - child.height) / 2),
+    };
+    const detached = nodes.map((node) => (node.id === nodeId ? { ...node, parentId: undefined, position: nextPosition } : node));
+    return {
+        nodes: layoutCollapsedFolderChildren(detached, folder),
+        folderId: folder.id,
+        nodeId: child.id,
+    };
 }
 
 export function resolveFrameConnection(connection: CanvasConnection, nodes: CanvasNodeData[]) {

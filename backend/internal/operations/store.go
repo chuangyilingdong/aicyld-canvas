@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 
 	"infinite-canvas/backend/internal/model"
 )
@@ -35,7 +34,12 @@ type RunRequest struct {
 	AlternatePayloadHash string
 	TurnID               string
 	CanvasID             string
+	CallerKind           string
+	ClientID             string
+	ClientLabel          string
 	TurnGuard            TurnGuard
+	AfterCommitInTx      func(tx *gorm.DB) error
+	OnErrorInTx          func(tx *gorm.DB, err error) error
 }
 
 // TurnGuard closes the preflight/settlement race on the same connection as
@@ -106,18 +110,22 @@ func (s *Store) Run(ctx context.Context, req RunRequest, fn func(tx *gorm.DB) ([
 		out, err := fn(db)
 		return RunOutcome{Result: out}, err
 	}
+	if req.Op == "skill.script.run" {
+		return s.runOutOfTx(db, req, fn)
+	}
 	var outcome RunOutcome
 	err := db.Transaction(func(tx *gorm.DB) error {
 		record := model.AgentOpRecord{OpID: req.OpID, UserID: req.UserID, Op: req.Op,
-			PayloadHash: req.PayloadHash, Status: "running", TurnID: strings.TrimSpace(req.TurnID)}
-		created := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&record)
-		if created.Error != nil {
-			return AsError(created.Error)
-		}
-		if created.RowsAffected == 0 {
+			PayloadHash: req.PayloadHash, Status: "running", TurnID: strings.TrimSpace(req.TurnID),
+			CallerKind: strings.TrimSpace(req.CallerKind), ClientID: strings.TrimSpace(req.ClientID),
+			ClientLabel: strings.TrimSpace(req.ClientLabel)}
+		if err := tx.Create(&record).Error; err != nil {
+			if !isDuplicateKey(err) {
+				return AsError(err)
+			}
 			var existing model.AgentOpRecord
 			if findErr := tx.Where("user_id = ? AND op_id = ?", req.UserID, req.OpID).First(&existing).Error; findErr != nil {
-				return AsError(findErr)
+				return AsError(err)
 			}
 			if existing.Status != "succeeded" {
 				return Conflict("operation_in_progress",
@@ -141,11 +149,23 @@ func (s *Store) Run(ctx context.Context, req RunRequest, fn func(tx *gorm.DB) ([
 		}
 		out, runErr := fn(tx)
 		if runErr != nil {
+			if req.OnErrorInTx != nil {
+				runErr = req.OnErrorInTx(tx, runErr)
+			}
 			return runErr
 		}
-		if err := tx.Model(&model.AgentOpRecord{}).Where("user_id = ? AND op_id = ?", req.UserID, req.OpID).
-			Updates(map[string]any{"status": "succeeded", "result_json": string(out), "turn_id": strings.TrimSpace(req.TurnID)}).Error; err != nil {
+		resultJSON, resultEncoding, err := model.EncodeAgentOpResult(out)
+		if err != nil {
 			return AsError(err)
+		}
+		if err := tx.Model(&model.AgentOpRecord{}).Where("user_id = ? AND op_id = ?", req.UserID, req.OpID).
+			Updates(map[string]any{"status": "succeeded", "result_json": resultJSON, "result_encoding": resultEncoding, "turn_id": strings.TrimSpace(req.TurnID)}).Error; err != nil {
+			return AsError(err)
+		}
+		if req.AfterCommitInTx != nil {
+			if err := req.AfterCommitInTx(tx); err != nil {
+				return AsError(err)
+			}
 		}
 		outcome = RunOutcome{Result: out}
 		return nil
@@ -158,6 +178,73 @@ func (s *Store) Run(ctx context.Context, req RunRequest, fn func(tx *gorm.DB) ([
 		return RunOutcome{}, AsError(err)
 	}
 	return outcome, nil
+}
+
+func (s *Store) runOutOfTx(db *gorm.DB, req RunRequest, fn func(tx *gorm.DB) ([]byte, error)) (RunOutcome, error) {
+	var outcome RunOutcome
+	err := db.Transaction(func(tx *gorm.DB) error {
+		record := model.AgentOpRecord{OpID: req.OpID, UserID: req.UserID, Op: req.Op,
+			PayloadHash: req.PayloadHash, Status: "running", TurnID: strings.TrimSpace(req.TurnID),
+			CallerKind: strings.TrimSpace(req.CallerKind), ClientID: strings.TrimSpace(req.ClientID),
+			ClientLabel: strings.TrimSpace(req.ClientLabel)}
+		if err := tx.Create(&record).Error; err != nil {
+			if !isDuplicateKey(err) {
+				return AsError(err)
+			}
+			var existing model.AgentOpRecord
+			if findErr := tx.Where("user_id = ? AND op_id = ?", req.UserID, req.OpID).First(&existing).Error; findErr != nil {
+				return AsError(err)
+			}
+			if existing.Status != "succeeded" {
+				return Conflict("operation_in_progress",
+					"同一操作正在执行或上次未成功，未回放结果", map[string]any{"opId": req.OpID, "status": existing.Status})
+			}
+			if !payloadHashAccepted(existing.PayloadHash, req) || existing.Op != req.Op {
+				return Conflict("operation_id_reused_with_different_payload",
+					"同一操作 ID 已用于不同的请求内容；请换用新的操作 ID",
+					map[string]any{"opId": req.OpID, "existingOp": existing.Op})
+			}
+			outcome = RunOutcome{Result: []byte(existing.ResultJSON), Replayed: true}
+			return nil
+		}
+		if strings.TrimSpace(req.TurnID) != "" {
+			if req.TurnGuard == nil {
+				return PreconditionFailed("turn_guard_unavailable", "助手轮次校验不可用", nil)
+			}
+			if err := req.TurnGuard.VerifyOpenAssistantTurnInTx(tx, req.UserID, req.TurnID, req.CanvasID); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		var opErr *Error
+		if errors.As(err, &opErr) {
+			return RunOutcome{}, opErr
+		}
+		return RunOutcome{}, AsError(err)
+	}
+	if outcome.Replayed {
+		return outcome, nil
+	}
+	out, runErr := fn(db)
+	if runErr != nil {
+		_ = db.Where("user_id = ? AND op_id = ? AND status = ?", req.UserID, req.OpID, "running").Delete(&model.AgentOpRecord{}).Error
+		var opErr *Error
+		if errors.As(runErr, &opErr) {
+			return RunOutcome{}, opErr
+		}
+		return RunOutcome{}, AsError(runErr)
+	}
+	resultJSON, resultEncoding, err := model.EncodeAgentOpResult(out)
+	if err != nil {
+		return RunOutcome{}, AsError(err)
+	}
+	if err := db.Model(&model.AgentOpRecord{}).Where("user_id = ? AND op_id = ?", req.UserID, req.OpID).
+		Updates(map[string]any{"status": "succeeded", "result_json": resultJSON, "result_encoding": resultEncoding, "turn_id": strings.TrimSpace(req.TurnID)}).Error; err != nil {
+		return RunOutcome{}, AsError(err)
+	}
+	return RunOutcome{Result: out}, nil
 }
 
 // RunDomain 把当前事务绑成 Domain 再执行：业务端口拿不到 *gorm.DB。
@@ -175,4 +262,21 @@ func (s *Store) RunDomain(ctx context.Context, req RunRequest, binder DomainBind
 		}
 		return fn(domain)
 	})
+}
+
+func isDuplicateKey(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, gorm.ErrDuplicatedKey) {
+		return true
+	}
+	var coder interface{ Code() int }
+	if errors.As(err, &coder) {
+		switch coder.Code() {
+		case 1555, 2067:
+			return true
+		}
+	}
+	return strings.Contains(strings.ToUpper(err.Error()), "UNIQUE CONSTRAINT FAILED")
 }

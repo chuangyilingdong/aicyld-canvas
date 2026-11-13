@@ -21,24 +21,32 @@ const provider = createServer(async (req, res) => {
     const content = m => typeof m.content === 'string' ? m.content : (m.content || []).map(part => part.text || '').join('');
     const system = request.messages.filter(m => m.role === 'system' || m.role === 'developer').map(content).join('\n');
     const user = request.messages.filter(m => m.role === 'user').map(content).join('\n');
-    const latest=request.messages.filter(m=>m.role==='user').at(-1);
-    if(content(latest).includes('FRESH_TASK')) {
+    if(user.includes('FRESH_TASK')) {
       assert(!JSON.stringify(request.messages).includes(config.instruction),'official reset leaked old instructions');
       return send(res,request.model);
     }
-    // The transcript records explicit selection; active rules are reconstructed
-    // from the real Go database in the official section on every request.
+    // The transcript records explicit selection; active rules stay in non-system
+    // messages while the system header holds only instructions + skill catalog.
     const block = new RegExp(`<skill name="[^"]+" version="[^"]*" skillId="${config.pin.skillId}" versionId="${config.pin.versionId}" contentHash="${config.pin.contentHash}">[\\s\\S]*${config.instruction.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\n</skill>`);
     assert(block.test(user), 'selected fixed Skill block absent from the real user message');
-    assert(system.includes(config.instruction) && system.includes('<beeftv_active_skills>'), 'active rules absent from official section');
+    assert(!system.includes('<beeftv_active_skills>'), 'active_skills must not be in system prompt');
+    assert(system.indexOf('<instructions>') >= 0 && system.indexOf('<instructions>') < system.indexOf('<beeftv_skill_catalog>'), 'instructions must precede skill catalog');
     assert(system.includes('<available_skills>') && system.includes(`<id>${config.pin.skillId}</id>`), 'installed catalog absent from system prompt');
     assert(!JSON.stringify(request.messages).includes('Removed system prompt section'));
-    if(content(latest).includes('CONTINUE_ACTIVE') || content(latest).includes('RESELECT_SAME')) return send(res,request.model);
+    if(user.includes('CONTINUE_ACTIVE') || user.includes('RESELECT_SAME')) return send(res,request.model);
     const results = request.messages.filter(m => m.role === 'tool');
     if (!results.length) return send(res, request.model, 'skill_file', { ...config.pin, path: config.path });
     assert(results[0].content.includes(config.reference), 'auxiliary file missing from tool result');
     if (config.script) {
-      assert(user.includes('script_execution'));
+      if (results.length === 1) {
+        return send(res, request.model, 'skill_script_run', {
+          ...config.pin,
+          scriptPath: config.path,
+          args: ['--probe'],
+          note: '运行技能脚本验证输出',
+        });
+      }
+      assert(JSON.stringify(results).includes('requires_confirmation') || user.includes('<skill_script_result>'));
       return send(res, request.model);
     }
     if (results.length === 1) return send(res, request.model, 'canvas_nodes_create', {
@@ -87,7 +95,10 @@ try {
   assert.equal(history.turns[0].error, null, JSON.stringify(history));
   assert.equal((await backend('/assistant/runtime/turns/' + config.turnId)).value.data.open, false);
   const initialCalls=config.script?2:3;assert.equal(modelCalls,initialCalls);
-  if (config.script) assert(JSON.stringify(history).includes('尚未执行'), 'unsupported script must not claim completion');
+  if (config.script) {
+    assert.equal(history.turns[0].scriptProposals?.length, 1, 'expected scriptProposal on turn: ' + JSON.stringify(history.turns[0]));
+    assert.equal(history.turns[0].scriptProposals[0].scriptPath, config.path);
+  }
   const firstPid=child.pid;await kill('SIGKILL');await start();assert.notEqual(child.pid,firstPid);
   async function extra(turnId,message,skills=[]) {
     const response=await api('/chat',{canvasId:config.canvasId,turnId,message,revisionBefore:1,skills});

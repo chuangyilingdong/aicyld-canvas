@@ -25,15 +25,8 @@ export type CanvasNodeActionContextValue = {
     addPanoramaCaptureNode?: (node: CanvasNodeData, dataUrl: string, title: string) => Promise<void> | void;
     /** 打开视频片段剪辑工作流（智能剪辑节点复用）。 */
     openVideoSegment?: (node: CanvasNodeData) => void;
-    /** 发起服务端媒体超分；只有用户确认报价后调用。 */
-    startMediaUpscale?: (input: {
-        nodeId: string;
-        sourceNodeId: string;
-        resourceId: string;
-        model: string;
-        resolution?: "720p" | "1080p" | "2K" | "4K";
-        quality?: "Low" | "Medium" | "High" | "Max" | "Ultra";
-    }) => Promise<void>;
+    startUpscaleBatch?: (node: CanvasNodeData) => Promise<void>;
+    recoverUpscaleResult?: (node: CanvasNodeData) => Promise<void>;
 };
 
 export const CanvasNodeActionContext = createContext<CanvasNodeActionContextValue>({});

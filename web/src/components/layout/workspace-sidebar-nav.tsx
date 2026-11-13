@@ -1,10 +1,9 @@
-import { ChevronLeft, ChevronRight, Home, Plug, Plus, Settings2, HardDrive, Sun, Moon } from "lucide-react";
+import { ChevronLeft, ChevronRight, Home, Plug, Plus, Settings2, HardDrive, Sun, Moon, Bot } from "lucide-react";
 import { LayoutGroup, motion, useReducedMotion } from "motion/react";
 import { useEffect, useMemo, useRef, useState, type ComponentType, type CSSProperties } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 
 import { BrandLogoFrame } from "@/components/brand/brand-logo";
-import { WorkspaceSidebarUpdate } from "@/components/layout/workspace-sidebar-update";
 import { WorkspaceAccountBlock } from "@/components/layout/workspace-account-block";
 import { WorkspaceSidebarSocialLinks } from "@/components/layout/workspace-sidebar-social-links";
 import { Kbd } from "@/components/ui/base/kbd";
@@ -17,6 +16,7 @@ import { useAppearanceStore } from "@/stores/use-appearance-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { getDesktopAppBinding } from "@/services/desktop-runtime";
 import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler";
+import { canOpenLocalStorageSettings } from "@/services/workspace-mode";
 import { OnboardingEntry } from "@/components/onboarding/first-creation-guide";
 
 export type WorkspaceNavItem = {
@@ -42,6 +42,7 @@ function toolItem(slug: NavigationToolSlug, to: string): WorkspaceNavItem {
 }
 
 function buildNav(features: FeatureAvailability): { groups: WorkspaceNavGroup[]; footer: WorkspaceNavItem[] } {
+    const showStorageSettings = canOpenLocalStorageSettings(Boolean(getDesktopAppBinding()?.StorageSettings));
     const groups: WorkspaceNavGroup[] = [
         {
             items: [
@@ -53,10 +54,11 @@ function buildNav(features: FeatureAvailability): { groups: WorkspaceNavGroup[];
                 { id: "home", title: "首页", icon: Home, to: "/" },
                 { ...toolItem("canvas", "/project"), title: "项目" },
                 { ...toolItem("assets", "/assets"), title: "资产" },
-                toolItem("skills", "/skills"),
-                ...(features.customChannelsEnabled ? [{ id: "settings:channels", title: "模型配置", icon: Settings2, to: "/settings?section=channels" }] : []),
-                ...(getDesktopAppBinding()?.StorageSettings ? [{ id: "settings:storage", title: "存储设置", icon: HardDrive, to: "/settings?section=storage" }] : []),
+                { ...toolItem("skills", "/skills"), title: "技能" },
+                { id: "settings:channels", title: "模型配置", icon: Settings2, to: "/settings?section=channels" },
+                ...(showStorageSettings ? [{ id: "settings:storage", title: "存储设置", icon: HardDrive, to: "/settings?section=storage" }] : []),
                 { id: "agents", title: "灵动TV MCP", icon: Plug, to: "/agents" },
+                { id: "settings:assistant", title: "助手设置", icon: Bot, to: "/settings?section=assistant" },
             ],
         },
     ];
@@ -83,7 +85,7 @@ function WorkspaceSwitcher({ collapsed, onNavigate, onExpand, onCollapse }: { co
         <div className="app-workspace-sidebar-brand-row relative shrink-0 px-3 pt-3">
             <Link to="/" onClick={onNavigate} className="app-workspace-sidebar-brand-button group" aria-label={`${appearance.brandName}首页`}>
                 <span className="flex min-w-0 items-center gap-2">
-                    <BrandLogoFrame className="app-workspace-brand-mark grid size-8 shrink-0 place-items-center rounded-[var(--r-sm)] shadow-sm" logoClassName="size-5 object-contain" alt="" fallback={<span className="app-workspace-brand-placeholder" aria-hidden>B</span>} />
+                    <BrandLogoFrame className="app-workspace-brand-mark grid size-8 shrink-0 place-items-center rounded-[var(--r-sm)] shadow-sm" logoClassName="size-5 object-contain" alt="" fallback={<span className="app-workspace-brand-placeholder" aria-hidden>A</span>} />
                     <span className="flex min-w-0">
                         <span className="app-workspace-brand-wordmark truncate text-[var(--fs-body)] leading-none font-semibold">{appearance.brandName}</span>
                     </span>
@@ -315,8 +317,7 @@ export function WorkspaceSidebarNav({ collapsed, onNavigate, onOpenSearch, onExp
                 <div className={cn("app-workspace-sidebar-contact-row", collapsed && "is-collapsed")}>
                     <WorkspaceSidebarSocialLinks />
                 </div>
-                <div className={cn("app-workspace-sidebar-utility-row", collapsed && "is-collapsed")}>
-                    <WorkspaceSidebarUpdate collapsed={collapsed} />
+                <div className={cn("flex py-1", collapsed ? "justify-center" : "justify-end")}>
                     <AnimatedThemeToggler theme={theme} onThemeChange={setTheme} aria-label={theme === "dark" ? "切换到浅色模式" : "切换到深色模式"} title={theme === "dark" ? "切换到浅色模式" : "切换到深色模式"} className="app-workspace-theme-action">
                         {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
                     </AnimatedThemeToggler>

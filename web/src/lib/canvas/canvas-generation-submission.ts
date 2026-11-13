@@ -22,7 +22,6 @@ export type CanvasGenerationRequestFingerprintInput = {
     };
     operation?: string;
     audioInstructions?: string;
-    audioLyrics?: string;
     promptTemplateOperation?: string;
     promptTemplateVariables?: Record<string, string>;
     context: Pick<NodeGenerationContext, "referenceImages" | "referenceVideos" | "referenceAudios" | "characterReferences" | "resolvedCharacterVersions" | "resolvedCharacterVoices">;
@@ -48,7 +47,6 @@ export function canvasGenerationRequestFingerprint(input: CanvasGenerationReques
         workflow: input.workflow,
         operation: input.operation,
         audioInstructions: input.audioInstructions,
-        audioLyrics: input.audioLyrics,
         promptTemplateOperation: input.promptTemplateOperation,
         promptTemplateVariables: input.promptTemplateVariables,
         references: {
@@ -89,9 +87,7 @@ export function runCanvasGenerationSubmissionOnce<T>(locks: Map<string, Promise<
     const release = () => {
         if (locks.get(nodeId) === running) locks.delete(nodeId);
     };
-    const running = Promise.resolve()
-        .then(() => operation(release))
-        .finally(release);
+    const running = Promise.resolve().then(() => operation(release)).finally(release);
     locks.set(nodeId, running);
     return running;
 }

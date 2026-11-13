@@ -1,8 +1,9 @@
-import { defaultImageCapabilityConfig, modelCapabilityConfigFor, normalizeImageValue, normalizeVideoValue, STANDARD_IMAGE_SIZE_VALUES, videoDurationAllowed, type ImageCapabilityConfig } from "@/lib/model-capabilities";
+import { defaultImageCapabilityConfig, modelCapabilityConfigFor, normalizeImageValue, normalizeVideoValue, STANDARD_IMAGE_SIZE_VALUES, videoDurationAllowed, videoReferencesForOperation, type ImageCapabilityConfig } from "@/lib/model-capabilities";
 import { normalizeVideoBoolean, normalizeVideoResolutionValue, videoResolutionComparisonKey } from "@/lib/video-generation-options";
 import { imageSizePresets } from "@/lib/image-size-presets";
 import { sanitizeVideoPriceQuote, seedancePortraitLabel, seedancePortraitModel } from "@/lib/seedance-portrait";
-import { channelModelProfile, modelOptionName, normalizeModelOptionValue, resolveModelChannel, selectableModelsByCapability, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
+import { textMediaReferenceLimit } from "@/lib/media-review-model";
+import { channelModelProfile, filterModelsByCapability, modelOptionName, normalizeModelOptionValue, resolveModelChannel, selectableModelsByCapability, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
 
 export type ModelInputSummary = {
     textCount: number;
@@ -60,7 +61,9 @@ export function portraitGenerationError(config: AiConfig, model: string, resolut
     if (!normalizeModelOptionValue(model, config.channels)) return "真人素材版当前不可用，请刷新模型列表或重新选择模型";
     const channel = resolveModelChannel(config, model);
     const profile = channel.modelProfiles?.find((item) => item.model === modelOptionName(model));
-    const quote = sanitizeVideoPriceQuote(profile?.videoPricing);
+    // 只有渠道目录下发了报价字段时才按报价核对；自带 Key 的渠道没有报价，交给上游自己判断。
+    if (profile?.videoPricing === undefined) return "";
+    const quote = sanitizeVideoPriceQuote(profile.videoPricing);
     if (!quote || quote.mode !== "tokens") return "真人素材版价格暂不可用，请刷新模型列表";
     if (resolution !== undefined) {
         const normalized = normalizeVideoResolutionValue(resolution);
@@ -68,6 +71,18 @@ export function portraitGenerationError(config: AiConfig, model: string, resolut
         if (!quote.rates[key]) return "当前分辨率价格暂不可用，请选择其他分辨率或刷新模型列表";
     }
     return "";
+}
+
+/**
+ * 只有三种能力来源可以限制用户：服务端目录带版本号的声明、部署方配置的系统渠道、用户在「能力与参数」里亲手改过的值。
+ * 设置页自动补出的默认能力只用来填充界面选项，不代表上游的真实上限，因此不能置灰模型或裁掉参考素材。
+ */
+export function hasDeclaredModelCapability(config: AiConfig, model: string, capability: "image" | "video") {
+    const channel = resolveModelChannel(config, model);
+    const profile = channelModelProfile(channel, modelOptionName(model));
+    if (!profile?.capabilityConfig?.[capability]) return false;
+    const version = capability === "image" ? profile.imageCapabilitiesVersion : profile.videoCapabilitiesVersion;
+    return Boolean(version?.trim()) || channel.scope === "system" || profile.capabilitySource === "user";
 }
 
 export function modelCompatibilityError(config: AiConfig, model: string, requirements?: ModelRequirements) {
@@ -84,31 +99,35 @@ export function modelCompatibilityError(config: AiConfig, model: string, require
         const publicOptionNames = logicalCost?.logicalCapabilitySpec?.options || {};
         const logicalRequirements = {
             ...requirements,
-            options: Object.fromEntries(Object.entries(requirements.options || {}).filter(([name]) => Boolean(publicOptionNames[name]))),
+            options: Object.fromEntries(Object.entries(requirements.options || {}).filter(([name]) => Boolean(publicOptionNames[name])).map(([name, value]) => [name, capability === "image" && name === "count" ? modelCapabilityConfigFor(config, model).image?.fixedOutputs || value : value])),
         };
         const errors = logicalSpecs.map((spec) => logicalModelCompatibilityError(spec, logicalRequirements, visualInputCount));
         return errors.some((error) => !error) ? "" : errors[0] || "当前输入不受支持";
     }
 
     if (capability === "image") {
+        const hasDeclaredImageCapability = hasDeclaredModelCapability(config, model, "image");
         const image = modelCapabilityConfigFor(config, model).image!;
         // 尺寸兼容不依赖输入摘要：无输入时（如画布重试/工具链）也要按尺寸过滤组内模型。
-        if (requirements.imageSize && !image.size.allowCustom && !image.size.values.includes(requirements.imageSize)) return "不支持当前尺寸";
+        if (hasDeclaredImageCapability && requirements.imageSize && !image.size.allowCustom && !image.size.values.includes(requirements.imageSize)) return "不支持当前尺寸";
         if (!input) return "";
         if (input.videoCount > 0) return "图片模型不支持参考视频";
         if (input.audioCount > 0) return "图片模型不支持参考音频";
-        if (visualInputCount > image.references.maxImages) return `最多支持 ${image.references.maxImages} 张参考图`;
+        if (hasDeclaredImageCapability && visualInputCount > image.references.maxImages) return `最多支持 ${image.references.maxImages} 张参考图`;
         return "";
     }
 
     if (capability === "video") {
-        const profile = modelCapabilityConfigFor(config, model).video!;
-        if (requirements.videoSeconds && !videoDurationAllowed(profile, Number(requirements.videoSeconds))) return "不支持当前视频时长";
+        const capabilityConfig = modelCapabilityConfigFor(config, model);
+        if (!hasDeclaredModelCapability(config, model, "video")) return "";
+        const profile = capabilityConfig.video!;
+        if (requirements.videoOperation !== "draft_to_final" && requirements.videoSeconds && !videoDurationAllowed(profile, Number(requirements.videoSeconds))) return "不支持当前视频时长";
         if (!input) return "";
-        if (visualInputCount > profile.references.maxImages) return `最多支持 ${profile.references.maxImages} 张参考图`;
-        if (input.videoCount > profile.references.maxVideos) return `最多支持 ${profile.references.maxVideos} 个参考视频`;
-        if (input.audioCount > profile.references.maxAudios) return `最多支持 ${profile.references.maxAudios} 个参考音频`;
         const operation = resolveVideoOperation(input, requirements.videoOperation);
+        const refs = videoReferencesForOperation(profile, requirements.videoOperation || "");
+        if (visualInputCount > refs.maxImages) return `最多支持 ${refs.maxImages} 张参考图`;
+        if (input.videoCount > refs.maxVideos) return `最多支持 ${refs.maxVideos} 个参考视频`;
+        if (input.audioCount > refs.maxAudios) return `最多支持 ${refs.maxAudios} 个参考音频`;
         if (operation !== "concat" && !profile.operations.includes(operation)) return `不支持${videoOperationLabel(operation)}`;
         return "";
     }
@@ -116,24 +135,22 @@ export function modelCompatibilityError(config: AiConfig, model: string, require
     if (!input) return "";
 
     if (capability === "text") {
-        return input.audioCount > 0 ? "文本模型不支持参考音频" : "";
+        if (input.audioCount > 0) return "文本模型不支持参考音频";
+        const videoLimit = textMediaReferenceLimit(config, model, "video");
+        if (input.videoCount > 0) {
+            if (videoLimit === 0) return "文本模型不支持参考视频，请选择支持视频输入的多模态模型";
+            if (videoLimit !== null && input.videoCount > videoLimit) return `最多支持 ${videoLimit} 个参考视频`;
+        }
+        const imageLimit = textMediaReferenceLimit(config, model, "image");
+        if (input.imageCount > 0) {
+            if (imageLimit === 0) return "文本模型不支持参考图片，请选择支持图片输入的多模态模型";
+            if (imageLimit !== null && input.imageCount > imageLimit) return `最多支持 ${imageLimit} 张参考图片`;
+        }
+        return "";
     }
 
     if (input.characterCount > 1) return "角色配音一次只能引用一个角色卡";
     return input.imageCount > 0 || input.videoCount > 0 || input.audioCount > 0 ? "音频模型只接受文本或单个角色卡输入" : "";
-}
-
-export function modelPromptLengthError(config: AiConfig, model: string, capability: ModelCapability, prompt: string) {
-    const channel = resolveModelChannel(config, model);
-    const configuredProfile = channel.modelProfiles?.find((item) => item.model === modelOptionName(model))?.capabilityConfig;
-    if (!configuredProfile) return "";
-    const profile = modelCapabilityConfigFor(config, model);
-    const maxChars = capability === "text" ? profile.text?.references.promptMaxChars : capability === "image" ? profile.image?.references.promptMaxChars : capability === "video" ? profile.video?.references.promptMaxChars : undefined;
-    if (!maxChars || maxChars <= 0) return "";
-    const actualChars = Array.from(prompt).length;
-    if (actualChars <= maxChars) return "";
-    const label = capability === "text" ? "文本" : capability === "image" ? "图片" : "视频";
-    return `当前${label}模型提示词最多 ${maxChars} 个字符，完整提示词为 ${actualChars} 个字符。系统不会自动截断，请精简当前输入、连线内容或技能上下文后重试`;
 }
 
 export function modelRequestOptions(config: AiConfig, capability: ModelCapability) {
@@ -143,7 +160,7 @@ export function modelRequestOptions(config: AiConfig, capability: ModelCapabilit
         case "video":
             return { size: config.size, videoSeconds: Number(config.videoSeconds), vquality: config.vquality, videoGenerateAudio: config.videoGenerateAudio === "true", videoWatermark: config.videoWatermark === "true" };
         case "audio":
-            return { audioVoice: config.audioVoice, audioFormat: config.audioFormat, audioSampleRate: Number(config.audioSampleRate) || undefined, audioSpeed: Number(config.audioSpeed), audioPitch: Number(config.audioPitch), audioVolume: Number(config.audioVolume) };
+            return { audioVoice: config.audioVoice, audioFormat: config.audioFormat, audioSpeed: Number(config.audioSpeed), audioPitch: Number(config.audioPitch), audioVolume: Number(config.audioVolume) };
         default:
             return {};
     }
@@ -211,7 +228,6 @@ function logicalOptionError(name: string) {
         videoWatermark: "水印设置",
         audioVoice: "音色",
         audioFormat: "音频格式",
-    audioSampleRate: "采样率",
         audioSpeed: "语速",
         audioPitch: "声调",
         audioVolume: "音量",
@@ -267,6 +283,68 @@ export function defaultImageParamsForModel(config: AiConfig, model: string): Pic
         quality: image.quality.default || "auto",
         transparentBackground: String(image.transparentBackground.default ?? false),
     };
+}
+
+export function resolveMaskEditModel(config: AiConfig, requestedModel?: string) {
+    const rawCandidates = [
+        requestedModel,
+        config.imageModel,
+        ...(config.imageModels || []),
+        ...selectableModelsByCapability(config, "image"),
+        config.model,
+        ...(config.models || []),
+    ].filter((item): item is string => Boolean(item?.trim()));
+    const imageCandidates = filterModelsByCapability(rawCandidates, "image", config.channels);
+    return (
+        imageCandidates.find((candidate) => modelCapabilityConfigFor(config, candidate).image?.references.maskSupported) ||
+        imageCandidates[0] ||
+        ""
+    );
+}
+
+export function normalizeMaskEditQuality(quality: string | undefined, size: string | undefined, supportedValues?: string[], defaultQuality = "auto") {
+    if (supportedValues && !supportedValues.length) return defaultQuality || "auto";
+    const aliasToStandard: Record<string, string> = { "1k": "low", "2k": "medium", "4k": "high" };
+    const aliasToTier: Record<string, string> = { low: "1k", medium: "2k", high: "4k" };
+    const resolveSupported = (candidate: string | undefined) => {
+        const lower = String(candidate || "").trim().toLowerCase();
+        if (!lower) return "";
+        if (!supportedValues?.length) return lower;
+        const exact = supportedValues.find((item) => item.toLowerCase() === lower);
+        if (exact) return exact;
+        const mapped = aliasToStandard[lower] || aliasToTier[lower];
+        if (mapped) {
+            const match = supportedValues.find((item) => item.toLowerCase() === mapped);
+            if (match) return match;
+        }
+        return "";
+    };
+    const value = String(quality || "").trim().toLowerCase();
+    if (value && value !== "auto" && value !== "any") return resolveSupported(value) || defaultQuality || "auto";
+    const match = String(size || "").trim().toLowerCase().match(/^(\d+)x(\d+)$/);
+    if (!match) return resolveSupported(quality || defaultQuality) || defaultQuality || "auto";
+    const pixels = Number(match[1]) * Number(match[2]);
+    const tier = pixels <= 2_000_000 ? "1k" : pixels <= 4_300_000 ? "2k" : pixels <= 8_294_400 ? "4k" : "";
+    return (tier && resolveSupported(tier)) || resolveSupported(quality || defaultQuality) || defaultQuality || "auto";
+}
+
+export function normalizeMaskEditSize(size: string | undefined, supportedValues: string[] | undefined, defaultSize: string, allowCustom = false) {
+    const raw = String(size || "").trim();
+    if (!raw) return defaultSize;
+    if (!supportedValues?.length || supportedValues.includes("*")) return raw;
+    const matched = supportedValues.find((item) => item.toLowerCase() === raw.toLowerCase());
+    if (matched) return matched;
+    if (allowCustom && /^\d+x\d+$/i.test(raw)) return raw;
+    return defaultSize;
+}
+
+export function initialMaskEditConfig(config: AiConfig): AiConfig {
+    const targetModel = resolveMaskEditModel(config, config.imageModel || config.model);
+    const defaults = defaultImageParamsForModel(config, targetModel);
+    const image = modelCapabilityConfigFor(config, targetModel).image;
+    const size = normalizeMaskEditSize(config.size, image?.size.values, defaults.size, image?.size.allowCustom);
+    const quality = normalizeMaskEditQuality(config.quality, config.size, image?.quality.supported ? image.quality.values : [], defaults.quality);
+    return { ...config, model: targetModel, imageModel: targetModel, size, quality };
 }
 
 export type ModelGenerationDefaults = Pick<AiConfig, "size" | "quality" | "transparentBackground" | "count" | "videoSeconds" | "vquality" | "videoGenerateAudio" | "videoWatermark">;
@@ -331,6 +409,7 @@ export function resolveModelVideoBooleanOptions(config: AiConfig, model: string,
 export function maxModelInputCapacity(config: AiConfig, capability: "image" | "video", kind: "image" | "video" | "audio") {
     const options = selectableModelsByCapability(config, capability);
     if (!options.length) return null;
+    if (options.some((model) => !hasDeclaredModelCapability(config, model, capability))) return null;
     return options.reduce((maximum, model) => {
         const profile = modelCapabilityConfigFor(config, model);
         const value =
@@ -341,12 +420,14 @@ export function maxModelInputCapacity(config: AiConfig, capability: "image" | "v
 
 export function modelGroupReferenceLimits(config: AiConfig, selected: string, capability: ModelCapability, requirements?: ModelRequirements): ModelReferenceLimits | undefined {
     if (capability !== "image" && capability !== "video") return undefined;
+    if (selected && !hasDeclaredModelCapability(config, selected, capability)) return undefined;
     const options = selectableModelsByCapability(config, capability);
     const selectedGroup = groupModelsByDisplayName(config, options).find((group) => group.models.includes(selected));
     const groupModels = selectedGroup?.models || (selected ? [selected] : []);
-    if (!groupModels.length) return undefined;
-    const compatibleModels = requirements ? groupModels.filter((model) => !modelCompatibilityError(config, model, requirements)) : groupModels;
-    const models = compatibleModels.length ? compatibleModels : groupModels;
+    const declaredModels = groupModels.filter((model) => hasDeclaredModelCapability(config, model, capability));
+    if (!declaredModels.length) return undefined;
+    const compatibleModels = requirements ? declaredModels.filter((model) => !modelCompatibilityError(config, model, requirements)) : declaredModels;
+    const models = compatibleModels.length ? compatibleModels : declaredModels;
     return models.reduce<ModelReferenceLimits>(
         (limits, model) => {
             const profile = modelCapabilityConfigFor(config, model);
@@ -367,7 +448,7 @@ export function modelGroupReferenceLimits(config: AiConfig, selected: string, ca
 export function inferVideoOperation(input: ModelInputSummary) {
     const visualInputCount = input.imageCount + input.characterCount;
     // 图片或角色决定图生视频主模式，音频只作为附加参考，不应把组合请求
-    // 提升为全能参考；纯音频输入才使用独立的 audio_to_video 能力。
+    // 提升为全模态参考；纯音频输入才使用独立的 audio_to_video 能力。
     if (input.videoCount > 0 || visualInputCount > 2) return "reference_to_video";
     if (visualInputCount > 0) return "image_to_video";
     if (input.audioCount > 0) return "audio_to_video";
@@ -375,21 +456,19 @@ export function inferVideoOperation(input: ModelInputSummary) {
 }
 
 export function resolveVideoOperation(input: ModelInputSummary, storedOperation?: string) {
-    if (storedOperation === "reference_to_video" && input.imageCount + input.characterCount + input.videoCount + input.audioCount > 0) return storedOperation;
-    // 首尾帧是用户显式选的模式：只要有两张图就按首尾帧走（对应上游图生视频的首帧+尾帧），
-    // 不再被「图生视频」的素材推断覆盖。
-    if (storedOperation === "first_last_frame" && input.imageCount >= 2) return storedOperation;
-    if (storedOperation === "extend" && input.videoCount > 0) return storedOperation;
-    if (storedOperation && !["text_to_video", "image_to_video", "first_last_frame", "audio_to_video", "extend", "reference_to_video"].includes(storedOperation)) return storedOperation;
+    // 用户在节点上显式选过生成模式时，模式就是配置本身；参考素材只用于
+    // 兼容性校验，不能在提交前把用户选择改写成另一个 operation。
+    if (storedOperation) return storedOperation;
     return inferVideoOperation(input);
 }
 
 function videoOperationLabel(operation: string) {
     if (operation === "text_to_video") return "文生视频";
     if (operation === "image_to_video") return "图生视频";
-    if (operation === "first_last_frame") return "首尾帧";
     if (operation === "audio_to_video") return "音频生视频";
-    if (operation === "reference_to_video") return "全能参考";
+    if (operation === "reference_to_video") return "全模态参考";
     if (operation === "extend") return "视频续写";
+    if (operation === "inpaint") return "视频局部修改";
+    if (operation === "draft_to_final") return "样片转成片";
     return "当前生成模式";
 }

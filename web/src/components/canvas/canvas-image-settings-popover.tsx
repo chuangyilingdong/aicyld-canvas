@@ -5,15 +5,15 @@ import { Button } from "antd";
 
 import { ImageSettingsPanel, imageQualityLabel, imageSizeLabel } from "@/components/image-settings-panel";
 import { canvasThemes } from "@/lib/canvas-theme";
+import { canvasPopoverLayer } from "@/lib/canvas/canvas-popover-layer";
 import { modelCapabilityConfigFor, normalizeImageValue } from "@/lib/model-capabilities";
 import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
 import type { AiConfig } from "@/stores/use-config-store";
+import { seedreamFamily } from "@/lib/seedream-image";
 
 type CanvasImageSettingsPopoverProps = {
     config: AiConfig;
     onConfigChange: (key: keyof AiConfig, value: string) => void;
-    midjourneyParameters?: Record<string, unknown>;
-    onMidjourneyParameterChange?: (key: string, value: string | number | boolean | undefined) => void;
     onMissingConfig?: () => void;
     onOpenChange?: (open: boolean) => void;
     buttonClassName?: string;
@@ -24,7 +24,7 @@ type CanvasImageSettingsPopoverProps = {
     summaryOverride?: string;
 };
 
-export function CanvasImageSettingsPopover({ config, onConfigChange, midjourneyParameters, onMidjourneyParameterChange, onOpenChange, buttonClassName, placement = "topLeft", showCount = true, summaryOverride }: CanvasImageSettingsPopoverProps) {
+export function CanvasImageSettingsPopover({ config, onConfigChange, onOpenChange, buttonClassName, placement = "topLeft", showCount = true, summaryOverride }: CanvasImageSettingsPopoverProps) {
     const theme = canvasThemes[useActiveTheme()];
     const buttonRef = useRef<HTMLSpanElement>(null);
     const panelRef = useRef<HTMLDivElement>(null);
@@ -32,12 +32,13 @@ export function CanvasImageSettingsPopover({ config, onConfigChange, midjourneyP
     const [buttonRect, setButtonRect] = useState<DOMRect | null>(null);
     const profile = modelCapabilityConfigFor(config, config.model || config.imageModel).image!;
     const normalized = normalizeImageValue(profile, config);
-    const midjourneyQuality = typeof midjourneyParameters?.quality === "string" ? midjourneyParameters.quality : "";
+    const seedream = seedreamFamily(config.model || config.imageModel);
     const summaryParts = [
-        ...(profile.size.parameter !== "none" ? [imageSizeLabel(normalized.size)] : []),
+        ...(seedream && config.seedreamMode === "layers" ? ["图层拆分"] : []),
+        ...(profile.size.parameter !== "none" ? [imageSizeLabel(normalized.size, profile)] : []),
         ...(profile.quality.supported ? [imageQualityLabel(normalized.quality)] : []),
-        ...(midjourneyQuality ? [`细节 ${midjourneyQuality}`] : []),
-        ...(showCount && profile.maxOutputs > 1 ? [`${normalized.count} 张`] : []),
+        ...(seedream && seedream !== "pro" && seedream !== "flash" && Number(config.seedreamMaxImages) > 1 ? [`每批最多 ${config.seedreamMaxImages} 张`] : []),
+        ...(showCount && profile.maxOutputs > 1 ? [`${normalized.count} ${seedream ? "批" : "张"}`] : []),
         ...(profile.transparentBackground.supported && normalized.transparentBackground === "true" ? ["透明"] : []),
     ];
     const summary = summaryOverride || summaryParts.join(" · ");
@@ -70,7 +71,7 @@ export function CanvasImageSettingsPopover({ config, onConfigChange, midjourneyP
         };
     }, [onOpenChange, open]);
 
-    const panel = open && buttonRect ? <ImageSettingsPortal buttonRect={buttonRect} panelRef={panelRef} placement={placement} theme={theme} config={config} showCount={showCount} midjourneyParameters={midjourneyParameters} onMidjourneyParameterChange={onMidjourneyParameterChange} onConfigChange={onConfigChange} /> : null;
+    const panel = open && buttonRect ? <ImageSettingsPortal layer={canvasPopoverLayer(buttonRef.current)} buttonRect={buttonRect} panelRef={panelRef} placement={placement} theme={theme} config={config} showCount={showCount} onConfigChange={onConfigChange} /> : null;
 
     if (!hasSettings) return null;
 
@@ -87,24 +88,22 @@ export function CanvasImageSettingsPopover({ config, onConfigChange, midjourneyP
 }
 
 function ImageSettingsPortal({
+    layer,
     buttonRect,
     panelRef,
     placement,
     theme,
     config,
     showCount,
-    midjourneyParameters,
-    onMidjourneyParameterChange,
     onConfigChange,
 }: {
+    layer: number | string;
     buttonRect: DOMRect;
     panelRef: RefObject<HTMLDivElement | null>;
     placement: CanvasImageSettingsPopoverProps["placement"];
     theme: (typeof canvasThemes)[keyof typeof canvasThemes];
     config: AiConfig;
     showCount: boolean;
-    midjourneyParameters?: Record<string, unknown>;
-    onMidjourneyParameterChange?: (key: string, value: string | number | boolean | undefined) => void;
     onConfigChange: (key: keyof AiConfig, value: string) => void;
 }) {
     const gap = 8;
@@ -116,7 +115,7 @@ function ImageSettingsPortal({
     const topPlacement = placement?.startsWith("top");
     const style = {
         position: "fixed",
-        zIndex: "var(--z-dialog-popover)",
+        zIndex: layer,
         width,
         left: Math.max(margin, Math.min(window.innerWidth - width - margin, left)),
         ...(topPlacement ? { bottom: window.innerHeight - buttonRect.top + gap, maxHeight: Math.max(260, buttonRect.top - margin * 2) } : { top: buttonRect.bottom + gap, maxHeight: Math.max(260, window.innerHeight - buttonRect.bottom - margin * 2) }),
@@ -138,7 +137,7 @@ function ImageSettingsPortal({
             onMouseDown={(event) => event.stopPropagation()}
             onClick={(event) => event.stopPropagation()}
         >
-            <ImageSettingsPanel config={config} onConfigChange={(key, value) => onConfigChange(key, value)} midjourneyParameters={midjourneyParameters} onMidjourneyParameterChange={onMidjourneyParameterChange} theme={theme} showCount={showCount} quickCount={3} className="space-y-3" />
+            <ImageSettingsPanel config={config} onConfigChange={(key, value) => onConfigChange(key, value)} theme={theme} showCount={showCount} quickCount={3} className="space-y-3" />
         </div>,
         document.body,
     );

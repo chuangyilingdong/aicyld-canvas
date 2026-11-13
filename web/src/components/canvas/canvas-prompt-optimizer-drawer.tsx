@@ -144,7 +144,6 @@ export function CanvasPromptOptimizerDrawer({ open, children, prompt, generation
         abortRef.current?.abort();
         setDraftPrompt(prompt);
         setSubmittedPrompt(prompt.trim());
-        // 托管形态：优化模型由平台内置（text.chat），用户端不选模型。
         setActiveOptimizerModel(optimizerModel || canvasFeatureModel("text.chat") || "");
         setSelectedReferenceIds(references.filter((reference) => reference.active).map((reference) => reference.id));
         setResult(null);
@@ -760,7 +759,7 @@ export function CanvasPromptOptimizerDrawer({ open, children, prompt, generation
             autoAdjustOverflow
             motion={{ motionName: "" }}
             styles={{ root: popoverRootStyle }}
-            content={content}
+            content={open ? content : null}
             classNames={{ root: "canvas-prompt-optimizer-popover", container: "canvas-prompt-optimizer-popover-surface", content: "canvas-prompt-optimizer-popover-content" }}
         >
             {children}
@@ -813,7 +812,7 @@ function ReferenceSelection({ references, selectedReferences, onToggle }: { refe
                     })}
                 </div>
             ) : (
-                <p className="canvas-prompt-optimizer-reference-empty">请先添加参考图、角色或文本，再使用此模式。</p>
+                <p className="canvas-prompt-optimizer-reference-empty">请先添加参考图片、视频、音频、角色或文本，再使用此模式。</p>
             )}
         </div>
     );

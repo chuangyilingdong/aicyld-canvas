@@ -87,7 +87,10 @@ func ensureAgentOperationTurnAttribution(tx *gorm.DB) error {
 	if err := ensureAgentOpRecordsTable(tx); err != nil {
 		return err
 	}
-	return ensureAgentOpTurnIndex(tx)
+	if err := ensureAgentOpTurnIndex(tx); err != nil {
+		return err
+	}
+	return ensureAgentOpUserOpStatusIndex(tx)
 }
 
 func ensureAgentOpRecordsTable(tx *gorm.DB) error {
@@ -104,7 +107,19 @@ func ensureAgentOpRecordsTable(tx *gorm.DB) error {
 		if err := ensureSQLiteColumn(tx, "agent_op_records", "result_json", "TEXT"); err != nil {
 			return err
 		}
+		if err := ensureSQLiteColumn(tx, "agent_op_records", "result_encoding", "TEXT"); err != nil {
+			return err
+		}
 		if err := ensureSQLiteColumn(tx, "agent_op_records", "turn_id", "TEXT"); err != nil {
+			return err
+		}
+		if err := ensureSQLiteColumn(tx, "agent_op_records", "caller_kind", "TEXT"); err != nil {
+			return err
+		}
+		if err := ensureSQLiteColumn(tx, "agent_op_records", "client_id", "TEXT"); err != nil {
+			return err
+		}
+		if err := ensureSQLiteColumn(tx, "agent_op_records", "client_label", "TEXT"); err != nil {
 			return err
 		}
 		if err := ensureSQLiteColumn(tx, "agent_op_records", "created_at", "DATETIME"); err != nil {
@@ -113,7 +128,10 @@ func ensureAgentOpRecordsTable(tx *gorm.DB) error {
 		if err := ensureSQLiteColumn(tx, "agent_op_records", "updated_at", "DATETIME"); err != nil {
 			return err
 		}
-		return ensureAgentOpTurnIndex(tx)
+		if err := ensureAgentOpTurnIndex(tx); err != nil {
+			return err
+		}
+		return ensureAgentOpUserOpStatusIndex(tx)
 	}
 	if err := tx.Exec(`CREATE TABLE agent_op_records (
 		user_id TEXT,
@@ -122,19 +140,35 @@ func ensureAgentOpRecordsTable(tx *gorm.DB) error {
 		payload_hash TEXT,
 		status TEXT,
 		result_json TEXT,
+		result_encoding TEXT,
 		turn_id TEXT,
+		caller_kind TEXT,
+		client_id TEXT,
+		client_label TEXT,
 		created_at DATETIME,
 		updated_at DATETIME,
 		PRIMARY KEY (user_id, op_id)
 	)`).Error; err != nil {
 		return fmt.Errorf("创建 Agent 操作表: %w", err)
 	}
-	return ensureAgentOpTurnIndex(tx)
+	if err := ensureAgentOpTurnIndex(tx); err != nil {
+		return err
+	}
+	return ensureAgentOpUserOpStatusIndex(tx)
 }
 
 func ensureAgentOpTurnIndex(tx *gorm.DB) error {
 	return ensureSQLiteIndex(tx, "agent_op_records", "idx_agent_op_records_turn_id",
 		"CREATE INDEX idx_agent_op_records_turn_id ON agent_op_records(turn_id)")
+}
+
+func ensureAgentOpUserOpStatusIndex(tx *gorm.DB) error {
+	return ensureSQLiteIndex(tx, "agent_op_records", "idx_agent_op_records_user_op_status",
+		"CREATE INDEX idx_agent_op_records_user_op_status ON agent_op_records(user_id, op, status)")
+}
+
+func ensureAgentOpResultEncoding(tx *gorm.DB) error {
+	return ensureSQLiteColumn(tx, "agent_op_records", "result_encoding", "TEXT")
 }
 
 func ensureImageSubmissionsTable(tx *gorm.DB) error {
@@ -146,6 +180,9 @@ func ensureImageSubmissionsTable(tx *gorm.DB) error {
 			return err
 		}
 		if err := ensureSQLiteColumn(tx, "image_submissions", "request_cipher", "TEXT"); err != nil {
+			return err
+		}
+		if err := ensureSQLiteColumn(tx, "image_submissions", "query_cipher", "TEXT"); err != nil {
 			return err
 		}
 		if err := ensureSQLiteColumn(tx, "image_submissions", "send_count", "INTEGER"); err != nil {
@@ -169,6 +206,7 @@ func ensureImageSubmissionsTable(tx *gorm.DB) error {
 		task_id TEXT,
 		user_id TEXT,
 		request_cipher TEXT,
+		query_cipher TEXT,
 		send_count INTEGER,
 		response_accepted NUMERIC,
 		created_at DATETIME

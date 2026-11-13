@@ -13,7 +13,6 @@ import (
 	"infinite-canvas/backend/internal/kernel"
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/repository"
-	"infinite-canvas/backend/internal/skillhub"
 
 	"gorm.io/gorm"
 )
@@ -82,7 +81,6 @@ type SkillItem struct {
 	ExtraInfo       string               `json:"extraInfo"`
 	IsAdded         bool                 `json:"isAdded"`
 	IsOwner         bool                 `json:"isOwner"`
-	MarketRelease   *skillhub.Release    `json:"marketRelease,omitempty"`
 }
 
 type SkillCategory struct {
@@ -162,10 +160,6 @@ func (s *Service) RollbackSkillVersion(userID, id, versionID string) (*SkillItem
 		return nil, err
 	}
 	return s.SkillDetail(userID, id)
-}
-
-func (s *Service) CreatePrivateRewrite(userID, id string) (*SkillItem, error) {
-	return s.ForkMarket(userID, id)
 }
 
 type SkillListRequest struct {
@@ -287,6 +281,16 @@ func (s *Service) UpdateSkill(userID string, id string, req SkillMutationRequest
 	if err != nil {
 		return nil, err
 	}
+	active, err := s.repo.ActiveSkillSubmission(skill.ID)
+	if err != nil {
+		return nil, err
+	}
+	if active != nil {
+		if active.Status == skillSubmissionInReview {
+			return nil, kernel.NewAppError(409, "技能正在审核中，不能修改；请等待审核结果")
+		}
+		return nil, kernel.NewAppError(409, "技能有未提交的投稿草稿，请先撤回后再修改")
+	}
 	requireInstruction := skill.SourceType == "markdown" || skill.SourceType == "builtin" || skill.SourceType == ""
 	normalized, mediaJSON, err := normalizeSkillMutationRequest(req, requireInstruction)
 	if err != nil {
@@ -313,6 +317,16 @@ func (s *Service) DeleteSkill(userID string, id string) error {
 	skill, err := s.ownedSkill(userID, id)
 	if err != nil {
 		return err
+	}
+	active, err := s.repo.ActiveSkillSubmission(skill.ID)
+	if err != nil {
+		return err
+	}
+	if active != nil {
+		if active.Status == skillSubmissionInReview {
+			return kernel.NewAppError(409, "技能正在审核中，不能删除；请等待审核结果")
+		}
+		return kernel.NewAppError(409, "技能有未提交的投稿草稿，请先撤回后再删除")
 	}
 	if err := s.repo.DeleteSkill(skill.ID); err != nil {
 		return err
@@ -355,24 +369,8 @@ func (s *Service) SetSkillLiked(userID string, id string, liked bool) (*SkillIte
 
 func (s *Service) skillItems(userID string, skills []model.Skill, includeInstruction bool) ([]SkillItem, error) {
 	ids := make([]string, 0, len(skills))
-	versionIDs := make([]string, 0, len(skills))
 	for _, skill := range skills {
 		ids = append(ids, skill.ID)
-		if skill.CurrentVersionID != "" {
-			versionIDs = append(versionIDs, skill.CurrentVersionID)
-		}
-	}
-	versions, err := s.repo.SkillVersionsByIDs(versionIDs)
-	if err != nil {
-		return nil, err
-	}
-	releases := make(map[string]*skillhub.Release, len(versions))
-	for _, version := range versions {
-		release, err := marketReleaseMetadata(version.MarketReleaseJSON)
-		if err != nil {
-			return nil, err
-		}
-		releases[version.ID] = release
 	}
 	states, err := s.repo.UserSkillStatesBySkillIDs(userID, ids)
 	if err != nil {
@@ -393,10 +391,6 @@ func (s *Service) skillItems(userID string, skills []model.Skill, includeInstruc
 			return nil, err
 		}
 		ownerName := strings.TrimSpace(skill.AuthorName)
-		release := releases[skill.CurrentVersionID]
-		if release != nil && skill.SourceType == "market" {
-			ownerName = release.Author
-		}
 		ownerAvatarURL := strings.TrimSpace(skill.AuthorAvatarURL)
 		state := stateBySkillID[skill.ID]
 		metric := metrics[skill.ID]
@@ -416,7 +410,6 @@ func (s *Service) skillItems(userID string, skills []model.Skill, includeInstruc
 			LikeCount: metric.LikeCount, IsLike: state.Liked, OwnerUID: skill.OwnerID,
 			EffectiveUser: SkillEffectiveUser{Name: ownerName, AvatarURL: ownerAvatarURL, UID: skill.OwnerID}, ShowcaseMedia: showcaseMedia,
 			AddedCount: metric.AddedCount, ExtraInfo: skill.ExtraInfo, IsAdded: state.Added, IsOwner: skill.OwnerID == userID,
-			MarketRelease: release,
 		})
 	}
 	return items, nil
@@ -503,8 +496,8 @@ func normalizeSkillMutationRequest(req SkillMutationRequest, requireInstruction 
 	if req.SkillName == "" || utf8.RuneCountInString(req.SkillName) > 80 {
 		return req, "", kernel.BadAuthRequest("技能名称必须为 1-80 个字符")
 	}
-	if req.Description == "" || utf8.RuneCountInString(req.Description) > 500 {
-		return req, "", kernel.BadAuthRequest("技能简介必须为 1-500 个字符")
+	if req.Description == "" || utf8.RuneCountInString(req.Description) > maxSkillDescriptionRunes {
+		return req, "", kernel.BadAuthRequest("技能简介必须为 1-1024 个字符")
 	}
 	if (requireInstruction && req.Instruction == "") || utf8.RuneCountInString(req.Instruction) > 100000 {
 		return req, "", kernel.BadAuthRequest("技能指令必须为 1-100000 个字符")

@@ -3,7 +3,7 @@ import type { ModelChannel } from "@/stores/use-config-store";
 export type ModelProtocol = string;
 export type ProtocolCapability = "text" | "image" | "video" | "audio";
 export type ModelProtocolWorkflow = { id: string; label: string; providerId: string; capability: ProtocolCapability; parameters: Array<{ name: string; type: string; required?: boolean; description?: string; values?: string[]; mapping?: string }>; defaults?: Record<string, string | number | boolean> };
-export type ModelProtocolDefinition = { value: ModelProtocol; label: string; vendor?: string; capability: ProtocolCapability; create: string; contentType: string; poll?: string; media: string; enabled?: boolean; baseUrl?: string; workflows?: ModelProtocolWorkflow[] };
+export type ModelProtocolDefinition = { value: ModelProtocol; label: string; vendor?: string; capability: ProtocolCapability; create: string; contentType: string; poll?: string; media: string; enabled?: boolean; baseUrl?: string; authType?: string; workflows?: ModelProtocolWorkflow[] };
 
 export function protocolGroups(protocols: ModelProtocolDefinition[]) {
     return (["text", "image", "video", "audio"] as ProtocolCapability[]).map((capability) => ({ label: { text: "文本", image: "图片", video: "视频", audio: "音频" }[capability], options: protocols.filter((item) => item.capability === capability && item.enabled !== false).map((item) => ({ label: `${item.label} · ${item.create.replace(/^POST /, "")}`, value: item.value })) }));
@@ -27,10 +27,9 @@ const BUILTIN_PROTOCOL_CAPABILITIES: Record<ModelProtocol, ProtocolCapability> =
     "volcengine-ark-agent-plan-image": "image",
     "volcengine-jimeng-image": "image",
     newapi: "video",
-    "newapi-image": "image",
-    midjourney: "image",
     "newapi-channel-1": "video",
     "newapi-channel-2": "video",
+    "video-generations-json": "video",
     "xai-video": "video",
     "volcengine-ark-video": "video",
     "volcengine-ark-agent-plan-video": "video",
@@ -42,6 +41,7 @@ const BUILTIN_PROTOCOL_CAPABILITIES: Record<ModelProtocol, ProtocolCapability> =
     "full-video": "video",
     "openai-audio": "audio",
     "async-audio": "audio",
+    "audio-generations": "audio",
 };
 export function modelProtocolCapability(value: string | undefined, definitions: ModelProtocolDefinition[] = []) {
     const definition = modelProtocolDefinition(value, definitions);
@@ -127,7 +127,7 @@ export function inferProtocolCapabilityFromModel(model: string): ProtocolCapabil
         lower.includes("veo") ||
         lower.includes("kling") ||
         lower.includes("seedance") ||
-        lower.includes("minimax-video") ||
+        /minimax-(?:video|h3)/.test(lower) ||
         lower.includes("hailuo") ||
         lower.includes("pika") ||
         lower.includes("runway") ||
@@ -169,7 +169,7 @@ export function ensureModelProfilesWithUiDefaults(
         const current = byModel.get(model);
         if (current?.protocol && current.capability) return { ...current, capability: current.capability, protocol: current.protocol };
         const capability = current?.capability || modelProtocolCapability(current?.protocol, availableProtocols) || inferProtocolCapabilityFromModel(model);
-        const protocol = current?.protocol || (usesOpenAICompatibleProtocolDefault(apiFormat) ? defaultProtocolForCapability(capability, availableProtocols) : undefined);
+        const protocol = current?.protocol || (capability !== "video" && usesOpenAICompatibleProtocolDefault(apiFormat) ? defaultProtocolForCapability(capability, availableProtocols) : undefined);
         return { ...current, model, capability, protocol };
     });
 }

@@ -17,6 +17,8 @@ type StoryboardPreparation struct {
 	Script           *StoryboardDraft
 	RowIDs           []string
 	Image, Video     map[string]any
+	ImageTitle       string
+	VideoTitle       string
 	ReferenceNodeIDs []string
 }
 
@@ -48,7 +50,7 @@ func (s *Service) PrepareUserCanvasStoryboard(userID, canvasID, nodeID string, i
 	if err := requireExpectedRevision(expectedRevision); err != nil {
 		return UserDataSummary{}, result, err
 	}
-	if (input.Script == nil && len(input.RowIDs) < 1) || len(input.RowIDs) > 8 || len(input.ReferenceNodeIDs) > 4 || (len(input.Image) == 0 && len(input.Video) == 0) {
+	if (input.Script == nil && len(input.RowIDs) < 1) || len(input.RowIDs) > 8 || len(input.ReferenceNodeIDs) > 4 || (input.Script == nil && len(input.Image) == 0 && len(input.Video) == 0) {
 		return fail("请选择 1..8 个分镜及图片或视频参数，参考图片最多 4 张")
 	}
 	if len(input.Image) == 0 && len(input.ReferenceNodeIDs) > 0 {
@@ -77,6 +79,11 @@ func (s *Service) PrepareUserCanvasStoryboard(userID, canvasID, nodeID string, i
 			storyboard = metadata["storyboard"].(map[string]any)
 			for i, draft := range input.Script.Rows {
 				row := buildStoryboardRow(i+1, draft)
+				if plot, _ := row["plotDescription"].(string); strings.TrimSpace(plot) == "" {
+					if imgPrompt, _ := row["imageGenerationPrompt"].(string); strings.TrimSpace(imgPrompt) != "" {
+						row["plotDescription"] = strings.TrimSpace(imgPrompt)
+					}
+				}
 				rows = append(rows, row)
 				input.RowIDs = append(input.RowIDs, rowIDOf(row))
 			}
@@ -127,6 +134,13 @@ func (s *Service) PrepareUserCanvasStoryboard(userID, canvasID, nodeID string, i
 			if bound, _ := row[kind+"NodeId"].(string); bound != "" {
 				return fail("分镜已有" + kind + "节点，请修改原节点而不是重复创建")
 			}
+			if kind == "image" {
+				if prompt, _ := row[promptField].(string); strings.TrimSpace(prompt) == "" {
+					if plot, _ := row["plotDescription"].(string); strings.TrimSpace(plot) != "" {
+						row[promptField] = strings.TrimSpace(plot)
+					}
+				}
+			}
 			if prompt, _ := row[promptField].(string); strings.TrimSpace(prompt) == "" {
 				return fail("分镜缺少" + promptField)
 			}
@@ -164,6 +178,9 @@ func (s *Service) PrepareUserCanvasStoryboard(userID, canvasID, nodeID string, i
 		edges, _ := doc["connections"].([]any)
 		doc["connections"] = append(edges, map[string]any{"id": id, "fromNodeId": from, "toNodeId": to, "relation": "storyboard-asset-reference", "storyboardRowId": rowID})
 		result.CreatedEdgeIDs = append(result.CreatedEdgeIDs, id)
+	}
+	if err := checkStoryboardTemplateTitles(doc, rows, input); err != nil {
+		return UserDataSummary{}, result, err
 	}
 	imageWidth, imageHeight := storyboardDraftSize(input.Image)
 	videoWidth, videoHeight := storyboardDraftSize(input.Video)
@@ -209,7 +226,11 @@ func (s *Service) PrepareUserCanvasStoryboard(userID, canvasID, nodeID string, i
 			metadata["workflowKind"] = "shot"
 			metadata["shotIndex"] = row["shotNumber"]
 			createdID := newCanvasNodeID()
-			title := fmt.Sprintf("镜头 %d · %s", rowShotNumber(row), label)
+			titleTemplate := input.ImageTitle
+			if kind == "video" {
+				titleTemplate = input.VideoTitle
+			}
+			title := storyboardDraftTitle(titleTemplate, row, label)
 			left, width, height := x, imageWidth, imageHeight
 			if kind == "video" {
 				left, width, height = x+imageWidth+80, videoSizes[id][0], videoSizes[id][1]
@@ -217,7 +238,7 @@ func (s *Service) PrepareUserCanvasStoryboard(userID, canvasID, nodeID string, i
 			node := map[string]any{"id": createdID, "type": kind, "title": title, "metadata": metadata,
 				"position": map[string]any{"x": left, "y": 160 + float64(index)*rowStride}, "width": width, "height": height}
 			for name, value := range patch {
-				if name == "title" || name == "content" {
+				if name == "title" || name == "content" || name == "prompt" {
 					return fail("生成参数不能覆盖分镜提示词或名称")
 				}
 				if _, exists := descriptor.PatchFields[name]; !exists {
@@ -355,4 +376,61 @@ func storyboardDraftSize(patch map[string]any) (float64, float64) {
 	}
 	scale := math.Max(1, math.Max(420/width, 236/height))
 	return width * scale, height * scale
+}
+
+// storyboardDraftTitle 是分镜草稿标题的唯一出口：有模板按镜号替换 {n}，否则用默认标题。
+func storyboardDraftTitle(template string, row map[string]any, label string) string {
+	if template == "" {
+		return fmt.Sprintf("镜头 %d · %s", rowShotNumber(row), label)
+	}
+	return strings.ReplaceAll(template, "{n}", strconv.Itoa(rowShotNumber(row)))
+}
+
+// checkStoryboardTemplateTitles 让调用方给的标题模板遵守普通建节点的重名规则：
+// 模板标题不与本批任何最终标题（含默认标题）重复，也不与画布已有标题相同。
+// 不带模板的批次保持原行为。
+func checkStoryboardTemplateTitles(doc map[string]any, rows []any, input StoryboardPreparation) error {
+	if input.ImageTitle == "" && input.VideoTitle == "" {
+		return nil
+	}
+	type batchTitle struct {
+		title     string
+		templated bool
+	}
+	var batch []batchTitle
+	counts := map[string]int{}
+	for _, id := range input.RowIDs {
+		row := findStoryboardRow(rows, id)
+		for _, draft := range []struct {
+			template, label string
+			patch           map[string]any
+		}{{input.ImageTitle, "首帧", input.Image}, {input.VideoTitle, "视频", input.Video}} {
+			if len(draft.patch) == 0 {
+				continue
+			}
+			title := normalizeNodeTitle(storyboardDraftTitle(draft.template, row, draft.label))
+			batch = append(batch, batchTitle{title, draft.template != ""})
+			counts[title]++
+		}
+	}
+	existing := map[string]bool{}
+	for _, raw := range canvasDocNodes(doc) {
+		if node, ok := raw.(map[string]any); ok {
+			if title, _ := node["title"].(string); title != "" {
+				existing[normalizeNodeTitle(title)] = true
+			}
+		}
+	}
+	for _, item := range batch {
+		if !item.templated {
+			continue
+		}
+		if counts[item.title] > 1 {
+			return kernel.NewAppError(http.StatusBadRequest, "同一批次内标题重复: "+item.title)
+		}
+		if existing[item.title] {
+			return kernel.NewAppError(http.StatusConflict, "标题已存在: "+item.title)
+		}
+	}
+	return nil
 }

@@ -157,7 +157,7 @@ func (r *Repository) UserStorageUsage(userID string) (UserStorageUsage, error) {
 			(SELECT COUNT(*) FROM canvas_projects WHERE user_id = ?) AS canvas_count,
 			%s AS canvas_bytes,
 			(SELECT COUNT(*) FROM tasks WHERE user_id = ?) AS task_count,
-			(SELECT COALESCE(SUM(length(CAST(COALESCE(prompt, '') AS BLOB)) + length(CAST(COALESCE(input_json, '') AS BLOB)) + length(CAST(COALESCE(result_json, '') AS BLOB)) + length(CAST(COALESCE(text_draft, '') AS BLOB)) + length(CAST(COALESCE(error, '') AS BLOB))), 0) FROM tasks WHERE user_id = ?)
+			(SELECT COALESCE(SUM(length(CAST(COALESCE(prompt, '') AS BLOB)) + length(CAST(COALESCE(input_json, '') AS BLOB)) + length(CAST(COALESCE(workflow_source_cipher, '') AS BLOB)) + length(CAST(COALESCE(result_json, '') AS BLOB)) + length(CAST(COALESCE(text_draft, '') AS BLOB)) + length(CAST(COALESCE(error, '') AS BLOB))), 0) FROM tasks WHERE user_id = ?)
 			+ (SELECT COALESCE(SUM(length(CAST(COALESCE(message, '') AS BLOB)) + length(CAST(COALESCE(payload, '') AS BLOB))), 0) FROM task_logs WHERE user_id = ?)
 			+ (SELECT COALESCE(SUM(length(CAST(COALESCE(url, '') AS BLOB)) + length(CAST(COALESCE(payload, '') AS BLOB))), 0) FROM results WHERE user_id = ?)
 			+ (SELECT COALESCE(SUM(byte_count), 0) FROM task_text_delta WHERE user_id = ?)
@@ -433,7 +433,7 @@ func (r *Repository) SaveTaskCompletion(task *model.Task, expected model.TaskSta
 			Where("id = ? AND status = ?", task.ID, expected).
 			// Completion owns the result, not the worker's routing, lease or
 			// cancellation snapshot, which may have changed during execution.
-			Select("status", "stage", "progress", "result_json", "input_json", "text_draft", "error", "failure_diagnostics", "completed_at", "updated_at").Updates(task)
+			Select("status", "stage", "progress", "result_json", "input_json", "workflow_source_cipher", "text_draft", "error", "failure_diagnostics", "recovery_outcome", "next_poll_at", "completed_at", "updated_at").Updates(task)
 		if updated.Error != nil {
 			return updated.Error
 		}
@@ -560,7 +560,7 @@ func (r *Repository) Tasks(userID string, limit int, projectID string, activeOnl
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
-	query := r.db.Select("id", "project_id", "type", "status", "stage", "progress", "prompt", "operation", "provider", "model", "billing_hold_id", "billing_status", "billing_points", "input_json", "result_json", "error", "failure_diagnostics", "provider_request_id", "provider_cancel_status", "provider_cancel_error", "provider_cancel_attempts", "provider_cancel_requested_at", "provider_cancelled_at", "provider_cancel_next_check_at", "attempts", "started_at", "completed_at", "created_at", "updated_at").
+	query := r.db.Select("id", "user_id", "route_run", "recovery_outcome", "beef_usage_state", "beef_billing_state", "beef_reconcile_deadline", "image_job_id", "project_id", "type", "status", "stage", "progress", "prompt", "operation", "provider", "model", "input_json", "result_json", "error", "failure_diagnostics", "provider_request_id", "provider_cancel_status", "provider_cancel_error", "provider_cancel_attempts", "provider_cancel_requested_at", "provider_cancelled_at", "provider_cancel_next_check_at", "attempts", "started_at", "completed_at", "created_at", "updated_at").
 		Where("user_id = ?", userID)
 	if strings.TrimSpace(projectID) != "" {
 		query = query.Where("project_id = ?", strings.TrimSpace(projectID))
@@ -570,55 +570,6 @@ func (r *Repository) Tasks(userID string, limit int, projectID string, activeOnl
 	}
 	err := query.Order("created_at desc").Limit(limit).Find(&tasks).Error
 	return tasks, err
-}
-
-// StaleReservedTasks returns billing holds that outlived their local task
-// lifecycle. The caller still decides by task status whether to settle or
-// refund; this query never releases an active lease by itself.
-func (r *Repository) StaleReservedTasks(cutoff time.Time, limit int) ([]model.Task, error) {
-	if limit <= 0 || limit > 200 {
-		limit = 100
-	}
-	var tasks []model.Task
-	err := r.db.Where("billing_hold_id <> '' AND billing_status = ? AND updated_at < ?", "reserved", cutoff).
-		Order("updated_at asc").Limit(limit).Find(&tasks).Error
-	return tasks, err
-}
-
-// FailStaleQueuedReservedTask closes a queued task that never acquired a
-// worker lease. The status guard prevents racing a worker that just claimed it.
-func (r *Repository) FailStaleQueuedReservedTask(taskID string, cutoff time.Time, errorMessage string) (bool, error) {
-	now := time.Now()
-	result := r.db.Model(&model.Task{}).
-		Where("id = ? AND status = ? AND billing_status = ? AND billing_hold_id <> '' AND lease_owner = '' AND updated_at < ?", taskID, model.TaskStatusQueued, "reserved", cutoff).
-		Updates(map[string]any{
-			"status":       model.TaskStatusFailed,
-			"stage":        "预扣对账",
-			"progress":     100,
-			"error":        errorMessage,
-			"completed_at": now,
-			"updated_at":   now,
-		})
-	return result.RowsAffected == 1, result.Error
-}
-
-// FailStaleRunningReservedTask only closes pre-dispatch tasks whose worker
-// lease has expired. Once a provider request exists, refunding here could hide
-// a real upstream job, so those tasks remain for the normal recovery path.
-func (r *Repository) FailStaleRunningReservedTask(taskID string, cutoff time.Time, errorMessage string) (bool, error) {
-	now := time.Now()
-	result := r.db.Model(&model.Task{}).
-		Where("id = ? AND status = ? AND billing_status = ? AND billing_hold_id <> '' AND updated_at < ? AND provider_request_id = '' AND (lease_expires_at IS NULL OR lease_expires_at < ?)", taskID, model.TaskStatusRunning, "reserved", cutoff, now).
-		Updates(map[string]any{
-			"status":       model.TaskStatusFailed,
-			"stage":        "预扣对账",
-			"progress":     100,
-			"error":        errorMessage,
-			"completed_at": now,
-			"updated_at":   now,
-			"lease_owner":  "",
-		})
-	return result.RowsAffected == 1, result.Error
 }
 
 // SuccessfulWorkflowTasksForProject 返回需要补偿工作流产物的成功任务。
@@ -919,6 +870,15 @@ func (r *Repository) ClaimFailedResourceUpload(userID string, id string) (bool, 
 
 func (r *Repository) DeleteResource(userID string, id string) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
+		if tx.Migrator().HasTable(&model.CanvasWorkflowResource{}) {
+			var count int64
+			if err := tx.Model(&model.CanvasWorkflowResource{}).Where("user_id = ? AND resource_id = ?", userID, id).Count(&count).Error; err != nil {
+				return err
+			}
+			if count > 0 {
+				return fmt.Errorf("资源仍被工作流模板或运行记录引用")
+			}
+		}
 		var resource model.Resource
 		err := tx.Where("id = ? AND user_id = ?", id, userID).First(&resource).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -1067,15 +1027,18 @@ func (r *Repository) AssetsForUserIDs(userID string, ids []string) ([]model.Asse
 	return assets, err
 }
 
-// AssetsReferencingResource 找出该用户名下引用了指定资源的素材。
-// 用于修正画布里过期的 assetId：客户端可能带了一个本地生成、没回写服务端的 id，
-// 但媒体本身确实挂在本人某条素材上。
-func (r *Repository) AssetsReferencingResource(userID string, resourceID string) ([]model.Asset, error) {
-	if strings.TrimSpace(resourceID) == "" {
+// AssetsForUserMediaStorageKeys returns active media assets by the exact
+// resource locator stored in the asset document. It is used to make repeated
+// canvas materialization idempotent before the unique index is reached.
+func (r *Repository) AssetsForUserMediaStorageKeys(userID, kind string, storageKeys []string) ([]model.Asset, error) {
+	if len(storageKeys) == 0 {
 		return nil, nil
 	}
 	var assets []model.Asset
-	err := r.db.Where("user_id = ? AND payload_json LIKE ?", userID, "%"+resourceID+"%").Limit(5).Find(&assets).Error
+	err := r.db.Where(
+		"user_id = ? AND kind = ? AND status <> ? AND json_extract(payload_json, '$.data.storageKey') IN ?",
+		userID, kind, model.AssetVersionStatusArchived, storageKeys,
+	).Order("updated_at desc, id desc").Find(&assets).Error
 	return assets, err
 }
 
@@ -2087,11 +2050,10 @@ func (r *Repository) DeleteShotAssetReferenceAndInvalidate(projectID string, sho
 }
 
 func invalidateUnitWorkflowTx(tx *gorm.DB, projectID string, unitID string, fromStepKey string, updatedAt time.Time) error {
-	if strings.TrimSpace(unitID) == "" {
-		return nil
-	}
 	var instances []model.WorkflowInstance
-	if err := tx.Where("project_id = ? AND unit_id = ?", projectID, unitID).Find(&instances).Error; err != nil {
+	// Unit changes also invalidate the project's aggregate approval. Other
+	// units keep their own confirmations and existing task/resource identities.
+	if err := tx.Where("project_id = ? AND (unit_id = ? OR scope = ?)", projectID, unitID, "project").Find(&instances).Error; err != nil {
 		return err
 	}
 	for _, instance := range instances {

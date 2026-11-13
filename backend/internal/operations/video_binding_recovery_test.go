@@ -32,6 +32,10 @@ func TestVideoBindingRecoversAcceptedPendingNodeWithoutTaskID(t *testing.T) {
 				MimeType: "video/mp4", Width: 720, Height: 1280, Size: 24, CreatedAt: now, UpdatedAt: now}).Error; err != nil {
 				t.Fatal(err)
 			}
+			// Deliver before the node exists so this test controls the first binding attempt.
+			if err := h.service.DeliverSucceededTask(task); err != nil {
+				t.Fatal(err)
+			}
 			metadata := map[string]any{"status": "error", "taskClientOperationId": operationID}
 			if state == "different-operation" {
 				metadata["taskClientOperationId"] = "newer-operation"
@@ -40,25 +44,28 @@ func TestVideoBindingRecoversAcceptedPendingNodeWithoutTaskID(t *testing.T) {
 				metadata["taskId"] = "newer-task"
 			}
 			if state == "has-media" {
-				metadata["url"] = "https://example.invalid/existing-result.mp4"
+				metadata["storageKey"] = "resource:video-result"
+				metadata["assetId"] = localtask.MaterializedAssetID(task.ID, 0)
 			}
 			h.addNode(t, "video-node", "video", "用户改过的标题", metadata)
-			err := h.service.DeliverSucceededTask(task)
+			_, err := h.bindTask(t, task.ID, "video-node", 0)
 			if state != "pending" {
-				// A rejected late delivery is a retryable result-state failure, not
-				// authorization to overwrite media that belongs to another request.
-				if err != nil {
-					t.Logf("late delivery rejected as expected: %v", err)
+				want := "node_task_mismatch"
+				if state == "different-target" {
+					want = "node_mismatch"
+				}
+				if opErr(t, err).Reason != want {
+					t.Fatalf("unsafe recovery allowed or wrong error: %v", err)
 				}
 				if h.nodeMetaString(t, "video-node", "taskId") == task.ID {
 					t.Fatal("replaced node overwritten")
 				}
-				if h.nodeMetaString(t, "video-node", "status") != "error" {
-					t.Fatal("replaced node status changed")
-				}
 				return
 			}
 			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := h.bindTask(t, task.ID, "video-node", 0); err != nil {
 				t.Fatal(err)
 			}
 			if h.nodeMetaString(t, "video-node", "taskId") != task.ID || h.nodeMetaString(t, "video-node", "status") != "success" {

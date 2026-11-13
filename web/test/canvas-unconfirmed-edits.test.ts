@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { fileURLToPath } from "node:url";
 import { canvasUnconfirmedDiagnostic, canvasUnconfirmedReason, type CanvasUnconfirmedState } from "@/lib/canvas/canvas-unconfirmed-edits";
 import type { CanvasProject } from "@/stores/canvas/use-canvas-store";
 
@@ -16,6 +17,16 @@ test("dirty classification preserves every blocking state and confirmed baseline
     expect(canvasUnconfirmedReason({ ...clean, live: changed, confirmed: undefined, durable: base })).toBe("durable-diff");
     expect(canvasUnconfirmedReason({ ...clean, confirmed: undefined })).toBe("no-baseline");
     expect(canvasUnconfirmedReason({ ...clean, durable: changed })).toBeUndefined();
+});
+
+test("backend-owned task telemetry does not keep a canvas permanently dirty", () => {
+    const confirmed = structuredClone(base);
+    confirmed.nodes[0].metadata = { ...confirmed.nodes[0].metadata, taskId: "task-1", taskStatus: "running", taskProgress: 10, taskStage: "出图中" } as never;
+    const live = structuredClone(confirmed);
+    live.nodes[0].metadata = { ...live.nodes[0].metadata, taskStatus: "succeeded", taskProgress: 100, taskStage: "任务完成", taskUpdatedAt: "2026-01-01T00:00:09.000Z", generationSubmissionState: "accepted" } as never;
+    expect(canvasUnconfirmedReason({ ...clean, confirmed, live })).toBeUndefined();
+    live.nodes[0].metadata = { ...live.nodes[0].metadata, content: "/api/resources/result/file" } as never;
+    expect(canvasUnconfirmedReason({ ...clean, confirmed, live })).toBe("confirmed-diff");
 });
 
 test("diagnostics report fixed field names without values or unknown metadata keys", () => {
@@ -87,7 +98,7 @@ test("diagnostic collection and logger failures never replace the original canva
         }
         if (writes !== 1) throw new Error("logger failure branch not exercised");
     `;
-    const result = Bun.spawnSync([process.execPath, "-e", script], { cwd: new URL("..", import.meta.url).pathname, stdout: "pipe", stderr: "pipe" });
+    const result = Bun.spawnSync([process.execPath, "-e", script], { cwd: fileURLToPath(new URL("..", import.meta.url)), stdout: "pipe", stderr: "pipe" });
     expect(result.exitCode, new TextDecoder().decode(result.stderr)).toBe(0);
 });
 

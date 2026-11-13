@@ -138,8 +138,90 @@ export function trustedMediaSources(payload, { api, modelId, nativePartStore }) 
   }
   return sources;
 }
-export function adaptMediaRequest(payload, { api, modelId, nativePartStore }, extra = {}) {
+function stripCacheControl(item) {
+  if (!item || typeof item !== 'object' || !('cache_control' in item)) return item;
+  const { cache_control: _ignored, ...rest } = item;
+  return rest;
+}
+
+// 升级前未固定渠道亲和性（metadata.user_id）的会话条目：其 thinking 签名来自随机上游节点，
+// 继续会话时降级为普通文本并省略 redacted 载荷；已固定亲和性的新条目原样保留签名与 cache_control。
+export function downgradeUnpinnedAssistantMessages(messages, unpinnedAssistants) {
+  if (!Array.isArray(messages) || !unpinnedAssistants?.size) return messages;
+  let changed = false;
+  const next = messages.flatMap((message) => {
+    if (!message || message.role !== 'assistant' || !unpinnedAssistants.has(message) || !Array.isArray(message.content)) {
+      return [message];
+    }
+    let messageChanged = false;
+    const content = [];
+    for (const block of message.content) {
+      if (block?.type === 'thinking') {
+        messageChanged = true;
+        if (!block.redacted && typeof block.thinking === 'string' && block.thinking.trim().length > 0) {
+          content.push({ type: 'text', text: block.thinking });
+        }
+        continue;
+      }
+      content.push(block);
+    }
+    if (!messageChanged) return [message];
+    changed = true;
+    return content.length > 0 ? [{ ...message, content }] : [];
+  });
+  return changed ? next : messages;
+}
+
+function adaptAnthropicRequest(payload, unpinnedSignatures) {
+  if (!payload || typeof payload !== 'object') return payload;
+  // 新会话固定了渠道亲和性：签名与 cache_control 原样保留，交给上游缓存。
+  // 只有升级前未固定的历史签名（unpinnedSignatures）需要降级。
+  const pinned = typeof payload.metadata?.user_id === 'string' && payload.metadata.user_id.trim().length > 0;
+  const hasUnpinned = unpinnedSignatures instanceof Set && unpinnedSignatures.size > 0;
+  if (pinned && !hasUnpinned) return payload;
+  const maybeStrip = pinned ? (item) => item : stripCacheControl;
+  const next = { ...payload };
+  if (!pinned && Array.isArray(payload.system)) {
+    next.system = payload.system.map(stripCacheControl);
+  }
+  if (!pinned && Array.isArray(payload.tools)) {
+    next.tools = payload.tools.map(stripCacheControl);
+  }
+  if (Array.isArray(payload.messages)) {
+    next.messages = payload.messages.flatMap((message) => {
+      if (!message || typeof message !== 'object' || !Array.isArray(message.content)) return [message];
+      if (message.role === 'assistant') {
+        const blocks = [];
+        for (const rawBlock of message.content) {
+          const block = maybeStrip(rawBlock);
+          if (block?.type === 'redacted_thinking') {
+            if (pinned && !unpinnedSignatures.has(block.data)) blocks.push(block);
+            continue;
+          }
+          if (block?.type === 'thinking') {
+            if (pinned && !unpinnedSignatures.has(block.signature)) {
+              blocks.push(block);
+              continue;
+            }
+            if (typeof block.thinking === 'string' && block.thinking.trim().length > 0) {
+              blocks.push({ type: 'text', text: block.thinking });
+            }
+            continue;
+          }
+          blocks.push(block);
+        }
+        return blocks.length > 0 ? [{ ...message, content: blocks }] : [];
+      }
+      return pinned ? [message] : [{ ...message, content: message.content.map(stripCacheControl) }];
+    });
+  }
+  return next;
+}
+
+export function adaptMediaRequest(payload, { api, modelId, nativePartStore, unpinnedSignatures }, extra = {}) {
   nativePartStore ||= extra.nativePartStore || (typeof extra.read === 'function' ? extra : undefined);
+  unpinnedSignatures ||= extra.unpinnedSignatures;
+  if (api === 'anthropic-messages') return adaptAnthropicRequest(payload, unpinnedSignatures);
   if (api !== 'openai-completions') return payload;
   const toolNames = new Map();
   const messages = [];
@@ -177,4 +259,28 @@ export function adaptMediaRequest(payload, { api, modelId, nativePartStore }, ex
   }
   flush();
   return { ...payload, messages };
+}
+
+// 用户附带的图片先读成画面再交给模型。素材本身读不出来时（格式、大小、解码等 media_* 原因），
+// 明确告诉模型这张图没有看到，整轮对话继续；鉴权、权限等其他错误照常抛出。
+export async function attachmentContent(body, turnId, opsRequest) {
+  const content = [{type:'text',text:body.message || '请分析所提供的素材，并说明适合如何使用。'}];
+  for (const attachment of body.attachments || []) {
+    content.push({type:'text',text:`用户提供素材：${JSON.stringify(attachment)}。使用 media.inspect 读取实际画面或音频后再判断；片段秒数转换为 startMs/endMs。`});
+    if (attachment.kind !== 'image') continue;
+    const reference = {canvasId:body.canvasId,
+      ...(attachment.nodeId ? {nodeId:attachment.nodeId}:{assetId:attachment.assetId}),resourceId:attachment.resourceId};
+    try {
+      const overview = await opsRequest('POST','/ops/media.overview',{params:reference},undefined,turnId);
+      const mustUsePreview = overview.result.image?.view === 'preview' && overview.result.image?.inspectable !== true;
+      const data = mustUsePreview ? overview : await opsRequest('POST','/ops/media.inspect',{params:{...reference,
+        expectedVersion:overview.result.source.version,mode:'frames'}},undefined,turnId);
+      if (data.result.image) content.push({type:'text',text:JSON.stringify({image:data.result.image,note:data.result.note,source:data.result.source})});
+      content.push(...data.result.content.filter(part=>part.type==='image').map(part=>({type:'image',data:part.data,mimeType:part.mimeType})));
+    } catch (error) {
+      if (!String(error?.reason || '').startsWith('media_')) throw error;
+      content.push({type:'text',text:`这张图片没有读取成功（${error.reason}）。不要根据文件名或描述猜测画面内容；告诉用户这张图没有看到，可以换成 PNG 或 JPEG 后重新发送。`});
+    }
+  }
+  return content;
 }

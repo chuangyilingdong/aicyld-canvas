@@ -1,0 +1,90 @@
+# Canvas 数据库迁移演练
+
+## 目标
+
+在隔离副本上验证官方迁移到 v29 和 AICYLD overlay v1，不接触生产库、不启动付费生成。
+
+## 一致性副本
+
+生产 SQLite 处于 WAL 模式，不能直接复制主库文件。使用 Python 内置 SQLite 的 backup API 生成在线一致性副本：
+
+```bash
+python3 scripts/canvas-db-audit.py copy \
+  --source /srv/aicyld/canvas/data/open_ai_canvas.db \
+  --destination /tmp/aicyld-migration/data/open_ai_canvas.db
+```
+
+## 迁移前快照
+
+```bash
+python3 scripts/canvas-db-audit.py snapshot \
+  --db /tmp/aicyld-migration/data/open_ai_canvas.db \
+  --out /tmp/aicyld-migration/before.json
+```
+
+快照记录所有业务表行数、`local_schema_migrations` 与 `aicyld_schema_migrations` 当前版本、`integrity_check` 和 `foreign_key_check`。
+
+## 执行迁移
+
+使用当前待发布后端的专用迁移命令。它不会启动 HTTP、任务 Worker 或恢复扫描：
+
+```bash
+CANVAS_BACKEND_DATA_DIR=/tmp/aicyld-migration/data \
+/tmp/aicyld-migration/canvas-schema-migrate
+```
+
+命令会依次执行官方迁移、AICYLD overlay，并用只读版本检查确认两者都达到当前版本。
+
+## 迁移后审计
+
+```bash
+python3 scripts/canvas-db-audit.py snapshot \
+  --db /tmp/aicyld-migration/data/open_ai_canvas.db \
+  --out /tmp/aicyld-migration/after.json
+
+python3 scripts/canvas-db-audit.py compare \
+  --before /tmp/aicyld-migration/before.json \
+  --after /tmp/aicyld-migration/after.json
+```
+
+通过标准：
+
+- `local_schema_version=29`
+- `aicyld_overlay_version=1`
+- `integrity_check=["ok"]`
+- `foreign_key_violations=[]`
+- 迁移前已有的表行数不变；新增表允许出现在 `added_tables`
+
+## 蓝绿只读实例
+
+用迁移后的副本启动完整 HTTP 服务时，必须显式关闭后台 Worker，避免副本里的历史失败任务被自动恢复：
+
+```bash
+CANVAS_BACKEND_DATA_DIR=/tmp/aicyld-migration/data \
+CANVAS_BACKEND_ADDR=127.0.0.1:18080 \
+CANVAS_DISABLE_WORKERS=true \
+CANVAS_AUTO_MIGRATE=false \
+CANVAS_SHUTDOWN_TIMEOUT=10s \
+GIN_MODE=release \
+/tmp/aicyld-migration/infinite-canvas-backend
+```
+
+该实例用于 `/api/health`、SSO、只读接口和前端联调。`CANVAS_DISABLE_WORKERS=true` 时不得提交生成、恢复或任务重试请求。
+
+## 边界
+
+- 只审计数据库，不读取渠道密钥、对象存储凭据或支付配置。
+- 副本目录放在 `/tmp` 或独立演练目录，不能覆盖生产数据目录。
+- 迁移失败时保留副本和日志；生产回滚仍使用完整归档点。
+
+## 2026-11-02 演练结果
+
+生产库副本从官方 v24 迁移到 v29，并应用 AICYLD overlay v1：
+
+- 迁移前：`local=24`、overlay 不存在、`integrity_check=ok`
+- 迁移后：`local=29`、`aicyld=1`、`integrity_check=ok`、外键违规 0
+- 迁移前已有业务表行数全部一致；新增表只有 `aicyld_schema_migrations`
+- 蓝绿只读实例：`/api/health` 返回 200，`ready=true`、`activeWorkerTasks=0`
+- 未登录 `/api/workspace/bootstrap` 返回 401，托管身份边界生效
+
+原始证据位于 `docs/operations/evidence/canvas-migration-2026-11-02-*.json` 与 `canvas-bluegreen-2026-11-02-*.json`。

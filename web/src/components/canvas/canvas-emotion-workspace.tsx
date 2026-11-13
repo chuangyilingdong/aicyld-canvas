@@ -10,7 +10,6 @@ import { aceternityMotion } from "@/lib/aceternity-motion";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { buildEmotionImageArtifacts, buildEmotionPrompt, neutralEmotionPreset, type CanvasEmotionPreset, type CanvasFaceBox } from "@/lib/canvas/canvas-emotion";
 import { detectCanvasFaces } from "@/lib/canvas/canvas-face-detection";
-import { resolveImageUrl } from "@/services/image-storage";
 import { subscribeCanvasViewportPreview } from "@/lib/canvas/canvas-live-viewport";
 import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
 import type { CanvasNodeData, Position, ViewportTransform } from "@/types/canvas";
@@ -24,29 +23,11 @@ type CanvasEmotionWorkspaceProps = {
     dragOffset?: Position | null;
     isDragging?: boolean;
     onClose: () => void;
-    /** 返回 false 表示这次生成没有发起（例如渠道能力不支持），面板要回到可点状态。 */
-    onConfirm: (payload: CanvasImageEmotionPayload) => boolean | Promise<boolean> | void;
+    onConfirm: (payload: CanvasImageEmotionPayload) => void;
 };
 
 export function CanvasEmotionWorkspace({ node, viewport, containerRef, dragOffset, isDragging = false, onClose, onConfirm }: CanvasEmotionWorkspaceProps) {
-    // 不能直接用 node.metadata.content：它可能是本会话创建、刷新后即失效的 blob: URL。
-    // 先按 storageKey 从资源/本地缓存取真实地址，取不到再退回 content（并过滤掉死链）。
-    const [dataUrl, setDataUrl] = useState("");
-    const [imageResolved, setImageResolved] = useState(false);
-    useEffect(() => {
-        let cancelled = false;
-        setImageResolved(false);
-        const fallback = typeof node.metadata?.content === "string" ? node.metadata.content : "";
-        void resolveImageUrl(node.metadata?.storageKey, "", { cacheMiss: true })
-            .catch(() => "")
-            .then((resolved) => {
-                if (cancelled) return;
-                const safeFallback = fallback.startsWith("blob:") ? "" : fallback;
-                setDataUrl(resolved || safeFallback);
-                setImageResolved(true);
-            });
-        return () => { cancelled = true; };
-    }, [node.metadata?.storageKey, node.metadata?.content]);
+    const dataUrl = node.metadata?.content || "";
     const [status, setStatus] = useState<WorkspaceStatus>("detecting");
     const [faces, setFaces] = useState<CanvasFaceBox[]>([]);
     const [characters, setCharacters] = useState<CanvasEmotionCharacter[]>([]);
@@ -58,8 +39,6 @@ export function CanvasEmotionWorkspace({ node, viewport, containerRef, dragOffse
     const portalTarget = containerRef.current;
 
     useEffect(() => {
-        // 原图还在异步解析时保持「识别中」，不要先把面板判死。
-        if (!imageResolved) return;
         const controller = new AbortController();
         setStatus("detecting");
         setError("");
@@ -67,11 +46,6 @@ export function CanvasEmotionWorkspace({ node, viewport, containerRef, dragOffse
         setCharacters([]);
         setActiveCharacterId("");
         setPreset(neutralEmotionPreset);
-        if (!dataUrl) {
-            setStatus("error");
-            setError("读不到这张图的原始文件，请重新上传或重新生成后再试");
-            return () => controller.abort();
-        }
         void detectCanvasFaces(dataUrl, controller.signal)
             .then((result) => {
                 setImageSize({ width: result.imageWidth, height: result.imageHeight });
@@ -89,7 +63,7 @@ export function CanvasEmotionWorkspace({ node, viewport, containerRef, dragOffse
                 setError(reason instanceof Error ? `${reason.message}，请手动框选` : "人脸识别失败，请手动框选");
             });
         return () => controller.abort();
-    }, [dataUrl, imageResolved]);
+    }, [dataUrl]);
 
     const selectFace = (face: CanvasFaceBox) => {
         const existing = characters.find((character) => sameFace(character.faceBox, face));
@@ -120,7 +94,7 @@ export function CanvasEmotionWorkspace({ node, viewport, containerRef, dragOffse
         try {
             const artifacts = await buildEmotionImageArtifacts(dataUrl, character.faceBox, imageSize.width, imageSize.height);
             const params = { presetId: preset.id, intimacy: preset.intimacy, arousal: preset.arousal, characterName: character.name, faceBox: character.faceBox };
-            const started = await onConfirm({
+            onConfirm({
                 ...params,
                 label: preset.label,
                 prompt: buildEmotionPrompt(params, artifacts.editRegion),
@@ -131,14 +105,13 @@ export function CanvasEmotionWorkspace({ node, viewport, containerRef, dragOffse
                 imageWidth: artifacts.imageWidth,
                 imageHeight: artifacts.imageHeight,
             });
-            if (started === false) setStatus("editing");
         } catch (reason) {
             setStatus("editing");
             setError(reason instanceof Error ? reason.message : "生成前处理失败");
         }
     };
 
-    if (!portalTarget) return null;
+    if (!portalTarget || !dataUrl) return null;
     const activeCharacter = characters.find((character) => character.id === activeCharacterId);
     return createPortal(
         <>

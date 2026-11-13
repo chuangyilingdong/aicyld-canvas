@@ -1,5 +1,10 @@
 # OpenAI Videos / Sora 接口字段
 
+> 官方服务状态：OpenAI 已于 2026-09-24 关闭 Sora 2 模型与 Videos API，且没有一对一的替代接口；官方文档保留仅为历史记录。
+> 这条协议因此只在仍提供同名 `/v1/videos` 合同的第三方中转上可用，用普通 OpenAI Key 直接生成视频不保证可用。原样保留是为了不打断这些中转，不代表官方链路仍在服务。
+
+本协议最多发送一张参考图，不发送参考视频、参考音频、尾帧或蒙版。超出协议能力时在提交前报错，不会静默忽略素材。第三方服务的多图视频接口请按其文档选择对应的 JSON 或原生协议。
+
 ## 协议身份
 
 - 插件 ID：`openai-videos`。
@@ -46,7 +51,9 @@
 | `create.body.prompt` | `{"$ref":"request.prompt"}` |
 | `create.body.seconds` | `{"$toString":{"$ref":"request.duration"}}` |
 | `create.body.size` | `{"$omitEmpty":{"$ref":"request.aspectRatio"}}` |
+| `create.body.aspect_ratio` | `{"$ref":"request.extra.aspectRatio"}` |
 | `create.body.resolution_name` | `{"$omitEmpty":{"$ref":"request.resolution"}}` |
+| `create.body.generate_audio` | `{"$ref":"request.extra.generateAudio"}` |
 | `create.body.variants` | `{"$omitEmpty":{"$ref":"request.providerOptions.newapi.variants"}}` |
 | `create.files[0].name` | `"input_reference"` |
 | `create.files[0].source` | `{"$first":{"$filter":{"from":{"$sortByOrder":{"$ref":"request.images"}},"as":"media","where":{"$ne":[{"$ref":"media.role"},"mask"]}}}}` |
@@ -98,8 +105,8 @@
   "apiVersion": "beeftv.plugin/v2",
   "id": "openai-videos",
   "name": "OpenAI Videos / Sora",
-  "version": "2.0.2",
-  "author": "灵动TV Contributors",
+  "version": "2.0.3",
+  "author": "BeefTV Contributors",
   "description": "OpenAI Videos / Sora 独立请求协议插件。",
   "documentation": "<当前插件的完整 documentation，由 README.md 与 docs/interface.md 拼接而成；为避免 JSON 递归，此处不重复展开正文。>",
   "permissions": [
@@ -216,320 +223,140 @@
             "description": "插件命名空间内的厂商扩展字段。"
           }
         ],
+        "validations": [
+          {
+            "assert": {
+              "$lte": [
+                {
+                  "$len": {
+                    "$ref": "request.images"
+                  }
+                },
+                1
+              ]
+            },
+            "message": "当前 OpenAI Videos / Sora 协议最多支持一张参考图。请移除多余图片，或按服务商文档选择支持多图的请求协议。"
+          },
+          {
+            "assert": {
+              "$eq": [
+                {
+                  "$len": {
+                    "$ref": "request.videos"
+                  }
+                },
+                0
+              ]
+            },
+            "message": "当前 OpenAI Videos / Sora 协议不支持参考视频，请选择支持该素材的请求协议。"
+          },
+          {
+            "assert": {
+              "$eq": [
+                {
+                  "$len": {
+                    "$ref": "request.audios"
+                  }
+                },
+                0
+              ]
+            },
+            "message": "当前 OpenAI Videos / Sora 协议不支持参考音频，请选择支持该素材的请求协议。"
+          },
+          {
+            "assert": {
+              "$eq": [
+                {
+                  "$len": {
+                    "$filter": {
+                      "from": {
+                        "$ref": "request.images"
+                      },
+                      "as": "media",
+                      "where": {
+                        "$in": [
+                          {
+                            "$ref": "media.role"
+                          },
+                          [
+                            "mask",
+                            "last_frame"
+                          ]
+                        ]
+                      }
+                    }
+                  }
+                },
+                0
+              ]
+            },
+            "message": "当前 OpenAI Videos / Sora 协议不支持尾帧或蒙版，请选择支持该素材的请求协议。"
+          }
+        ],
         "create": {
           "method": "POST",
           "path": "/v1/videos",
-          "contentType": "application/json",
+          "contentType": "multipart/form-data",
           "body": {
             "model": {
               "$ref": "request.model"
             },
             "prompt": {
-              "$omitEmpty": {
-                "$ref": "request.prompt"
-              }
+              "$ref": "request.prompt"
             },
             "seconds": {
-              "$omitEmpty": {
-                "$if": {
-                  "condition": {
-                    "$eq": [
-                      {
-                        "$ref": "request.duration"
-                      },
-                      -1
-                    ]
-                  },
-                  "then": null,
-                  "else": {
-                    "$toString": {
-                      "$ref": "request.duration"
-                    }
-                  }
-                }
+              "$toString": {
+                "$ref": "request.duration"
               }
             },
-            "images": {
+            "size": {
               "$omitEmpty": {
-                "$if": {
-                  "condition": {
-                    "$not": {
-                      "$or": [
-                        {
-                          "$in": [
-                            {
-                              "$lower": {
-                                "$trim": {
-                                  "$coalesce": [
-                                    {
-                                      "$ref": "request.operation"
-                                    },
-                                    ""
-                                  ]
-                                }
-                              }
-                            },
-                            [
-                              "reference_to_video",
-                              "video_to_video"
-                            ]
-                          ]
-                        },
-                        {
-                          "$gt": [
-                            {
-                              "$len": {
-                                "$coalesce": [
-                                  {
-                                    "$ref": "request.images"
-                                  },
-                                  []
-                                ]
-                              }
-                            },
-                            2
-                          ]
-                        },
-                        {
-                          "$gt": [
-                            {
-                              "$len": {
-                                "$coalesce": [
-                                  {
-                                    "$ref": "request.videos"
-                                  },
-                                  []
-                                ]
-                              }
-                            },
-                            0
-                          ]
-                        },
-                        {
-                          "$gt": [
-                            {
-                              "$len": {
-                                "$coalesce": [
-                                  {
-                                    "$ref": "request.audios"
-                                  },
-                                  []
-                                ]
-                              }
-                            },
-                            0
-                          ]
-                        }
-                      ]
-                    }
-                  },
-                  "then": {
-                    "$map": {
-                      "from": {
-                        "$sortByOrder": {
-                          "$ref": "request.images"
-                        }
-                      },
-                      "as": "media",
-                      "in": {
-                        "$ref": "media.value"
-                      }
-                    }
-                  },
-                  "else": null
-                }
+                "$ref": "request.aspectRatio"
               }
             },
-            "metadata": {
-              "resolution": {
-                "$omitEmpty": {
-                  "$ref": "request.resolution"
-                }
-              },
-              "ratio": {
-                "$omitEmpty": {
-                  "$ref": "request.aspectRatio"
-                }
-              },
-              "generate_audio": {
-                "$ref": "request.generateAudio"
-              },
-              "content": {
-                "$omitEmpty": {
-                  "$if": {
-                    "condition": {
-                      "$or": [
-                        {
-                          "$in": [
-                            {
-                              "$lower": {
-                                "$trim": {
-                                  "$coalesce": [
-                                    {
-                                      "$ref": "request.operation"
-                                    },
-                                    ""
-                                  ]
-                                }
-                              }
-                            },
-                            [
-                              "reference_to_video",
-                              "video_to_video"
-                            ]
-                          ]
-                        },
-                        {
-                          "$gt": [
-                            {
-                              "$len": {
-                                "$coalesce": [
-                                  {
-                                    "$ref": "request.images"
-                                  },
-                                  []
-                                ]
-                              }
-                            },
-                            2
-                          ]
-                        },
-                        {
-                          "$gt": [
-                            {
-                              "$len": {
-                                "$coalesce": [
-                                  {
-                                    "$ref": "request.videos"
-                                  },
-                                  []
-                                ]
-                              }
-                            },
-                            0
-                          ]
-                        },
-                        {
-                          "$gt": [
-                            {
-                              "$len": {
-                                "$coalesce": [
-                                  {
-                                    "$ref": "request.audios"
-                                  },
-                                  []
-                                ]
-                              }
-                            },
-                            0
-                          ]
-                        }
-                      ]
-                    },
-                    "then": {
-                      "$concatArrays": [
-                        {
-                          "$map": {
-                            "from": {
-                              "$sortByOrder": {
-                                "$ref": "request.images"
-                              }
-                            },
-                            "as": "media",
-                            "in": {
-                              "type": "image_url",
-                              "image_url": {
-                                "url": {
-                                  "$ref": "media.value"
-                                }
-                              },
-                              "role": {
-                                "$coalesce": [
-                                  {
-                                    "$ref": "media.role"
-                                  },
-                                  "reference_image"
-                                ]
-                              }
-                            }
-                          }
-                        },
-                        {
-                          "$map": {
-                            "from": {
-                              "$sortByOrder": {
-                                "$ref": "request.videos"
-                              }
-                            },
-                            "as": "media",
-                            "in": {
-                              "type": "video_url",
-                              "video_url": {
-                                "url": {
-                                  "$ref": "media.value"
-                                }
-                              },
-                              "role": {
-                                "$coalesce": [
-                                  {
-                                    "$ref": "media.role"
-                                  },
-                                  "reference_video"
-                                ]
-                              }
-                            }
-                          }
-                        },
-                        {
-                          "$map": {
-                            "from": {
-                              "$sortByOrder": {
-                                "$ref": "request.audios"
-                              }
-                            },
-                            "as": "media",
-                            "in": {
-                              "type": "audio_url",
-                              "audio_url": {
-                                "url": {
-                                  "$ref": "media.value"
-                                }
-                              },
-                              "role": {
-                                "$coalesce": [
-                                  {
-                                    "$ref": "media.role"
-                                  },
-                                  "reference_audio"
-                                ]
-                              }
-                            }
-                          }
-                        }
-                      ]
-                    },
-                    "else": []
-                  }
-                }
-              },
-              "duration": {
-                "$omitEmpty": {
-                  "$if": {
-                    "condition": {
-                      "$eq": [
-                        {
-                          "$ref": "request.duration"
-                        },
-                        -1
-                      ]
-                    },
-                    "then": -1,
-                    "else": null
-                  }
-                }
+            "aspect_ratio": {
+              "$ref": "request.extra.aspectRatio"
+            },
+            "resolution_name": {
+              "$omitEmpty": {
+                "$ref": "request.resolution"
+              }
+            },
+            "generate_audio": {
+              "$ref": "request.extra.generateAudio"
+            },
+            "variants": {
+              "$omitEmpty": {
+                "$ref": "request.providerOptions.newapi.variants"
               }
             }
-          }
+          },
+          "files": [
+            {
+              "name": "input_reference",
+              "source": {
+                "$first": {
+                  "$filter": {
+                    "from": {
+                      "$sortByOrder": {
+                        "$ref": "request.images"
+                      }
+                    },
+                    "as": "media",
+                    "where": {
+                      "$ne": [
+                        {
+                          "$ref": "media.role"
+                        },
+                        "mask"
+                      ]
+                    }
+                  }
+                }
+              },
+              "filename": "input-reference.png"
+            }
+          ]
         },
         "poll": {
           "method": "GET",

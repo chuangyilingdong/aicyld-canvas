@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
+import type { CanvasWorkflowContribution } from "@/lib/canvas/workflow-capability";
 import type { MouseEvent } from "react";
 
-import type { CanvasWorkflowContribution } from "@/lib/canvas/workflow-capability";
 import type { CanvasAlignmentMode } from "@/lib/canvas/canvas-layout";
 import type { CanvasBackgroundMode } from "@/lib/canvas-theme";
 import type { CanvasNodeData, CanvasNodeMetadata, CanvasNodeTypeId, CanvasToolMode, CanvasWorkspaceMode } from "@/types/canvas";
@@ -69,6 +69,7 @@ export type ToolbarHandlers = {
     onArrange: (mode: "row" | "column" | "grid" | "flow") => void;
     onCreateStoryboard: () => void;
     onCreateReferenceGroup: () => void;
+    onPackToFolder?: () => void;
     onBatchConnect: () => void;
     onMergeVideos: () => void;
     /** 只有画布页的多选工具栏提供这个入口；主工具栏不装配它。 */
@@ -101,6 +102,7 @@ export type ToolbarHandlers = {
     onNodeTrimVideoSegments: (node: CanvasNodeData) => void;
     onNodeCropVideo: (node: CanvasNodeData) => void;
     onNodeDepthCapture: (node: CanvasNodeData) => void;
+    onNodeSubtitleErase: (node: CanvasNodeData) => void;
     onNodeSubtitles: (node: CanvasNodeData) => void;
     onNodeTimeline: (node: CanvasNodeData) => void;
     onNodeReversePrompt: (node: CanvasNodeData) => void;

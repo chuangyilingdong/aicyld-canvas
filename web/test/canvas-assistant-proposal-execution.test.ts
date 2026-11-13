@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { ApiError } from "@/services/api/request";
 import { buildConfirmedGenerationConfig, executeAssistantProposal } from "@/pages/canvas/canvas-assistant-proposal-execution";
 import { AssistantProposalBlockedError, type AssistantProposalBlockedReason } from "@/pages/canvas/canvas-assistant-proposal-snapshot";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
@@ -6,95 +7,26 @@ import { defaultConfig, type AiConfig } from "@/stores/use-config-store";
 import { defaultModelCapabilityConfig } from "@/lib/model-capabilities";
 import { buildGenerationConfig, runCanvasGenerationTaskToConsumer } from "@/lib/canvas/canvas-project-generation";
 import type { GenerationTask } from "@/services/api/task-center";
-import type { CanvasNodeGenerationOptions } from "@/pages/canvas/use-canvas-generation-executor";
 import { backendProviderConfig } from "@/services/api/generation-task";
 
 const node: CanvasNodeData = { id: "node-1", title: "Image", type: CanvasNodeType.Image, position: { x: 0, y: 0 }, width: 100, height: 100, metadata: { prompt: "test image" } };
 const proposal = { proposalId: "proposal-1", kind: "image" as const, nodeIds: [node.id], model: "Confirmed", modelKey: "channel::confirmed" };
-const billingQuote = { enabled: true, points: 1, modelKey: "channel::confirmed", displayName: "Confirmed", balance: 10 };
 function input(overrides: Partial<Parameters<typeof executeAssistantProposal>[0]> = {}) {
-    const { generate: generateOverride, ...rest } = overrides;
-    const generate = async (id: string, mode: "image" | "video", prompt: string, options?: CanvasNodeGenerationOptions) => {
-        if (options?.collectBillingQuote) {
-            options.collectBillingQuote({ quote: billingQuote, preparedInput: { type: `canvas_${mode}`, prompt, input: { mode } } });
-            return;
-        }
-        return generateOverride?.(id, mode, prompt, options);
-    };
     return { proposal, nodes: [node], claims: new Set<string>(), isHandled: false,
         prepare: async () => structuredClone({ nodes: overrides.nodes ?? [node], connections: [], config: defaultConfig, assets: [], skills: [] }),
-        confirmBilling: async () => true, generate, markHandled: () => {}, notify: () => {}, ...rest };
+        generate: async () => {}, markHandled: () => {}, notify: () => {}, ...overrides };
 }
 
 test("F02: confirmed proposal model reaches the generation execution boundary", async () => {
     let options: unknown;
     await executeAssistantProposal(input({ generate: async (_id, _mode, _prompt, received) => { options = received; } }));
-    expect(options).toMatchObject({
-        confirmedModelKey: proposal.modelKey,
-        clientOperationId: `proposal:${proposal.proposalId}:${node.id}`,
-        preparedBillingInput: { input: { mode: "image" } },
-    });
+    expect(options).toMatchObject({ confirmedModelKey: proposal.modelKey, clientOperationId: `proposal:${proposal.proposalId}:${node.id}` });
 });
 
 test("F04: a validation early return does not claim generation started", async () => {
     const handled: string[] = [];
     await executeAssistantProposal(input({ markHandled: (id) => { handled.push(id); } }));
     expect(handled).toEqual([]);
-});
-
-test("assistant proposal collects one aggregate quote before creating any task", async () => {
-    let actualGenerations = 0;
-    let quotedPoints = 0;
-    let confirmedNodes = 0;
-    await executeAssistantProposal(input({
-        confirmBilling: async (quotes, nodeCount) => {
-            quotedPoints = quotes.reduce((total, quote) => total + quote.points, 0);
-            confirmedNodes = nodeCount;
-            return false;
-        },
-        generate: async () => { actualGenerations++; },
-    }));
-    expect(quotedPoints).toBe(1);
-    expect(confirmedNodes).toBe(1);
-    expect(actualGenerations).toBe(0);
-});
-
-test("assistant proposal confirms one quote per target node", async () => {
-    const node2: CanvasNodeData = { ...node, id: "node-2", title: "Image 2" };
-    let quoteCount = 0;
-    let nodeCount = 0;
-    await executeAssistantProposal(input({
-        proposal: { ...proposal, nodeIds: [node.id, node2.id] },
-        nodes: [node, node2],
-        confirmBilling: async (quotes, count) => {
-            quoteCount = quotes.length;
-            nodeCount = count;
-            return false;
-        },
-    }));
-    expect(quoteCount).toBe(2);
-    expect(nodeCount).toBe(2);
-});
-
-test("unexpected quote rejection is reported instead of escaping as unhandled", async () => {
-    const notices: string[] = [];
-    const claims = new Set<string>();
-    await executeAssistantProposal({
-        proposal,
-        nodes: [node],
-        claims,
-        isHandled: false,
-        prepare: async () => structuredClone({ nodes: [node], connections: [], config: defaultConfig, assets: [], skills: [] }),
-        confirmBilling: async () => true,
-        generate: async (_id, _mode, _prompt, options) => {
-            if (options?.collectBillingQuote) throw new Error("synthetic quote failure");
-        },
-        markHandled: () => {},
-        notify: (text) => { notices.push(text); },
-    });
-    expect(notices).toHaveLength(1);
-    expect(notices[0]).toContain("0/1");
-    expect(claims.size).toBe(0);
 });
 
 test("proposal read failures are not reported as proven input drift", async () => {
@@ -107,8 +39,19 @@ test("proposal read failures are not reported as proven input drift", async () =
     expect(notices).toEqual(["无法核对提案的最新内容，请检查连接后重试。"]);
 });
 
+test("a revoked continuation intent asks for a fresh proposal without submitting generation", async () => {
+    const notices: string[] = [];
+    let submissions = 0;
+    const args = input({ prepare: async () => { throw new ApiError("server detail", {status:409,reason:"continuation_intent_changed"}); }, generate: async () => { submissions++; }, notify: text => {notices.push(text);} });
+    await executeAssistantProposal(args);
+    expect(submissions).toBe(0);
+    expect(args.claims.size).toBe(0);
+    expect(notices).toEqual(["要求已更新，请让助手重新提出生成方案。"]);
+});
+
 const blockedCopy: [AssistantProposalBlockedReason, string][] = [
     ["canvas_saving", "画布还在保存。稍等几秒再点生成。"],
+    ["canvas_conflict", "画布有未解决的版本冲突。请在顶部保存状态中使用最新版本，再让助手重新提出方案。"],
     ["settings_unsaved", "生成设置还没保存。保存后再点生成。"],
     ["canvas_changed", "画布在提出方案后改过。请让助手重新提出方案。"],
     ["settings_changed", "生成设置在提出方案后改过。请让助手重新提出方案。"],
@@ -170,7 +113,6 @@ test("same-window rapid clicks and stale renders cannot resubmit an accepted pro
     } });
     const first = executeAssistantProposal(args);
     await executeAssistantProposal(args);
-    while (submissions === 0) await Promise.resolve();
     expect(submissions).toBe(1);
     release();
     await first;
@@ -285,7 +227,7 @@ test("F02: reference-driven compatibility fallback is rejected after re-resoluti
             const capabilityConfig = defaultModelCapabilityConfig(undefined, model);
             capabilityConfig.video!.operations = [index ? "image_to_video" : "text_to_video"];
             capabilityConfig.video!.references.maxImages = index;
-            return { model, displayName: "Cinema", capability: "video", billingMode: "per_second", unitPriceMicrocredits: 1, capabilityConfig };
+            return { model, displayName: "Cinema", capability: "video", billingMode: "per_second", unitPriceMicrocredits: 1, capabilityConfig, capabilitySource: "user" as const };
         }) }],
     };
     const videoNode = { ...node, type: CanvasNodeType.Video };
@@ -300,4 +242,109 @@ test("F02: workflow substitution and blank confirmation keys fail closed", () =>
     expect(() => buildConfirmedGenerationConfig(config, node, "image", undefined, "")).toThrow();
     const workflow = { ...node, type: CanvasNodeType.Config, metadata: { workflowProvider: "runninghub" as const } };
     expect(() => buildConfirmedGenerationConfig(config, workflow, "image", undefined, config.imageModel)).toThrow();
+});
+
+test("a round the server reports as undone never reads or submits the proposal", async () => {
+    let prepared = 0;
+    let submissions = 0;
+    const notices: string[] = [];
+    const args = input({
+        confirmRunnable: async () => "这一轮已撤销，不会生成。",
+        prepare: async () => { prepared++; throw new Error("must not read"); },
+        generate: async () => { submissions++; },
+        notify: text => { notices.push(text); },
+    });
+    await executeAssistantProposal(args);
+    expect(prepared).toBe(0);
+    expect(submissions).toBe(0);
+    expect(args.claims.size).toBe(0);
+    expect(notices).toEqual(["这一轮已撤销，不会生成。"]);
+});
+
+test("a confirmed round continues to the normal submission path", async () => {
+    let submissions = 0;
+    await executeAssistantProposal(input({ confirmRunnable: async () => null, generate: async () => { submissions++; } }));
+    expect(submissions).toBe(1);
+});
+
+test("a second click while the first is still being checked does not check or submit again", async () => {
+    let prepares = 0;
+    let submissions = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const notices: string[] = [];
+    const args = input({
+        prepare: async () => { prepares++; await gate; return { nodes: [node], connections: [], config: defaultConfig, assets: [], skills: [] }; },
+        generate: async (_id, _mode, _prompt, options) => { submissions++; options?.onTaskUpdate?.(task); },
+        notify: (text) => { notices.push(text); },
+    });
+    const first = executeAssistantProposal(args);
+    await executeAssistantProposal(args);
+    expect(prepares).toBe(1);
+    expect(notices).toEqual(["这项提案已提交或正在提交，请在任务列表查看进度。"]);
+    release();
+    await first;
+    expect(submissions).toBe(1);
+});
+
+test("switching canvas or account while checking submits nothing and lets the user confirm again after switching back", async () => {
+    let owned = true;
+    let submissions = 0;
+    const notices: string[] = [];
+    const args = input({
+        prepare: async () => { owned = false; return structuredClone({ nodes: [node], connections: [], config: defaultConfig, assets: [], skills: [] }); },
+        generate: async () => { submissions++; },
+        stillOwns: () => owned,
+        notify: (text) => { notices.push(text); },
+    });
+    await executeAssistantProposal(args);
+    expect(submissions).toBe(0);
+    expect(args.claims.size).toBe(0);
+    expect(notices).toEqual(["画布或账号已切换，未提交生成。请重新确认提案。"]);
+    owned = true;
+    await executeAssistantProposal({ ...args, prepare: async () => structuredClone({ nodes: [node], connections: [], config: defaultConfig, assets: [], skills: [] }), generate: async (_id, _mode, _prompt, options) => { submissions++; options?.onTaskUpdate?.(task); } });
+    expect(submissions).toBe(1);
+});
+
+test("partially started proposals are marked handled exactly once and keep the claim so nothing is resubmitted", async () => {
+    const handled: string[] = [];
+    const args = input({
+        nodes: [node, { ...node, id: "node-2" }, { ...node, id: "node-3" }],
+        proposal: { ...proposal, nodeIds: [node.id, "node-2", "node-3"] },
+        markHandled: (id) => { handled.push(id); },
+        generate: async (id, _mode, _prompt, options) => {
+            if (id === "node-3") throw new Error("submission failed");
+            options?.onTaskUpdate?.({ ...task, id: `task-${id}` });
+            options?.onTaskUpdate?.({ ...task, id: `task-${id}`, status: "running" });
+        },
+    });
+    await executeAssistantProposal(args);
+    expect(handled).toEqual([proposal.proposalId]);
+    expect(args.claims.has(proposal.proposalId)).toBe(true);
+});
+
+test("unified backend confirmOrder handles ordinary image and audio proposals without calling per-node generate", async () => {
+    const handled: string[] = [];
+    let generated = 0;
+    let confirmedCalls = 0;
+    const audioNode: CanvasNodeData = { ...node, id: "audio-1", type: CanvasNodeType.Audio };
+    for (const currentProposal of [
+        proposal,
+        { ...proposal, proposalId: "proposal-audio", kind: "audio" as const, nodeIds: [audioNode.id] },
+    ]) {
+        const currentNodes = currentProposal.kind === "audio" ? [audioNode] : [node];
+        await executeAssistantProposal(input({
+            proposal: currentProposal,
+            nodes: currentNodes,
+            confirmOrder: async () => {
+                confirmedCalls++;
+                return { taskIds: [`task-${currentProposal.proposalId}`] };
+            },
+            generate: async () => { generated++; },
+            markHandled: (id) => { handled.push(id); },
+        }));
+    }
+    expect(confirmedCalls).toBe(2);
+    expect(generated).toBe(0);
+    expect(handled).toEqual(["proposal-1", "proposal-audio"]);
 });

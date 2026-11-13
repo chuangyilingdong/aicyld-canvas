@@ -6,15 +6,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { createServer as createTCPServer } from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
-import { discoverRuntimeModules, packageAgentHost, verifyRuntime, NODE_VERSION } from './package-agent-host.mjs';
-
-test('packages every local runtime import', () => {
-  const modules = discoverRuntimeModules(path.resolve('agent-host'));
-  expect(new Set(modules).size).toBe(modules.length);
-  for (const name of ['plan.mjs', 'studio-digest.mjs', 'canvas-write-view.mjs', 'dispatch-diagnostics.mjs', 'durable-stream-text.mjs', 'model-transport-error.mjs', 'await-business-tasks.mjs', 'timeline-delivery.mjs']) {
-    expect(modules).toContain(name);
-  }
-});
+import { packageAgentHost, verifyRuntime, NODE_VERSION } from './package-agent-host.mjs';
 
 test('release rejects missing runtime and unsupported target', () => {
   expect(() => verifyRuntime('', 'darwin/arm64')).toThrow('required');
@@ -39,6 +31,11 @@ test('bundled runtime, locked dependencies, and paths with spaces', () => {
     const bundled = path.join(destination, 'runtime', relative);
     expect(existsSync(bundled)).toBe(true);
     expect(existsSync(path.join(destination, 'model-stream-idle.mjs'))).toBe(true);
+    expect(existsSync(path.join(destination, 'model-transport-error.mjs'))).toBe(true);
+    expect(existsSync(path.join(destination, 'durable-turn-projection.mjs'))).toBe(true);
+    expect(existsSync(path.join(destination, 'durable-extensions.mjs'))).toBe(true);
+    expect(existsSync(path.join(destination, 'business-progress.mjs'))).toBe(true);
+    expect(existsSync(path.join(destination, 'canvas-write-view.mjs'))).toBe(true);
     expect(existsSync(path.join(destination, 'node_modules/@earendil-works/pi-coding-agent/package.json'))).toBe(true);
     expect(existsSync(path.join(destination, 'run-agent-host.sh'))).toBe(false);
     const result = spawnSync(bundled, ['-p', 'process.versions.node'], { encoding: 'utf8', env: { ...process.env, PATH: '' } });

@@ -96,27 +96,27 @@ export function confirmCanvasBillingQuote(
             cancelText: insufficient ? "知道了" : "取消",
             okButtonProps: { disabled: insufficient },
             content: (
-                <div className="space-y-3 py-1">
-                    <div className="flex items-end justify-between rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
-                        <span className="text-sm text-amber-800">本次预计消耗</span>
-                        <span className="text-2xl font-semibold tabular-nums text-amber-950">
+                <div className="space-y-3 py-1 text-foreground">
+                    <div className="flex items-end justify-between rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-300/25 dark:bg-amber-400/10">
+                        <span className="text-sm text-amber-800 dark:text-amber-200">本次预计消耗</span>
+                        <span className="text-2xl font-semibold tabular-nums text-amber-950 dark:text-amber-100">
                             {quote.points}
                             <span className="ml-1 text-sm font-normal">积分</span>
                         </span>
                     </div>
                     <div className="grid grid-cols-[72px_1fr] gap-y-2 text-sm">
-                        <span className="text-black/45">模型</span>
-                        <span className="text-right font-medium text-black/75">{quote.displayName || quote.modelKey || "当前模型"}</span>
-                        <span className="text-black/45">当前余额</span>
-                        <span className="text-right tabular-nums text-black/75">{balance ?? "—"} 积分</span>
+                        <span className="text-foreground/50">模型</span>
+                        <span className="text-right font-medium text-foreground/80">{quote.displayName || quote.modelKey || "当前模型"}</span>
+                        <span className="text-foreground/50">当前余额</span>
+                        <span className="text-right tabular-nums text-foreground/80">{balance ?? "—"} 积分</span>
                     </div>
-                    {options.description ? <div className="rounded-lg border border-black/10 bg-black/[.025] px-3 py-2 text-sm leading-6 text-black/60">{options.description}</div> : null}
+                    {options.description ? <div className="rounded-lg border border-border bg-muted/35 px-3 py-2 text-sm leading-6 text-foreground/70">{options.description}</div> : null}
                     {insufficient ? (
-                        <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                        <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-300/20 dark:bg-rose-400/10 dark:text-rose-200">
                             还差 {shortfall} 积分，请先充值后再生成。
                         </div>
                     ) : null}
-                    <p className="m-0 text-xs leading-5 text-black/45">
+                    <p className="m-0 text-xs leading-5 text-foreground/50">
                         提交后先预扣积分；失败或取消会按原积分批次退回，成功后完成结算。
                     </p>
                 </div>

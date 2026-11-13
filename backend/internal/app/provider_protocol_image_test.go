@@ -29,38 +29,6 @@ func TestProtocolRequestMapsOpenAICanvasRatioToPixelSize(t *testing.T) {
 	}
 }
 
-func TestMidjourneyImagineMapsCanvasSpeedAndGridResult(t *testing.T) {
-	adapter, ok := protocol.Builtins().Get("midjourney")
-	if !ok {
-		t.Fatal("Midjourney adapter missing")
-	}
-	profile := DefaultImageCapabilityConfig("midjourney", "midjourney-imagine")
-	request := protocolRequestFromInput(canvasGenerationInput{
-		Mode:            "image",
-		Prompt:          "a red fox in snow",
-		Config:          providerConfig{Model: "midjourney-imagine", InterfaceType: "midjourney", Size: "16:9", Quality: "fast"},
-		ImageCapability: profile,
-	})
-	if request.AspectRatio != "16:9" || request.Quality != "fast" {
-		t.Fatalf("Midjourney request = %#v", request)
-	}
-	spec, err := adapter.BuildCreate(context.Background(), protocol.RequestContext{Request: request})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if spec.Path != "/v1/midjourney/generations/imagine" {
-		t.Fatalf("Midjourney path = %q", spec.Path)
-	}
-	body := marshalProtocolBody(t, spec.Body)
-	if body["model"] != "midjourney" || body["size"] != "16:9" || body["speed"] != "fast" {
-		t.Fatalf("Midjourney body = %#v", body)
-	}
-	poll, err := adapter.ParsePoll(context.Background(), protocol.PollContext{TaskID: "mj-task"}, []byte(`{"task_id":"mj-task","status":"SUCCESS","grid_image_url":"https://cdn.example.com/grid.png"}`))
-	if err != nil || poll.Result == nil || len(poll.Result.Images) != 1 || poll.Result.Images[0].URL != "https://cdn.example.com/grid.png" {
-		t.Fatalf("Midjourney poll = %#v, %v", poll, err)
-	}
-}
-
 func TestProtocolRequestKeepsSeedreamCanvasRatioWhenCapabilityUsesSize(t *testing.T) {
 	profile := DefaultImageCapabilityConfig("volcengine-ark-image", "doubao-seedream-5-0-260128")
 	if profile.Size.Parameter != "size" {
@@ -214,6 +182,67 @@ func TestProtocolGrokImagesPluginPayloadKeepsAspectRatio(t *testing.T) {
 	}
 	if body["resolution"] != "2k" {
 		t.Fatalf("grok-image resolution = %#v, want 2k", body["resolution"])
+	}
+}
+
+func TestProtocolOpenAIImagesPluginSendsSelectedResponseFormat(t *testing.T) {
+	adapter := officialSourceProviderAdapter(t, "openai-images", "openai-image")
+	profile := DefaultImageCapabilityConfig("openai-image", "gpt-image-2")
+	profile.ResponseFormat.Supported = true
+	profile.ResponseFormat.Value = "url"
+
+	cases := []struct {
+		name   string
+		images []providerMedia
+		path   string
+	}{
+		{name: "generation", path: "/v1/images/generations"},
+		{
+			name:   "edit",
+			images: []providerMedia{{MimeType: "image/png", DataURL: "data:image/png;base64,iVBORw0KGgo="}},
+			path:   "/v1/images/edits",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			request := protocolRequestFromInput(canvasGenerationInput{
+				Mode:            "image",
+				Prompt:          "a landscape",
+				Config:          providerConfig{Model: "gpt-image-2", InterfaceType: "openai-image"},
+				ReferenceImages: tc.images,
+				ImageCapability: profile,
+			})
+			spec, err := adapter.BuildCreate(context.Background(), protocol.RequestContext{Request: request})
+			if err != nil {
+				t.Fatalf("build request: %v", err)
+			}
+			if spec.Path != tc.path {
+				t.Fatalf("path = %q, want %q", spec.Path, tc.path)
+			}
+			body := marshalProtocolBody(t, spec.Body)
+			if body["response_format"] != "url" {
+				t.Fatalf("openai-images response_format = %#v, want %q", body["response_format"], "url")
+			}
+		})
+	}
+}
+
+func TestProtocolOpenAIImagesPluginLeavesUnsetResponseFormatAlone(t *testing.T) {
+	adapter := officialSourceProviderAdapter(t, "openai-images", "openai-image")
+	profile := DefaultImageCapabilityConfig("openai-image", "gpt-image-2")
+	request := protocolRequestFromInput(canvasGenerationInput{
+		Mode:            "image",
+		Prompt:          "a landscape",
+		Config:          providerConfig{Model: "gpt-image-2", InterfaceType: "openai-image"},
+		ImageCapability: profile,
+	})
+	spec, err := adapter.BuildCreate(context.Background(), protocol.RequestContext{Request: request})
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	body := marshalProtocolBody(t, spec.Body)
+	if value, exists := body["response_format"]; exists {
+		t.Fatalf("response_format = %#v, want it left to the channel providerOptions", value)
 	}
 }
 

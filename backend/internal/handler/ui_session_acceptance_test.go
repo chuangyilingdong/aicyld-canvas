@@ -53,3 +53,21 @@ func TestAssistantAcceptanceRejectsMissingForeignAndExpiredUISessions(t *testing
 		t.Fatalf("valid UI did not reach input validation: %d %s", w.Code, w.Body.String())
 	}
 }
+
+func TestHostedUISessionAuthorizesWorkspaceOps(t *testing.T) {
+	env := newAssistantTestEnv(t, nil)
+	body := `{"params":{"canvasId":"` + env.canvasID + `"}}`
+	w := env.call(t, http.MethodPost, "/ops/canvas.get", body)
+	if w.Code != http.StatusOK {
+		t.Fatalf("valid UI session did not authorize ops: %d %s", w.Code, w.Body.String())
+	}
+	data := decodeEnvelope(t, w)
+	if data["__code"] != float64(0) {
+		t.Fatalf("unexpected ops envelope: %s", w.Body.String())
+	}
+
+	w = env.callWithHeaders(t, http.MethodPost, "/ops/canvas.get", body, nil)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("ops without UI identity should be forbidden: %d %s", w.Code, w.Body.String())
+	}
+}

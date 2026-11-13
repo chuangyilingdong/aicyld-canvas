@@ -20,15 +20,15 @@ type Task struct {
 	Operation           string     `json:"operation" gorm:"size:64"`
 	Provider            string     `json:"provider" gorm:"size:64"`
 	Model               string     `json:"model" gorm:"size:120"`
-	// 画布积分预扣。HoldID 只用于内部对账；BillingPoints 用于任务卡片展示。
-	BillingHoldID          string        `json:"-" gorm:"size:64;index"`
-	BillingStatus          string        `json:"billingStatus,omitempty" gorm:"size:32"`
-	BillingPoints          int           `json:"billingPoints,omitempty"`
-	BillingQuote           *BillingQuote `json:"billingQuote,omitempty" gorm:"-"`
-	LogicalModelID         string        `json:"logicalModelId,omitempty" gorm:"size:36;index"`
-	LogicalModelRevisionID string        `json:"logicalModelRevisionId,omitempty" gorm:"size:36;index"`
-	RouteID                string        `json:"routeId,omitempty" gorm:"size:36;index"`
-	ChannelModelID         string        `json:"channelModelId,omitempty" gorm:"size:36;index"`
+	// AICYLD 托管计费状态。字段为只读：普通 GORM 写入不碰这些列，
+	// AICYLD 通过显式仓储方法在任务准入/结算事务中维护。
+	BillingHoldID          string `json:"-" gorm:"column:billing_hold_id;->"`
+	BillingStatus          string `json:"billingStatus,omitempty" gorm:"column:billing_status;->"`
+	BillingPoints          int    `json:"billingPoints,omitempty" gorm:"column:billing_points;->"`
+	LogicalModelID         string `json:"logicalModelId,omitempty" gorm:"size:36;index"`
+	LogicalModelRevisionID string `json:"logicalModelRevisionId,omitempty" gorm:"size:36;index"`
+	RouteID                string `json:"routeId,omitempty" gorm:"size:36;index"`
+	ChannelModelID         string `json:"channelModelId,omitempty" gorm:"size:36;index"`
 	// RouteRun 只在用户主动重试时递增；worker 租约恢复不应创建新的路由选择世代。
 	RouteRun                  int                     `json:"-" gorm:"index"`
 	ProviderRequestID         string                  `json:"providerRequestId,omitempty" gorm:"index;size:160"`
@@ -47,9 +47,12 @@ type Task struct {
 	TextDraft                 string                  `json:"textDraft,omitempty" gorm:"type:text"`
 	Error                     string                  `json:"error"`
 	ErrorCode                 string                  `json:"errorCode,omitempty" gorm:"-"`
+	RecoveryOutcome           *string                 `json:"-" gorm:"type:text"`
+	Outcome                   *TaskOutcome            `json:"outcome,omitempty" gorm:"-"`
 	ResultState               string                  `json:"resultState,omitempty" gorm:"-"`
 	Outputs                   []TaskOutput            `json:"outputs,omitempty" gorm:"-"`
 	Delivery                  *TaskDeliveryProgress   `json:"delivery,omitempty" gorm:"-"`
+	ReferenceProgress         *TaskReferenceProgress  `json:"referenceProgress,omitempty" gorm:"-"`
 	FailureDiagnostics        *TaskFailureDiagnostics `json:"failureDiagnostics,omitempty" gorm:"serializer:json;type:text"`
 	Attempts                  int                     `json:"attempts"`
 	StartedAt                 *time.Time              `json:"startedAt"`
@@ -57,42 +60,36 @@ type Task struct {
 	CreatedAt                 time.Time               `json:"createdAt" gorm:"index:idx_tasks_user_created,priority:2;index:idx_tasks_status_created,priority:2;index:idx_tasks_claim,priority:3;index:idx_tasks_user_project_created,priority:3"`
 	UpdatedAt                 time.Time               `json:"updatedAt"`
 
-	// WorkflowSourceCipher privately preserves a successful command before the
-	// public completion projection strips provider settings and media identities.
+	// WorkflowSourceCipher retains the canonical successful command privately,
+	// before public completion projections remove media and provider settings.
 	WorkflowSourceCipher string `json:"-" gorm:"type:text"`
+
+	// BeefAPI 扣费与异步结算原值，仅内部持久化与 Outcome 投影读取。
+	BeefUsageState        *string `json:"-" gorm:"column:beef_usage_state;size:64"`
+	BeefBillingState      *string `json:"-" gorm:"column:beef_billing_state;size:64"`
+	BeefReconcileDeadline *string `json:"-" gorm:"column:beef_reconcile_deadline;size:128"`
+	ImageJobID            string  `json:"-" gorm:"column:image_job_id;size:191"`
 }
 
-// BillingQuote 是主站计费服务返回的价格快照。规则版本保证任务提交后改价不影响已预扣任务。
-type BillingQuote struct {
-	Enabled          bool           `json:"enabled"`
-	Points           int            `json:"points"`
-	ModelKey         string         `json:"modelKey,omitempty"`
-	DisplayName      string         `json:"displayName,omitempty"`
-	RuleID           string         `json:"ruleId,omitempty"`
-	RuleVersion      int            `json:"ruleVersion,omitempty"`
-	Balance          int            `json:"balance"`
-	EstimatedCostCNY float64        `json:"estimatedCostCny,omitempty"`
-	Breakdown        map[string]any `json:"breakdown,omitempty"`
+func (t Task) ProviderUsageState() string {
+	if t.BeefUsageState == nil {
+		return ""
+	}
+	return *t.BeefUsageState
 }
 
-type BillingReservation struct {
-	Enabled bool   `json:"enabled"`
-	HoldID  string `json:"holdId,omitempty"`
-	Points  int    `json:"points"`
-	Balance int    `json:"balance"`
-	Status  string `json:"status,omitempty"`
+func (t Task) ProviderBillingState() string {
+	if t.BeefBillingState == nil {
+		return ""
+	}
+	return *t.BeefBillingState
 }
 
-type BillingBalance struct {
-	Enabled bool `json:"enabled"`
-	Balance int  `json:"balance"`
-}
-
-type BillingSettlement struct {
-	Status         string `json:"status,omitempty"`
-	ChargedPoints  int    `json:"chargedPoints"`
-	RefundedPoints int    `json:"refundedPoints"`
-	Pending        bool   `json:"pending,omitempty"`
+func (t Task) ProviderReconcileDeadline() string {
+	if t.BeefReconcileDeadline == nil {
+		return ""
+	}
+	return *t.BeefReconcileDeadline
 }
 
 // TaskFailureDiagnostics contains bounded, redacted evidence, never request bodies.
@@ -111,6 +108,8 @@ type TaskFailureDiagnostics struct {
 	ProviderTaskID  string                `json:"providerTaskId,omitempty"`
 	Param           string                `json:"param,omitempty"`
 	Stage           string                `json:"stage,omitempty"`
+	FailedOperation string                `json:"failedOperation,omitempty"`
+	TransportPhase  string                `json:"transportPhase,omitempty"`
 	CapturedAt      string                `json:"capturedAt,omitempty"`
 }
 
@@ -120,6 +119,7 @@ type TaskRequestEvidence struct {
 	Dispatched            bool   `json:"dispatched"`
 	TransportPhase        string `json:"transportPhase,omitempty"`
 	TransportRoute        string `json:"transportRoute,omitempty"`
+	Attempt               int    `json:"attempt,omitempty"`
 	Outcome               string `json:"outcome"`
 	HTTPStatus            int    `json:"httpStatus,omitempty"`
 	RequestID             string `json:"requestId,omitempty"`
@@ -203,6 +203,14 @@ type TaskOutput struct {
 	TargetBinding            *TaskOutputTarget `json:"targetBinding,omitempty"`
 }
 
+// TaskOutcome 只由任务读投影计算，不是数据库列。
+type TaskOutcome struct {
+	Phase             string `json:"phase"`
+	Regenerate        string `json:"regenerate"`
+	Reason            string `json:"reason"`
+	ReconcileDeadline string `json:"reconcileDeadline,omitempty"`
+}
+
 type TaskOutputTarget struct {
 	NodeID         string `json:"nodeId,omitempty"`
 	MessageID      string `json:"messageId,omitempty"`
@@ -216,10 +224,22 @@ type TaskDeliveryProgress struct {
 	Outputs []TaskDeliveryOutputProgress `json:"outputs"`
 }
 
+// Observations only; never contains an upstream URL, upload ticket or local path.
+type TaskReferenceProgress struct {
+	Label          string `json:"label"`
+	Phase          string `json:"phase"`
+	LoadedBytes    int64  `json:"loadedBytes"`
+	TotalBytes     int64  `json:"totalBytes"`
+	BytesPerSecond int64  `json:"bytesPerSecond"`
+	StartedAt      int64  `json:"startedAt"`
+	UpdatedAt      int64  `json:"updatedAt"`
+}
+
 type TaskDeliveryOutputProgress struct {
 	OutputIndex     int    `json:"outputIndex"`
 	DownloadedBytes int64  `json:"downloadedBytes"`
 	TotalBytes      int64  `json:"totalBytes"`
 	BytesPerSecond  int64  `json:"bytesPerSecond"`
+	UpdatedAt       int64  `json:"updatedAt"`
 	State           string `json:"state"`
 }

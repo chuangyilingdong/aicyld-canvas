@@ -29,6 +29,9 @@ func TestExternalBusinessRealUploadRenderAndIsolation(t *testing.T) {
 	call := func(method, path, body string) *httptest.ResponseRecorder {
 		return h.call(requestOptions{method: method, path: path, body: body, clientID: reg.ID, clientToken: token})
 	}
+	if response := call("GET", "/skills?scope=public&search=storyboard", ""); response.Code != 200 {
+		t.Fatal("public market read rejected", response.Code, response.Body.String())
+	}
 	listing := call("GET", "/business/tools", "")
 	if listing.Code != 200 {
 		t.Fatal(listing.Code, listing.Body.String())
@@ -98,10 +101,13 @@ func TestExternalBusinessRealUploadRenderAndIsolation(t *testing.T) {
 	if move.Code != 200 {
 		t.Fatal(move.Code, move.Body.String())
 	}
-	for _, endpoint := range []string{"/agent-clients", "/assistant/host/config", "/assistant/runtime/turns/abc", "/ops/clients"} {
+	for _, endpoint := range []string{"/agent-clients", "/assistant/host/config", "/assistant/runtime/turns/abc", "/ops/clients", "/skills/review/submissions"} {
 		if out := call("GET", endpoint, ""); out.Code != http.StatusForbidden {
 			t.Fatalf("credential/runtime management exposed %s: %d", endpoint, out.Code)
 		}
+	}
+	if out := call("POST", "/skills/review/submissions/forged/review", `{"decision":"approve","reason":"fixture"}`); out.Code != http.StatusForbidden {
+		t.Fatalf("review management exposed: %d %s", out.Code, out.Body.String())
 	}
 	foreign := model.Resource{ID: "foreign-business-resource", UserID: "foreign-owner", ObjectKey: "not-a-real-file", Status: model.ResourceStatusReady, MimeType: "image/png"}
 	if err = h.rt.db.Create(&foreign).Error; err != nil {

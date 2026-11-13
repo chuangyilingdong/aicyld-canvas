@@ -15,6 +15,23 @@ type timelineDomain struct {
 	commits int
 }
 
+func TestTimelineUpdateSchemaAvoidsRootLevelOneOfForStrictEndpoints(t *testing.T) {
+	raw := timelineUpdateSchema(json.RawMessage(`{"type":"object","properties":{"canvasId":{"type":"string"},"expectedRevision":{"type":"integer"},"timeline":{"type":"object"}},"required":["canvasId","expectedRevision","timeline"]}`))
+	var schema map[string]any
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := schema["oneOf"]; ok {
+		t.Fatal("root-level oneOf breaks strict OpenAI-compatible schema endpoints")
+	}
+	properties := schema["properties"].(map[string]any)
+	for _, name := range []string{"timeline", "refreshNodeIds"} {
+		if _, ok := properties[name]; !ok {
+			t.Errorf("timeline schema is missing %s", name)
+		}
+	}
+}
+
 func (d *timelineDomain) UserCanvasProject(user, id string) (json.RawMessage, error) {
 	if user != "owner" || id != "canvas" {
 		return nil, PermissionDenied("foreign_canvas", "foreign")
@@ -51,6 +68,10 @@ func TestTimelineUpdatePreservesOtherFieldsAndRejectsUnauthorizedSources(t *test
 	d := &timelineDomain{doc: initial}
 	ctx := &Context{UserID: "owner", Domain: d}
 	args := map[string]any{"canvasId": "canvas", "expectedRevision": 4, "timeline": map[string]any{"version": 2, "durationMs": 2000, "tracks": []any{map[string]any{"id": "v", "kind": "video", "muted": true}}, "clips": []any{map[string]any{"id": "clip", "kind": "video", "nodeId": "node", "trackId": "v", "startMs": 0, "durationMs": 2000, "sourceStartMs": 1000, "volume": 0}}}}
+	inputTimeline := args["timeline"].(map[string]any)
+	inputTimeline["output"] = map[string]any{"width": 720, "height": 1280, "fps": 24}
+	inputTimeline["tracks"].([]any)[0].(map[string]any)["label"] = "主画面"
+	inputTimeline["tracks"].([]any)[0].(map[string]any)["order"] = 4
 	raw, _ := json.Marshal(args)
 	result, err := opCanvasTimelineUpdate(ctx, raw)
 	if err != nil {
@@ -70,9 +91,12 @@ func TestTimelineUpdatePreservesOtherFieldsAndRejectsUnauthorizedSources(t *test
 	if savedTimeline.Clips[0].NodeID != "node" || savedTimeline.Clips[0].DirectMedia.StorageKey != "resource:media" {
 		t.Fatalf("missing canonical source: %+v", savedTimeline.Clips[0])
 	}
-	plan, err := editing.Compile(savedTimeline, nil, editing.DefaultOptions())
+	plan, err := editing.Compile(savedTimeline, nil, editing.Options{})
 	if err != nil || plan.Segments[0].SourceID != "media" {
 		t.Fatalf("native render source incorrect: %+v %v", plan, err)
+	}
+	if plan.Output.Width != 720 || plan.Output.Height != 1280 || savedTimeline.Tracks[0].Label != "主画面" || savedTimeline.Tracks[0].Order == nil || *savedTimeline.Tracks[0].Order != 4 {
+		t.Fatalf("saved timeline lost editable output or tracks: %s", savedRaw)
 	}
 	delete(after, "timeline")
 	after["revision"] = before["revision"]

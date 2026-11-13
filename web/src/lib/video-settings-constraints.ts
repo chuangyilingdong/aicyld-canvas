@@ -1,5 +1,6 @@
 import { beefAPIVideoContract, isBeefAPIEndpoint } from "./beefapi-video-contracts";
-import { h3ReferenceMode, h3VideoOperation, isH3Model, isH3Style } from "./h3-video";
+import { h3ReferenceMode, h3VideoOperation, isH3MaxModel, isH3Model, isH3Style } from "./h3-video";
+import { modelCapabilityConfigFor } from "./model-capabilities";
 import { seedanceSettingsConstraints, type SeedanceSettingsConstraints } from "./seedance-task-constraints";
 import { modelOptionName, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
 import type { CanvasNodeMetadata } from "@/types/canvas";
@@ -27,7 +28,7 @@ export function videoSettingsConstraints(
         if (input.characterCount) {
             // A card can expand into several views and change the submission mode.
             const ratioHelp = first || last
-                ? model === "minimax-h3-max"
+                ? isH3MaxModel(model)
                     ? "首尾帧生成不能混用角色参考图；H3 Max 多素材参考生成可组合关键帧与角色参考图，使用所选比例。"
                     : "角色卡带参考图时，不能与指定的首尾帧同时使用。请移除角色卡，或取消首尾帧指定后再生成。"
                 : isH3Style(model)
@@ -42,5 +43,5 @@ export function videoSettingsConstraints(
             ratioHelp: `视频比例由${frame}图片决定。需要其他比例时，请先裁切或扩图，再生成视频。`,
         };
     }
-    return seedanceSettingsConstraints(model, imageCount, videoCount, audioCount, metadata?.videoEditOperation, Boolean(first || last));
+    return seedanceSettingsConstraints(modelCapabilityConfigFor(config, config.model).video, imageCount, videoCount, audioCount, metadata?.videoEditOperation, Boolean(first || last));
 }

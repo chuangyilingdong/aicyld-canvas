@@ -17,8 +17,8 @@ let diagnosticInputs: any[];
 beforeAll(async () => {
     const plugin: BunPlugin = { name: "repair-harness", setup(builder) {
         builder.onResolve({ filter: /^@\// }, args => ({ path: Bun.resolveSync("../src/" + args.path.slice(2), import.meta.dir) }));
-        builder.onLoad({ filter: /src\/components\/model-logo\.tsx$/ }, () => ({ contents: "export function ModelLogo() { return null; }", loader: "js" }));
-        builder.onLoad({ filter: /src\/lib\/canvas\/canvas-export\.ts$/ }, () => ({ loader: "js", contents: `export async function exportCanvasProjects(projects, title, options) { window.__repairHarness.downloads.push({projects, title, options}); return "saved"; }` }));
+        builder.onLoad({ filter: /src[\\/]components[\\/]model-logo\.tsx$/ }, () => ({ contents: "export function ModelLogo() { return null; }", loader: "js" }));
+        builder.onLoad({ filter: /src[\\/]lib[\\/]canvas[\\/]canvas-export\.ts$/ }, () => ({ loader: "js", contents: `export async function exportCanvasProjects(projects, title, options) { window.__repairHarness.downloads.push({projects, title, options}); return "saved"; }` }));
         builder.onLoad({ filter: /\.(svg|png|jpe?g|gif|webp|woff2?)$/ }, () => ({ contents: "export default ''", loader: "js" }));
     } };
     const build = await Bun.build({ entrypoints: [import.meta.dir + "/fixtures/canvas-pr108-repair-harness.tsx"], plugins: [plugin], target: "browser",
@@ -87,8 +87,8 @@ test("pending deletion cannot delete another canvas, including A→B→A with co
     expect(await page.evaluate(() => (window as any).__repairHarness.destroyed)).toBe(1);
     expect(errors).toEqual([]);
 }, 15000);
-test("account A→B→A and unmount dismiss pending deletion without cancellation", async () => {
-    for (const action of ["switchScope", "unmountEditor"]) {
+test("unmount dismisses pending deletion without cancellation", async () => {
+    for (const action of ["unmountEditor"]) {
         await page.goto(server.url.toString());
         await page.getByRole("button", { name: "delete-node", exact: true }).click();
         await run(action);
@@ -156,7 +156,7 @@ test("the task diagnostic URL opens a scoped modal and closes back to model sett
     expect(diagnosticInputs[0]).toMatchObject({ taskId: "task-1", projectId: "canvas-1" });
     await dialog.getByRole("button", { name: "关闭问题诊断" }).click();
     await dialog.waitFor({ state: "hidden" });
-    await page.getByText("本地模型渠道", { exact: true }).waitFor();
+    await page.getByText(/本地模型渠道|个人渠道/, { exact: true }).waitFor();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     expect(errors).toEqual([]);
 }, 15000);

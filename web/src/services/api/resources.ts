@@ -1,5 +1,6 @@
-import { assertUserScope, captureUserScope, isUserScopeAbandonedError, UserScopeAbandonedError, waitForRetryDelay, type CapturedUserScope } from "@/lib/user-scope-guard";
+import { waitForRetryDelay } from "@/lib/retry-delay";
 import { isLocalRuntimeMode } from "@/lib/runtime-mode";
+import { createClientId } from "@/lib/client-id";
 import { http, apiBaseURL, ApiError, type HttpRequestConfig } from "@/services/api/request";
 import { startOperation } from "@/stores/use-operation-progress";
 
@@ -38,9 +39,7 @@ export async function prepareResourcePlayback(id: string, config?: HttpRequestCo
 }
 
 export async function clearVideoPreviewCache(config?: HttpRequestConfig) {
-    const expectedScope = config?.expectedScope ?? captureUserScope();
-    const result = await http.delete<{ cleared: number }>("/resources/playback-cache", { ...config, expectedScope });
-    assertUserScope(expectedScope);
+    const result = await http.delete<{ cleared: number }>("/resources/playback-cache", { ...config });
     return result;
 }
 
@@ -55,7 +54,8 @@ export type ResourceUploadMeta = {
     durationMs?: number;
     fileName?: string;
     idempotencyKey?: string;
-    expectedScope?: CapturedUserScope;
+    /** Defaults to true when no explicit operation key is supplied. */
+    contentDedupe?: boolean;
 };
 
 /**
@@ -87,9 +87,65 @@ export function resourceStorageKey(id: string) {
     return `resource:${id}`;
 }
 
+export const DEFAULT_CANVAS_DOCUMENT_LIMIT_MB = 64;
+export const MAX_CANVAS_DOCUMENT_LIMIT_MB = 512;
+const CANVAS_DOCUMENT_LIMIT_STORAGE_KEY = "beeftv-canvas-document-limit-mb";
+
+export function readLocalCanvasDocumentLimitMB(): number {
+    try {
+        const raw = typeof localStorage !== "undefined" ? localStorage.getItem(CANVAS_DOCUMENT_LIMIT_STORAGE_KEY) : null;
+        if (raw !== null && raw.trim() !== "") {
+            const parsed = Number(raw);
+            if (Number.isInteger(parsed) && parsed >= 0 && parsed <= MAX_CANVAS_DOCUMENT_LIMIT_MB) return parsed;
+        }
+    } catch {
+        // Ignore storage read failures.
+    }
+    return DEFAULT_CANVAS_DOCUMENT_LIMIT_MB;
+}
+
 export async function getAccountFileStorageUsage() {
-    const data = await http.get<{ usage: AccountFileStorageUsage }>("/resources/storage-usage");
+    const data = await http.get<{ usage: AccountFileStorageUsage; canvasDocumentMB?: number }>("/resources/storage-usage");
+    if (typeof data.canvasDocumentMB === "number" && Number.isInteger(data.canvasDocumentMB) && data.canvasDocumentMB >= 0) {
+        try {
+            localStorage.setItem(CANVAS_DOCUMENT_LIMIT_STORAGE_KEY, String(data.canvasDocumentMB));
+        } catch {
+            // Ignore storage write failures.
+        }
+    }
     return data.usage;
+}
+
+export async function getCanvasDocumentLimitMB(): Promise<number> {
+    try {
+        const data = await http.get<{ usage?: AccountFileStorageUsage; canvasDocumentMB?: number }>("/resources/storage-usage");
+        if (typeof data?.canvasDocumentMB === "number" && Number.isInteger(data.canvasDocumentMB) && data.canvasDocumentMB >= 0) {
+            try {
+                localStorage.setItem(CANVAS_DOCUMENT_LIMIT_STORAGE_KEY, String(data.canvasDocumentMB));
+            } catch {
+                // Ignore storage write failures.
+            }
+            return data.canvasDocumentMB;
+        }
+    } catch {
+        // Offline or fixture harness without /api/resources/storage-usage: fall back to last confirmed local value.
+    }
+    return readLocalCanvasDocumentLimitMB();
+}
+
+export async function updateCanvasDocumentLimitMB(canvasDocumentMB: number): Promise<number> {
+    const normalized = Math.trunc(canvasDocumentMB);
+    if (!Number.isFinite(normalized) || normalized < 0 || normalized > MAX_CANVAS_DOCUMENT_LIMIT_MB) {
+        throw new Error(`单画布容量上限请填写 0（不限制）或 1–${MAX_CANVAS_DOCUMENT_LIMIT_MB} 之间的整数（MB）`);
+    }
+    const data = await http.patch<{ canvasDocumentMB?: number }>("/resources/storage-usage", { canvasDocumentMB: normalized });
+    const persisted = typeof data?.canvasDocumentMB === "number" ? data.canvasDocumentMB : normalized;
+    try {
+        localStorage.setItem(CANVAS_DOCUMENT_LIMIT_STORAGE_KEY, String(persisted));
+    } catch {
+        // Ignore storage write failures.
+    }
+    return persisted;
 }
 
 export async function syncResourceToArkPrivateAsset(id: string) {
@@ -144,6 +200,25 @@ function resourceIdFromTrustedLocalFileUrl(url: string) {
 // 超过该阈值（与后端单请求 multipart 上限 50MB 一致）的本地媒体走分片上传，避免大视频导入失败。
 const CHUNK_UPLOAD_THRESHOLD = 50 << 20;
 const CHUNK_UPLOAD_RETRIES = 2;
+const MULTIPART_UPLOAD_RETRIES = 3;
+const UPLOAD_RETRY_BASE_DELAY_MS = 300;
+const CONTENT_IDENTITY_MAX_BYTES = 64 << 20;
+
+async function contentUploadIdempotencyKey(file: Blob, kind: "image" | "video" | "audio" | "file") {
+    if (file.size <= CONTENT_IDENTITY_MAX_BYTES) {
+        try {
+            const digest = await globalThis.crypto?.subtle?.digest("SHA-256", await file.arrayBuffer());
+            if (digest) {
+                const hash = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+                return `resource-content:${kind}:${file.type || "application/octet-stream"}:${file.size}:${hash}`;
+            }
+        } catch {
+            // Older browsers and test shims may not expose Web Crypto; keep the
+            // request-level retry identity so a network replay stays idempotent.
+        }
+    }
+    return "";
+}
 
 export async function uploadResourceFile(
     file: Blob,
@@ -151,74 +226,84 @@ export async function uploadResourceFile(
     meta?: ResourceUploadMeta,
     onProgress?: (uploadedBytes: number, totalBytes: number) => void,
 ): Promise<RemoteResource> {
-    const expected = meta?.expectedScope ?? captureUserScope();
     const name = meta?.fileName || (file instanceof File ? file.name : `${kind}.${extensionFromMime(file.type, kind)}`);
-    const progress = startOperation(name, { owner: expected, totalBytes: file.size, detail: isLocalRuntimeMode() ? "正在保存到本地资源目录" : "正在准备上传" });
+    // Reuse the same content identity across separate selections, not only
+    // request retries. Resource uploads are the first boundary where the same
+    // file can otherwise become several canonical resources and assets.
+    const contentIdentity = (meta?.contentDedupe ?? !meta?.idempotencyKey?.trim()) ? await contentUploadIdempotencyKey(file, kind) : "";
+    const retryMeta = { ...meta, idempotencyKey: contentIdentity || meta?.idempotencyKey?.trim() || `resource-upload:${createClientId()}` };
+    const progress = startOperation(name, { totalBytes: file.size, detail: isLocalRuntimeMode() ? "正在保存到本地资源目录" : "正在准备上传" });
     const report = (loaded: number, total: number) => { progress.progress(loaded, total); onProgress?.(loaded, total); };
     // 分片与 multipart 两条路径的失败都要归一成 ResourceUploadError，
     // 否则调用方只能靠文案猜测该重试还是该报错。
     try {
         if (file.size > CHUNK_UPLOAD_THRESHOLD) {
-            const resource = await uploadFileInChunks(file, name, kind, meta, expected, report);
-            rememberResource(resource, expected);
+            const resource = await uploadFileInChunks(file, name, kind, retryMeta, report);
+            rememberResource(resource);
             progress.done("文件已确认并保存");
             return resource;
         }
-        const formData = new FormData();
-        formData.append("kind", kind);
-        formData.append("file", file, name);
-        if (meta?.width) formData.append("width", String(Math.round(meta.width)));
-        if (meta?.height) formData.append("height", String(Math.round(meta.height)));
-        if (meta?.durationMs) formData.append("durationMs", String(Math.round(meta.durationMs)));
-        const data = await http.post<{ resource: RemoteResource }>("/resources", formData, {
-            ...scopedUploadConfig(expected, meta?.idempotencyKey),
-            onUploadProgress: ({ loaded, total }) => {
-                if (total && total > 0) report(Math.min(file.size, file.size * loaded / total), file.size);
-                else progress.progress(loaded);
-            },
-        });
-        rememberResource(data.resource, expected);
+        const resource = await uploadFileMultipart(file, name, kind, retryMeta, report, (loaded) => progress.progress(loaded));
+        rememberResource(resource);
         progress.done("文件已确认并保存");
-        return data.resource;
+        return resource;
     } catch (error) {
-        if (isUserScopeAbandonedError(error)) progress.dismiss();
-        else progress.fail("文件保存未完成，请查看上传提示后重试");
+        
+        progress.fail("文件保存未完成，请查看上传提示后重试");
         throw normalizeUploadError(error);
     }
 }
 
-// 分片上传：POST 开始会话 → 逐片 PUT 原始二进制（每片 8MB）→ POST 合并落库。
-// 同一次上传重试复用会话，只重传尚未确认完整收到的片。
-async function uploadFileInChunks(file: Blob, name: string, kind: "image" | "video" | "audio" | "file", meta: ResourceUploadMeta | undefined, expected: CapturedUserScope, onProgress?: (uploadedBytes: number, totalBytes: number) => void) {
-    const retryMeta = { ...meta, idempotencyKey: meta?.idempotencyKey || `resource-upload:${await stableUploadHash(file, name)}` };
-    for (let attempt = 0; attempt < CHUNK_UPLOAD_RETRIES; attempt++) {
+async function uploadFileMultipart(
+    file: Blob,
+    name: string,
+    kind: "image" | "video" | "audio" | "file",
+    meta: ResourceUploadMeta,
+    onProgress?: (uploadedBytes: number, totalBytes: number) => void,
+    onUnknownProgress?: (uploadedBytes: number) => void,
+) {
+    for (let attempt = 0; attempt < MULTIPART_UPLOAD_RETRIES; attempt++) {
         try {
-            return await runChunkedUpload(file, name, kind, retryMeta, expected, onProgress);
+            const formData = new FormData();
+            formData.append("kind", kind);
+            formData.append("file", file, name);
+            if (meta.width) formData.append("width", String(Math.round(meta.width)));
+            if (meta.height) formData.append("height", String(Math.round(meta.height)));
+            if (meta.durationMs) formData.append("durationMs", String(Math.round(meta.durationMs)));
+            const data = await http.post<{ resource: RemoteResource }>("/resources", formData, {
+                ...uploadConfig(meta.idempotencyKey),
+                onUploadProgress: ({ loaded, total }) => {
+                    if (total && total > 0) onProgress?.(Math.min(file.size, file.size * loaded / total), file.size);
+                    else onUnknownProgress?.(loaded);
+                },
+            });
+            return data.resource;
         } catch (error) {
-            if (error instanceof ResourceUploadError && error.permanent) throw error;
-            if (attempt === CHUNK_UPLOAD_RETRIES - 1) throw error;
-            await prepareChunkRetry(error, expected);
+            const normalized = normalizeUploadError(error);
+            if (normalized.permanent || attempt === MULTIPART_UPLOAD_RETRIES - 1) throw normalized;
+            await prepareUploadRetry(normalized, attempt);
         }
     }
-    throw new Error("上传失败");
+    throw new ResourceUploadError("上传失败", { permanent: false });
 }
 
-export async function stableUploadHash(file: Blob, name: string) {
-    const sampleBytes = 64 * 1024;
-    const head = new Uint8Array(await file.slice(0, Math.min(file.size, sampleBytes)).arrayBuffer());
-    const tailStart = Math.max(0, file.size - sampleBytes);
-    const tail = tailStart > head.length ? new Uint8Array(await file.slice(tailStart).arrayBuffer()) : new Uint8Array();
-    const metadata = new TextEncoder().encode(`${name}\u0000${file.size}\u0000${file.type}\u0000`);
-    const input = new Uint8Array(metadata.length + head.length + tail.length);
-    input.set(metadata, 0);
-    input.set(head, metadata.length);
-    input.set(tail, metadata.length + head.length);
-    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", input));
-    return Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
+// 分片上传：POST 开始会话 → 逐片 PUT 原始二进制（每片 8MB）→ POST 合并落库。
+// 同一次上传重试复用会话，只重传尚未确认完整收到的片。
+async function uploadFileInChunks(file: Blob, name: string, kind: "image" | "video" | "audio" | "file", meta: ResourceUploadMeta | undefined, onProgress?: (uploadedBytes: number, totalBytes: number) => void) {
+    for (let attempt = 0; attempt < CHUNK_UPLOAD_RETRIES; attempt++) {
+        try {
+            return await runChunkedUpload(file, name, kind, meta, onProgress);
+        } catch (error) {
+            const normalized = normalizeUploadError(error);
+            if (normalized.permanent || attempt === CHUNK_UPLOAD_RETRIES - 1) throw normalized;
+            await prepareUploadRetry(normalized, attempt);
+        }
+    }
+    throw new ResourceUploadError("上传失败", { permanent: false });
 }
 
-async function runChunkedUpload(file: Blob, name: string, kind: "image" | "video" | "audio" | "file", meta: ResourceUploadMeta | undefined, expected: CapturedUserScope, onProgress?: (uploadedBytes: number, totalBytes: number) => void) {
-    const session = await http.post<{ uploadId: string; chunkSize: number; chunkCount: number; received?: number[] }>("/resources/uploads", { fileName: name, kind, size: file.size, width: meta?.width, height: meta?.height, durationMs: meta?.durationMs }, scopedUploadConfig(expected, meta?.idempotencyKey));
+async function runChunkedUpload(file: Blob, name: string, kind: "image" | "video" | "audio" | "file", meta: ResourceUploadMeta | undefined, onProgress?: (uploadedBytes: number, totalBytes: number) => void) {
+    const session = await http.post<{ uploadId: string; chunkSize: number; chunkCount: number; received?: number[] }>("/resources/uploads", { fileName: name, kind, size: file.size, width: meta?.width, height: meta?.height, durationMs: meta?.durationMs }, uploadConfig(meta?.idempotencyKey));
     const received = new Set(session.received ?? []);
     if (!session.uploadId || !Number.isSafeInteger(session.chunkSize) || session.chunkSize <= 0 || session.chunkCount !== Math.ceil(file.size / session.chunkSize) || [...received].some((index) => !Number.isInteger(index) || index < 0 || index >= session.chunkCount)) {
         throw new ResourceUploadError("上传分片回执无效", { permanent: true });
@@ -226,7 +311,6 @@ async function runChunkedUpload(file: Blob, name: string, kind: "image" | "video
     let uploaded = [...received].reduce((total, index) => total + Math.min(session.chunkSize, file.size - index * session.chunkSize), 0);
     if (uploaded > 0) onProgress?.(uploaded, file.size);
     for (let index = 0; index < session.chunkCount; index++) {
-        assertUserScope(expected);
         if (received.has(index)) continue;
         const start = index * session.chunkSize;
         const end = Math.min(file.size, start + session.chunkSize);
@@ -234,29 +318,24 @@ async function runChunkedUpload(file: Blob, name: string, kind: "image" | "video
         // raw 二进制直传，与后端按裸 body 逐片落盘对齐（勿设手动 Content-Type，让 axios 处理）。
         await http.put<{ index: number }>(`/resources/uploads/${encodeURIComponent(session.uploadId)}/chunks/${index}`, blob, {
             headers: { "Content-Type": "application/octet-stream" },
-            expectedScope: expected,
+            timeout: 0,
             onUploadProgress: onProgress ? ({ loaded }) => onProgress(uploaded + Math.min(loaded, blob.size), file.size) : undefined,
         });
         uploaded += blob.size;
         onProgress?.(uploaded, file.size);
     }
-    assertUserScope(expected);
-    const complete = await http.post<{ resource: RemoteResource }>(`/resources/uploads/${encodeURIComponent(session.uploadId)}/complete`, undefined, scopedUploadConfig(expected));
+    const complete = await http.post<{ resource: RemoteResource }>(`/resources/uploads/${encodeURIComponent(session.uploadId)}/complete`, undefined, uploadConfig());
     return complete.resource;
 }
 
-async function prepareChunkRetry(error: unknown, expected: CapturedUserScope) {
-    if (isUserScopeAbandonedError(error)) throw error;
-    assertUserScope(expected);
-    if (error instanceof ApiError && error.retryable && error.retryAfterMs) {
-        await waitForRetryDelay(error.retryAfterMs);
-        assertUserScope(expected);
-    }
+async function prepareUploadRetry(error: ResourceUploadError, attempt: number) {
+    const apiError = error.cause instanceof ApiError ? error.cause : undefined;
+    const retryAfter = apiError?.retryAfterMs && apiError.retryAfterMs > 0 ? Math.min(apiError.retryAfterMs, 5000) : 0;
+    await waitForRetryDelay(retryAfter || UPLOAD_RETRY_BASE_DELAY_MS * (2 ** attempt));
 }
 
-function rememberResource(resource: RemoteResource, expected: CapturedUserScope) {
-    assertUserScope(expected);
-    resourceCache.set(resourceCacheKey(resource.id, expected), resource);
+function rememberResource(resource: RemoteResource) {
+    resourceCache.set(resource.id, resource);
 }
 
 // 失败分类直接复用 request() 已经算好的 ApiError.retryable（408/425/429/5xx 可重试），
@@ -264,13 +343,16 @@ function rememberResource(resource: RemoteResource, expected: CapturedUserScope)
 // 差别只有一处：没有拿到任何 HTTP 响应（断网、超时）时 retryable 为 false，
 // 但这种失败恰恰是最该退回本机等待重传的，因此单独按瞬时处理。
 function normalizeUploadError(error: unknown): ResourceUploadError {
-    if (isUserScopeAbandonedError(error)) throw error;
     if (error instanceof ResourceUploadError) return error;
     // 请求取消不是上传失败，保持原始语义交给调用方。
     if (error instanceof DOMException && error.name === "AbortError") throw error;
     if (error instanceof ApiError) {
         const status = error.status;
-        const permanent = status !== undefined && !error.retryable;
+        // A lost response can leave the server-side idempotent upload in
+        // progress. Retrying with the same key either observes the finished
+        // resource or gets the in-progress response again.
+        const retryableConflict = status === 409 && /(?:正在上传|in progress)/i.test(error.message);
+        const permanent = status !== undefined && !error.retryable && !retryableConflict;
         // 即使误超 50MB multipart 上限（后端 http.MaxBytesError），也给出可读中文而非英文裸错。
         if (status === 400 && /body too large|MaxBytes/i.test(error.message)) {
             return new ResourceUploadError("文件过大，请使用小于 50MB 的文件或稍后重试", { status, permanent: true, cause: error });
@@ -282,29 +364,28 @@ function normalizeUploadError(error: unknown): ResourceUploadError {
 }
 
 export async function importResourceFromUrl(url: string, kind: "image" | "video" | "audio" | "file", meta?: Omit<ResourceUploadMeta, "fileName">) {
-    const expected = meta?.expectedScope ?? captureUserScope();
-    const data = await http.post<{ resource: RemoteResource }>("/resources/import", { url, kind, width: meta?.width, height: meta?.height, durationMs: meta?.durationMs }, scopedUploadConfig(expected, meta?.idempotencyKey));
-    rememberResource(data.resource, expected);
+    const data = await http.post<{ resource: RemoteResource }>("/resources/import", { url, kind, width: meta?.width, height: meta?.height, durationMs: meta?.durationMs }, uploadConfig(meta?.idempotencyKey));
+    rememberResource(data.resource);
     return data.resource;
 }
 
-function scopedUploadConfig(expected: CapturedUserScope, idempotencyKey?: string): HttpRequestConfig {
+function uploadConfig(idempotencyKey?: string): HttpRequestConfig {
     const value = idempotencyKey?.trim();
-    return value ? { headers: { "X-Idempotency-Key": value }, expectedScope: expected } : { expectedScope: expected };
+    return {
+        // Media upload duration depends on file size and the user's upstream
+        // bandwidth. The shared 4 s JSON timeout would abort healthy uploads
+        // and leave a failed placeholder node before the bytes finish.
+        timeout: 0,
+        ...(value ? { headers: { "X-Idempotency-Key": value } } : {}),
+    };
 }
 
-function lookupAccessError(expected: CapturedUserScope, signal?: { aborted?: boolean }) {
-    if (signal?.aborted) return new DOMException("Aborted", "AbortError");
-    try {
-        assertUserScope(expected);
-        return undefined;
-    } catch (error) {
-        return error instanceof Error ? error : new UserScopeAbandonedError();
-    }
+function lookupAbortError(signal?: { aborted?: boolean }) {
+    return signal?.aborted ? new DOMException("Aborted", "AbortError") : undefined;
 }
 
-function rememberLookupResult(cacheKey: string, resource: RemoteResource, expected: CapturedUserScope, signal?: { aborted?: boolean }) {
-    const blocked = lookupAccessError(expected, signal);
+function rememberLookupResult(cacheKey: string, resource: RemoteResource, signal?: { aborted?: boolean }) {
+    const blocked = lookupAbortError(signal);
     if (blocked) throw blocked;
     resourceCache.set(cacheKey, resource);
     missingResourceIds.delete(cacheKey);
@@ -312,14 +393,14 @@ function rememberLookupResult(cacheKey: string, resource: RemoteResource, expect
 }
 
 export function getResource(id: string, config?: HttpRequestConfig): Promise<RemoteResource> {
-    const expected = config?.expectedScope ?? captureUserScope();
-    const blocked = lookupAccessError(expected, config?.signal);
+    const blocked = lookupAbortError(config?.signal);
     if (blocked) return Promise.reject(blocked);
-    const cacheKey = resourceCacheKey(id, expected);
+    const cacheKey = id;
     const cached = resourceCache.get(cacheKey);
-    if (cached) return Promise.resolve(cached);
+    const ensureMetadata = config?.params?.metadata === "ensure";
+    if (cached && !ensureMetadata) return Promise.resolve(cached);
     if (missingResourceIds.has(cacheKey)) return Promise.reject(new Error("资源不存在或已被删除"));
-    const sharePending = !config?.signal;
+    const sharePending = !config?.signal && !ensureMetadata;
     if (sharePending) {
         const pending = resourceRequests.get(cacheKey);
         if (pending) return pending;
@@ -327,13 +408,11 @@ export function getResource(id: string, config?: HttpRequestConfig): Promise<Rem
     const task = http.get<{ resource: RemoteResource }>(`/resources/${encodeURIComponent(id)}`, {
         ...config,
         signal: config?.signal,
-        expectedScope: expected,
     })
-        .then((data) => rememberLookupResult(cacheKey, data.resource, expected, config?.signal))
+        .then((data) => rememberLookupResult(cacheKey, data.resource, config?.signal))
         .catch((error) => {
-            if (isUserScopeAbandonedError(error)) throw error;
             if (error instanceof DOMException && error.name === "AbortError") throw error;
-            const abandoned = lookupAccessError(expected, config?.signal);
+            const abandoned = lookupAbortError(config?.signal);
             if (abandoned) throw abandoned;
             if (error instanceof ApiError && error.status === 404) missingResourceIds.add(cacheKey);
             throw error;
@@ -347,15 +426,13 @@ export function getResource(id: string, config?: HttpRequestConfig): Promise<Rem
 
 // refreshResource 绕过缓存强制拉取资源最新状态（转码副本就绪轮询用），并回写缓存。
 export function refreshResource(id: string, config?: HttpRequestConfig): Promise<RemoteResource> {
-    const expected = config?.expectedScope ?? captureUserScope();
-    const blocked = lookupAccessError(expected, config?.signal);
+    const blocked = lookupAbortError(config?.signal);
     if (blocked) return Promise.reject(blocked);
-    const cacheKey = resourceCacheKey(id, expected);
+    const cacheKey = id;
     return http.get<{ resource: RemoteResource }>(`/resources/${encodeURIComponent(id)}`, {
         ...config,
         signal: config?.signal,
-        expectedScope: expected,
-    }).then((data) => rememberLookupResult(cacheKey, data.resource, expected, config?.signal));
+    }).then((data) => rememberLookupResult(cacheKey, data.resource, config?.signal));
 }
 
 export async function getResourceOSSUrl(storageKey?: string) {
@@ -372,10 +449,6 @@ export async function getResourceOSSUrl(storageKey?: string) {
         if (error instanceof ApiError) throw new Error(error.message || "获取对象存储地址失败");
         throw error;
     }
-}
-
-function resourceCacheKey(id: string, expected: CapturedUserScope) {
-    return `${expected.userScope}:${expected.epoch}:${id}`;
 }
 
 export function resourceFileUrl(id: string) {
@@ -416,7 +489,6 @@ export async function getResourcePlayback(storageKey: string, config?: HttpReque
         ...config,
         method: "get",
         url: `/resources/${encodeURIComponent(id)}/file?variant=playback&proxy=1`,
-        expectedScope: config?.expectedScope ?? captureUserScope(),
         responseType: "blob",
         timeout: 0,
     });
@@ -446,7 +518,6 @@ export async function getResourceBlob(storageKey: string, config?: HttpRequestCo
             ...config,
             method: "get",
             url: `/resources/${encodeURIComponent(id)}/file?proxy=1`,
-            expectedScope: config?.expectedScope ?? captureUserScope(),
             responseType: "blob",
             // Images may be much larger than JSON responses; keep the shared
             // authenticated media path independent of the 4 s JSON timeout.
@@ -454,7 +525,7 @@ export async function getResourceBlob(storageKey: string, config?: HttpRequestCo
         });
         return response.data instanceof Blob ? response.data : new Blob([response.data]);
     } catch (error) {
-        if (isUserScopeAbandonedError(error) || (error instanceof DOMException && error.name === "AbortError")) throw error;
+        if ((error instanceof DOMException && error.name === "AbortError")) throw error;
         return null;
     }
 }

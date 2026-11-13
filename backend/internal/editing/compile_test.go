@@ -220,6 +220,27 @@ func TestApplySourceFactsSilentVideoAndDuration(t *testing.T) {
 	}
 }
 
+func TestApplySourceFactsPadsShortAudioToTimelineDuration(t *testing.T) {
+	project := Project{
+		Version: 2,
+		Tracks:  []Track{{ID: "v"}, {ID: "a"}},
+		Clips: []Clip{
+			clip("v", KindVideo, "v", 0, 3000, "resource:v"),
+			clip("voice", KindAudio, "a", 0, 3000, "resource:a"),
+		},
+	}
+	plan, err := Compile(project, nil, DefaultOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplySourceFacts(plan, map[string]SourceFacts{
+		"v": {HasVideo: true, DurationMs: 3000},
+		"a": {HasAudio: true, DurationMs: 1000},
+	}); err != nil {
+		t.Fatalf("short audio should be padded: %v", err)
+	}
+}
+
 func TestCompileSharedGapMixFixture(t *testing.T) {
 	assertFixturePlan(t, "gap-mix.timeline.json", "gap-mix.plan.json")
 }

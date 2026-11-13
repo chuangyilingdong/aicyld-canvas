@@ -59,6 +59,13 @@ func (s repoStore) Retry(userID string, prepared *model.Task, limit int) (*model
 	return s.repo.RetryTask(userID, prepared, limit)
 }
 
+func (s repoStore) RetryWithExpectedInput(userID string, prepared *model.Task, limit int, expectedInputJSON string) (*model.Task, error) {
+	if err := s.require(); err != nil {
+		return nil, err
+	}
+	return s.repo.RetryTaskWithExpectedInput(userID, prepared, limit, expectedInputJSON)
+}
+
 func (s repoStore) CancelIfStatus(userID, id string, expected model.TaskStatus, now time.Time) (bool, error) {
 	if err := s.require(); err != nil {
 		return false, err
@@ -80,16 +87,15 @@ func (s repoStore) Logs(userID, id string) ([]model.TaskLog, error) {
 	return s.repo.TaskLogs(userID, id)
 }
 
-func (s repoStore) LatestProviderRequestID(taskID string) (string, error) {
-	if err := s.require(); err != nil {
-		return "", err
-	}
-	return s.repo.LatestProviderRequestIDForTask(taskID)
-}
-
 func (s repoStore) UpdateTaskBilling(userID, taskID, holdID, status string, points int) error {
 	if err := s.require(); err != nil {
 		return err
 	}
 	return s.repo.UpdateTaskBilling(userID, taskID, holdID, status, points)
+}
+func (s repoStore) LatestProviderRequestID(taskID string) (string, error) {
+	if err := s.require(); err != nil {
+		return "", err
+	}
+	return s.repo.LatestProviderRequestIDForTask(taskID)
 }

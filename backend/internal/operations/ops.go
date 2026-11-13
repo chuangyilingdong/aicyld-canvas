@@ -12,77 +12,88 @@ import (
 	"infinite-canvas/backend/internal/canvas/capability"
 )
 
+type CanvasProjectCreator interface {
+	UpsertUserCanvasProject(userID string, raw json.RawMessage) (canvas.UserDataSummary, error)
+	DeleteUserCanvasProject(userID string, id string) error
+}
+
 // RegisterDefaultOps 注册全部对外操作（手工 UI、CLI、MCP 与内置助手共用）。
-// 付费生成只经 canvas.generation.propose 提议、由界面确认后执行；
+// 内置助手的付费生成先提议、由界面确认；外部客户端负责自身执行审批。
 // 未经参数与费用风险验收的能力明确不注册，而不是提供 stub 伪成功。
 func RegisterDefaultOps(r *Registry) {
 	registerCanvasEditOps(r)
 	registerCanvasNodeBindAsset(r)
 	registerModelCatalogOp(r)
 	registerMediaOps(r)
-	registerMediaReview(r)
 	registerSkillOps(r)
-	registerSkillMarketOps(r)
-	registerSkillPublishingOps(r)
+	registerSkillDraftOp(r)
 	registerProjectSearchOps(r)
 	registerCanvasTimelineOps(r)
+	registerAgentGuideOp(r)
+	registerCanvasNodesBatchOps(r)
+	registerTaskWaitOp(r)
 	registerCanvasRenderOps(r)
 	registerCanvasNodeConfigureOps(r)
 	registerStoryboardPreparation(r)
 	registerGenerationSubmit(r)
-	r.Register(Op{AssistantCanvas: true, ID: "canvas.get", Summary: "读取指定画布的完整内容（节点与连线）", ReadOnly: true, Scope: ScopeCanvas,
+	registerCanvasProjectExportOps(r)
+	r.Register(Op{ExternalOnly: true, ReplaySafe: true, ID: "canvas.create", Summary: "创建新画布", Scope: ScopeCanvas,
+		Params:  json.RawMessage(`{"type":"object","properties":{"title":{"type":"string","description":"画布名称（默认：未命名画布）"},"canvasId":{"type":"string","description":"可选自定义画布 ID；省略时由服务端生成"},"projectId":{"type":"string","description":"可选关联项目 ID"},"folderId":{"type":"string","description":"可选画布文件夹 ID"}}}`),
+		Handler: opCanvasCreate})
+	r.Register(Op{AssistantCanvas: true, ID: "canvas.get", Summary: "读取画布内容（节点与连线）", ReadOnly: true, Scope: ScopeCanvas,
 		Params:  json.RawMessage(`{"type":"object","properties":{"canvasId":{"type":"string"}},"required":["canvasId"]}`),
 		Handler: opCanvasGet})
-	r.Register(Op{ID: "canvas.search", Summary: "按关键字分页搜索工作区内的画布", ReadOnly: true, Scope: ScopeWorkspaceRead,
+	r.Register(Op{ID: "canvas.search", Summary: "搜索工作区内的画布", ReadOnly: true, Scope: ScopeWorkspaceRead,
 		Params:  json.RawMessage(`{"type":"object","properties":{"page":{"type":"integer"},"pageSize":{"type":"integer"},"query":{"type":"string"},"canvasId":{"type":"string"},"sort":{"type":"string"}}}`),
 		Handler: opCanvasSearch})
-	r.Register(Op{ID: "asset.list", Summary: "分页列出用户素材库中的素材", ReadOnly: true, Scope: ScopeWorkspaceRead,
+	r.Register(Op{ID: "asset.list", Summary: "列出素材库中的素材", ReadOnly: true, Scope: ScopeWorkspaceRead,
 		Params:  json.RawMessage(`{"type":"object","properties":{"page":{"type":"integer"},"pageSize":{"type":"integer"},"query":{"type":"string"},"kind":{"type":"string"},"category":{"type":"string"},"favorite":{"type":"boolean"},"recent":{"type":"boolean"},"project":{"type":"string"},"generated":{"type":"boolean"}}}`),
 		Handler: opAssetList})
 	r.Register(assetGetOperation())
-	r.Register(Op{AssistantCanvas: true, ID: "task.get", Summary: "按 ID 查询任务状态与产物引用", ReadOnly: true, Scope: ScopeWorkspaceRead,
+	r.Register(Op{AssistantCanvas: true, ID: "task.get", Summary: "查询任务状态与产物", ReadOnly: true, Scope: ScopeWorkspaceRead,
 		Params:  json.RawMessage(`{"type":"object","properties":{"taskId":{"type":"string"}},"required":["taskId"]}`),
 		Handler: opTaskGet})
-	r.Register(Op{ReplaySafe: true, AssistantCanvas: true, ID: "canvas.node.update", Summary: "局部修改一个节点（只提交目标字段，其余数据保持原样，带 revision CAS）", Scope: ScopeCanvas,
-		Params:  json.RawMessage(`{"type":"object","properties":{"canvasId":{"type":"string"},"nodeId":{"type":"string"},"expectedRevision":{"type":"integer"},"patch":{"type":"object","properties":{"title":{"type":"string"},"prompt":{"type":"string"},"content":{"type":"string"}}}},"required":["canvasId","nodeId","patch","expectedRevision"]}`),
+	r.Register(Op{ReplaySafe: true, AssistantCanvas: true, ID: "canvas.node.update", Summary: "局部修改节点（省略的字段保持原样）", Scope: ScopeCanvas,
+		Params:  json.RawMessage(`{"type":"object","properties":{"canvasId":{"type":"string"},"nodeId":{"type":"string"},"expectedRevision":{"type":"integer"},"patch":{"type":"object","properties":{"title":{"type":"string"},"prompt":{"type":"string","description":"外部 CLI/MCP 提示词草稿别名"},"content":{"type":"string","description":"文本节点的正文，或下次生成提示词草稿"}}}},"required":["canvasId","nodeId","patch","expectedRevision"]}`),
 		Handler: opCanvasNodeUpdate})
-	r.Register(Op{ReplaySafe: true, AssistantCanvas: true, ID: "canvas.nodes.create", Summary: "在画布上批量创建节点（整批校验，带 revision CAS）", Scope: ScopeCanvas,
+	r.Register(Op{ReplaySafe: true, AssistantCanvas: true, ID: "canvas.nodes.create", Summary: "批量创建画布节点", Scope: ScopeCanvas,
 		Params:  json.RawMessage(`{"type":"object","properties":{"canvasId":{"type":"string"},"expectedRevision":{"type":"integer"},"nodes":{"type":"array","items":{"type":"object","properties":{"title":{"type":"string"},"type":{"type":"string"},"prompt":{"type":"string"}},"required":["title","type"]}}},"required":["canvasId","nodes","expectedRevision"]}`),
 		Handler: opCanvasNodesCreate})
-	r.Register(Op{ReplaySafe: true, AssistantCanvas: true, ID: "canvas.edge.create", Summary: "连接两个节点（重复连接幂等返回）", Scope: ScopeCanvas,
+	r.Register(Op{ReplaySafe: true, AssistantCanvas: true, ID: "canvas.edge.create", Summary: "连接两个节点", Scope: ScopeCanvas,
 		Params:  json.RawMessage(`{"type":"object","properties":{"canvasId":{"type":"string"},"fromNodeId":{"type":"string"},"toNodeId":{"type":"string"},"expectedRevision":{"type":"integer"}},"required":["canvasId","fromNodeId","toNodeId","expectedRevision"]}`),
 		Handler: opCanvasEdgeCreate})
 	// 分镜脚本节点的行级写入：行 ID 与镜号由服务端分配，字段白名单见 canvas.StoryboardRowDraft。
-	r.Register(Op{ReplaySafe: true, AssistantCanvas: true, ID: "canvas.script.rows.append", Summary: "向分镜脚本节点批量追加分镜行（行 ID 与镜号由服务端分配，行结构对齐界面默认值）", Scope: ScopeCanvas,
+	r.Register(Op{ReplaySafe: true, AssistantCanvas: true, ID: "canvas.script.rows.append", Summary: "向分镜脚本追加分镜行", Scope: ScopeCanvas,
 		Params:  storyboardRowsAppendSchema(),
 		Handler: opStoryboardRowsAppend})
-	r.Register(Op{ReplaySafe: true, AssistantCanvas: true, ID: "canvas.script.row.update", Summary: "按行 ID 批量局部更新分镜行（只覆盖给出的字段，未知行整批拒绝）", Scope: ScopeCanvas,
+	r.Register(Op{ReplaySafe: true, AssistantCanvas: true, ID: "canvas.script.row.update", Summary: "按行 ID 局部更新分镜行（自动同步已绑定且未单独手改的首帧/视频节点草稿）", Scope: ScopeCanvas,
 		Params:  storyboardRowUpdateSchema(),
 		Handler: opStoryboardRowUpdate})
-	r.Register(Op{ReplaySafe: true, AssistantCanvas: true, ID: "canvas.script.row.remove", Summary: "按行 ID 批量删除分镜行并重排镜号（未知行整批拒绝）", Scope: ScopeCanvas,
+	r.Register(Op{ReplaySafe: true, AssistantCanvas: true, ID: "canvas.script.row.remove", Summary: "按行 ID 删除分镜行并重排镜号", Scope: ScopeCanvas,
 		Params:  storyboardRowRemoveSchema(),
 		Handler: opStoryboardRowRemove})
-	r.Register(Op{ReplaySafe: true, ID: "canvas.document.commit", Summary: "按已知服务端 revision 提交整份画布文档（保留未触及字段，带 CAS）", Scope: ScopeCanvas,
+	r.Register(Op{ReplaySafe: true, ID: "canvas.document.commit", Summary: "按 revision 提交整份画布文档", Scope: ScopeCanvas,
 		Params:  json.RawMessage(`{"type":"object","properties":{"canvasId":{"type":"string"},"expectedRevision":{"type":"integer"},"document":{"type":"object"}},"required":["canvasId","expectedRevision","document"]}`),
 		Handler: opCanvasDocumentCommit})
 	// 付费生成只提议不执行：这里校验目标并给出用户要确认的模型，真正的生成由界面在用户确认后发起。
-	r.Register(Op{AssistantProposal: true, AssistantCanvas: true, ID: "canvas.generation.propose", Summary: "提议对选中节点做付费图片/视频生成（只登记提议，不生成、不扣费）", ReadOnly: true, Scope: ScopeCanvas,
-		Params:  json.RawMessage(`{"type":"object","properties":{"canvasId":{"type":"string"},"nodeIds":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":8},"kind":{"type":"string","enum":["image","video"]},"note":{"type":"string"}},"required":["canvasId","nodeIds","kind"]}`),
+	r.Register(Op{AssistantProposal: true, AssistantCanvas: true, ID: "canvas.generation.propose", Summary: "登记付费生成单提议（不直接扣费）", ReadOnly: true, Scope: ScopeCanvas,
+		Params:  json.RawMessage(`{"type":"object","properties":{"canvasId":{"type":"string"},"nodeIds":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":8},"kind":{"type":"string","enum":["image","video","audio"]},"productionNodeIds":{"type":"array","items":{"type":"string"},"maxItems":24,"description":"本批生成的节点（每批≤24，超出分批提案）；nodeIds 只列已就绪首批"},"note":{"type":"string"}},"required":["canvasId","nodeIds","kind"]}`),
 		Handler: opCanvasGenerationPropose})
-	r.Register(Op{ReplaySafe: true, AssistantCanvas: true, ID: "canvas.task.bind", Summary: "把已交付的任务产物绑定到原画布节点（校验归属与就绪资源，带 revision CAS，幂等回执）", Scope: ScopeCanvas,
-		Params:  json.RawMessage(`{"type":"object","properties":{"canvasId":{"type":"string"},"taskId":{"type":"string"},"nodeId":{"type":"string"},"outputIndex":{"type":"integer"}},"required":["canvasId","taskId","nodeId"]}`),
+	r.Register(Op{ReplaySafe: true, AssistantCanvas: true, ID: "canvas.task.bind", Summary: "把已交付任务产物绑定到原节点；同画布本地时间线成片可绑定到空 video 节点，绑定后用 nodeId 检查成片（校验归属、就绪资源与版本，幂等回执）", Scope: ScopeCanvas,
+		Params:  json.RawMessage(`{"type":"object","properties":{"canvasId":{"type":"string"},"taskId":{"type":"string"},"nodeId":{"type":"string"},"outputIndex":{"type":"integer"},"allowDifferentNode":{"type":"boolean","description":"仅前端明确创建回退节点时使用"}},"required":["canvasId","taskId","nodeId"]}`),
 		Handler: opCanvasTaskBind, ProjectReplay: projectCanvasTaskBindReplay})
-	r.Register(Op{ID: "conversation.message.attach", Summary: "把已交付的任务产物绑定到原对话消息（校验归属与就绪资源，带 revision CAS，幂等回执）", Scope: ScopeConversation,
+	r.Register(Op{ID: "conversation.message.attach", Summary: "把已交付任务产物绑定到对话消息", Scope: ScopeConversation,
 		Params:  json.RawMessage(`{"type":"object","properties":{"conversationId":{"type":"string"},"taskId":{"type":"string"},"messageId":{"type":"string"},"outputIndex":{"type":"integer"}},"required":["conversationId","taskId","messageId"]}`),
 		Handler: opConversationMessageAttach, ProjectReplay: projectConversationMessageAttachReplay})
 }
 
 func opCanvasGenerationPropose(ctx *Context, params json.RawMessage) (any, error) {
 	var args struct {
-		CanvasID string   `json:"canvasId"`
-		NodeIDs  []string `json:"nodeIds"`
-		Kind     string   `json:"kind"`
-		Note     string   `json:"note"`
+		CanvasID          string   `json:"canvasId"`
+		NodeIDs           []string `json:"nodeIds"`
+		Kind              string   `json:"kind"`
+		Note              string   `json:"note"`
+		ProductionNodeIDs []string `json:"productionNodeIds"`
 	}
 	if err := decodeParams(params, &args); err != nil {
 		return nil, err
@@ -90,8 +101,8 @@ func opCanvasGenerationPropose(ctx *Context, params json.RawMessage) (any, error
 	if strings.TrimSpace(args.CanvasID) == "" {
 		return nil, InvalidArg("invalid_params", "canvasId 必填")
 	}
-	if args.Kind != "image" && args.Kind != "video" {
-		return nil, InvalidArg("invalid_kind", "kind 只能是 image 或 video")
+	if args.Kind != "image" && args.Kind != "video" && args.Kind != "audio" {
+		return nil, InvalidArg("invalid_kind", "kind 只能是 image、video 或 audio")
 	}
 	if len(args.NodeIDs) == 0 || len(args.NodeIDs) > 8 {
 		return nil, InvalidArg("invalid_batch", "nodeIds 必须是 1..8 项的数组")
@@ -154,16 +165,167 @@ func opCanvasGenerationPropose(ctx *Context, params json.RawMessage) (any, error
 			return nil, InvalidArg("mixed_generation_models", "这些节点当前选用了不同的模型，请按模型分开提出生成")
 		}
 	}
-	return map[string]any{
-		"proposalId": newProposalID(), "kind": args.Kind, "nodeIds": nodeIDs,
-		"model": resolved.Display, "modelKey": resolved.ModelKey, "note": strings.TrimSpace(args.Note),
+	if err := validateGenerationDependencies(doc, owned, nodeIDs, args.Kind); err != nil {
+		return nil, err
+	}
+	proposalID := newProposalID()
+	pricing := ResolveModelPricing(ctx.Domain, resolved.ModelKey)
+	graph := generationDependencyGraph{nodes: owned, incoming: map[string][]string{}, config: map[string]string{}}
+	if edges, ok := doc["connections"].([]any); ok {
+		for _, v := range edges {
+			e, _ := v.(map[string]any)
+			to, from := dependencyString(e, "toNodeId"), dependencyString(e, "fromNodeId")
+			graph.incoming[to] = append(graph.incoming[to], from)
+		}
+	}
+	targetsSummary := make([]map[string]any, 0, len(nodeIDs))
+	fallbackTargets := make([]GenerationTarget, 0, len(nodeIDs))
+	for _, id := range nodeIDs {
+		node := owned[id]
+		meta := dependencyMetadata(node)
+		prompt := dependencyString(meta, "composerContent")
+		if prompt == "" {
+			prompt = dependencyString(meta, "prompt")
+		}
+		paramsMap := map[string]string{}
+		for _, key := range []string{"size", "quality", "count", "transparentBackground", "seconds", "vquality", "generateAudio", "watermark", "audioVoice", "audioFormat", "audioSpeed", "audioInstructions", "videoStartFrameNodeId", "videoEndFrameNodeId", "videoMiddleFrameNodeId"} {
+			if v, ok := meta[key]; ok && v != nil && fmt.Sprint(v) != "" {
+				paramsMap[key] = fmt.Sprint(v)
+			}
+		}
+		refs := uniqueTargetIDs(graph.references(id, args.Kind))
+		if refs == nil {
+			refs = []string{}
+		}
+		targetsSummary = append(targetsSummary, map[string]any{
+			"nodeId":           id,
+			"title":            dependencyString(node, "title"),
+			"kind":             args.Kind,
+			"model":            resolved.Display,
+			"modelKey":         resolved.ModelKey,
+			"pricing":          pricing,
+			"prompt":           prompt,
+			"parameters":       paramsMap,
+			"referenceNodeIds": refs,
+		})
+		fallbackTargets = append(fallbackTargets, GenerationTarget{
+			NodeID:           id,
+			Title:            dependencyString(node, "title"),
+			Kind:             args.Kind,
+			ModelKey:         resolved.ModelKey,
+			Prompt:           prompt,
+			Parameters:       paramsMap,
+			ReferenceNodeIDs: refs,
+		})
+	}
+	approvalMode := ctx.Caller.EffectiveApprovalMode()
+	result := map[string]any{
+		"proposalId": proposalID, "orderId": proposalID, "kind": args.Kind, "nodeIds": nodeIDs,
+		"model": resolved.Display, "modelKey": resolved.ModelKey, "pricing": pricing,
+		"approvalMode": string(approvalMode), "status": string(GenerationOrderPending),
+		"note": strings.TrimSpace(args.Note), "targets": targetsSummary,
 		"source": map[string]any{"canvasId": args.CanvasID, "canvasRevision": doc["revision"], "modelConfigRevision": resolved.Revision},
-	}, nil
+	}
+	var proposedTargets []GenerationTarget
+	if len(args.ProductionNodeIDs) > 0 {
+		targets, err := GenerationTargets(ctx.Domain, doc, args.ProductionNodeIDs)
+		if err != nil {
+			return nil, err
+		}
+		included := map[string]bool{}
+		for _, target := range targets {
+			included[target.NodeID] = true
+		}
+		for _, id := range nodeIDs {
+			if !included[id] {
+				return nil, InvalidArg("production_target_missing", "首批素材必须包含在整片制作计划中")
+			}
+		}
+		proposedTargets = targets
+		result["production"] = map[string]any{"targets": targets}
+	}
+	_, hasOrderRecorder := ctx.Domain.(GenerationOrderRecorder)
+	if len(proposedTargets) == 0 {
+		if strings.TrimSpace(ctx.TurnID) != "" || (hasOrderRecorder && !ctx.Caller.ReadOnly) {
+			targets, err := GenerationTargets(ctx.Domain, doc, nodeIDs)
+			if err != nil {
+				return nil, AsError(err)
+			}
+			proposedTargets = targets
+		} else {
+			proposedTargets = fallbackTargets
+		}
+	}
+	if strings.TrimSpace(ctx.TurnID) != "" {
+		if recorder, ok := ctx.Domain.(ProposedGenerationRecorder); ok {
+			if err := recorder.RecordAssistantGenerationProposal(ctx.UserID, ctx.TurnID, args.CanvasID, GenerationAuthorization{
+				ProposalID: proposalID,
+				Targets:    proposedTargets,
+			}); err != nil {
+				return nil, AsError(err)
+			}
+		}
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	order := GenerationOrder{
+		OrderID:             proposalID,
+		ProposalID:          proposalID,
+		CanvasID:            args.CanvasID,
+		CanvasRevision:      canvasRevision(doc),
+		ModelConfigRevision: resolved.Revision,
+		CallerKind:          ctx.Caller.Kind,
+		CallerClient:        ctx.Caller.EffectiveClientLabel(),
+		ApprovalMode:        approvalMode,
+		Status:              GenerationOrderPending,
+		Kind:                args.Kind,
+		Model:               resolved.Display,
+		ModelKey:            resolved.ModelKey,
+		Pricing:             pricing,
+		Note:                strings.TrimSpace(args.Note),
+		NodeIDs:             nodeIDs,
+		ProductionNodeIDs:   args.ProductionNodeIDs,
+		Targets:             proposedTargets,
+		TargetViews:         BuildGenerationOrderTargetViews(ctx.Domain, proposedTargets),
+		SourceTurnID:        strings.TrimSpace(ctx.TurnID),
+		CreatedAt:           now,
+		UpdatedAt:           now,
+	}
+	if !ctx.Caller.ReadOnly {
+		if orderRecorder, ok := ctx.Domain.(GenerationOrderRecorder); ok {
+			if err := orderRecorder.RecordGenerationOrder(ctx.UserID, order); err != nil {
+				return nil, AsError(err)
+			}
+		}
+		result["order"] = order
+	}
+	if ctx.Caller.Kind == CallerExternal && !ctx.Caller.ReadOnly {
+		if approvalMode == ApprovalModeAsk {
+			result["nextAction"] = map[string]any{
+				"operation":  "beeftv approve " + proposalID,
+				"approval":   "owner-required",
+				"proposalId": proposalID,
+				"params":     map[string]any{"canvasId": args.CanvasID, "proposalId": proposalID, "nodeIds": nodeIDs, "kind": args.Kind, "expectedRevision": doc["revision"], "expectedModelConfigRevision": resolved.Revision},
+				"message":    "生成单已开出（待人工批准）。请在 BeefTV 界面确认，或在终端运行 `beeftv approve " + proposalID + "` 批准并执行；Agent 自身凭据不能自批。",
+			}
+		} else {
+			result["nextAction"] = map[string]any{
+				"operation":  "canvas.generation.submit",
+				"approval":   "external-client",
+				"proposalId": proposalID,
+				"params":     map[string]any{"canvasId": args.CanvasID, "proposalId": proposalID, "nodeIds": nodeIDs, "kind": args.Kind, "expectedRevision": doc["revision"], "expectedModelConfigRevision": resolved.Revision},
+				"message":    "本次提议尚未生成或扣费。由外部调用方确认后，使用稳定 operationId 提交；无需寻找内置助手确认卡。",
+			}
+		}
+	}
+	return result, nil
 }
 
 func generationKindLabel(kind string) string {
 	if kind == "video" {
 		return "视频"
+	}
+	if kind == "audio" {
+		return "音频"
 	}
 	return "图片"
 }
@@ -339,7 +501,7 @@ func opTaskGet(ctx *Context, params json.RawMessage) (any, error) {
 	}
 	return map[string]any{
 		"taskId": task.ID, "type": task.Type, "status": task.Status, "progress": task.Progress,
-		"outputs": task.Outputs, "resultState": task.ResultState,
+		"outputs": task.Outputs, "resultState": task.ResultState, "delivery": task.Delivery,
 		"createdAt": task.CreatedAt, "updatedAt": task.UpdatedAt,
 	}, nil
 }
@@ -383,6 +545,9 @@ func opCanvasNodeUpdate(ctx *Context, params json.RawMessage) (any, error) {
 	}
 	if strings.TrimSpace(args.CanvasID) == "" || strings.TrimSpace(args.NodeID) == "" {
 		return nil, InvalidArg("invalid_params", "canvasId 与 nodeId 必填")
+	}
+	if args.Patch.Prompt != nil && args.Patch.Content != nil && *args.Patch.Prompt != *args.Patch.Content {
+		return nil, InvalidArg("conflicting_patch_fields", "patch.prompt 与 patch.content 不能同时提交不同内容")
 	}
 	patch := map[string]any{}
 	if args.Patch.Title != nil {
@@ -439,6 +604,60 @@ func opCanvasNodesCreate(ctx *Context, params json.RawMessage) (any, error) {
 		}
 		return map[string]any{"canvasId": args.CanvasID, "created": created}
 	})
+}
+
+func opCanvasCreate(ctx *Context, params json.RawMessage) (any, error) {
+	var args struct {
+		CanvasID  string `json:"canvasId"`
+		Title     string `json:"title"`
+		ProjectID string `json:"projectId"`
+		FolderID  string `json:"folderId"`
+	}
+	if err := decodeParams(params, &args); err != nil {
+		return nil, err
+	}
+	creator, ok := ctx.Domain.(CanvasProjectCreator)
+	if !ok {
+		return nil, Unsupported("canvas_create_unavailable", "当前工作区无法创建画布")
+	}
+	title := strings.TrimSpace(args.Title)
+	if title == "" {
+		title = "未命名画布"
+	}
+	doc := map[string]any{
+		"revision":    int64(0),
+		"title":       title,
+		"nodes":       []any{},
+		"connections": []any{},
+		"viewport":    map[string]any{"x": 0, "y": 0, "k": 1},
+	}
+	if id := strings.TrimSpace(args.CanvasID); id != "" {
+		if _, err := ctx.Domain.UserCanvasProject(ctx.UserID, id); err == nil {
+			return nil, Conflict("canvas_already_exists", "画布已存在", nil)
+		}
+		doc["id"] = id
+	}
+	if projectID := strings.TrimSpace(args.ProjectID); projectID != "" {
+		doc["projectId"] = projectID
+	}
+	if folderID := strings.TrimSpace(args.FolderID); folderID != "" {
+		doc["folderId"] = folderID
+	}
+	raw, err := json.Marshal(doc)
+	if err != nil {
+		return nil, AsError(err)
+	}
+	summary, err := creator.UpsertUserCanvasProject(ctx.UserID, raw)
+	if err != nil {
+		return nil, mapDomainError(err)
+	}
+	return map[string]any{
+		"canvasId":  summary.ID,
+		"title":     summary.Title,
+		"revision":  summary.Revision,
+		"createdAt": summary.CreatedAt,
+		"updatedAt": summary.UpdatedAt,
+	}, nil
 }
 
 func opCanvasDocumentCommit(ctx *Context, params json.RawMessage) (any, error) {

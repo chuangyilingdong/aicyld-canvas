@@ -39,7 +39,7 @@ async function waitUntil(label: string, check: () => boolean | Promise<boolean>,
         if (await check()) return;
         await Bun.sleep(50);
     }
-    throw new Error(`timed out waiting for: ${label}`);
+    throw new Error(`timed out waiting for: ${label}; ${JSON.stringify({ snapshot: await snapshot(), requests, taskReads: [...taskReads] })}`);
 }
 
 beforeAll(async () => {
@@ -209,7 +209,9 @@ test("nodes merged by a normal refresh are left alone, even with the restore tex
 test("an old task's result never overwrites a newer request or a newer task id on the same node", async () => {
     await page.evaluate((nodes) => window.lateHarness!.remoteLoad(nodes as never), [lateVideoNode("node-slow", "slow-task"), lateVideoNode("node-slow-2", "slow-task-2")]);
     await waitUntil("old tasks subscribed", () => (taskReads.get("slow-task") ?? 0) > 0 && (taskReads.get("slow-task-2") ?? 0) > 0);
+    // node-slow: the user regenerates in place (old task id still on the node until the new task binds).
     await page.evaluate(() => window.lateHarness!.regenerate("node-slow"));
+    // node-slow-2: a newer copy arrives with a newer task id.
     await page.evaluate((nodes) => window.lateHarness!.remoteLoad(nodes as never), [lateVideoNode("node-slow-2", "newer-task")]);
     await waitUntil("newer task subscribed", () => (taskReads.get("newer-task") ?? 0) > 0);
     slowDone = true;
@@ -226,6 +228,8 @@ test("an old task's result never overwrites a newer request or a newer task id o
 test("a request the user just started is not failed, stopped or subscribed again when the later copy arrives", async () => {
     await page.evaluate(() => window.lateHarness!.startFreshRequest());
     await page.evaluate(() => window.lateHarness!.bindFreshTask());
+    // The remote copy carries the in-flight nodes as loading (already autosaved)
+    // plus an unrelated orphan; once the orphan is marked, the late scan has run.
     await page.evaluate((nodes) => window.lateHarness!.remoteLoad(nodes as never), [lateOrphanNode("node-late-orphan")]);
     await waitUntil("late scan ran", async () => nodeIn(await snapshot(), "node-late-orphan")?.metadata?.status === "error");
     await Bun.sleep(300);

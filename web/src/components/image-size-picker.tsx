@@ -2,15 +2,14 @@ import { useState } from "react";
 import "./image-size-picker.css";
 import { Input, Button } from "antd";
 import type { ImageCapabilityConfig } from "@/lib/model-capabilities";
-import { IMAGE_RESOLUTIONS, imagePresetForRatio, imagePresetValue, imageQualityForSelection, imageQualityForTier, imageResolutionUsesQuality, imageSizePresets, imageTierAvailable, imageUsesRatioOnlyPresets } from "@/lib/image-size-presets";
+import { IMAGE_RESOLUTIONS, imagePresetForRatio, imagePresetValue, imageQualityForSelection, imageQualityForTier, imageResolutionUsesQuality, imageSizePresets, imageTierAvailable } from "@/lib/image-size-presets";
 import { buildImageResolutionOptions, type ImageResolutionOption, type ImageResolutionTier } from "@/lib/image-resolution-tiers";
 
 import { resolveImageRequestSize, validateImageSize } from "@/services/api/image-validation";
 
 export function ImageSizePicker({ profile, size, quality, onChange }: { profile: ImageCapabilityConfig; size: string; quality?: string; onChange: (size: string, quality?: string) => void }) {
     const presets = imageSizePresets(profile).filter((preset) => imageTierAvailable(profile, preset.tier));
-    const ratioOnly = imageUsesRatioOnlyPresets(profile);
-    const visibleTiers = ratioOnly ? [] : IMAGE_RESOLUTIONS.filter((value) => presets.some((preset) => preset.tier === value));
+    const visibleTiers = IMAGE_RESOLUTIONS.filter((value) => presets.some((preset) => preset.tier === value));
     const [chosenTier, setChosenTier] = useState<ImageResolutionTier>("1k");
     const [customPreset, setCustomPreset] = useState<ImageResolutionOption>();
     const [custom, setCustom] = useState("");
@@ -51,7 +50,7 @@ export function ImageSizePicker({ profile, size, quality, onChange }: { profile:
         (restoredCustom && imageTierAvailable(profile, restoredCustom.tier) ? restoredCustom : undefined);
     const available = (value: ImageResolutionTier) => imageTierAvailable(profile, value) && (profile.size.allowCustom || presets.some((preset) => preset.tier === value));
     const tier =
-        (ratioOnly ? "1k" : active && visibleTiers.includes(active.tier) ? active.tier : undefined) ||
+        (active && visibleTiers.includes(active.tier) ? active.tier : undefined) ||
         (profile.size.parameter === "aspect_ratio" && imageResolutionUsesQuality(profile) ? visibleTiers.find((value) => imageQualityForTier(profile, value) === (quality || profile.quality.default)) : undefined) ||
         (qualityTier && visibleTiers.includes(qualityTier) ? qualityTier : undefined) ||
         (visibleTiers.includes(chosenTier) ? chosenTier : visibleTiers[0]) ||
@@ -150,7 +149,7 @@ export function ImageSizePicker({ profile, size, quality, onChange }: { profile:
                     <button
                         type="button"
                         key={`${preset.ratio}:${preset.size}`}
-                        title={ratioOnly ? preset.ratio : `${preset.ratio} · ${preset.width} × ${preset.height}`}
+                        title={`${preset.ratio} · ${preset.width} × ${preset.height}`}
                         aria-pressed={size !== "auto" && active?.size === preset.size && active?.tier === tier}
                         onClick={() => select(preset)}
                     >
@@ -161,9 +160,9 @@ export function ImageSizePicker({ profile, size, quality, onChange }: { profile:
             </div>
             {!choices.length ? <p className="image-size-hint">未配置预设尺寸{profile.size.allowCustom ? "，可输入自定义比例或尺寸" : ""}</p> : null}
             <output aria-live="polite" className="image-size-output">
-                {size === "auto" ? "尺寸由模型决定" : active ? ratioOnly ? active.ratio : `${active.ratio} · ${active.width} × ${active.height} px` : size.replace("x", " × ")}
+                {size === "auto" ? "尺寸由模型决定" : active ? `${active.ratio} · ${active.width} × ${active.height} px` : size.replace("x", " × ")}
             </output>
-            {!ratioOnly && profile.size.parameter === "aspect_ratio" && active ? <p className="image-size-hint">像素尺寸为换算参考，最终以模型输出为准。</p> : null}
+            {profile.size.parameter === "aspect_ratio" ? <p className="image-size-hint">尺寸为换算参考，实际像素由模型决定{!imageResolutionUsesQuality(profile) && visibleTiers.length <= 1 ? "；当前协议未配置独立分辨率" : ""}。</p> : null}
             {profile.size.allowCustom ? (
                 <details className="image-size-custom">
                     <summary>自定义比例或尺寸</summary>

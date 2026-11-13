@@ -9,28 +9,10 @@ export function CanvasH3UnsupportedFrames({ model, metadata, onChange }: { model
     return <div className="mt-2 flex flex-col gap-2 rounded-lg border border-[var(--color-border)] px-3 py-2 text-[var(--fs-label)]"><span>当前模型不支持此前选择的尾帧或中间帧。</span><Button size="small" onClick={() => onChange({ ...(endUnsupported ? { videoEndFrameNodeId: undefined } : {}), videoMiddleFrameNodeId: undefined, videoMiddleFrameTime: undefined })}>清除不支持的帧设置</Button></div>;
 }
 
-export function CanvasH3Controls({
-    model,
-    value = {},
-    onChange,
-    duration,
-    onDurationChange,
-    metadata,
-    onMetadataChange,
-}: {
-    model: string;
-    value?: H3VideoOptions;
-    onChange: (value: H3VideoOptions) => void;
-    duration?: string;
-    onDurationChange?: (value: string) => void;
-    metadata?: CanvasNodeMetadata;
-    onMetadataChange?: (patch: Partial<CanvasNodeMetadata>) => void;
-}) {
-    const modelName = model.split("::").at(-1)?.trim().toLowerCase() || "";
-    const base = model.split("::").at(-1)?.trim().toLowerCase() === "minimax-h3";
+export function CanvasH3Controls({ model, value = {}, onChange, duration, onDurationChange }: { model: string; value?: H3VideoOptions; onChange: (value: H3VideoOptions) => void; duration?: string; onDurationChange?: (value: string) => void }) {
+    const base = model.split("::").at(-1) === "minimax-h3";
     const style = isH3Style(model),
-        vhs = modelName === "minimax-h3-max-style-vhs",
-        max = modelName.includes("h3-max");
+        vhs = model.split("::").at(-1) === "minimax-h3-max-style-vhs";
     const modes = [{ value: "balanced", label: "均衡" }, { value: "quality", label: "高质量" }, ...(base ? [{ value: "fast", label: "快速" }] : []), { value: "disabled", label: "关闭" }];
     return (
         <details className="rounded-lg px-3 py-2" data-canvas-no-zoom>
@@ -42,9 +24,9 @@ export function CanvasH3Controls({
                         <InputNumber
                             aria-label="H3 时长（秒）"
                             size="small"
-                            min={5}
+                            min={0.92}
                             max={15}
-                            step={1}
+                            step={0.01}
                             value={Number(duration || 5)}
                             onChange={(v) => {
                                 if (v != null) onDurationChange(String(v));
@@ -56,22 +38,6 @@ export function CanvasH3Controls({
                     <label className="flex min-w-0 items-center justify-between gap-3">
                         <span>提示词增强</span>
                         <Select aria-label="提示词增强" size="small" className="w-28" classNames={{ popup: { root: "canvas-h3-option-popup" } }} value={value.prompt_expansion_mode || "balanced"} options={modes} onChange={(mode) => onChange({ ...value, prompt_expansion_mode: mode })} />
-                    </label>
-                ) : null}
-                {max && metadata?.videoMiddleFrameNodeId && onMetadataChange ? (
-                    <label className="flex min-w-0 items-center justify-between gap-3">
-                        <span>中间帧时间（秒）</span>
-                        <InputNumber
-                            aria-label="中间帧时间（秒）"
-                            size="small"
-                            min={0.1}
-                            max={Math.max(0.1, Number(duration || 5) - 0.1)}
-                            step={0.1}
-                            precision={1}
-                            value={metadata.videoMiddleFrameTime}
-                            placeholder="须小于总时长"
-                            onChange={(time) => onMetadataChange({ videoMiddleFrameTime: time == null ? undefined : time })}
-                        />
                     </label>
                 ) : null}
                 <label className="flex min-w-0 items-center justify-between gap-3">

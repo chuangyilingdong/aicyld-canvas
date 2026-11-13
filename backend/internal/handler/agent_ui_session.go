@@ -70,11 +70,16 @@ func (s *uiSessionStore) verify(token, userID string) (uiSession, bool) {
 	return item, true
 }
 
+type agentUISessionService interface {
+	workspaceOwners
+	ownerCredentialDirs
+}
+
 // resolveAgentCapability 统一判定内置助手入口的能力：
 // 1) 已登记外部客户端 → 服务端登记的只读/读写模式；
 // 2) 内置 UI 会话凭据 → 读写（绑定签发时的用户）；
 // 其他一律未认证。
-func resolveAgentCapability(c *gin.Context, svc *app.Service, clients *agentops.ClientRegistry, ui *uiSessionStore, userID string) (readOnly bool, identity string, ok bool, reason string) {
+func resolveAgentCapability(c *gin.Context, svc ownerCredentialDirs, clients *agentops.ClientRegistry, ui *uiSessionStore, userID string) (readOnly bool, identity string, ok bool, reason string) {
 	if strings.TrimSpace(c.GetHeader("X-Beeftv-Client")) != "" {
 		readOnly, label, err := resolveClientMode(c, svc, clients)
 		if err != nil {
@@ -89,7 +94,7 @@ func resolveAgentCapability(c *gin.Context, svc *app.Service, clients *agentops.
 }
 
 // RegisterAgentUISessionRoutes 只在本机同源且能出示 owner 凭据（或显式开发引导）时签发 UI 会话。
-func RegisterAgentUISessionRoutes(r gin.IRouter, svc *app.Service, ui *uiSessionStore, desktopTrust func(*http.Request) bool) {
+func RegisterAgentUISessionRoutes(r gin.IRouter, svc agentUISessionService, ui *uiSessionStore, desktopTrust func(*http.Request) bool) {
 	r.POST("/assistant/ui-session", func(c *gin.Context) {
 		if strings.TrimSpace(c.GetHeader("X-Beeftv-Client")) != "" {
 			fail(c, http.StatusForbidden, app.BadAuthRequest("外部客户端不能签发界面会话"))
@@ -108,12 +113,7 @@ func RegisterAgentUISessionRoutes(r gin.IRouter, svc *app.Service, ui *uiSession
 		devBootstrap := strings.TrimSpace(os.Getenv("BEEFTV_UI_BOOTSTRAP")) == "1"
 		// The UI bootstrap secret comes through the Wails binding, separately from entry credentials.
 		desktopShell := desktopTrust != nil && desktopTrust(c.Request)
-		// 托管部署（hb.aicyld.com.cn）：助手面板是画布 Web UI 的一部分，浏览器既没有 owner
-		// 凭据也没有桌面壳证明。这里信任「已通过主站单点登录 + 确实经本站反向代理」的会话
-		// ——与操作层的 canvas-web 身份同一判据；签发的凭据仍绑定该用户自己的工作区，
-		// 且上面的 isLoopbackRequest 已保证同源（跨站请求在 Origin 校验处就被拒）。
-		hostedWeb := hostedWebCaller(c)
-		if !ownerOK && !devBootstrap && !desktopShell && !hostedWeb {
+		if !ownerOK && !devBootstrap && !desktopShell {
 			fail(c, http.StatusForbidden, app.BadAuthRequest("签发内置 UI 会话需要 owner 凭据或显式本地引导"))
 			return
 		}
@@ -123,6 +123,6 @@ func RegisterAgentUISessionRoutes(r gin.IRouter, svc *app.Service, ui *uiSession
 			return
 		}
 		ok(c, gin.H{"token": session.Token, "expiresAt": session.ExpiresAt, "scope": "workspace:read-write",
-			"bootstrap": map[string]any{"ownerToken": ownerOK, "devBootstrap": devBootstrap, "desktopShell": desktopShell, "hostedWeb": hostedWeb}})
+			"bootstrap": map[string]any{"ownerToken": ownerOK, "devBootstrap": devBootstrap, "desktopShell": desktopShell}})
 	})
 }

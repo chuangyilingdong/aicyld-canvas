@@ -2,9 +2,56 @@ import { canonicalize } from "json-canonicalize";
 import type { CanvasProject } from "@/stores/canvas/use-canvas-store";
 
 // These fields describe local viewing / synchronization, not an edit to the document.
+const VOLATILE_NODE_METADATA_KEYS = new Set([
+    "taskStatus",
+    "taskProgress",
+    "taskStage",
+    "taskUpdatedAt",
+    "taskStartedAt",
+    "taskCompletedAt",
+    "taskDurationMs",
+    "taskProviderRequestId",
+    "taskOfficialStatus",
+    "taskReceiptRecorded",
+    "generationSubmissionState",
+]);
+// Node timestamps describe local observation / polling time, not an edit to
+// the node. Task progress writes update them even when no user-visible content
+// changed, so they must follow the same rule as runtime task metadata.
+const VOLATILE_NODE_KEYS = new Set(["createdAt", "updatedAt"]);
+
 export function canvasContentSnapshot(project: CanvasProject) {
     const { viewport: _viewport, updatedAt: _updatedAt, revision: _revision, remoteContentHash: _hash, ...content } = project;
-    return { ...content, projectId: content.projectId || undefined };
+    const nodes = Array.isArray(content.nodes)
+        ? content.nodes.map((node) => {
+            if (!node || typeof node !== "object") return node;
+            const nextNode = { ...node } as Record<string, unknown>;
+            for (const key of VOLATILE_NODE_KEYS) delete nextNode[key];
+            const metadata = node.metadata;
+            if (!metadata) return nextNode as typeof node;
+            const nextMetadata = { ...metadata };
+            for (const key of VOLATILE_NODE_METADATA_KEYS) delete (nextMetadata as Record<string, unknown>)[key];
+            return { ...nextNode, metadata: nextMetadata } as typeof node;
+        })
+        : content.nodes;
+    return { ...content, nodes, projectId: content.projectId || undefined };
+}
+
+export function normalizeCanvasProjectGraph(project: CanvasProject): CanvasProject {
+    const nodes = Array.isArray(project.nodes) ? project.nodes : [];
+    const connections = Array.isArray(project.connections) ? project.connections : [];
+    const rawViewport = project.viewport;
+    const validViewport = Boolean(
+        rawViewport &&
+        typeof rawViewport === "object" &&
+        typeof rawViewport.x === "number" && Number.isFinite(rawViewport.x) &&
+        typeof rawViewport.y === "number" && Number.isFinite(rawViewport.y) &&
+        typeof rawViewport.k === "number" && Number.isFinite(rawViewport.k) && rawViewport.k > 0,
+    );
+    const viewport = validViewport ? rawViewport : { x: 0, y: 0, k: 1 };
+    return nodes !== project.nodes || connections !== project.connections || viewport !== project.viewport
+        ? { ...project, nodes, connections, viewport }
+        : project;
 }
 
 export function sameCanvasContent(left: CanvasProject | undefined, right: CanvasProject | undefined) {

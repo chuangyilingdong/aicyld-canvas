@@ -3,44 +3,40 @@ import { useQueryClient } from "@tanstack/react-query";
 import { App } from "antd";
 
 import { NODE_DEFAULT_SIZE } from "@/constant/canvas";
-import { FOLDER_COLLAPSED_HEIGHT, FOLDER_COLLAPSED_WIDTH, FRAME_COLLAPSED_HEIGHT, FRAME_COLLAPSED_WIDTH, getFrameChildIds, isCanvasFolderNode, isFrameNode } from "@/lib/canvas/canvas-frame";
+import { extractNodeFromCanvasFolder, FOLDER_COLLAPSED_HEIGHT, FOLDER_COLLAPSED_WIDTH, FRAME_COLLAPSED_HEIGHT, FRAME_COLLAPSED_WIDTH, getFrameChildIds, isCanvasFolderNode, isFrameNode, unpackCanvasFolder } from "@/lib/canvas/canvas-frame";
 import { buildCanvasMediaDownloadFileName } from "@/lib/canvas/canvas-media-download";
 import { ownedResourceIdFromMediaRef } from "@/services/api/resources";
 import { downloadOwnedOrBrowserMedia, reportOwnedMediaSave } from "@/services/desktop-media-save";
 import { writeCanvasNodePrompt } from "@/lib/canvas/canvas-node-prompt";
 import { applyBatchPrimaryImage, applyNodeConfigPatch } from "@/lib/canvas/canvas-project-domain";
 import { resetGenerationTaskMetadata } from "@/lib/canvas/canvas-project-generation";
-import { CONTENT_MODERATION_ERROR_CODE, isContentModerationError } from "@/lib/generation-error";
+import { canvasNodeFailureView } from "@/lib/canvas/canvas-node-failure-view";
 import { ensureCanvasNodeAsset } from "@/services/project-asset-sync";
 import type { AssetCategory } from "@/stores/use-asset-store";
 import { CanvasNodeType, type CanvasFolderStyle, type CanvasFolderTheme, type CanvasNodeData, type CanvasNodeMetadata, type Position } from "@/types/canvas";
 import { useCanvasOwnerLifetime } from "./canvas-owner-epoch";
 import { createOwnedCanvasUploadGuard, persistOwnedCanvasUploadNode } from "./canvas-upload-ownership";
+import type { CanvasPageUiStoreHook } from "@/stores/canvas/use-canvas-page-ui-store";
 
 type UseCanvasNodeEditorOptions = {
+    pageUi: CanvasPageUiStoreHook;
     canvasId: string;
     canvasTitle: string;
     domainProjectId?: string;
     nodesRef: { current: CanvasNodeData[] };
     setNodes: Dispatch<SetStateAction<CanvasNodeData[]>>;
-    setSelectedNodeIds: Dispatch<SetStateAction<Set<string>>>;
-    setSelectedConnectionId: Dispatch<SetStateAction<string | null>>;
-    setDialogNodeId: Dispatch<SetStateAction<string | null>>;
-    setToolbarNodeId: Dispatch<SetStateAction<string | null>>;
-    setHoveredNodeId: Dispatch<SetStateAction<string | null>>;
+    /** 点开已关联项目素材的画框时，在画框右侧打开该文件夹。 */
+    openProjectAssets?: (initialCategory: string, position: Position | undefined, scope: "canvas" | "timeline", initialFolderId: string) => void;
 };
 
 export function useCanvasNodeEditor({
+    pageUi,
     canvasId,
     canvasTitle,
     domainProjectId,
     nodesRef,
     setNodes,
-    setSelectedNodeIds,
-    setSelectedConnectionId,
-    setDialogNodeId,
-    setToolbarNodeId,
-    setHoveredNodeId,
+    openProjectAssets,
 }: UseCanvasNodeEditorOptions) {
     const { message } = App.useApp();
     const queryClient = useQueryClient();
@@ -49,7 +45,11 @@ export function useCanvasNodeEditor({
     const { lifetime, mountedRef } = useCanvasOwnerLifetime(canvasId);
     const [collapsingBatchIds, setCollapsingBatchIds] = useState<Set<string>>(new Set());
     const [openingBatchIds, setOpeningBatchIds] = useState<Set<string>>(new Set());
+    const [folderBrowserNodeId, setFolderBrowserNodeId] = useState<string | null>(null);
     const batchMotionTimers = useRef(new Map<string, number>());
+    useEffect(() => {
+        setFolderBrowserNodeId(null);
+    }, [canvasId]);
     useEffect(() => () => {
         batchMotionTimers.current.forEach((timer) => window.clearTimeout(timer));
     }, []);
@@ -87,12 +87,55 @@ export function useCanvasNodeEditor({
                     : { ...node, width: folder ? FOLDER_COLLAPSED_WIDTH : FRAME_COLLAPSED_WIDTH, height: folder ? FOLDER_COLLAPSED_HEIGHT : FRAME_COLLAPSED_HEIGHT, metadata: { ...node.metadata, frame: { collapsed: true, expandedWidth: node.width, expandedHeight: node.height } } };
             }),
         );
-        setSelectedNodeIds(new Set([nodeId]));
-        setSelectedConnectionId(null);
-        setDialogNodeId((current) => (current && childIds.has(current) ? null : current));
-        setToolbarNodeId(null);
-        setHoveredNodeId(null);
-    }, [nodesRef, setDialogNodeId, setHoveredNodeId, setNodes, setSelectedConnectionId, setSelectedNodeIds, setToolbarNodeId]);
+        pageUi.getState().setSelectedNodeIds(new Set([nodeId]));
+        pageUi.getState().setSelectedConnectionId(null);
+        pageUi.getState().setDialogNodeId((current) => (current && childIds.has(current) ? null : current));
+        pageUi.getState().setToolbarNodeId(null);
+        pageUi.getState().setHoveredNodeId(null);
+    }, [pageUi, canvasId, nodesRef, setNodes]);
+
+    const handleFrameToggle = useCallback((nodeId: string) => {
+        const node = nodesRef.current.find((item) => item.id === nodeId);
+        const linkedFolderId = node?.metadata?.folder?.assetFolderId;
+        if (linkedFolderId) {
+            openProjectAssets?.("all", node ? { x: node.position.x + node.width + 40, y: node.position.y } : undefined, "canvas", linkedFolderId);
+            return;
+        }
+        if (node && isCanvasFolderNode(node) && node.metadata?.frame?.collapsed) {
+            const ui = pageUi.getState();
+            ui.setSelectedNodeIds(new Set([nodeId]));
+            ui.setSelectedConnectionId(null);
+            ui.setDialogNodeId(null);
+            ui.setContextMenu(null);
+            ui.setToolbarNodeId(null);
+            ui.setHoveredNodeId(null);
+            setFolderBrowserNodeId(nodeId);
+            return;
+        }
+        toggleFrameCollapsed(nodeId);
+    }, [nodesRef, openProjectAssets, pageUi, toggleFrameCollapsed]);
+
+    const unpackFolder = useCallback((folderId: string) => {
+        const result = unpackCanvasFolder(nodesRef.current, folderId);
+        if (!result) return;
+        nodesRef.current = result.nodes;
+        setNodes(result.nodes);
+        setFolderBrowserNodeId((current) => (current === folderId ? null : current));
+        const ui = pageUi.getState();
+        ui.setSelectedNodeIds(new Set(result.unpackedIds));
+        ui.setSelectedConnectionId(null);
+        ui.setContextMenu(null);
+        ui.setToolbarNodeId(null);
+        message.success(result.unpackedIds.length ? `已解散文件夹，释放 ${result.unpackedIds.length} 个节点` : "已删除空文件夹");
+    }, [message, nodesRef, pageUi, setNodes]);
+
+    const removeNodeFromFolder = useCallback((nodeId: string) => {
+        const result = extractNodeFromCanvasFolder(nodesRef.current, nodeId);
+        if (!result) return;
+        nodesRef.current = result.nodes;
+        setNodes(result.nodes);
+        message.success("已移出文件夹");
+    }, [message, nodesRef, setNodes]);
 
     const handleNodeTitleChange = useCallback((nodeId: string, title: string) => {
         setNodes((current) => current.map((node) => (node.id === nodeId ? { ...node, title } : node)));
@@ -172,7 +215,7 @@ export function useCanvasNodeEditor({
             if (node.id !== nodeId) return node;
             const previousPrompt = node.metadata?.composerContent ?? node.metadata?.prompt ?? "";
             const promptChanged = prompt !== previousPrompt;
-            const moderationFailure = node.metadata?.generationErrorCode === CONTENT_MODERATION_ERROR_CODE || isContentModerationError(node.metadata?.errorDetails);
+            const moderationFailure = canvasNodeFailureView(node).moderationResetOnPromptEdit;
             const metadata = moderationFailure && promptChanged
                 ? resetGenerationTaskMetadata(node.metadata, node.metadata?.content ? "success" : "idle")
                 : node.metadata;
@@ -192,7 +235,6 @@ export function useCanvasNodeEditor({
         });
         const result = await persistOwnedCanvasUploadNode({
             owner: guard.owner,
-            expectedScope: guard.expectedScope,
             getLiveCanvasId: () => canvasIdRef.current,
             getLiveLifetime: () => lifetime.current(),
             mounted: () => mountedRef.current,
@@ -265,6 +307,8 @@ export function useCanvasNodeEditor({
     return {
         collapsingBatchIds,
         downloadNodeImage,
+        folderBrowserNodeId,
+        setFolderBrowserNodeId,
         handleConfigNodeChange,
         handleFolderStyleChange,
         handleFolderThemeChange,
@@ -274,10 +318,13 @@ export function useCanvasNodeEditor({
         handleNodeResize,
         handleNodeTitleChange,
         openingBatchIds,
+        removeNodeFromFolder,
         saveNodeAsset,
         setBatchPrimary,
         toggleBatchExpanded,
         toggleFrameCollapsed,
+        handleFrameToggle,
         toggleNodeFreeResize,
+        unpackFolder,
     };
 }

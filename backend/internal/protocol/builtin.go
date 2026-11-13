@@ -2,8 +2,6 @@ package protocol
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -74,7 +72,7 @@ func Builtins() *Registry {
 	}
 	registry, err := NewRegistry(
 		openAIChatAdapter(), openAIResponsesAdapter(), claudeAdapter(),
-		openAIVideosAdapter(), newAPIChannel1Adapter(), newAPIVideosAdapter(), newAPIImageAdapter(), midjourneyAdapter(), xAIVideosAdapter(), arkVideosAdapter(), jimengVideosAdapter(), geminiVeoAdapter(), novitaVideosAdapter(), miniMaxVideosAdapter(),
+		openAIVideosAdapter(), newAPIChannel1Adapter(), newAPIVideosAdapter(), midjourneyAdapter(), xAIVideosAdapter(), arkVideosAdapter(), jimengVideosAdapter(), geminiVeoAdapter(), novitaVideosAdapter(), miniMaxVideosAdapter(),
 		agnesAdapter(),
 	)
 	if err != nil {
@@ -226,7 +224,21 @@ func newAPIVideosAdapter() Adapter {
 			body["generate_audio"] = true
 		}
 		if len(r.Images) > 0 {
-			body["image_urls"] = mediaValues(r.Images)
+			urls := mediaValues(r.Images)
+			body["image_urls"] = urls
+			if len(urls) > 0 {
+				firstURL := urls[0]
+				for _, image := range r.Images {
+					if strings.TrimSpace(image.Role) == "first_frame" {
+						if candidate := mediaValue(image); candidate != "" {
+							firstURL = candidate
+							break
+						}
+					}
+				}
+				body["image"] = firstURL
+				body["image_url"] = firstURL
+			}
 		}
 		if len(r.Videos) > 0 {
 			body["video_urls"] = mediaValues(r.Videos)
@@ -236,137 +248,6 @@ func newAPIVideosAdapter() Adapter {
 		}
 		return jsonSpec(http.MethodPost, "/v1/video/generations", body), nil
 	})
-}
-
-// newAPIImageAdapter 用于「图片生成挂在上游异步任务接口」的中转站
-// （例如 ZhenZhen AI：POST /v1/video/generations 提交、轮询取回图片 URL）。
-func newAPIImageAdapter() Adapter {
-	// 图片走文档端点 /v1/image/generations（旧 /v1/video/generations 仅为兼容保留）。
-	info := metadata("newapi-image", "NewAPI 图片任务（异步）", "OpenAI compatible", CapabilityImage, "POST /v1/image/generations", "GET /v1/image/generations/{task_id}", "application/json")
-	info.Parameters = mediaParams()
-	// 编辑模式要求把参考图以公开 HTTP(S) 地址传给上游（文档：images 最多 15–16 张）。
-	info.RequiresPublicMediaURLs = true
-	return asyncMediaAdapter(info, CapabilityImage, func(r GenerationRequest) (RequestSpec, error) {
-		body := map[string]any{"model": r.Model, "prompt": r.Prompt}
-		if strings.TrimSpace(r.AspectRatio) != "" {
-			body["size"] = r.AspectRatio
-		}
-		// 带参考图即进入编辑模式（上游语义）：model + prompt + images。
-		if len(r.Images) > 0 {
-			images := make([]string, 0, len(r.Images))
-			for _, image := range r.Images {
-				images = append(images, mediaValue(image))
-			}
-			body["images"] = images
-		}
-		return jsonSpec(http.MethodPost, "/v1/image/generations", body), nil
-	})
-}
-
-func midjourneyAdapter() Adapter {
-	info := metadata("midjourney", "Midjourney 异步图像", "Midjourney", CapabilityImage, "POST /v1/midjourney/generations/{action}", "GET /v1/midjourney/tasks/{task_id}", "application/json")
-	info.Execution = "declarative"
-	info.Parameters = []Parameter{
-		{Name: "model", Type: "string", Required: true, Mapping: "model"},
-		{Name: "prompt", Type: "string", Required: true, Mapping: "prompt"},
-		{Name: "images", Type: "media[]", Mapping: "provider-specific"},
-		{Name: "aspectRatio", Type: "string", Mapping: "provider-specific"},
-		{Name: "quality", Type: "string", Mapping: "provider-specific"},
-	}
-	info.RequiresPublicMediaURLs = true
-	return builtinAdapter{
-		info: info,
-		create: func(r GenerationRequest) (RequestSpec, error) {
-			action, options := midjourneyActionOptions(r)
-			allowed := map[string]bool{"imagine": true, "upscale": true, "variation": true, "high-variation": true, "low-variation": true, "reroll": true, "zoom": true, "pan": true, "inpaint": true, "modal": true, "remix-strong": true, "remix-subtle": true, "blend": true, "describe": true, "edits": true, "video": true}
-			if !allowed[action] {
-				return RequestSpec{}, fmt.Errorf("不支持的 Midjourney 动作：%s", action)
-			}
-			path := "/v1/midjourney/generations/" + url.PathEscape(action)
-			body := map[string]any{"model": "midjourney"}
-			prompt := strings.TrimSpace(r.Prompt)
-			if prompt != "" && (action == "imagine" || action == "edits" || action == "video" || action == "modal" || action == "remix-strong" || action == "remix-subtle") {
-				body["prompt"] = prompt
-			}
-			if ratio := strings.TrimSpace(r.AspectRatio); ratio != "" && (action == "imagine" || action == "edits" || action == "blend") {
-				body["size"] = ratio
-			}
-			if speed := strings.ToLower(strings.TrimSpace(r.Quality)); action != "video" && (speed == "relax" || speed == "fast" || speed == "turbo") {
-				body["speed"] = speed
-			}
-			images := make([]string, 0, len(r.Images))
-			maskURL := ""
-			for _, image := range r.Images {
-				if image.Role == "mask" {
-					maskURL = mediaValue(image)
-					continue
-				}
-				images = append(images, mediaValue(image))
-			}
-			if len(images) > 0 && (action == "imagine" || action == "blend" || action == "describe" || action == "edits" || action == "video") {
-				body["image_urls"] = images
-			}
-			copyMidjourneyOption(body, options, "taskId", "task_id")
-			copyMidjourneyOption(body, options, "customId", "custom_id")
-			copyMidjourneyOption(body, options, "direction", "direction")
-			copyMidjourneyOption(body, options, "dimensions", "dimensions")
-			copyMidjourneyOption(body, options, "videoType", "video_type")
-			copyMidjourneyOption(body, options, "animateMode", "animate_mode")
-			copyMidjourneyOption(body, options, "motion", "motion")
-			copyMidjourneyOption(body, options, "endUrl", "end_url")
-			copyMidjourneyOption(body, options, "version", "version")
-			if action == "imagine" || action == "edits" {
-				copyMidjourneyOption(body, options, "quality", "quality")
-				copyMidjourneyOption(body, options, "style", "style")
-				copyMidjourneyOption(body, options, "negativePrompt", "negative_prompt")
-				copyMidjourneyOption(body, options, "cref", "cref")
-				copyMidjourneyOption(body, options, "sref", "sref")
-				copyMidjourneyOption(body, options, "dref", "dref")
-				copyMidjourneyOption(body, options, "extra", "extra")
-				for _, option := range []struct{ key, wire string }{
-					{"seed", "seed"}, {"stylize", "stylize"}, {"chaos", "chaos"}, {"weird", "weird"},
-					{"cw", "cw"}, {"sw", "sw"}, {"iw", "iw"}, {"dw", "dw"}, {"stop", "stop"},
-				} {
-					copyMidjourneyNumberOption(body, options, option.key, option.wire)
-				}
-				for _, option := range []struct{ key, wire string }{
-					{"tile", "tile"}, {"niji", "niji"}, {"raw", "raw"}, {"draft", "draft"}, {"hd", "hd"},
-				} {
-					copyMidjourneyBoolOption(body, options, option.key, option.wire)
-				}
-			}
-			if value := midjourneyInt(options, "index"); value > 0 {
-				body["index"] = value
-			} else if action == "video" {
-				if _, present := options["index"]; present {
-					body["index"] = 0
-				}
-			}
-			if value := midjourneyFloat(options, "zoomRatio"); value > 0 {
-				body["zoom_ratio"] = value
-			}
-			if value := midjourneyInt(options, "batchSize"); value == 1 || value == 2 || value == 4 {
-				body["batch_size"] = value
-			}
-			if action == "modal" {
-				if maskURL == "" {
-					maskURL = midjourneyString(options, "maskUrl")
-				}
-				if maskURL != "" {
-					body["mask_url"] = maskURL
-				}
-			}
-			if err := validateMidjourneyAction(action, body, len(images)); err != nil {
-				return RequestSpec{}, err
-			}
-			return jsonSpec(http.MethodPost, path, body), nil
-		},
-		parseCreate: parseMidjourneyCreate,
-		poll: func(c PollContext) (RequestSpec, error) {
-			return RequestSpec{Method: http.MethodGet, Path: "/v1/midjourney/tasks/" + url.PathEscape(c.TaskID)}, nil
-		},
-		parsePoll: parseMidjourneyPoll,
-	}
 }
 
 func newAPIChannel1Adapter() Adapter {
@@ -539,6 +420,7 @@ func agnesAdapter() Adapter {
 	info.Version = "1.2.0"
 	info.Description = "Agnes AI 官方异步视频协议，支持 Agnes Video V2.0、2.5 与 2.5 Flash。"
 	info.RequiresPublicMediaURLs = true
+	info.MediaTransport = map[string]string{"image": "inline", "video": "url", "audio": "url"}
 	info.Parameters = []Parameter{
 		{Name: "model", Type: "string", Required: true, Mapping: "model", Description: "官方模型 ID：agnes-video-v2.0、agnes-video-2.5 或 agnes-video-2.5-flash。"},
 		{Name: "prompt", Type: "string", Required: true, Mapping: "prompt", Description: "视频生成提示词。"},
@@ -619,9 +501,6 @@ func buildAgnesV25Body(r GenerationRequest) (map[string]any, error) {
 		return nil, fmt.Errorf("Agnes 2.5 mode 必须是 text、keyframe 或 reference")
 	}
 	seconds := defaultInt(r.Duration, 5)
-	if seconds < 4 || seconds > 12 {
-		return nil, fmt.Errorf("Agnes 2.5 seconds 必须在 4 到 12 秒之间")
-	}
 	size, err := normalizeAgnesV25Resolution(defaultValue(r.Resolution, firstString(r.Extra, "size")))
 	if err != nil {
 		return nil, err
@@ -858,7 +737,7 @@ func asyncMediaAdapter(info Metadata, capability Capability, create func(Generat
 
 func asyncMediaAdapterWithPoll(info Metadata, capability Capability, create func(GenerationRequest) (RequestSpec, error), poll func(PollContext) (RequestSpec, error)) Adapter {
 	return builtinAdapter{
-		info: info, create: create, parseCreate: parseAsyncCreate, poll: poll,
+		info: info, create: wrapBuiltinCreate(info, capability, create), parseCreate: parseAsyncCreate, poll: poll,
 		parsePoll: func(c PollContext, payload map[string]any) (PollResult, error) {
 			return parseAsyncMediaPoll(c, payload, capability)
 		},
@@ -972,35 +851,6 @@ func parseGeminiVeoPoll(c PollContext, payload map[string]any) (PollResult, erro
 	return PollResult{TaskID: id, Status: StatusSucceeded, Result: &Result{Videos: videos}}, nil
 }
 
-func geminiVeoVideos(response map[string]any) []MediaReference {
-	if response == nil {
-		return nil
-	}
-	containers := []map[string]any{response}
-	for _, key := range []string{"generateVideoResponse", "generate_video_response"} {
-		if nested := object(response[key]); nested != nil {
-			containers = append(containers, nested)
-		}
-	}
-	result := make([]MediaReference, 0)
-	for _, container := range containers {
-		for _, key := range []string{"generatedVideos", "generated_videos", "generatedSamples", "generated_samples", "videos"} {
-			items, _ := container[key].([]any)
-			for _, item := range items {
-				entry := object(item)
-				video := object(entry["video"])
-				if video == nil {
-					video = entry
-				}
-				if value := firstString(video, "uri", "url", "videoUri", "video_url"); value != "" {
-					result = append(result, MediaReference{URL: value, Kind: string(CapabilityVideo)})
-				}
-			}
-		}
-	}
-	return result
-}
-
 func parseAsyncCreate(payload map[string]any) (CreateResult, error) {
 	id := firstString(payload, "id", "task_id", "taskId", "request_id")
 	status := normalizeStatus(firstString(payload, "status", "state"))
@@ -1011,18 +861,6 @@ func parseAsyncCreate(payload map[string]any) (CreateResult, error) {
 	if data := object(payload["data"]); data != nil {
 		id = defaultValue(firstString(data, "id", "task_id", "taskId", "request_id"), id)
 		status = normalizeStatus(defaultValue(firstString(data, "status", "state"), string(status)))
-	} else if items, ok := payload["data"].([]any); ok {
-		for _, item := range items {
-			entry, _ := item.(map[string]any)
-			if entry == nil {
-				continue
-			}
-			id = defaultValue(firstString(entry, "id", "task_id", "taskId", "request_id"), id)
-			status = normalizeStatus(defaultValue(firstString(entry, "status", "state"), string(status)))
-			if id != "" {
-				break
-			}
-		}
 	}
 	if id == "" {
 		return CreateResult{}, fmt.Errorf("async response has no task id")
@@ -1033,33 +871,21 @@ func parseAsyncCreate(payload map[string]any) (CreateResult, error) {
 	return CreateResult{TaskID: id, Status: status, Message: firstString(payload, "message", "error")}, nil
 }
 
-func parseMidjourneyCreate(payload map[string]any) (CreateResult, error) {
-	created, err := parseAsyncCreate(payload)
-	if err == nil {
-		return created, nil
-	}
-	text := strings.TrimSpace(firstString(payload, "description", "text"))
-	if text == "" {
-		return CreateResult{}, err
-	}
-	return CreateResult{
-		Status: StatusSucceeded,
-		Result: &Result{Text: text, ProviderMetadata: midjourneyProviderMetadata(payload)},
-	}, nil
-}
-
 func parseAsyncMediaPoll(c PollContext, payload map[string]any, capability Capability) (PollResult, error) {
 	if capability != CapabilityImage && capability != CapabilityVideo && capability != CapabilityAudio {
 		return PollResult{}, fmt.Errorf("unsupported async media capability %q", capability)
 	}
 	status := normalizeStatus(firstString(payload, "status", "state", "task_status"))
 	if task := object(payload["task"]); task != nil {
-		status = normalizeStatus(defaultValue(firstString(task, "status", "state"), string(status)))
+		status = normalizeStatus(defaultValue(firstString(task, "status", "state", "task_status"), string(status)))
 		payload = mergeMaps(task, payload)
 	}
 	if data := object(payload["data"]); data != nil {
 		payload = mergeMaps(data, payload)
-		status = normalizeStatus(defaultValue(firstString(data, "status", "state"), string(status)))
+		status = normalizeStatus(defaultValue(firstString(data, "status", "state", "task_status"), string(status)))
+	}
+	if file := object(payload["file"]); file != nil {
+		payload = mergeMaps(file, payload)
 	}
 	// BeefAPI keeps the transport task in `in_progress` while its nested
 	// generation has already completed and is saving the output.  The actual
@@ -1073,7 +899,11 @@ func parseAsyncMediaPoll(c PollContext, payload map[string]any, capability Capab
 		}
 	}
 	if status == "" {
-		status = StatusProcessing
+		if failure := object(payload["error"]); failure != nil && firstString(failure, "message", "detail", "code") != "" {
+			status = StatusFailed
+		} else {
+			status = StatusProcessing
+		}
 	}
 	result := &Result{}
 	resultKind := string(capability)
@@ -1082,7 +912,7 @@ func parseAsyncMediaPoll(c PollContext, payload map[string]any, capability Capab
 	if content := object(payload["content"]); content != nil {
 		references = append(references, mediaFromArray([]any{content}, capability)...)
 	}
-	keys := []string{resultKind + "_url", resultKind + "Url", "result_url", "url"}
+	keys := []string{resultKind + "_url", resultKind + "Url", "result_url", "download_url", "downloadUrl", "url"}
 	if resultKind == "video" {
 		keys = append(keys, "object")
 	}
@@ -1095,267 +925,22 @@ func parseAsyncMediaPoll(c PollContext, payload map[string]any, capability Capab
 	case CapabilityAudio:
 		result.Audios = references
 	case CapabilityVideo:
+		attachLastFrameMetadata(references, payload)
 		result.Videos = references
 	}
 	if status == StatusSucceeded && len(references) == 0 {
 		result = nil
 	}
-	return PollResult{TaskID: defaultValue(firstString(payload, "id", "task_id", "taskId"), c.TaskID), Status: status, Result: result, Message: firstString(payload, "message", "error", "fail_reason")}, nil
-}
-
-func parseMidjourneyPoll(c PollContext, payload map[string]any) (PollResult, error) {
-	status := normalizeStatus(firstString(payload, "status", "state", "task_status"))
-	if task := object(payload["task"]); task != nil {
-		payload = mergeMaps(task, payload)
-		status = normalizeStatus(defaultValue(firstString(task, "status", "state", "task_status"), string(status)))
-	}
-	if data := object(payload["data"]); data != nil {
-		payload = mergeMaps(data, payload)
-		status = normalizeStatus(defaultValue(firstString(data, "status", "state", "task_status"), string(status)))
-	}
-	if status == "" {
-		status = StatusProcessing
-	}
-	taskID := defaultValue(firstString(payload, "task_id", "taskId", "id"), c.TaskID)
-	message := firstString(payload, "fail_reason", "message", "description")
+	message := firstString(payload, "message", "error", "fail_reason")
 	if failure := object(payload["error"]); failure != nil {
 		message = defaultValue(firstString(failure, "message", "detail", "code"), message)
 	}
-	if status == StatusFailed || status == StatusCancelled {
-		return PollResult{TaskID: taskID, Status: status, Message: defaultValue(message, "Midjourney 生成失败")}, nil
-	}
-	if status != StatusSucceeded {
-		return PollResult{TaskID: taskID, Status: status, Message: message}, nil
-	}
-	providerMetadata := midjourneyProviderMetadata(payload)
-	if action, _ := midjourneyActionOptions(c.Request); action == "describe" {
-		text := firstString(payload, "prompt", "description", "text")
-		if text == "" {
-			return PollResult{}, fmt.Errorf("Midjourney describe 完成响应没有返回提示词")
-		}
-		return PollResult{TaskID: taskID, Status: status, Result: &Result{Text: text, Usage: object(payload["usage"]), ProviderMetadata: providerMetadata}, Message: message}, nil
-	}
-	images := make([]MediaReference, 0, 4)
-	// The API returns four independent images plus a grid. Persist the four
-	// outputs independently so each can be rebound and used by follow-up actions.
-	images = append(images, mediaFromArray(payload["image_urls"], CapabilityImage)...)
-	if len(images) == 0 {
-		images = append(images, mediaFromArray(payload["images"], CapabilityImage)...)
-	}
-	if len(images) == 0 {
-		if grid := firstString(payload, "grid_image_url", "gridImageUrl"); grid != "" {
-			images = append(images, MediaReference{URL: grid, Kind: "image"})
+	if message == "" {
+		if baseResp := object(payload["base_resp"]); baseResp != nil {
+			message = firstString(baseResp, "status_msg")
 		}
 	}
-	if len(images) == 0 {
-		if value := firstString(payload, "image_url", "imageUrl", "url"); value != "" {
-			images = append(images, MediaReference{URL: value, Kind: "image"})
-		}
-	}
-	action, _ := midjourneyActionOptions(c.Request)
-	if action == "video" {
-		videos := mediaFromArray(payload["video_urls"], CapabilityVideo)
-		if len(videos) == 0 {
-			videos = mediaFromArray(payload["videos"], CapabilityVideo)
-		}
-		if len(videos) == 0 {
-			if value := firstString(payload, "video_url", "videoUrl"); value != "" {
-				videos = append(videos, MediaReference{URL: value, Kind: "video"})
-			}
-		}
-		if len(videos) == 0 {
-			return PollResult{}, fmt.Errorf("Midjourney video 完成响应没有返回视频")
-		}
-		return PollResult{TaskID: taskID, Status: status, Result: &Result{Videos: videos, Usage: object(payload["usage"]), ProviderMetadata: providerMetadata}, Message: message}, nil
-	}
-	if len(images) == 0 {
-		return PollResult{}, fmt.Errorf("Midjourney 完成响应没有返回图片")
-	}
-	return PollResult{TaskID: taskID, Status: status, Result: &Result{Images: images, Usage: object(payload["usage"]), ProviderMetadata: providerMetadata}, Message: message}, nil
-}
-
-func midjourneyProviderMetadata(payload map[string]any) map[string]any {
-	items, _ := payload["buttons"].([]any)
-	if len(items) == 0 {
-		return nil
-	}
-	buttons := make([]map[string]any, 0, len(items))
-	for _, item := range items {
-		button, _ := item.(map[string]any)
-		if button == nil {
-			continue
-		}
-		customID := strings.TrimSpace(firstString(button, "customId", "custom_id"))
-		if customID == "" {
-			continue
-		}
-		next := map[string]any{"customId": customID}
-		if label := strings.TrimSpace(firstString(button, "label")); label != "" {
-			next["label"] = label
-		}
-		if emoji := strings.TrimSpace(firstString(button, "emoji")); emoji != "" {
-			next["emoji"] = emoji
-		}
-		buttons = append(buttons, next)
-	}
-	if len(buttons) == 0 {
-		return nil
-	}
-	return map[string]any{"midjourneyButtons": buttons}
-}
-
-func midjourneyActionOptions(request GenerationRequest) (string, map[string]any) {
-	options := map[string]any{}
-	if configured := object(request.Extra["midjourney"]); configured != nil {
-		for key, value := range configured {
-			options[key] = value
-		}
-	}
-	action := strings.ToLower(strings.TrimSpace(midjourneyString(options, "action")))
-	if action == "" {
-		model := strings.ToLower(strings.TrimSpace(request.Model))
-		if strings.HasPrefix(model, "midjourney-") {
-			action = strings.TrimPrefix(model, "midjourney-")
-		} else {
-			action = "imagine"
-		}
-	}
-	return action, options
-}
-
-func copyMidjourneyOption(body map[string]any, options map[string]any, key string, wire string) {
-	if value := strings.TrimSpace(midjourneyString(options, key)); value != "" {
-		body[wire] = value
-	}
-}
-
-func copyMidjourneyNumberOption(body map[string]any, options map[string]any, key string, wire string) {
-	if _, present := options[key]; !present {
-		return
-	}
-	switch value := options[key].(type) {
-	case float64:
-		body[wire] = value
-	case float32:
-		body[wire] = value
-	case int:
-		body[wire] = value
-	case int64:
-		body[wire] = value
-	case json.Number:
-		if number, err := value.Float64(); err == nil {
-			body[wire] = number
-		}
-	}
-}
-
-func copyMidjourneyBoolOption(body map[string]any, options map[string]any, key string, wire string) {
-	if value, ok := options[key].(bool); ok {
-		body[wire] = value
-	}
-}
-
-func midjourneyString(options map[string]any, key string) string {
-	value, _ := options[key].(string)
-	return value
-}
-
-func midjourneyInt(options map[string]any, key string) int {
-	switch value := options[key].(type) {
-	case int:
-		return value
-	case float64:
-		return int(value)
-	case json.Number:
-		result, _ := value.Int64()
-		return int(result)
-	default:
-		return 0
-	}
-}
-
-func midjourneyFloat(options map[string]any, key string) float64 {
-	switch value := options[key].(type) {
-	case float64:
-		return value
-	case int:
-		return float64(value)
-	case json.Number:
-		result, _ := value.Float64()
-		return result
-	default:
-		return 0
-	}
-}
-
-func validateMidjourneyAction(action string, body map[string]any, imageCount int) error {
-	taskID := strings.TrimSpace(midjourneyString(body, "task_id"))
-	customID := strings.TrimSpace(midjourneyString(body, "custom_id"))
-	index := midjourneyInt(body, "index")
-	switch action {
-	case "imagine":
-		if strings.TrimSpace(midjourneyString(body, "prompt")) == "" {
-			return errors.New("Midjourney imagine 缺少 prompt")
-		}
-	case "blend":
-		if imageCount < 2 || imageCount > 4 {
-			return errors.New("Midjourney blend 需要 2–4 张图片")
-		}
-	case "describe", "edits":
-		if imageCount == 0 {
-			return errors.New("Midjourney " + action + " 缺少图片")
-		}
-		if action == "edits" && strings.TrimSpace(midjourneyString(body, "prompt")) == "" {
-			return errors.New("Midjourney edits 缺少 prompt")
-		}
-	case "upscale", "variation", "high-variation", "low-variation", "inpaint", "remix-strong", "remix-subtle":
-		if taskID == "" {
-			return errors.New("Midjourney " + action + " 缺少父任务 task_id")
-		}
-		if customID == "" && index < 1 {
-			return errors.New("Midjourney " + action + " 需要 index 1–4")
-		}
-		if index > 4 {
-			return errors.New("Midjourney " + action + " 的 index 必须在 1–4")
-		}
-	case "reroll", "zoom":
-		if taskID == "" {
-			return errors.New("Midjourney " + action + " 缺少父任务 task_id")
-		}
-	case "pan":
-		if taskID == "" {
-			return errors.New("Midjourney pan 缺少父任务 task_id")
-		}
-		if customID == "" {
-			direction := strings.ToLower(strings.TrimSpace(midjourneyString(body, "direction")))
-			if direction != "left" && direction != "right" && direction != "up" && direction != "down" {
-				return errors.New("Midjourney pan 缺少有效 direction")
-			}
-		}
-	case "modal":
-		if taskID == "" {
-			return errors.New("Midjourney modal 缺少 inpaint task_id")
-		}
-		if strings.TrimSpace(midjourneyString(body, "mask_url")) == "" {
-			return errors.New("Midjourney modal 缺少 mask_url")
-		}
-	case "video":
-		if taskID == "" && imageCount == 0 {
-			return errors.New("Midjourney video 需要图片或父任务 task_id")
-		}
-		if mode := strings.TrimSpace(midjourneyString(body, "animate_mode")); mode == "auto" {
-			if taskID == "" {
-				return errors.New("Midjourney video animate_mode=auto 需要 task_id")
-			}
-			if _, present := body["index"]; !present {
-				return errors.New("Midjourney video animate_mode=auto 需要 index 0–3")
-			}
-			if index < 0 || index > 3 {
-				return errors.New("Midjourney video 的 index 必须在 0–3")
-			}
-		}
-	}
-	return nil
+	return PollResult{TaskID: defaultValue(firstString(payload, "id", "task_id", "taskId"), c.TaskID), Status: status, Result: result, Message: message}, nil
 }
 
 func parseAudioResponse(payload map[string]any) (CreateResult, error) {
@@ -1364,182 +949,4 @@ func parseAudioResponse(payload map[string]any) (CreateResult, error) {
 		return CreateResult{}, fmt.Errorf("audio response has no result")
 	}
 	return CreateResult{Status: StatusSucceeded, Result: &Result{Audios: []MediaReference{{URL: value, Kind: "audio"}}}}, nil
-}
-
-func normalizeStatus(raw string) Status {
-	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "queued", "pending", "created", "submitted", "in_queue", "task_status_queued":
-		return StatusPending
-	case "running", "processing", "in_progress", "executing", "task_status_running":
-		return StatusProcessing
-	case "succeeded", "success", "completed", "complete", "done", "task_status_succeed":
-		return StatusSucceeded
-	case "cancelled", "canceled", "aborted":
-		return StatusCancelled
-	case "failed", "failure", "error", "expired":
-		return StatusFailed
-	default:
-		return ""
-	}
-}
-
-func decodeObject(body []byte) (map[string]any, error) {
-	var payload map[string]any
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return nil, fmt.Errorf("protocol response is not JSON: %w", err)
-	}
-	return payload, nil
-}
-func object(value any) map[string]any { result, _ := value.(map[string]any); return result }
-func mergeMaps(primary, fallback map[string]any) map[string]any {
-	result := make(map[string]any, len(fallback)+len(primary))
-	for k, v := range fallback {
-		result[k] = v
-	}
-	for k, v := range primary {
-		result[k] = v
-	}
-	return result
-}
-func firstString(payload map[string]any, keys ...string) string {
-	for _, key := range keys {
-		if value, ok := payload[key].(string); ok && strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
-}
-func defaultValue(value, fallback string) string {
-	if strings.TrimSpace(value) == "" {
-		return fallback
-	}
-	return value
-}
-func defaultInt(value, fallback int) int {
-	if value <= 0 {
-		return fallback
-	}
-	return value
-}
-func copyIf(body map[string]any, key, value string) {
-	if strings.TrimSpace(value) != "" {
-		body[key] = value
-	}
-}
-func mergeExtra(body map[string]any, extra map[string]any, keys ...string) {
-	for _, key := range keys {
-		if value, ok := extra[key]; ok {
-			body[key] = value
-		}
-	}
-}
-func compactMap(body map[string]any) map[string]any {
-	result := make(map[string]any)
-	for key, value := range body {
-		switch item := value.(type) {
-		case string:
-			if strings.TrimSpace(item) != "" {
-				result[key] = value
-			}
-		case int:
-			if item > 0 {
-				result[key] = value
-			}
-		case bool:
-			result[key] = value
-		case nil:
-		default:
-			result[key] = item
-		}
-	}
-	return result
-}
-func mediaValue(media MediaReference) string { return defaultValue(media.URL, media.DataURL) }
-func mediaRole(media MediaReference, fallback string) string {
-	return defaultValue(strings.TrimSpace(media.Role), fallback)
-}
-
-func splitVideoImages(images []MediaReference) (frames []MediaReference, references []MediaReference, unspecified []MediaReference) {
-	firstFrames := make([]MediaReference, 0, 1)
-	lastFrames := make([]MediaReference, 0, 1)
-	for _, image := range images {
-		switch strings.TrimSpace(image.Role) {
-		case "first_frame":
-			firstFrames = append(firstFrames, image)
-		case "last_frame":
-			lastFrames = append(lastFrames, image)
-		case "reference_image":
-			references = append(references, image)
-		default:
-			unspecified = append(unspecified, image)
-		}
-	}
-	frames = append(frames, firstFrames...)
-	frames = append(frames, lastFrames...)
-	return frames, references, unspecified
-}
-
-func orderedFrameImages(images []MediaReference) []MediaReference {
-	frames, _, unspecified := splitVideoImages(images)
-	if len(frames) == 0 {
-		return unspecified
-	}
-	return append(frames, unspecified...)
-}
-
-func hasVideoImageRole(images []MediaReference, role string) bool {
-	for _, image := range images {
-		if strings.TrimSpace(image.Role) == role {
-			return true
-		}
-	}
-	return false
-}
-
-func mediaValues(values []MediaReference) []string {
-	result := make([]string, 0, len(values))
-	for _, value := range values {
-		if item := mediaValue(value); item != "" {
-			result = append(result, item)
-		}
-	}
-	return result
-}
-func mediaFromArray(value any, capability Capability) []MediaReference {
-	values, _ := value.([]any)
-	result := make([]MediaReference, 0, len(values))
-	kind := string(capability)
-	for _, item := range values {
-		if value, ok := item.(string); ok && strings.TrimSpace(value) != "" {
-			result = append(result, MediaReference{URL: strings.TrimSpace(value), Kind: kind})
-			continue
-		}
-		if m, ok := item.(map[string]any); ok {
-			if capability == CapabilityImage {
-				if value := firstString(m, "b64_json", "data"); value != "" {
-					if !strings.HasPrefix(value, "data:") {
-						value = "data:image/png;base64," + value
-					}
-					result = append(result, MediaReference{DataURL: value, Kind: kind})
-					continue
-				}
-			}
-			if value := firstString(m, "url", "image_url", "video_url", "audio_url"); value != "" {
-				result = append(result, MediaReference{URL: value, Kind: kind})
-			}
-		}
-	}
-	return result
-}
-func dataMIME(value string) string {
-	if index := strings.Index(value, ";"); strings.HasPrefix(value, "data:") && index > 5 {
-		return strings.TrimPrefix(value[5:index], "")
-	}
-	return "application/octet-stream"
-}
-func dataPayload(value string) string {
-	if index := strings.Index(value, ","); strings.HasPrefix(value, "data:") && index >= 0 {
-		return value[index+1:]
-	}
-	return value
 }

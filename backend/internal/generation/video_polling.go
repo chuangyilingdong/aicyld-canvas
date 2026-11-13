@@ -17,9 +17,10 @@ import (
 
 const DefaultVideoPollInterval = 30 * time.Second
 
-const beefAPISeedancePollInterval = 5 * time.Second
+const beefAPIVideoPollInterval = 5 * time.Second
 
 type VideoPollPolicy struct {
+	QueryStage            string
 	InitialDelay          time.Duration
 	Interval              time.Duration
 	MaxNotFoundMisses     int
@@ -70,12 +71,12 @@ func DefaultVideoPollPolicy() VideoPollPolicy {
 }
 
 func videoPollPolicyForConfig(ctx context.Context, config Config, policy VideoPollPolicy) VideoPollPolicy {
-	if IsBeefAPIVideoConfig(ctx, config) && strings.Contains(strings.ToLower(config.Model), "seedance") {
+	if IsBeefAPIVideoConfig(ctx, config) {
 		if policy.InitialDelay == DefaultVideoPollInterval {
-			policy.InitialDelay = beefAPISeedancePollInterval
+			policy.InitialDelay = beefAPIVideoPollInterval
 		}
 		if policy.Interval == DefaultVideoPollInterval {
-			policy.Interval = beefAPISeedancePollInterval
+			policy.Interval = beefAPIVideoPollInterval
 		}
 	}
 	return policy
@@ -83,6 +84,10 @@ func videoPollPolicyForConfig(ctx context.Context, config Config, policy VideoPo
 
 func RunVideoPollLoop(ctx context.Context, taskID string, policy VideoPollPolicy, query func(context.Context) (VideoPollOutcome, error)) (map[string]interface{}, error) {
 	policy = NormalizeVideoPollPolicy(policy)
+	runtime, _ := RuntimeFromContext(ctx)
+	if err := setExecutionStage(ctx, runtime, policy.QueryStage); err != nil {
+		return nil, err
+	}
 	deadline := PollingDeadline(ctx)
 	pollContext, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
@@ -148,6 +153,9 @@ func RunVideoPollLoop(ctx context.Context, taskID string, policy VideoPollPolicy
 }
 
 func NormalizeVideoPollPolicy(policy VideoPollPolicy) VideoPollPolicy {
+	if policy.QueryStage == "" {
+		policy.QueryStage = "正在查询上游任务"
+	}
 	if policy.Interval <= 0 {
 		policy.Interval = DefaultVideoPollInterval
 	}
@@ -224,11 +232,20 @@ func videoResultPending(err error) bool {
 		return false
 	}
 	code, _ := FailureDetails(payload)
+	if code == "" {
+		if errObj, ok := payload["error"].(map[string]any); ok {
+			code = normalizedUpstreamErrorCode(errObj["type"])
+		}
+	}
 	return httpErr.StatusCode == http.StatusServiceUnavailable && code == "video_delivery_pending"
 }
 
 func RetryableVideoPollError(ctx context.Context, err error) (retry bool, notFound bool) {
 	if err == nil || ctx.Err() != nil || errors.Is(err, context.Canceled) {
+		return false, false
+	}
+	var preparation RequestPreparationError
+	if errors.As(err, &preparation) {
 		return false, false
 	}
 	var downloadError VideoDownloadError

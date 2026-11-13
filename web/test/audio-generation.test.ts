@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 
 import { buildNodeConfig } from "@/components/canvas/canvas-node-prompt-panel";
-import { audioSettingsSummary, audioSpeechProfile, buildAudioSpeechRequest, isMinimaxMusicV3, normalizeAudioFormatValue, normalizeAudioSpeedValue, normalizeAudioVoiceValue, resolveAudioSpeechSettings } from "@/lib/audio-generation";
+import { audioSettingsSummary, audioSpeechProfile, buildAudioSpeechRequest, isMusicAudioModel, normalizeAudioFormatValue, normalizeAudioSpeedValue, normalizeAudioVoiceValue, resolveAudioSpeechSettings } from "@/lib/audio-generation";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 import { createModelChannel, defaultConfig, type AiConfig } from "@/stores/use-config-store";
 
@@ -52,13 +52,13 @@ describe("enterprise MiniMax speech settings", () => {
     });
 
     test("MiniMax formats follow the native adapter, not OpenAI-only opus", () => {
+        expect(isMusicAudioModel("beefapi::minimax-music-v3.0")).toBe(true);
+        expect(isMusicAudioModel("mureka-bgm-v1")).toBe(true);
+        expect(isMusicAudioModel("beefapi::minimax-speech-2.8-hd")).toBe(false);
         expect(audioSpeechProfile("minimax-speech-2.8-hd").formats.map((item) => item.value)).toEqual(["mp3", "wav", "aac", "flac", "pcm"]);
         expect(audioSpeechProfile("minimax-music-v3.0").formats.map((item) => item.value)).toEqual(["mp3"]);
         expect(normalizeAudioFormatValue("flac", "minimax-music-v3.0")).toBe("mp3");
         expect(audioSettingsSummary({ model: "minimax-music-v3.0", audioFormat: "flac" })).toBe("MP3 · 256 kbps");
-        expect(audioSettingsSummary({ model: "minimax-music-2.6", audioFormat: "flac" })).toBe("MP3");
-        expect(isMinimaxMusicV3("self-hosted::minimax-music-v3.0")).toBe(true);
-        expect(isMinimaxMusicV3("self-hosted::minimax-music-2.6")).toBe(false);
         expect(audioSpeechProfile("gpt-4o-mini-tts").formats.map((item) => item.value)).toContain("opus");
         expect(normalizeAudioFormatValue("opus", "minimax-speech-2.8-hd")).toBe("mp3");
     });

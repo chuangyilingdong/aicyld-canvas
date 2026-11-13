@@ -44,6 +44,12 @@ func (s *Service) skillDomain() *skills.Service {
 	return skills.New(s.repo, s.dataDir, s.runWorkerLoop)
 }
 
+// SkillsDomain exposes the domain service to handlers and tests without
+// routing reads and writes back through the broad app.Service surface.
+func (s *Service) SkillsDomain() *skills.Service {
+	return s.skillDomain()
+}
+
 func (s *Service) Skills(userID string, req SkillListRequest) (*SkillList, error) {
 	return s.skillDomain().Skills(userID, req)
 }
@@ -87,11 +93,9 @@ func (s *Service) SkillVersions(userID string, id string) ([]SkillVersionItem, e
 func (s *Service) RollbackSkillVersion(userID string, id string, versionID string) (*SkillItem, error) {
 	return s.skillDomain().RollbackSkillVersion(userID, id, versionID)
 }
-
 func (s *Service) CreatePrivateSkillRewrite(userID string, id string) (*SkillItem, error) {
 	return s.skillDomain().CreatePrivateRewrite(userID, id)
 }
-
 func (s *Service) PrepareSkillSubmission(userID string, skillID string, req SkillSubmissionRequest) (*SkillSubmissionItem, error) {
 	return s.skillDomain().PrepareSkillSubmission(userID, skillID, req)
 }
@@ -116,6 +120,10 @@ func (s *Service) ReviewSkillSubmission(adminID string, isAdmin bool, submission
 	return s.skillDomain().ReviewSkillSubmission(adminID, isAdmin, submissionID, req)
 }
 
+func (s *Service) UnpublishSkill(adminID string, isAdmin bool, skillID string, reason string) (*SkillSubmissionItem, error) {
+	return s.skillDomain().UnpublishSkill(adminID, isAdmin, skillID, reason)
+}
+
 func (s *Service) SkillSubmissionFiles(adminID string, isAdmin bool, submissionID string) ([]SkillPackageFileItem, error) {
 	return s.skillDomain().SkillSubmissionFiles(adminID, isAdmin, submissionID)
 }
@@ -123,7 +131,6 @@ func (s *Service) SkillSubmissionFiles(adminID string, isAdmin bool, submissionI
 func (s *Service) SkillSubmissionFile(adminID string, isAdmin bool, submissionID string, filePath string) (*SkillPackageFileContent, error) {
 	return s.skillDomain().SkillSubmissionFile(adminID, isAdmin, submissionID, filePath)
 }
-
 func (s *Service) EnsureBuiltinSkills() error {
 	return s.skillDomain().EnsureBuiltinSkills()
 }
@@ -143,7 +150,6 @@ func (s *Service) ReplaceSkillPackage(userID string, skillID string, sourceType 
 func (s *Service) InstallGitHubSkill(userID string, req SkillGitHubInstallRequest) (*SkillItem, error) {
 	return s.skillDomain().InstallGitHubSkill(userID, req)
 }
-
 func (s *Service) SyncGitHubSkill(userID string, skillID string) (*SkillItem, error) {
 	if s.IsLocalMode() {
 		return nil, BadAuthRequest("本地工作区不支持从 GitHub 同步技能")
@@ -151,26 +157,10 @@ func (s *Service) SyncGitHubSkill(userID string, skillID string) (*SkillItem, er
 	return s.skillDomain().SyncGitHubSkill(userID, skillID)
 }
 
-func (s *Service) SkillPackageFiles(userID string, skillID string) ([]SkillPackageFileItem, error) {
-	return s.skillDomain().SkillPackageFiles(userID, skillID)
-}
-
-func (s *Service) SkillPackageFile(userID string, skillID string, filePath string) (*SkillPackageFileContent, error) {
-	return s.skillDomain().SkillPackageFile(userID, skillID, filePath)
-}
-
-func (s *Service) SkillPackageRawFile(userID string, skillID string, filePath string) ([]byte, string, string, error) {
-	return s.skillDomain().SkillPackageRawFile(userID, skillID, filePath)
-}
-
-func (s *Service) SkillPackageBundle(userID string, skillID string) (*SkillPackageBundle, error) {
-	return s.skillDomain().SkillPackageBundle(userID, skillID)
-}
-
-func (s *Service) SearchSkillPackage(userID string, skillID string, query string) ([]SkillFileSearchResult, error) {
-	return s.skillDomain().SearchSkillPackage(userID, skillID, query)
-}
-
 func (s *Service) startSkillSyncWorker(ctx context.Context) {
 	s.skillDomain().StartSyncWorker(ctx)
+}
+
+func (s *operationSession) DraftSkill(userID string, input skills.SkillMutationRequest) (*skills.SkillItem, error) {
+	return skills.New(s.repo, s.service.dataDir, nil).CreateSkill(userID, input)
 }

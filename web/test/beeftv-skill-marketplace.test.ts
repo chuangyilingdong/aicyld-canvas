@@ -4,14 +4,35 @@ async function source(path: string) {
     return Bun.file(new URL(path, import.meta.url)).text();
 }
 
-test("Skill marketplace is reachable from the workspace", async () => {
-    const [router, sidebar] = await Promise.all([
+test("AICYLD skill marketplace uses the native market and publishing flow", async () => {
+    const [router, sidebar, page, detail] = await Promise.all([
         source("../src/router.tsx"),
         source("../src/components/layout/workspace-sidebar-nav.tsx"),
+        source("../src/pages/skills/index.tsx"),
+        source("../src/pages/skills/skill-detail-drawer.tsx"),
     ]);
     expect(router).toContain('{ path: "/skill", element: <Navigate to="/skills" replace /> }');
     expect(router).not.toContain("SkillsReferencePage");
-    expect(router).toContain('const SkillsPage = lazy(() => import("@/pages/skills/marketplace"));');
+    expect(router).toContain("const SkillsPage = lazy(loadSkillsPage);");
+    expect(router).not.toContain('import("@/pages/skills/marketplace")');
     expect(router).toContain('{ path: "/skills", element: deferred(<SkillsPage />) }');
     expect(sidebar).toContain('toolItem("skills", "/skills")');
+    expect(page).toContain('{ label: "技能市场", value: "public", icon: Sparkles }');
+    expect(page).toContain("SKILL_CATEGORY_PAGE_SIZE = 12");
+    expect(page).toContain("group.skills.slice");
+    expect(page).toContain("showPageSize={false}");
+    expect(page).not.toContain("<PaginationBar current={page}");
+    expect(page).toContain("SkillPublishingPanel");
+    expect(page).toContain("投稿管理");
+    expect(page).not.toContain('{ key: "builtin", label: "内置技能" }');
+    expect(detail).toContain("平台技能");
+    for (const removed of [
+        "../src/pages/skills/marketplace.tsx",
+        "../src/pages/skills/publishing-panel.tsx",
+        "../src/pages/skills/assistant-publication-entry.tsx",
+        "../src/pages/skills/reference.tsx",
+        "../src/services/api/skill-market.ts",
+    ]) {
+        expect(await Bun.file(new URL(removed, import.meta.url)).exists()).toBe(false);
+    }
 });

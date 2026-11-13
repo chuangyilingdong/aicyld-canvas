@@ -14,15 +14,30 @@ import (
 
 	"infinite-canvas/backend/internal/agentops"
 	"infinite-canvas/backend/internal/app"
+	"infinite-canvas/backend/internal/assistantturns"
+	"infinite-canvas/backend/internal/canvas"
+	"infinite-canvas/backend/internal/operations"
+	"infinite-canvas/backend/internal/skills"
 	httptransport "infinite-canvas/backend/internal/transport/http"
 )
 
-// agentOpsMaxBody 与画布 PUT 上限对齐：文档提交会带上整份画布，1MB 不够。
-const agentOpsMaxBody = 5 << 20
+// agentOpsMaxBody 与画布默认 PUT 上限对齐：文档提交会带上整份画布，运行时若用户放宽单画布上限则自动跟随放大。
+const agentOpsMaxBody = 68 << 20
+
+type agentOpsService interface {
+	operations.DomainBinder
+	workspaceOwners
+	ownerCredentialDirs
+	AssistantTurns() *assistantturns.Service
+	SkillsDomain() *skills.Service
+	ValidateAgentProjectReference(userID, canvasID, kind, id string) error
+	ListGenerationOrders(userID, canvasID string) ([]operations.GenerationOrder, error)
+	ApproveGenerationOrder(userID, proposalID, approvedBy string) (any, error)
+}
 
 // RegisterAgentOpsRoutes 暴露统一操作层：CLI、MCP 与内置 pi 都调用同一组端点，
 // 不各自打开数据库或另起 worker。
-func RegisterAgentOpsRoutes(r gin.IRouter, svc *app.Service, store *agentops.Store, clients *agentops.ClientRegistry) *agentops.Registry {
+func RegisterAgentOpsRoutes(r gin.IRouter, svc agentOpsService, store *agentops.Store, clients *agentops.ClientRegistry, ui *uiSessionStore) *agentops.Registry {
 	registry := agentops.NewRegistry(svc, store)
 	agentops.RegisterDefaultOps(registry)
 
@@ -36,7 +51,7 @@ func RegisterAgentOpsRoutes(r gin.IRouter, svc *app.Service, store *agentops.Sto
 			failService(c, err)
 			return
 		}
-		caller, clientLabel, authErr := resolveCaller(c, svc, clients)
+		caller, clientLabel, authErr := resolveCaller(c, svc, clients, ui, user.ID)
 		if authErr != nil {
 			fail(c, http.StatusForbidden, app.BadAuthRequest(authErr.Error()))
 			return
@@ -48,7 +63,7 @@ func RegisterAgentOpsRoutes(r gin.IRouter, svc *app.Service, store *agentops.Sto
 			return
 		}
 		caller = withRequestScope(caller, scope)
-		ok(c, gin.H{"ops": registry.List(caller), "readOnly": caller.ReadOnly, "client": clientLabel, "caller": caller.Kind})
+		ok(c, gin.H{"ops": registry.List(caller), "readOnly": caller.ReadOnly, "client": clientLabel, "caller": caller.Kind, "approvalMode": caller.EffectiveApprovalMode()})
 	})
 
 	r.POST("/ops/clients", func(c *gin.Context) {
@@ -64,22 +79,23 @@ func RegisterAgentOpsRoutes(r gin.IRouter, svc *app.Service, store *agentops.Sto
 			return
 		}
 		var req struct {
-			Label string `json:"label"`
-			Mode  string `json:"mode"`
-			Kind  string `json:"kind"`
+			Label        string `json:"label"`
+			Mode         string `json:"mode"`
+			Kind         string `json:"kind"`
+			ApprovalMode string `json:"approvalMode"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			fail(c, http.StatusBadRequest, app.BadAuthRequest("请求体无效"))
 			return
 		}
-		reg, token, err := clients.RegisterKind(req.Kind, req.Label, agentops.ClientMode(req.Mode))
+		reg, token, err := clients.RegisterClient(req.Kind, req.Label, agentops.ClientMode(req.Mode), agentops.ClientApprovalMode(req.ApprovalMode))
 		if err != nil {
 			opErr := agentops.AsError(err)
 			c.JSON(agentops.HTTPStatus(opErr.Code), gin.H{"code": agentops.HTTPStatus(opErr.Code), "reason": opErr.Reason, "msg": opErr.Message})
 			return
 		}
 		// token 只在本次响应返回一次，服务端只保存哈希。
-		ok(c, gin.H{"client": gin.H{"id": reg.ID, "label": reg.Label, "kind": reg.Kind, "mode": reg.Mode}, "token": token})
+		ok(c, gin.H{"client": gin.H{"id": reg.ID, "label": reg.Label, "kind": reg.Kind, "mode": reg.Mode, "approvalMode": reg.ApprovalMode}, "token": token})
 	})
 
 	r.GET("/ops/clients", func(c *gin.Context) {
@@ -93,6 +109,152 @@ func RegisterAgentOpsRoutes(r gin.IRouter, svc *app.Service, store *agentops.Sto
 		ok(c, gin.H{"clients": clients.List()})
 	})
 
+	r.GET("/ops/orders", func(c *gin.Context) {
+		if !isLoopbackRequest(c.Request) {
+			fail(c, http.StatusForbidden, app.BadAuthRequest("操作层只接受本机请求"))
+			return
+		}
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		if _, _, authErr := resolveCaller(c, svc, clients, ui, user.ID); authErr != nil {
+			fail(c, http.StatusForbidden, app.BadAuthRequest(authErr.Error()))
+			return
+		}
+		orders, err := svc.ListGenerationOrders(user.ID, c.Query("canvasId"))
+		if err != nil {
+			opErr := agentops.AsError(err)
+			c.JSON(agentops.HTTPStatus(opErr.Code), gin.H{"code": agentops.HTTPStatus(opErr.Code), "reason": opErr.Reason, "msg": opErr.Message})
+			return
+		}
+		ok(c, gin.H{"orders": orders})
+	})
+
+	r.POST("/ops/orders/:proposalId/approve", func(c *gin.Context) {
+		if !isLoopbackRequest(c.Request) {
+			fail(c, http.StatusForbidden, app.BadAuthRequest("操作层只接受本机请求"))
+			return
+		}
+		if strings.TrimSpace(c.GetHeader("X-Beeftv-Client")) != "" || isAssistantHostRequest(c, svc) {
+			c.JSON(http.StatusForbidden, gin.H{
+				"code":   http.StatusForbidden,
+				"reason": "agent_token_cannot_approve",
+				"msg":    "Agent 自身的凭据不能批准生成单，请使用工作区 owner 凭据或在 BeefTV 界面确认",
+			})
+			return
+		}
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		approvedBy := ""
+		if agentops.OwnerTokenMatches(svc.DataDir(), strings.TrimSpace(c.GetHeader("X-Beeftv-Owner"))) {
+			approvedBy = "owner-cli"
+		} else if trustedDesktopUI(c) {
+			approvedBy = "ui"
+		} else if ui != nil {
+			if _, found := ui.verify(strings.TrimSpace(c.GetHeader("X-Beeftv-Ui-Session")), user.ID); found {
+				approvedBy = "ui"
+			} else {
+				c.JSON(http.StatusForbidden, gin.H{
+					"code":   http.StatusForbidden,
+					"reason": "owner_required",
+					"msg":    "批准生成单需要工作区 owner 凭据或受信任的界面会话",
+				})
+				return
+			}
+		} else {
+			c.JSON(http.StatusForbidden, gin.H{
+				"code":   http.StatusForbidden,
+				"reason": "owner_required",
+				"msg":    "批准生成单需要工作区 owner 凭据或受信任的桌面界面",
+			})
+			return
+		}
+		result, execErr := svc.ApproveGenerationOrder(user.ID, c.Param("proposalId"), approvedBy)
+		if execErr != nil {
+			opErr := agentops.AsError(execErr)
+			c.JSON(agentops.HTTPStatus(opErr.Code), gin.H{
+				"code": agentops.HTTPStatus(opErr.Code), "reason": opErr.Reason, "msg": opErr.Message,
+				"details": opErr.Details,
+			})
+			return
+		}
+		ok(c, result)
+	})
+
+	r.GET("/ops/external-writes", func(c *gin.Context) {
+		if !isLoopbackRequest(c.Request) {
+			fail(c, http.StatusForbidden, app.BadAuthRequest("操作层只接受本机请求"))
+			return
+		}
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		if _, _, authErr := resolveCaller(c, svc, clients, ui, user.ID); authErr != nil {
+			fail(c, http.StatusForbidden, app.BadAuthRequest(authErr.Error()))
+			return
+		}
+		writes, err := store.ListExternalCanvasWrites(user.ID, c.Query("canvasId"))
+		if err != nil {
+			opErr := agentops.AsError(err)
+			c.JSON(agentops.HTTPStatus(opErr.Code), gin.H{"code": agentops.HTTPStatus(opErr.Code), "reason": opErr.Reason, "msg": opErr.Message})
+			return
+		}
+		ok(c, gin.H{"writes": writes})
+	})
+
+	r.POST("/ops/external-writes/:opId/undo", func(c *gin.Context) {
+		if !isLoopbackRequest(c.Request) {
+			fail(c, http.StatusForbidden, app.BadAuthRequest("操作层只接受本机请求"))
+			return
+		}
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		caller, _, authErr := resolveCaller(c, svc, clients, ui, user.ID)
+		if authErr != nil {
+			fail(c, http.StatusForbidden, app.BadAuthRequest(authErr.Error()))
+			return
+		}
+		if caller.ReadOnly || caller.Kind == agentops.CallerAssistant {
+			c.JSON(http.StatusForbidden, gin.H{
+				"code":   http.StatusForbidden,
+				"reason": "permission_denied",
+				"msg":    "撤销外部写入需要工作区读写权限或桌面界面",
+			})
+			return
+		}
+		var req struct {
+			CanvasID string `json:"canvasId"`
+		}
+		_ = c.ShouldBindJSON(&req)
+		if req.CanvasID == "" {
+			req.CanvasID = c.Query("canvasId")
+		}
+		var restrictClient string
+		if caller.Kind == agentops.CallerExternal {
+			restrictClient = caller.ClientID
+		}
+		result, undoErr := store.UndoExternalCanvasWrite(c.Request.Context(), svc, user.ID, req.CanvasID, c.Param("opId"), restrictClient)
+		if undoErr != nil {
+			opErr := agentops.AsError(undoErr)
+			c.JSON(agentops.HTTPStatus(opErr.Code), gin.H{
+				"code": agentops.HTTPStatus(opErr.Code), "reason": opErr.Reason, "msg": opErr.Message,
+				"details": opErr.Details,
+			})
+			return
+		}
+		ok(c, result)
+	})
+
 	r.POST("/ops/:op", func(c *gin.Context) {
 		// 本机入口：只接受 loopback 来源，避免被浏览器跨站或外部主机调用。
 		if !isLoopbackRequest(c.Request) {
@@ -104,13 +266,14 @@ func RegisterAgentOpsRoutes(r gin.IRouter, svc *app.Service, store *agentops.Sto
 			failService(c, err)
 			return
 		}
-		body, err := io.ReadAll(io.LimitReader(c.Request.Body, agentOpsMaxBody+1))
+		maxBody := max(int64(agentOpsMaxBody), canvas.EffectiveRequestMaxBodyBytes())
+		body, err := io.ReadAll(io.LimitReader(c.Request.Body, maxBody+1))
 		if err != nil {
 			fail(c, http.StatusBadRequest, app.BadAuthRequest("请求体读取失败"))
 			return
 		}
-		if int64(len(body)) > agentOpsMaxBody {
-			fail(c, http.StatusRequestEntityTooLarge, app.BadAuthRequest("请求体超过 5MB 限制"))
+		if int64(len(body)) > maxBody {
+			fail(c, http.StatusRequestEntityTooLarge, app.BadAuthRequest("请求体超过容量上限"))
 			return
 		}
 		// 只读能力只由客户端身份（登记模式）决定：请求体不接受 readOnly，
@@ -125,12 +288,11 @@ func RegisterAgentOpsRoutes(r gin.IRouter, svc *app.Service, store *agentops.Sto
 				return
 			}
 		}
-		caller, clientLabel, authErr := resolveCaller(c, svc, clients)
+		caller, clientLabel, authErr := resolveCaller(c, svc, clients, ui, user.ID)
 		if authErr != nil {
 			fail(c, http.StatusForbidden, app.BadAuthRequest(authErr.Error()))
 			return
 		}
-		_ = clientLabel
 		// 回合归属只认内置宿主：外部客户端出示 turn 头会被明确拒绝，而不是静默忽略后
 		// 让一次外部写入被误当成助手的改动（撤销会因此抹掉外部修改）。
 		scope, turnID, scopeErr := assistantScopeForRequest(c, svc, user.ID, isAssistantHostRequest(c, svc))
@@ -146,10 +308,18 @@ func RegisterAgentOpsRoutes(r gin.IRouter, svc *app.Service, store *agentops.Sto
 		})
 		if execErr != nil {
 			opErr := agentops.AsError(execErr)
-			// 访问日志只有状态码，排障时必须能看到 op / reason / 参数规模。
-			// 只记长度，不记参数内容（画布文档含用户内容）。
-			log.Printf("[ops] %s 失败 user=%s code=%d reason=%s msg=%s params=%d bytes",
-				c.Param("op"), user.ID, agentops.HTTPStatus(opErr.Code), opErr.Reason, opErr.Message, len(req.Params))
+			var identity struct {
+				CanvasID string `json:"canvasId"`
+				AssetID  string `json:"assetId"`
+			}
+			_ = json.Unmarshal(req.Params, &identity)
+			message := strings.ReplaceAll(strings.TrimSpace(opErr.Message), "\n", " ")
+			if runes := []rune(message); len(runes) > 300 {
+				message = string(runes[:300])
+			}
+			// Metadata only: operation params and canvas payloads may contain user content.
+			log.Printf("agent_op_failed request_id=%q trace_id=%q actor=%q client=%q op=%q op_id=%q canvas=%q asset=%q status=%d reason=%q message=%q",
+				RequestID(c), TraceID(c), user.ID, clientLabel, c.Param("op"), req.OpID, identity.CanvasID, identity.AssetID, agentops.HTTPStatus(opErr.Code), opErr.Reason, message)
 			c.JSON(agentops.HTTPStatus(opErr.Code), gin.H{
 				"code": agentops.HTTPStatus(opErr.Code), "reason": opErr.Reason, "msg": opErr.Message,
 				"details": opErr.Details,
@@ -163,11 +333,15 @@ func RegisterAgentOpsRoutes(r gin.IRouter, svc *app.Service, store *agentops.Sto
 
 // resolveCaller 决定本次调用的身份与能力模式。
 // 已登记的客户端：模式完全由服务端登记决定，请求体/请求头都不能自行提升或改变。
-// 内置助手宿主：凭自己那份后端注入的宿主凭据拿到读写；页面的 UI 会话凭据不在这里。
+// 内置助手宿主：凭自己那份后端注入的宿主凭据拿到读写；hosted UI 使用短期限 UI 会话。
 // owner 通道是手工 UI 与本机直连的身份。
-func resolveCaller(c *gin.Context, svc *app.Service, clients *agentops.ClientRegistry) (agentops.Caller, string, error) {
+func resolveCaller(c *gin.Context, svc ownerCredentialDirs, clients *agentops.ClientRegistry, ui *uiSessionStore, userID string) (agentops.Caller, string, error) {
 	if isAssistantHostRequest(c, svc) {
-		return agentops.Caller{Kind: agentops.CallerAssistant}, "assistant-host", nil
+		return agentops.Caller{
+			Kind:         agentops.CallerAssistant,
+			ClientLabel:  "assistant-host",
+			ApprovalMode: agentops.ApprovalModeAsk,
+		}, "assistant-host", nil
 	}
 	clientID := strings.TrimSpace(c.GetHeader("X-Beeftv-Client"))
 	if clientID != "" {
@@ -176,37 +350,26 @@ func resolveCaller(c *gin.Context, svc *app.Service, clients *agentops.ClientReg
 		if !found {
 			return agentops.Caller{}, "", errUnknownClient
 		}
-		return agentops.Caller{Kind: agentops.CallerExternal, ReadOnly: reg.Mode == agentops.ClientReadOnly}, reg.Label, nil
+		return agentops.Caller{
+			Kind:         agentops.CallerExternal,
+			ReadOnly:     reg.Mode == agentops.ClientReadOnly,
+			ClientID:     reg.ID,
+			ClientLabel:  reg.Label,
+			ApprovalMode: agentops.ApprovalMode(reg.ApprovalMode),
+		}, reg.Label, nil
+	}
+	if ui != nil {
+		if _, found := ui.verify(strings.TrimSpace(c.GetHeader("X-Beeftv-Ui-Session")), userID); found {
+			return agentops.Caller{Kind: agentops.CallerManual, ClientLabel: "hosted-ui"}, "hosted-ui", nil
+		}
 	}
 	if agentops.OwnerTokenMatches(svc.DataDir(), strings.TrimSpace(c.GetHeader("X-Beeftv-Owner"))) {
-		return agentops.Caller{Kind: agentops.CallerManual}, "owner", nil
+		return agentops.Caller{Kind: agentops.CallerManual, ClientLabel: "owner"}, "owner", nil
 	}
 	if trustedDesktopUI(c) {
-		return agentops.Caller{Kind: agentops.CallerManual}, "desktop-ui", nil
-	}
-	// 托管部署（浏览器界面）没有桌面壳的启动令牌，但它是画布 Web UI 的合法调用方
-	// ——例如「继续取回」要把已生成的成片绑回画布节点。这里只信任
-	// 「已通过主站单点登录 + 确实经本站反向代理」的请求，作用域仍由下方
-	// assistantScopeForRequest 收窄到该用户自己的工作区。
-	if hostedWebCaller(c) {
-		return agentops.Caller{Kind: agentops.CallerManual}, "canvas-web", nil
+		return agentops.Caller{Kind: agentops.CallerManual, ClientLabel: "desktop-ui"}, "desktop-ui", nil
 	}
 	return agentops.Caller{}, "", errUnidentified
-}
-
-// hostedWebCaller 判定是否为托管部署下经本站前门访问的浏览器会话。
-func hostedWebCaller(c *gin.Context) bool {
-	if c == nil || c.Request == nil {
-		return false
-	}
-	if !SSOConfigured() {
-		return false
-	}
-	if !isLoopbackRequest(c.Request) || !isTrustedProxyRequest(c.Request) {
-		return false
-	}
-	_, ok := WorkspaceIdentity(c)
-	return ok
 }
 
 func trustedDesktopUI(c *gin.Context) bool {
@@ -247,8 +410,8 @@ func requireTrustedDesktopWritePrincipal(c *gin.Context, message string) bool {
 	return true
 }
 
-func resolveClientMode(c *gin.Context, svc *app.Service, clients *agentops.ClientRegistry) (bool, string, error) {
-	caller, label, err := resolveCaller(c, svc, clients)
+func resolveClientMode(c *gin.Context, svc ownerCredentialDirs, clients *agentops.ClientRegistry) (bool, string, error) {
+	caller, label, err := resolveCaller(c, svc, clients, nil, "")
 	return caller.ReadOnly, label, err
 }
 
@@ -285,51 +448,16 @@ func isLoopbackHost(host string) bool {
 
 // isLoopbackRequest 精确校验来源：Host、Origin 与 RemoteAddr 都必须是本机。
 // 不用子串匹配，避免 localhost.attacker.example 或任意 loopback 端口被误当成同源。
-// trustedProxySourceHeader 由本站 nginx 反向代理用 proxy_set_header 覆盖写入
-// （客户端自带的同名头会被覆盖，因此外部无法伪造）。
-const trustedProxySourceHeader = "X-Canvas-Proxy-Source"
-
-const trustedProxySourceValue = "aicyld-nginx"
-
-// isTrustedProxyRequest 判定请求是否由本站反向代理转发而来。
-func isTrustedProxyRequest(r *http.Request) bool {
-	return strings.TrimSpace(r.Header.Get(trustedProxySourceHeader)) == trustedProxySourceValue
-}
-
-// hostMatchesAllowedOrigins 判定 Host 是否属于 BEEFTV_ALLOWED_ORIGINS 配置的来源。
-func hostMatchesAllowedOrigins(host string) bool {
-	host = strings.TrimSpace(host)
-	if host == "" {
+func isLoopbackRequest(r *http.Request) bool {
+	if !isLoopbackHost(r.Host) {
 		return false
 	}
-	for _, allowed := range allowedOrigins() {
-		parsed, err := url.Parse(strings.TrimRight(allowed, "/"))
-		if err != nil {
-			continue
-		}
-		if parsed.Host != "" && strings.EqualFold(parsed.Host, host) {
-			return true
-		}
-	}
-	return false
-}
-
-func isLoopbackRequest(r *http.Request) bool {
 	remoteHost, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		remoteHost = r.RemoteAddr
 	}
 	if !isLoopbackHost(remoteHost) {
 		return false
-	}
-	if !isLoopbackHost(r.Host) {
-		// 托管部署（浏览器访问 hb.aicyld.com.cn）：后端只监听 127.0.0.1，
-		// Host 是公网域名而不是 loopback。仅当请求确实经由本站反向代理
-		// （标记头不可伪造）且 Host 属于已配置来源时才继续；下面的 Origin
-		// 校验仍然要求同源，跨站请求依旧被拒。
-		if !isTrustedProxyRequest(r) || !hostMatchesAllowedOrigins(r.Host) {
-			return false
-		}
 	}
 	origin := strings.TrimSpace(r.Header.Get("Origin"))
 	if httptransport.DesktopAuthenticated(r) && (origin == "wails://wails" || origin == "http://wails.localhost" || origin == "https://wails.localhost") {

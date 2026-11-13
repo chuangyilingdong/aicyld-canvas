@@ -5,8 +5,8 @@ import type { ModelProtocol } from "@/lib/model-protocols";
 
 export async function testChannelModelConnection(channel: ModelChannel, model: string, capability: ModelCapability, protocol: ModelProtocol, runTask = runBackendGenerationTask) {
     if (!channel.baseUrl.trim()) throw new Error("请先填写 Base URL");
-    if (!channelHasGenerationCredential(channel)) {
-        throw new Error(isBuiltinBeefAPIChannel(channel) ? "请先连接 灵动TV" : "请先填写 API Key");
+    if (!channelHasGenerationCredential(channel, model)) {
+        throw new Error(isBuiltinBeefAPIChannel(channel) ? "请先连接灵动TV" : "请先填写 API Key");
     }
     const selectedModel = encodeChannelModel(channel.id, model);
     const modelProfile = channel.modelProfiles?.find((item) => item.model === model);
@@ -25,6 +25,7 @@ export async function testChannelModelConnection(channel: ModelChannel, model: s
                 displayName: modelProfile?.displayName,
                 capability,
                 protocol: testProtocol,
+                authType: modelProfile?.authType,
                 capabilityConfig: modelProfile?.capabilityConfig,
             },
             ...(channel.modelProfiles || []).filter((item) => item.model !== model),

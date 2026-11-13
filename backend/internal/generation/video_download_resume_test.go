@@ -56,7 +56,6 @@ func TestVideoDownloadResumeRetainsAdmissionAndFailureReceipt(t *testing.T) {
 }
 
 func TestVideoDownloadResumesAcrossWorkerAndSignedRedirect(t *testing.T) {
-	t.Setenv("CANVAS_ALLOWED_PRIVATE_UPSTREAM_HOSTS", "127.0.0.1")
 	payload := bytes.Repeat([]byte("video data\x00"), 32<<10)
 	partial := filepath.Join(t.TempDir(), "video.part")
 	var offsets []int
@@ -126,7 +125,6 @@ func TestVideoDownloadResumesAcrossWorkerAndSignedRedirect(t *testing.T) {
 }
 
 func TestVideoDownloadResumesThroughHTTPProxy(t *testing.T) {
-	t.Setenv("CANVAS_ALLOWED_PRIVATE_UPSTREAM_HOSTS", "127.0.0.1")
 	payload := bytes.Repeat([]byte("proxied-video"), 4096)
 	requests := 0
 	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

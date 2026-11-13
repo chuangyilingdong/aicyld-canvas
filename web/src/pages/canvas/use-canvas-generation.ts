@@ -1,27 +1,26 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { App } from "antd";
+import { startOperation } from "@/stores/use-operation-progress";
 
-import { generationTaskCanReloadResource, generationTaskNodeId } from "@/lib/canvas/canvas-generation-task-sync";
-import { bindBackendCanvasGenerationResult, CanvasGenerationDurableAckError, CanvasGenerationMaterializationError } from "@/services/canvas-generation-consumer";
-import { captureUserScope, isUserScopeAbandonedError, userScopeMatches } from "@/lib/user-scope-guard";
+import { generationTaskNodeId } from "@/lib/canvas/canvas-generation-task-sync";
+import { canRecoverTaskOutcome, readTaskOutcome } from "@/lib/task-outcome";
+import { canvasNodeResourceId } from "@/lib/canvas/canvas-resource-id";
+import { bindBackendCanvasGenerationResult, CanvasGenerationDurableAckError, CanvasGenerationMaterializationError, CanvasGenerationOutputMissingError } from "@/services/canvas-generation-consumer";
 import { ensureCanvasNodeAsset, retryCanvasAssetSyncAfterRateLimit } from "@/services/project-asset-sync";
-import { listGenerationTasks, queryFailedVideoProviderTask, subscribeGenerationTasks, type GenerationTask } from "@/services/api/task-center";
+import { findGenerationTaskByOperation, listGenerationTasks, recoverTask, subscribeGenerationTasks, type GenerationTask } from "@/services/api/task-center";
 import { useTaskDetails } from "@/hooks/use-task-details";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { isLocalWorkspaceMode } from "@/services/workspace-mode";
-import { canvasNodeNeedsGenerationRecovery, consumeGenerationRecoveryRestore, isGenerationRecoveryRestored } from "@/lib/canvas/canvas-project-generation";
+import { canvasNodeNeedsGenerationRecovery, consumeGenerationRecoveryRestore, isGenerationRecoveryRestored, MISSING_GENERATION_TASK_IDENTITY_DETAILS } from "@/lib/canvas/canvas-project-generation";
 import { generationFailureMetadata } from "@/lib/generation-error";
 import { createCanvasNode } from "@/lib/canvas/canvas-project-domain";
 import { canvasGenerationTaskNodes, canvasTaskFailureMetadata } from "./canvas-generation-failure";
 import { runGenerationConsumer } from "@/services/generation-consumer-lifecycle";
 import { consumeCanvasGenerationContinuation } from "./use-canvas-operation-history";
 
-/**
- * 服务端在「节点已绑定其它任务」时返回 409 / reason=node_task_mismatch；
- * 包装成 CanvasGenerationDurableAckError 后需要顺着 cause 找。
- */
+/** 服务端返回 409 / node_task_mismatch 时，允许把已交付结果落到显式新建的回退节点。 */
 function isCanvasNodeTaskMismatchError(error: unknown, depth = 0): boolean {
     if (!error || depth > 3) return false;
     const reason = (error as { reason?: unknown }).reason;
@@ -116,7 +115,7 @@ export async function recoverCanvasGenerationTaskNode(input: {
     continuationOnly: boolean;
     nodesRef: { current: CanvasNodeData[] };
     setNodes: Dispatch<SetStateAction<CanvasNodeData[]>>;
-    applyGenerationTaskResult: (nodeId: string, task: GenerationTask, isNodeOwned?: () => boolean) => Promise<void>;
+    applyGenerationTaskResult: (nodeId: string, task: GenerationTask) => Promise<void>;
     signal: AbortSignal;
     isCurrentProject?: () => boolean;
     consumeContinuation?: typeof consumeCanvasGenerationContinuation;
@@ -132,7 +131,7 @@ export async function recoverCanvasGenerationTaskNode(input: {
         }
         if (!input.continuationOnly) {
             if (!isCurrentProject()) return;
-            await input.applyGenerationTaskResult(input.node.id, input.completed, isCurrentProject);
+            await input.applyGenerationTaskResult(input.node.id, input.completed);
         }
         if (!isCurrentProject()) return;
         const continuation = input.nodesRef.current.find((item) => item.id === input.node.id)?.metadata?.agentGenerationContinuation ?? input.node.metadata?.agentGenerationContinuation;
@@ -253,6 +252,7 @@ export function useCanvasGeneration({ projectId, domainProjectId, projectLoaded,
                 ? nodesRef.current
                 : useCanvasStore.getState().openProject(projectId)?.nodes ?? nodesRef.current;
             const next = canvasGenerationTaskNodes(current, targetNodeId, task);
+            if (next === current) return;
             // 成功终态可能在同一轮到达；消费结果前就要让保存器看见 taskId。
             useCanvasStore.getState().updateProject(projectId, { nodes: next });
             nodesRef.current = next;
@@ -275,47 +275,55 @@ export function useCanvasGeneration({ projectId, domainProjectId, projectLoaded,
 
     const applyGenerationTaskResult = useCallback(
         async (nodeId: string, task: GenerationTask, isNodeOwned: () => boolean = () => true) => {
-            // 见下方 catch：节点已绑别的任务时改绑到新节点。
-            const capturedScope = captureUserScope();
             const capturedCanvasId = projectId;
             const controller = consumerControllerRef.current;
-            const isCurrentCanvas = () => projectIdRef.current === capturedCanvasId && !controller.signal.aborted && userScopeMatches(capturedScope) && isNodeOwned();
+            const isCurrentCanvas = () => projectIdRef.current === capturedCanvasId && !controller.signal.aborted && isNodeOwned();
             if (!isCurrentCanvas()) throw new DOMException("The canvas operation was abandoned", "AbortError");
             if (task.status !== "succeeded") {
-                if (generationTaskCanReloadResource(task) && isCurrentCanvas()) {
-                    setNodes((current) => current.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, resourceReloadAvailable: true } } : node)));
+                const outcome = readTaskOutcome(task);
+                if (canRecoverTaskOutcome(outcome) && isCurrentCanvas()) {
+                    setNodes((current) => current.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, taskOutcome: outcome } } : node)));
                 }
                 throw new Error(task.error || (task.status === "cancelled" ? "任务已取消" : "任务失败"));
             }
+            const outputIndex = nodesRef.current.find((node) => node.id === nodeId)?.metadata?.taskOutputIndex ?? 0;
+            let saving: ReturnType<typeof startOperation> | undefined;
             try {
                 await bindBackendCanvasGenerationResult({
                     canvasId: capturedCanvasId,
                     nodeId,
                     task,
-                    outputIndex: 0,
+                    outputIndex,
                     signal: controller.signal,
                     isCurrent: isCurrentCanvas,
                     isNodeOwned,
                     nodesRef,
                     setNodes,
+                    onPhaseChange: task.type === "canvas_video" ? (phase) => {
+                        saving?.dismiss();
+                        saving = undefined;
+                        if (phase !== "saving" || !isCurrentCanvas()) return;
+                        saving = startOperation("保存生成结果", { target: { projectId: capturedCanvasId, nodeId, taskId: task.id }, detail: "正在保存视频并更新画布" });
+                        saving.update({ phase: "processing" });
+                    } : undefined,
                 });
                 if (!isCurrentCanvas()) throw new DOMException("The canvas operation was abandoned", "AbortError");
             } catch (error) {
                 if (error instanceof Error && error.name === "AbortError") throw error;
-                if (isUserScopeAbandonedError(error)) throw error;
-                // 目标节点已经绑在别的任务上：服务端刻意不覆盖。为这次已交付的结果另建一个节点接收，
-                // 否则用户已经付费、上游也交付了的结果只能重新生成。
                 if (isCanvasNodeTaskMismatchError(error)) {
                     const source = nodesRef.current.find((item) => item.id === nodeId);
                     if (source) {
-                        const clone = createCanvasNode(source.type, { x: source.position.x + source.width + 96, y: source.position.y }, {
+                        const clone = createCanvasNode(source.type, {
+                            x: source.position.x + source.width + 96,
+                            y: source.position.y,
+                        }, {
                             ...source.metadata,
                             taskId: task.id,
+                            taskOutputIndex: outputIndex,
                             status: "loading",
                             assetId: undefined,
                             storageKey: undefined,
                             content: undefined,
-                            resourceReloadAvailable: undefined,
                             errorDetails: undefined,
                             generationErrorCode: undefined,
                             generationEffectKeys: undefined,
@@ -330,9 +338,11 @@ export function useCanvasGeneration({ projectId, domainProjectId, projectLoaded,
                             canvasId: capturedCanvasId,
                             nodeId: clone.id,
                             task,
-                            outputIndex: 0,
+                            outputIndex,
+                            allowDifferentNode: true,
                             signal: controller.signal,
                             isCurrent: isCurrentCanvas,
+                            isNodeOwned: () => true,
                             nodesRef,
                             setNodes,
                         });
@@ -340,7 +350,9 @@ export function useCanvasGeneration({ projectId, domainProjectId, projectLoaded,
                         return;
                     }
                 }
-                throw error instanceof CanvasGenerationDurableAckError || error instanceof CanvasGenerationMaterializationError ? error : new CanvasGenerationDurableAckError(error);
+                throw error instanceof CanvasGenerationDurableAckError || error instanceof CanvasGenerationMaterializationError || error instanceof CanvasGenerationOutputMissingError ? error : new CanvasGenerationDurableAckError(error);
+            } finally {
+                saving?.dismiss();
             }
         },
         [nodesRef, projectId, setNodes],
@@ -353,27 +365,17 @@ export function useCanvasGeneration({ projectId, domainProjectId, projectLoaded,
         const signal = consumerControllerRef.current.signal;
         setRetrievingTaskId(task.id);
         try {
-            const result = await queryFailedVideoProviderTask(task.id);
+            const recoveredTask = await recoverTask(task.id, { signal });
             if (signal.aborted) return;
             await queryClient.cancelQueries({ queryKey: ["task-details", projectId, task.id] });
             if (signal.aborted) return;
-            queryClient.setQueryData(["task-details", projectId, task.id], (current: { task: GenerationTask; logs: unknown[] } | undefined) => ({ task: result.task, logs: current?.logs ?? [] }));
-            if (result.recovered) {
+            queryClient.setQueryData(["task-details", projectId, task.id], (current: { task: GenerationTask; logs: unknown[] } | undefined) => ({ task: recoveredTask, logs: current?.logs ?? [] }));
+            if (recoveredTask.status === "succeeded" || readTaskOutcome(recoveredTask)?.phase === "ready") {
                 const node = nodesRef.current.find((item) => item.metadata?.taskId === task.id);
                 if (!node) throw new Error("视频已取回，请在生成历史中查看");
-                await applyGenerationTaskResult(node.id, result.task);
+                await applyGenerationTaskResult(node.id, recoveredTask);
                 if (signal.aborted) return;
                 message.success("视频已取回并放回画布，未重新生成");
-            } else if (result.message) {
-                // 上游已给出结论（失败/被拒）：这是结果，不是故障。
-                // 把原因写到节点上并明确告知，别让用户对着"稍后再试"反复取回一个已被拒的任务。
-                const node = nodesRef.current.find((item) => item.metadata?.taskId === task.id);
-                if (node) {
-                    setNodes((current) => current.map((item) => item.id === node.id
-                        ? { ...item, metadata: { ...item.metadata, status: "error" as const, taskStatus: "failed" as const, errorDetails: result.message } }
-                        : item));
-                }
-                message.error(`上游已拒绝：${result.message}`);
             } else {
                 message.info("原任务仍在处理中，请稍后再取回结果");
             }
@@ -386,7 +388,7 @@ export function useCanvasGeneration({ projectId, domainProjectId, projectLoaded,
                 setRetrievingTaskId(null);
             }
         }
-    }, [applyGenerationTaskResult, message, nodesRef, projectId, queryClient, setNodes]);
+    }, [applyGenerationTaskResult, message, nodesRef, projectId, queryClient]);
 
     const observeSubscribedGenerationTask = useCallback(
         (taskId: string, signal: AbortSignal, onUpdate?: (task: GenerationTask) => void) =>
@@ -425,7 +427,6 @@ export function useCanvasGeneration({ projectId, domainProjectId, projectLoaded,
     const selectRecoveryNodes = useCallback(
         (candidates: CanvasNodeData[]) =>
             candidates.filter((node) => {
-                if (node.metadata?.generationErrorCode === "result_target_unavailable") return false;
                 if (!canvasNodeNeedsGenerationRecovery(node) || isLiveRequestNode(node.id)) return false;
                 const identity = recoveryTaskIdentity(node);
                 return recoveringNodesRef.current.get(node.id)?.identity !== identity && !(identity && recoveringTaskIdsRef.current.has(identity));
@@ -477,10 +478,26 @@ export function useCanvasGeneration({ projectId, domainProjectId, projectLoaded,
                     };
                     try {
                         let discoveredTask = projectTasks.find((task) => generationTaskNodeId(task) === node.id);
-                        if (!discoveredTask && !node.metadata?.taskId && node.metadata?.taskClientOperationId) {
-                            discoveredTask = projectTasks.find((task) => task.clientOperationId === node.metadata?.taskClientOperationId && generationTaskNodeId(task) === node.id);
+                        let operationLookupFailed = false;
+                        const operationId = node.metadata?.taskClientOperationId;
+                        const lookupByOperation = Boolean(operationId) && (
+                            !node.metadata?.taskId ||
+                            node.metadata?.generationSubmissionState === "submitting" ||
+                            node.metadata?.generationSubmissionState === "unknown"
+                        );
+                        if (lookupByOperation) {
+                            try {
+                                discoveredTask = await findGenerationTaskByOperation(operationId!, startedProjectId, signal);
+                                if (discoveredTask && generationTaskNodeId(discoveredTask) !== node.id) discoveredTask = undefined;
+                            } catch {
+                                // A failed lookup cannot prove that the paid submission was rejected.
+                                operationLookupFailed = true;
+                            }
                         }
-                        const taskId = node.metadata?.taskId || node.metadata?.agentGenerationContinuation?.taskId || discoveredTask?.id;
+                        // An operation receipt is the new attempt's identity. The
+                        // node may still carry the prior failed taskId until the
+                        // accepted task is bound back to the canvas.
+                        const taskId = discoveredTask?.id || node.metadata?.taskId || node.metadata?.agentGenerationContinuation?.taskId;
                         if (!taskId) {
                             if (!owns()) return;
                             setNodes((current) =>
@@ -492,12 +509,21 @@ export function useCanvasGeneration({ projectId, domainProjectId, projectLoaded,
                                                   ...item.metadata,
                                                   status: NODE_STATUS_ERROR,
                                                   ...(item.metadata?.taskClientOperationId
-                                                      ? {
-                                                            generationSubmissionState: "unknown" as const,
-                                                            taskStage: "提交结果待确认",
-                                                            errorDetails: "尚未查到上次提交的任务，请稍后重新打开画布查询，暂勿重新生成",
-                                                        }
-                                                      : { errorDetails: INTERRUPTED_GENERATION_DETAILS }),
+                                                      ? operationLookupFailed
+                                                          ? {
+                                                                // 查询失败不能证明上次提交被拒绝；保留「待确认」，再次点击只会查原任务。
+                                                                generationSubmissionState: "unknown" as const,
+                                                                taskOutcome: { phase: "retrievable" as const, regenerate: "blocked" as const, reason: "submission_unknown" },
+                                                                taskStage: "提交结果待确认",
+                                                                errorDetails: "尚未查到上次提交的任务，请稍后重新打开画布查询，暂勿重新生成",
+                                                            }
+                                                          : {
+                                                                generationSubmissionState: undefined,
+                                                                taskOutcome: { phase: "failed" as const, regenerate: "allowed" as const, reason: "not_charged" },
+                                                                taskStage: undefined,
+                                                                errorDetails: "上次提交没有找到，可以重新生成",
+                                                            }
+                                                      : { errorDetails: ["submitting", "unknown"].includes(item.metadata?.generationSubmissionState || "") ? MISSING_GENERATION_TASK_IDENTITY_DETAILS : INTERRUPTED_GENERATION_DETAILS }),
                                               },
                                           }
                                         : item,
@@ -555,8 +581,6 @@ export function useCanvasGeneration({ projectId, domainProjectId, projectLoaded,
                         } finally {
                             recoveringTaskIdsRef.current.delete(taskId);
                         }
-                    } catch (error) {
-                        if (!owns() || (error instanceof Error && error.name === "AbortError")) return;
                     } finally {
                         if (recoveringNodesRef.current.get(node.id) === claim) recoveringNodesRef.current.delete(node.id);
                     }
@@ -573,25 +597,39 @@ export function useCanvasGeneration({ projectId, domainProjectId, projectLoaded,
                           const primary = children.find((item) => item.id === node.metadata?.primaryImageId && item.metadata?.content) || children.find((item) => item.metadata?.content);
                           const loading = children.some((item) => item.metadata?.status === NODE_STATUS_LOADING);
                           const failed = children.find((item) => item.metadata?.status === NODE_STATUS_ERROR);
-                          return {
-                              ...node,
-                              metadata: {
-                                  ...node.metadata,
-                                  ...(primary
-                                      ? {
-                                            content: primary.metadata?.content,
-                                            storageKey: primary.metadata?.storageKey,
-                                            mimeType: primary.metadata?.mimeType,
-                                            bytes: primary.metadata?.bytes,
-                                            naturalWidth: primary.metadata?.naturalWidth,
-                                            naturalHeight: primary.metadata?.naturalHeight,
-                                            primaryImageId: primary.id,
-                                        }
-                                      : {}),
-                                  status: primary ? NODE_STATUS_SUCCESS : loading ? NODE_STATUS_LOADING : NODE_STATUS_ERROR,
-                                  errorDetails: primary ? undefined : failed?.metadata?.errorDetails || "全部图片生成失败",
-                              },
+                          const nextMetadata: NonNullable<CanvasNodeData["metadata"]> = {
+                              ...node.metadata,
+                              ...(primary
+                                  ? {
+                                        content: primary.metadata?.content,
+                                        storageKey: primary.metadata?.storageKey,
+                                        mimeType: primary.metadata?.mimeType,
+                                        bytes: primary.metadata?.bytes,
+                                        naturalWidth: primary.metadata?.naturalWidth,
+                                        naturalHeight: primary.metadata?.naturalHeight,
+                                        primaryImageId: primary.id,
+                                    }
+                                  : {
+                                        content: undefined,
+                                        storageKey: undefined,
+                                        mimeType: undefined,
+                                        bytes: undefined,
+                                        naturalWidth: undefined,
+                                        naturalHeight: undefined,
+                                        primaryImageId: undefined,
+                                    }),
+                              status: primary ? NODE_STATUS_SUCCESS : loading ? NODE_STATUS_LOADING : NODE_STATUS_ERROR,
+                              errorDetails: primary ? undefined : failed?.metadata?.errorDetails || "全部图片生成失败",
                           };
+                          const nextNode: CanvasNodeData = { ...node, metadata: nextMetadata };
+                          const primaryResourceId = primary ? canvasNodeResourceId(primary) : "";
+                          const rootResourceId = canvasNodeResourceId(nextNode);
+                          if (primary?.metadata?.assetId && primaryResourceId && rootResourceId && primaryResourceId === rootResourceId) {
+                              nextMetadata.assetId = primary.metadata.assetId;
+                          } else {
+                              delete nextMetadata.assetId;
+                          }
+                          return nextNode;
                       })
                     : current,
             );
@@ -622,6 +660,7 @@ export function useCanvasGeneration({ projectId, domainProjectId, projectLoaded,
                 };
                 // 画布先用缓存打开、云端版本随后才到时，后到快照里待恢复的节点沿用同一个恢复上下文补订阅；
                 // 切换画布或卸载时随这个上下文一起中止，并在下一画布开始恢复前等它们收尾。
+                // 只看这次快照恢复交来的节点：普通刷新合并的节点、本次会话里分镜等流程自己维护的节点都不在其中。
                 const recoverLateNodes = () => {
                     if (!context.isCurrentProject()) return;
                     const restored = nodesRef.current.filter(isGenerationRecoveryRestored);
@@ -666,13 +705,14 @@ export function useCanvasGeneration({ projectId, domainProjectId, projectLoaded,
             let changed = false;
             const next = current.map((node) => {
                 const metadata = node.metadata;
-                if (!metadata || metadata.status !== NODE_STATUS_LOADING || metadata.content || metadata.taskId || metadata.agentGenerationContinuation?.status === "pending" || generationRequestsRef.current.has(node.id)) return node;
+                if (!metadata || metadata.status !== NODE_STATUS_LOADING || metadata.content || metadata.taskId || metadata.taskClientOperationId || metadata.agentGenerationContinuation?.status === "pending" || generationRequestsRef.current.has(node.id)) return node;
                 changed = true;
                 return {
                     ...node,
                     metadata: {
                         ...metadata,
                         status: NODE_STATUS_ERROR,
+                        taskOutcome: { phase: "failed" as const, regenerate: "allowed" as const, reason: "not_charged" },
                         taskStatus: "failed" as const,
                         taskStage: undefined,
                         taskUpdatedAt: new Date().toISOString(),
@@ -698,7 +738,7 @@ export function useCanvasGeneration({ projectId, domainProjectId, projectLoaded,
         if (!projectLoaded || localMode) return;
         nodes.forEach((node) => {
             const taskId = node.metadata?.taskId;
-            if (!taskId || !node.metadata?.content || node.metadata.status !== NODE_STATUS_SUCCESS || (node.type !== CanvasNodeType.Image && node.type !== CanvasNodeType.Video && node.type !== CanvasNodeType.Audio && node.type !== CanvasNodeType.Upscale)) return;
+            if (!taskId || !node.metadata?.content || node.metadata.status !== NODE_STATUS_SUCCESS || (node.type !== CanvasNodeType.Image && node.type !== CanvasNodeType.Video && node.type !== CanvasNodeType.Audio)) return;
             const saveKey = `${taskId}:${node.id}:${domainProjectId || "personal"}`;
             if (autoSavedTaskIdsRef.current.has(saveKey)) return;
             autoSavedTaskIdsRef.current.add(saveKey);

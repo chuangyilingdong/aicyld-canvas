@@ -2,8 +2,37 @@ package platformchannels
 
 import (
 	"encoding/json"
+	"os"
+	"runtime"
 	"testing"
 )
+
+func TestConfiguredRequiresAnOperatorWrittenDocument(t *testing.T) {
+	store, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.Configured() {
+		t.Fatal("missing platform document must not be treated as configured")
+	}
+	if _, err := store.Save([]Channel{{
+		ID: "example", Name: "Example", BaseURL: "https://example.test", APIKey: "secret",
+		APIFormat: "openai", Enabled: true,
+		ModelProfiles: []ModelProfile{{Model: "text-model", Capability: "text", Protocol: "chat-completion"}},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if !store.Configured() {
+		t.Fatal("saved platform document was not detected")
+	}
+	info, err := os.Stat(store.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
+		t.Fatalf("platform document mode = %o, want 600", info.Mode().Perm())
+	}
+}
 
 func TestDefaultsIncludeMidjourneyImagineProfile(t *testing.T) {
 	var found *ModelProfile
@@ -50,10 +79,45 @@ func TestDefaultsIncludeVerifiedMultimodalReviewProfile(t *testing.T) {
 	t.Fatal("default platform profiles are missing qwen/qwen3.8-omni-flash")
 }
 
+func TestDefaultsIncludeGPTImage26Capabilities(t *testing.T) {
+	var found *ModelProfile
+	for _, channel := range Defaults() {
+		for index := range channel.ModelProfiles {
+			if channel.ModelProfiles[index].Model == "zhenzhen-image-g-v2.6-lowprice" {
+				found = &channel.ModelProfiles[index]
+				break
+			}
+		}
+	}
+	if found == nil || found.Capability != "image" || found.Protocol != "newapi-image" {
+		t.Fatalf("GPT Image 2.6 profile = %#v", found)
+	}
+	var config struct {
+		Image struct {
+			References struct {
+				PromptMaxChars int `json:"promptMaxChars"`
+				MaxImages      int `json:"maxImages"`
+			} `json:"references"`
+			Quality struct {
+				Values  []string `json:"values"`
+				Default string   `json:"default"`
+			} `json:"quality"`
+			MaxOutputs int `json:"maxOutputs"`
+		} `json:"image"`
+	}
+	if err := json.Unmarshal(found.CapabilityConfig, &config); err != nil {
+		t.Fatal(err)
+	}
+	if config.Image.References.PromptMaxChars != 5000 || config.Image.References.MaxImages != 2 || config.Image.MaxOutputs != 1 || config.Image.Quality.Default != "1k" || len(config.Image.Quality.Values) != 1 {
+		t.Fatalf("GPT Image 2.6 capability = %#v", config.Image)
+	}
+}
+
 func TestSeedance25ProfileAllowsThirtySeconds(t *testing.T) {
 	type durationConfig struct {
 		Video struct {
 			Duration struct {
+				Min int `json:"min"`
 				Max int `json:"max"`
 			} `json:"duration"`
 			References struct {
@@ -63,11 +127,12 @@ func TestSeedance25ProfileAllowsThirtySeconds(t *testing.T) {
 		} `json:"video"`
 	}
 	for _, tc := range []struct {
-		model string
-		want  int
+		model   string
+		wantMin int
+		wantMax int
 	}{
-		{model: "seedance-2.5-standard", want: 30},
-		{model: "seedance-2.0-standard", want: 15},
+		{model: "seedance-2.5-standard", wantMin: 4, wantMax: 30},
+		{model: "seedance-2.0-standard", wantMin: 4, wantMax: 15},
 	} {
 		raw, ok := VideoCapabilityConfigForModel(tc.model)
 		if !ok {
@@ -77,10 +142,10 @@ func TestSeedance25ProfileAllowsThirtySeconds(t *testing.T) {
 		if err := json.Unmarshal(raw, &config); err != nil {
 			t.Fatal(err)
 		}
-		if config.Video.Duration.Max != tc.want {
-			t.Fatalf("%s duration max = %d, want %d", tc.model, config.Video.Duration.Max, tc.want)
+		if config.Video.Duration.Min != tc.wantMin || config.Video.Duration.Max != tc.wantMax {
+			t.Fatalf("%s duration = %d-%d, want %d-%d", tc.model, config.Video.Duration.Min, config.Video.Duration.Max, tc.wantMin, tc.wantMax)
 		}
-		if config.Video.References.MaxVideoDurationSeconds != tc.want || config.Video.References.MaxAudioDurationSeconds != tc.want {
+		if config.Video.References.MaxVideoDurationSeconds != tc.wantMax || config.Video.References.MaxAudioDurationSeconds != tc.wantMax {
 			t.Fatalf("%s reference duration caps = %#v", tc.model, config.Video.References)
 		}
 	}

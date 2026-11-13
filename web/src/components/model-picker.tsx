@@ -23,8 +23,6 @@ type ModelPickerProps = {
     variant?: "default" | "creation";
     requirements?: ModelRequirements;
     showConfiguredModelName?: boolean;
-    /** 平台按功能固定的模型（图改图等）不进选择器。 */
-    hiddenModels?: string[];
 };
 
 export function ModelPicker({
@@ -40,24 +38,17 @@ export function ModelPicker({
     variant = "creation",
     requirements,
     showConfiguredModelName = false,
-    hiddenModels,
 }: ModelPickerProps) {
     const pickerId = useId();
     // 双保险：即使 store merge 写出非法 theme，这里也兜底到 dark，避免 "reading 'node'" 崩溃
     const rawTheme = useActiveTheme();
     const theme = (canvasThemes[rawTheme as keyof typeof canvasThemes] ?? canvasThemes.dark) as CanvasTheme;
     const [open, setOpen] = useState(false);
-    const [activeGroupKey, setActiveGroupKey] = useState<string | null>(null);
     const [previewedModel, setPreviewedModel] = useState("");
     const [triggerWidth, setTriggerWidth] = useState<number | null>(null);
     const menuRef = useRef<HTMLDivElement>(null);
     const triggerRef = useRef<HTMLButtonElement>(null);
-    // 功能专用模型（如 image.edit 的图改图档）由平台内部直接取用，故意不出现在选择器里。
-    // 单独提出来是为了让下面的 trigger 文案能识别出「当前生效的其实是这类模型」。
-    const hiddenModelSet = useMemo(() => new Set((hiddenModels || []).filter(Boolean)), [hiddenModels]);
-    const options = useMemo(() => {
-        return Array.from(new Set(selectableModelsByCapability(config, capability).filter(Boolean))).filter((model) => !hiddenModelSet.has(model));
-    }, [capability, config, hiddenModelSet]);
+    const options = useMemo(() => Array.from(new Set(selectableModelsByCapability(config, capability).filter(Boolean))), [capability, config]);
     const optionGroups = useMemo(() => {
         const channelGroups = config.channels
             .map((channel) => ({
@@ -83,15 +74,9 @@ export function ModelPicker({
     const portraitQuote = current ? resolveModelChannel(config, current).modelProfiles?.find((item) => item.model === modelOptionName(current))?.videoPricing : undefined;
     const priceLines = portraitPriceLines(portraitQuote);
     const creationVariant = variant === "creation";
-    const modelLabel = (model: string) => creationVariant ? pickerModelDisplayName(config, model, showConfiguredModelName) : pickerModelOptionLabel(config, model, showConfiguredModelName);
-    // 当前生效的是「功能专用模型」时（例如图生图会自动用图改图档），它不在可选项里，
-    // 但绝不能显示成「选择模型」——那会让用户以为自己的选择丢了。显示模型名 +（自动）。
-    const functionOnlyCurrent = !current && resolvedCurrent && hiddenModelSet.has(resolvedCurrent) ? resolvedCurrent : "";
     const triggerLabel = current
-        ? modelLabel(current)
-        : functionOnlyCurrent
-            ? `${modelLabel(functionOnlyCurrent)}（自动）`
-            : portrait ? `${seedancePortraitLabel(storedCurrent)}（不可用）` : placeholder;
+        ? (creationVariant ? pickerModelDisplayName(config, current, showConfiguredModelName) : pickerModelOptionLabel(config, current, showConfiguredModelName))
+        : portrait ? `${seedancePortraitLabel(storedCurrent)}（不可用）` : placeholder;
 
     useLayoutEffect(() => {
         const trigger = triggerRef.current;
@@ -129,7 +114,6 @@ export function ModelPicker({
         if (nextOpen) window.dispatchEvent(new CustomEvent("model-picker-open", { detail: pickerId }));
         if (nextOpen) {
             setPreviewedModel(current || options[0] || "");
-            setActiveGroupKey(null);
         }
         setOpen(nextOpen);
     };
@@ -161,63 +145,11 @@ export function ModelPicker({
         const nextIndex = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : event.key === "ArrowUp" ? Math.max(0, activeIndex - 1) : Math.min(buttons.length - 1, activeIndex + 1);
         buttons[nextIndex]?.focus();
     };
-    const toggleGroup = (group: (typeof optionGroups)[number]) => {
-        if (activeGroupKey === group.key) {
-            setActiveGroupKey(null);
-            return;
-        }
-        const groupCurrent = group.models.find((item) => item.models.includes(current));
-        setActiveGroupKey(group.key);
-        setPreviewedModel(groupCurrent?.models[0] || group.models[0]?.models[0] || "");
-    };
-    // 只有一个渠道（托管部署）时不显示品牌列表，直接平铺模型。
-    const renderModelOptions = (groupModels: (typeof optionGroups)[number]["models"]) => (
-                            <div className="canvas-model-picker-options grid min-w-0 gap-1">
-                            {groupModels.map((modelGroup) => {
-                                const selected = modelGroup.models.includes(current);
-                                const model = compatibleModelInGroup(config, modelGroup.models, selectionRequirements, selected ? current : undefined);
-                                const displayModel = model || (selected ? current : modelGroup.models[0]);
-                                const disabledReason = model ? "" : modelCompatibilityError(config, modelGroup.models[0], selectionRequirements) || "当前输入不符合该模型能力";
-                                return (
-                                    <button
-                                        key={modelGroup.key}
-                                        type="button"
-                                        role="option"
-                                        aria-selected={selected}
-                                        aria-disabled={Boolean(disabledReason)}
-                                        disabled={Boolean(disabledReason)}
-                                        title={disabledReason || pickerModelOptionLabel(config, displayModel, showConfiguredModelName)}
-                                        className={cn("canvas-model-picker-option disabled:cursor-not-allowed disabled:opacity-45", previewedModel === displayModel && "is-previewed")}
-                                        style={{ background: selected ? theme.toolbar.activeBg : "transparent", color: theme.node.text }}
-                                        onMouseEnter={() => setPreviewedModel(displayModel)}
-                                        onFocus={() => setPreviewedModel(displayModel)}
-                                        onClick={() => {
-                                            if (!model) return;
-                                            onChange(model);
-                                            setOpen(false);
-                                            window.requestAnimationFrame(() => triggerRef.current?.focus());
-                                        }}
-                                    >
-                                        <ModelLabel
-                                            config={config}
-                                            model={displayModel}
-                                            showConfiguredModelName={showConfiguredModelName}
-                                        />
-                                        {selected ? <Check className="canvas-model-picker-option-check ml-1 shrink-0" style={{ color: theme.node.activeStroke }} /> : null}
-                                    </button>
-                                );
-                            })}
-                        </div>
-    );
-
     const content = (
         <div
             ref={menuRef}
             data-canvas-no-zoom
-            className={cn(
-                "canvas-model-picker-menu creation-model-picker-menu max-w-[calc(100vw-24px)]",
-                activeGroupKey === null ? "is-brand-list" : "is-model-list",
-            )}
+            className="canvas-model-picker-menu creation-model-picker-menu is-direct-list max-w-[calc(100vw-24px)]"
             style={
                 {
                     background: theme.node.panel,
@@ -232,31 +164,48 @@ export function ModelPicker({
             onPointerDown={(event) => event.stopPropagation()}
         >
             {optionGroups.length ? (
-                optionGroups.length === 1 ? (
-                    <div className="canvas-model-picker-group canvas-model-picker-model-pane min-w-0 overflow-hidden">
-                        {renderModelOptions(optionGroups[0].models)}
-                    </div>
-                ) : activeGroupKey === null ? (
-                    <div className="canvas-model-picker-brands" aria-label="选择模型品牌">
-                        {optionGroups.map((group) => {
-                            return <button key={group.key} type="button" className="canvas-model-picker-brand" aria-expanded={false} onClick={() => toggleGroup(group)}>
-                                <span className="canvas-model-picker-brand-copy"><strong>{group.label}</strong></span>
-                                <ChevronDown className="canvas-model-picker-brand-arrow" aria-hidden="true" />
-                            </button>;
-                        })}
-                    </div>
-                ) : <div className="canvas-model-picker-two-pane">
-                    <div className="canvas-model-picker-brand-rail" aria-label="模型品牌">
-                        {optionGroups.map((group) => {
-                            return <button key={group.key} type="button" className={cn("canvas-model-picker-brand", activeGroupKey === group.key && "is-active")} aria-expanded={activeGroupKey === group.key} onClick={() => toggleGroup(group)}>
-                                <span className="canvas-model-picker-brand-copy"><strong>{group.label}</strong></span>
-                                <ChevronDown className="canvas-model-picker-brand-arrow" aria-hidden="true" />
-                            </button>;
-                        })}
-                    </div>
-                    {optionGroups.filter((group) => group.key === activeGroupKey).map((group) => <section key={group.key} className="canvas-model-picker-group canvas-model-picker-model-pane min-w-0 overflow-hidden">
-                        {renderModelOptions(group.models)}
-                    </section>)}
+                <div className="canvas-model-picker-options grid min-w-0 gap-1" aria-label="模型列表">
+                    {optionGroups.map((group) => (
+                        <section key={group.key} className="canvas-model-picker-group min-w-0">
+                            {optionGroups.length > 1 ? <div className="canvas-model-picker-group-label">{group.label}</div> : null}
+                            <div className="grid min-w-0 gap-1">
+                                {group.models.map((modelGroup) => {
+                                    const selected = modelGroup.models.includes(current);
+                                    const model = compatibleModelInGroup(config, modelGroup.models, selectionRequirements, selected ? current : undefined);
+                                    const displayModel = model || (selected ? current : modelGroup.models[0]);
+                                    const disabledReason = model ? "" : modelCompatibilityError(config, modelGroup.models[0], selectionRequirements) || "当前输入不符合该模型能力";
+                                    return (
+                                        <button
+                                            key={modelGroup.key}
+                                            type="button"
+                                            role="option"
+                                            aria-selected={selected}
+                                            aria-disabled={Boolean(disabledReason)}
+                                            disabled={Boolean(disabledReason)}
+                                            title={disabledReason || pickerModelOptionLabel(config, displayModel, showConfiguredModelName)}
+                                            className={cn("canvas-model-picker-option disabled:cursor-not-allowed disabled:opacity-45", previewedModel === displayModel && "is-previewed")}
+                                            style={{ background: selected ? theme.toolbar.activeBg : "transparent", color: theme.node.text }}
+                                            onMouseEnter={() => setPreviewedModel(displayModel)}
+                                            onFocus={() => setPreviewedModel(displayModel)}
+                                            onClick={() => {
+                                                if (!model) return;
+                                                onChange(model);
+                                                setOpen(false);
+                                                window.requestAnimationFrame(() => triggerRef.current?.focus());
+                                            }}
+                                        >
+                                            <ModelLabel
+                                                config={config}
+                                                model={displayModel}
+                                                showConfiguredModelName={showConfiguredModelName}
+                                            />
+                                            {selected ? <Check className="canvas-model-picker-option-check ml-1 shrink-0" style={{ color: theme.node.activeStroke }} /> : null}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </section>
+                    ))}
                 </div>
             ) : (
                 <div className="canvas-model-picker-empty" style={{ color: theme.node.muted }}>

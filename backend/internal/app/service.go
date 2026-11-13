@@ -4,21 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
-	"strings"
-	"sync"
-	"time"
-	"unicode/utf8"
-
 	"infinite-canvas/backend/internal/appearance"
 	localasset "infinite-canvas/backend/internal/asset"
-	"infinite-canvas/backend/internal/billing"
 	"infinite-canvas/backend/internal/assistantturns"
 	"infinite-canvas/backend/internal/beefapi"
+	"infinite-canvas/backend/internal/billing"
 	"infinite-canvas/backend/internal/canvas"
 	"infinite-canvas/backend/internal/depthcapture"
 	"infinite-canvas/backend/internal/diagnostics"
 	"infinite-canvas/backend/internal/kernel"
+	"infinite-canvas/backend/internal/mediaattempt"
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/modelcatalog"
 	"infinite-canvas/backend/internal/operations"
@@ -29,12 +24,21 @@ import (
 	"infinite-canvas/backend/internal/prompts"
 	"infinite-canvas/backend/internal/repository"
 	"infinite-canvas/backend/internal/skills"
+	"infinite-canvas/backend/internal/supporttrace"
 	localtask "infinite-canvas/backend/internal/task"
 	"infinite-canvas/backend/internal/taskdelivery"
 	"infinite-canvas/backend/internal/textreplay"
+	"path/filepath"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+	"unicode/utf8"
 )
 
 type Service struct {
+	canvasWorkflowMu         sync.Mutex
+	canvasWorkflowLoop       bool
 	repo                     *repository.Repository
 	dataDir                  string
 	billing                  *billing.Client
@@ -43,74 +47,72 @@ type Service struct {
 	storageMu                sync.Mutex
 	workerRuntimeMu          sync.Mutex
 	characterTaskMu          sync.Mutex
-	canvasWorkflowMu         sync.Mutex
-	canvasWorkflowLoop       bool
 	activeCancels            map[string]context.CancelFunc
-	pendingStorage           map[string]int64
+	fileQuotaService         *localasset.FileQuota
+	fileQuotaOnce            sync.Once
 	coordinator              *platform.Coordinator
 	platform                 *platform.Service
+	platformOnce             sync.Once
 	taskTerminalCoordinator  *taskTerminalCoordinator
 	taskRouteExecutor        *taskRouteExecutor
 	taskWorkerCoordinator    *taskWorkerCoordinator
 	taskLifecycleCoordinator *taskLifecycleCoordinator
 	runtimeErr               error
 	localResourceStorage     bool
-	// hostedDeployment 表示这是一个托管部署（服务器 profile），而不是桌面应用。
-	// 它只用于修正那些「按桌面假设写死」的行为；存储语义仍由 mode/localResourceStorage 决定，
-	// 两者不能合并——本部署正是「托管部署 + 本地盘存储 + OSS 镜像」。
-	hostedDeployment        bool
-	pluginRuntime           *pluginRuntime
-	pluginRuntimeErr        error
-	workerID                string
-	routerMu                sync.Mutex
-	router                  *modelcatalog.Router
-	routeCatalogTTL         time.Duration
-	routeCatalogMaxStale    time.Duration
-	workers                 *platform.Worker
-	readCachesOnce          sync.Once
-	concurrencyReadCache    *platform.BoundedReadCache[string, platform.RuntimeTaskPolicy]
-	textReplay              *textreplay.Service
-	textReplayOnce          sync.Once
-	routeVersionReadCache   *platform.BoundedReadCache[string, int64]
-	skills                  *skills.Service
-	prompts                 *prompts.Service
-	projects                *localproject.Service
-	canvas                  *canvas.Service
-	assistantTurns          *assistantturns.Service
-	continuationBackground  assistantContinuationBackground
-	assets                  *localasset.Service
-	assetsOnce              sync.Once
-	appearance              *appearance.Service
-	appearanceOnce          sync.Once
-	diagnostics             *diagnostics.Service
-	diagnosticsOnce         sync.Once
-	playback                *playback.Service
-	playbackOnce            sync.Once
-	depthCapture            *depthcapture.Service
-	depthCaptureOnce        sync.Once
-	beefAPI                 *beefapi.Service
-	generationDeliveryMedia taskdelivery.Media
-	generationDelivery      *taskdelivery.Deliverer
-	deliveryMu              sync.Mutex
-	deliveryProgress        *deliveryProgressRegistry
-	deliveryProgressOnce    sync.Once
-	deliveryControlMu       sync.Mutex
-	deliveryCancels         map[string]context.CancelFunc
-	deliveryDeadlines       map[string]time.Time
-	deliveryClosed          bool
-	tasks                   *localtask.Service
-	tasksOnce               sync.Once
-	workspaceOps            *operations.Registry
-	workspaceOpsMu          sync.Mutex
-	bindAfterID             string
-	bindCursorMu            sync.Mutex
-	// 「目标已不存在」这类永久失败只在第一次提示，避免每 5 秒刷同一条日志。
-	bindSkipMu     sync.Mutex
-	bindSkipLogged map[string]struct{}
-	// 本进程内已完成投递（成功或永久跳过）的任务标记：recovery 每 5 秒重扫全部 succeeded 任务，
-	// 没有它就会把所有任务重放一遍（实测每轮 280 次 agent_op_records UNIQUE 冲突日志）。
-	bindSettledMu sync.Mutex
-	bindSettled   map[string]struct{}
+	pluginRuntime            *pluginRuntime
+	pluginRuntimeErr         error
+	workerID                 string
+	routerMu                 sync.Mutex
+	router                   *modelcatalog.Router
+	routeCatalogTTL          time.Duration
+	routeCatalogMaxStale     time.Duration
+	workers                  *platform.Worker
+	readCachesOnce           sync.Once
+	concurrencyReadCache     *platform.BoundedReadCache[string, platform.RuntimeTaskPolicy]
+	textReplay               *textreplay.Service
+	textReplayOnce           sync.Once
+	routeVersionReadCache    *platform.BoundedReadCache[string, int64]
+	skills                   *skills.Service
+	prompts                  *prompts.Service
+	projects                 *localproject.Service
+	canvas                   *canvas.Service
+	assistantTurns           *assistantturns.Service
+	continuationBackground   assistantContinuationBackground
+	assets                   *localasset.Service
+	assetsOnce               sync.Once
+	appearance               *appearance.Service
+	appearanceOnce           sync.Once
+	diagnostics              *diagnostics.Service
+	diagnosticsOnce          sync.Once
+	supportTraceOnce         sync.Once
+	supportTraceRecorder     *supporttrace.Recorder
+	supportTraceErr          error
+	supportTraceClosed       atomic.Bool
+	playback                 *playback.Service
+	playbackOnce             sync.Once
+	depthCapture             *depthcapture.Service
+	depthCaptureOnce         sync.Once
+	beefAPI                  *beefapi.Service
+	generationDeliveryMedia  taskdelivery.Media
+	generationDelivery       *taskdelivery.Deliverer
+	deliveryMu               sync.Mutex
+	deliveryProgress         *deliveryProgressRegistry
+	deliveryProgressOnce     sync.Once
+	referenceProgress        sync.Map
+	deliveryControlMu        sync.Mutex
+	deliveryCancels          map[string]context.CancelFunc
+	deliveryDeadlines        map[string]time.Time
+	deliveryClosed           bool
+	tasks                    *localtask.Service
+	tasksOnce                sync.Once
+	workspaceOps             *operations.Registry
+	workspaceOpsMu           sync.Mutex
+	mediaAttemptService      *mediaattempt.Service
+	mediaAttemptOnce         sync.Once
+	videoRecoveryActive      atomic.Bool
+	videoRecoveryAfterID     string
+	bindAfterID              string
+	bindCursorMu             sync.Mutex
 }
 
 const taskWorkerConcurrency = 3
@@ -148,21 +150,6 @@ func (s *Service) IsLocalMode() bool {
 	return s != nil && s.mode == serviceModeLocal
 }
 
-// MarkHostedDeployment 由组合根按 bootstrap profile 打标，把「托管部署」与
-// 「本地盘存储」解耦：服务端 profile 跑的是本地存储（+ OSS 镜像），
-// 但若干按桌面假设实现的分支不能照搬到托管部署上。
-func (s *Service) MarkHostedDeployment(hosted bool) {
-	if s == nil {
-		return
-	}
-	s.hostedDeployment = hosted
-}
-
-// HostedDeployment 报告当前进程是否为托管（服务器）部署。
-func (s *Service) HostedDeployment() bool {
-	return s != nil && s.hostedDeployment
-}
-
 // serviceOptions makes the runtime profile explicit at the construction
 // boundary. Capabilities are derived from the profile so callers cannot mix
 // local and hosted storage behavior accidentally.
@@ -185,7 +172,7 @@ func newService(repo *repository.Repository, dataDir string, options serviceOpti
 	if repo == nil {
 		pluginRuntimeErr = fmt.Errorf("插件状态存储未初始化")
 	} else {
-		pluginRuntime, pluginRuntimeErr = newPluginRuntimeWithStore(dataDir, plugins.NewRepositoryStore(repo))
+		pluginRuntime, pluginRuntimeErr = newPluginRuntimeWithReferences(dataDir, plugins.NewRepositoryStore(repo), newPluginReferences(dataDir, repo))
 	}
 	service := &Service{repo: repo, dataDir: dataDir, billing: billing.NewFromEnv(), mode: options.mode, activeCancels: make(map[string]context.CancelFunc), coordinator: coordinator, localResourceStorage: localResourceStorage, pluginRuntime: pluginRuntime, pluginRuntimeErr: pluginRuntimeErr, workerID: newID(), routeCatalogTTL: 30 * time.Second, routeCatalogMaxStale: 5 * time.Minute}
 	service.taskTerminalCoordinator = newTaskTerminalCoordinator(service)
@@ -193,6 +180,7 @@ func newService(repo *repository.Repository, dataDir string, options serviceOpti
 	service.taskWorkerCoordinator = newTaskWorkerCoordinator(service)
 	service.taskLifecycleCoordinator = newTaskLifecycleCoordinator(service)
 	service.skills = skills.New(service.repo, service.dataDir, service.runWorkerLoop)
+	service.skills.SetLocalSourceEnabled(service.IsLocalMode())
 	service.prompts = prompts.New(service.repo, newPromptAdminGate(service))
 	service.projects = localproject.New(repo, localproject.Dependencies{})
 	service.canvas = canvas.New(service.repo, newCanvasHost(service))
@@ -200,8 +188,8 @@ func newService(repo *repository.Repository, dataDir string, options serviceOpti
 	service.assets = localasset.NewService(localasset.Dependencies{
 		DataDir:      dataDir,
 		Repository:   localasset.NewRepository(repo),
-		Blobs:        localasset.NewOSSFileStore(dataDir),
-		Quota:        resourceQuota{svc: service},
+		Blobs:        localasset.NewFileStore(dataDir),
+		Quota:        service.fileQuota(),
 		Lifecycle:    resourceLifecycle{svc: service},
 		LocalStorage: localResourceStorage,
 	})
@@ -270,6 +258,10 @@ func (s *Service) Task(userID string, id string) (*model.Task, error) {
 	return s.taskDomain().Get(userID, id)
 }
 
+func (s *Service) TaskByClientOperation(userID, projectID, operationID string) (*model.Task, error) {
+	return s.taskDomain().FindOperation(userID, projectID, operationID)
+}
+
 func (s *Service) hydrateTaskProviderRequestID(task *model.Task) {
 	if task == nil || task.ProviderRequestID != "" {
 		return
@@ -293,6 +285,19 @@ func (s *Service) refreshTaskProviderState(task *model.Task) error {
 	if latest.ProviderRequestID != "" {
 		task.ProviderRequestID = latest.ProviderRequestID
 	}
+	if latest.ImageJobID != "" {
+		task.ImageJobID = latest.ImageJobID
+	}
+	if latest.BeefUsageState != nil {
+		task.BeefUsageState = latest.BeefUsageState
+	}
+	if latest.BeefBillingState != nil {
+		task.BeefBillingState = latest.BeefBillingState
+	}
+	if latest.BeefReconcileDeadline != nil {
+		task.BeefReconcileDeadline = latest.BeefReconcileDeadline
+	}
+	task.Stage, task.Progress = latest.Stage, latest.Progress
 	task.PollStage = latest.PollStage
 	task.NextPollAt = latest.NextPollAt
 	task.ProviderCancelStatus = latest.ProviderCancelStatus
@@ -413,6 +418,13 @@ func (s *Service) cancelActiveTask(id string) {
 	if cancel != nil {
 		cancel()
 	}
+	s.deliveryControlMu.Lock()
+	for identity, stop := range s.deliveryCancels {
+		if strings.HasPrefix(identity, id+":") {
+			stop()
+		}
+	}
+	s.deliveryControlMu.Unlock()
 }
 
 func nodeOp(id string, nodeType string, title string, x int, y int, workflowKind string, content string) map[string]any {
@@ -455,4 +467,8 @@ func defaultString(value string, fallback string) string {
 
 func newID() string {
 	return kernel.NewID()
+}
+
+func (s *Service) RecoverTask(ctx context.Context, userID, id string) (*model.Task, error) {
+	return s.taskDomain().RecoverTask(ctx, userID, id)
 }

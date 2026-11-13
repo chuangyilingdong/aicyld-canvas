@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 
 import { canvasNodeFailureExplanation, depthCaptureWaitFailureMetadata, isDepthCaptureResultNode } from "@/lib/canvas/canvas-depth-capture";
-import { generationTaskMetadata, resetGenerationTaskMetadata } from "@/lib/canvas/canvas-project-generation";
+import { clearInPlaceMediaOutputMetadata, generationTaskMetadata } from "@/lib/canvas/canvas-project-generation";
 import { explainGenerationError } from "@/lib/generation-error";
 import type { GenerationTask } from "@/services/api/task-center";
 import { ApiError } from "@/services/api/request";
@@ -16,11 +16,11 @@ const node: CanvasNodeData = {
 };
 const task = { id: "paid-video", type: "canvas_video", status: "succeeded", provider: "newapi", model: "seedance-2.0-mini" } as GenerationTask;
 const conflict = new ApiError("节点已绑定到其他任务，未覆盖该节点", {
-    status: 409, reason: "node_task_mismatch",
+    status: 409, reason: "node_task_mismatch", requestId: "req-bind-conflict",
 });
 
 test("paid regeneration removes the local depth executor identity", () => {
-    const metadata = resetGenerationTaskMetadata(node.metadata);
+    const metadata = clearInPlaceMediaOutputMetadata(node.metadata);
     expect(metadata.depthSourceNodeId).toBeUndefined();
     expect(metadata.taskId).toBeUndefined();
 });
@@ -35,6 +35,7 @@ test("canvas binding conflicts are local result failures, not model parameter re
     const explanation = explainGenerationError(conflict);
     expect(explanation.category).toBe("result_target_unavailable");
     expect(explanation.httpStatus).toBe(409);
+    expect(explanation.requestId).toBe("req-bind-conflict");
     expect(explanation.message).not.toContain("参数");
 });
 
@@ -48,6 +49,6 @@ test("failed recovery of a succeeded depth task retains the local bind diagnosis
     const depthTask = { ...task, id: "depth-task", type: "depth_capture" } as GenerationTask;
     const metadata = depthCaptureWaitFailureMetadata(conflict, depthTask);
     expect(metadata).toMatchObject({ status: "error", generationErrorCode: "result_target_unavailable", taskStage: "画布应用结果" });
-    expect(metadata.taskFailureDiagnostics).toMatchObject({ source: "client_result", executionResult: "completed", stage: "画布应用结果", summary: conflict.message });
+    expect(metadata.taskFailureDiagnostics).toMatchObject({ source: "client_result", executionResult: "completed", stage: "画布应用结果", summary: conflict.message, requestId: conflict.requestId });
     expect(metadata.errorDetails).not.toContain("模型不接受");
 });

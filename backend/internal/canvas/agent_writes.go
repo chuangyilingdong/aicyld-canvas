@@ -24,73 +24,6 @@ type NodeDraft struct {
 	Prompt string
 }
 
-func createCanvasNodes(doc map[string]any, drafts []NodeDraft) ([]CreatedNode, error) {
-	nodes := canvasDocNodes(doc)
-	existingTitles := map[string]bool{}
-	cursorX := 120.0
-	for _, rawNode := range nodes {
-		if node, ok := rawNode.(map[string]any); ok {
-			if title, _ := node["title"].(string); title != "" {
-				existingTitles[normalizeNodeTitle(title)] = true
-			}
-			position, _ := node["position"].(map[string]any)
-			x, _ := position["x"].(float64)
-			width, _ := node["width"].(float64)
-			if width <= 0 {
-				width = 320
-				if descriptor, ok := canvasCapabilityRegistry.Resolve(canvasNodeType(node)); ok && descriptor.DefaultWidth > 0 {
-					width = descriptor.DefaultWidth
-				}
-			}
-			if right := x + width + nodePlacementGap; right > cursorX {
-				cursorX = right
-			}
-		}
-	}
-	seen := map[string]bool{}
-	for _, draft := range drafts {
-		title := normalizeNodeTitle(draft.Title)
-		if title == "" {
-			return nil, kernel.NewAppError(http.StatusBadRequest, "每个节点都需要标题")
-		}
-		if seen[title] {
-			return nil, kernel.NewAppError(http.StatusBadRequest, "同一批次内标题重复: "+title)
-		}
-		seen[title] = true
-		if existingTitles[title] {
-			return nil, kernel.NewAppError(http.StatusConflict, "标题已存在: "+title)
-		}
-		if _, ok := canvasCapabilityRegistry.Resolve(draft.Type); !ok {
-			return nil, kernel.NewAppError(http.StatusBadRequest, "不支持的节点类型: "+draft.Type)
-		}
-	}
-	created := make([]CreatedNode, 0, len(drafts))
-	for _, draft := range drafts {
-		descriptor, _ := canvasCapabilityRegistry.Resolve(draft.Type)
-		width, height := descriptor.DefaultWidth, descriptor.DefaultHeight
-		if width <= 0 {
-			width = 320
-		}
-		if height <= 0 {
-			height = 220
-		}
-		metadata := descriptor.Metadata(draft.Prompt)
-		if strings.TrimSpace(draft.Prompt) != "" {
-			metadata["prompt"] = draft.Prompt
-		}
-		nodeID := newCanvasNodeID()
-		nodes = append(nodes, map[string]any{
-			"id": nodeID, "type": draft.Type, "title": draft.Title,
-			"position": map[string]any{"x": cursorX, "y": 160},
-			"width":    width, "height": height, "metadata": metadata,
-		})
-		created = append(created, CreatedNode{ID: nodeID, Title: draft.Title, Type: draft.Type})
-		cursorX += width + nodePlacementGap
-	}
-	doc["nodes"] = nodes
-	return created, nil
-}
-
 // CreatedNode 是创建成功后由领域返回的节点身份。
 // 调用方必须用它继续工作（连线、后续修改、变更摘要）：标题是用户内容，不是身份，
 // 用标题回找会在标题带空白/重名/被并发改写时丢结果。
@@ -193,6 +126,18 @@ func (s *Service) CreateUserCanvasNodes(userID, canvasID string, drafts []NodeDr
 	if err != nil {
 		return UserDataSummary{}, nil, err
 	}
+	created, err := createCanvasNodes(doc, drafts)
+	if err != nil {
+		return UserDataSummary{}, nil, err
+	}
+	summary, err := s.saveCanvasDocWithRevision(userID, canvasID, doc, expectedRevision)
+	if err != nil {
+		return UserDataSummary{}, nil, err
+	}
+	return summary, created, nil
+}
+
+func createCanvasNodes(doc map[string]any, drafts []NodeDraft) ([]CreatedNode, error) {
 	nodes := canvasDocNodes(doc)
 	existingTitles := map[string]bool{}
 	cursorX := 120.0
@@ -219,22 +164,23 @@ func (s *Service) CreateUserCanvasNodes(userID, canvasID string, drafts []NodeDr
 	for _, draft := range drafts {
 		title := normalizeNodeTitle(draft.Title)
 		if title == "" {
-			return UserDataSummary{}, nil, kernel.NewAppError(http.StatusBadRequest, "每个节点都需要标题")
+			return nil, kernel.NewAppError(http.StatusBadRequest, "每个节点都需要标题")
 		}
 		if seen[title] {
-			return UserDataSummary{}, nil, kernel.NewAppError(http.StatusBadRequest, "同一批次内标题重复: "+title)
+			return nil, kernel.NewAppError(http.StatusBadRequest, "同一批次内标题重复: "+title)
 		}
 		seen[title] = true
 		if existingTitles[title] {
-			return UserDataSummary{}, nil, kernel.NewAppError(http.StatusConflict, "标题已存在: "+title)
+			return nil, kernel.NewAppError(http.StatusConflict, "标题已存在: "+title)
 		}
 		if _, ok := canvasCapabilityRegistry.Resolve(draft.Type); !ok {
-			return UserDataSummary{}, nil, kernel.NewAppError(http.StatusBadRequest,
+			return nil, kernel.NewAppError(http.StatusBadRequest,
 				"不支持的节点类型: "+draft.Type+"（可用: "+strings.Join(canvasCapabilityRegistry.Types(), "|")+"）")
 		}
 	}
 	// 从既有节点最右边缘开始，再按本批节点的累计宽度推进。
 	created := make([]CreatedNode, 0, len(drafts))
+	now := time.Now().UTC().Format(time.RFC3339)
 	for _, draft := range drafts {
 		descriptor, _ := canvasCapabilityRegistry.Resolve(draft.Type)
 		width, height := descriptor.DefaultWidth, descriptor.DefaultHeight
@@ -253,16 +199,13 @@ func (s *Service) CreateUserCanvasNodes(userID, canvasID string, drafts []NodeDr
 			"id": nodeID, "type": draft.Type, "title": draft.Title,
 			"position": map[string]any{"x": cursorX, "y": 160},
 			"width":    width, "height": height, "metadata": metadata,
+			"createdAt": now, "updatedAt": now,
 		})
 		created = append(created, CreatedNode{ID: nodeID, Title: draft.Title, Type: draft.Type})
 		cursorX += width + nodePlacementGap
 	}
 	doc["nodes"] = nodes
-	summary, err := s.saveCanvasDocWithRevision(userID, canvasID, doc, expectedRevision)
-	if err != nil {
-		return UserDataSummary{}, nil, err
-	}
-	return summary, created, nil
+	return created, nil
 }
 
 // UpdateUserCanvasNodeFields 局部更新：只覆盖 patch 给出的字段，其余数据逐字保留。
@@ -310,20 +253,17 @@ func (s *Service) UpdateUserCanvasNodeFields(userID, canvasID, nodeID string, pa
 		}
 		node["title"] = text
 	}
+	if promptVal, hasPrompt := patch["prompt"]; hasPrompt {
+		if contentVal, hasContent := patch["content"]; hasContent && promptVal != contentVal {
+			return UserDataSummary{}, kernel.NewAppError(http.StatusBadRequest, "patch.prompt 与 patch.content 不能同时提交不同内容")
+		}
+	}
 
 	declared := map[string]any{}
 	for key, value := range patch {
 		switch key {
 		case "title":
 			continue // 已按通用字段处理
-		case "prompt":
-			// prompt 是生成结果字段（已提交提示词），不在可编辑字段表里：
-			// 保留直接写入语义，避免既有 CLI/MCP 入口失效。
-			text, isString := value.(string)
-			if !isString {
-				return UserDataSummary{}, kernel.NewAppError(http.StatusBadRequest, "prompt 必须是字符串")
-			}
-			metadata["prompt"] = text
 		case "content":
 			if hasDescriptor {
 				if _, ok := descriptor.PatchFields[key]; ok {
@@ -353,10 +293,17 @@ func (s *Service) UpdateUserCanvasNodeFields(userID, canvasID, nodeID string, pa
 		if err := descriptor.ApplyPatch(node, declared); err != nil {
 			return UserDataSummary{}, kernel.NewAppError(http.StatusBadRequest, err.Error())
 		}
+		if _, hasPrompt := declared["prompt"]; hasPrompt || declared["content"] != nil {
+			if nodeType == "image" || nodeType == "video" || nodeType == "audio" {
+				delete(metadata, "promptTemplateOperation")
+				delete(metadata, "promptTemplateVariables")
+			}
+		}
 		// ApplyPatch 只写声明过的路径（形如 metadata.xxx），不会替换整个 metadata 对象；
 		// 这里把同一个 map 回写一次，保证节点上挂的就是刚改过的那个。
 		node["metadata"] = metadata
 	}
+	node["updatedAt"] = time.Now().UTC().Format(time.RFC3339)
 	return s.saveCanvasDocWithRevision(userID, canvasID, doc, expectedRevision)
 }
 

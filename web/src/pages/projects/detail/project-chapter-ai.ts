@@ -4,9 +4,7 @@ import { storyboardRowsFromTask, storyboardRowsOutputContract } from "@/lib/canv
 import { parseChapterAssetBreakdown, type ChapterAssetBreakdown } from "@/lib/canvas/chapter-asset-breakdown";
 import { parseCharacterBreakdown } from "@/lib/canvas/canvas-character-reference";
 import { backendProviderConfig, parseBackendGenerationResult } from "@/services/api/generation-task";
-import type { CapturedUserScope } from "@/lib/user-scope-guard";
-import { createGenerationTaskWithConfirmation } from "@/services/api/task-billing";
-import { waitForGenerationTask, type CreateTaskInput, type GenerationTask } from "@/services/api/task-center";
+import { createGenerationTask, waitForGenerationTask, type GenerationTask } from "@/services/api/task-center";
 import type { Skill } from "@/services/api/skills";
 import { skillRuntime } from "@/services/skill-runtime";
 import { logicalModelIDForConfig, type AiConfig } from "@/stores/use-config-store";
@@ -25,8 +23,6 @@ type ChapterAnalysisInput = {
 
 type ChapterTaskOptions = {
     onTaskUpdate?: (task: GenerationTask) => void;
-    expectedScope?: CapturedUserScope;
-    confirmTask?: (request: CreateTaskInput) => Promise<boolean>;
 };
 
 export type ChapterTaskKind = "characters" | "storyboard";
@@ -104,6 +100,10 @@ type ChapterStoryboardGenerationInput = {
     selectedSkillIds: string[];
     approvedRevision: number;
     approvedShotIds: string[];
+    /** Optional planning constraints used by the smart-film starter. */
+    shotCount?: number;
+    shotDurationSeconds?: number;
+    userRequirements?: string;
 };
 
 export async function generateChapterStoryboard(input: ChapterStoryboardGenerationInput, options?: ChapterTaskOptions) {
@@ -121,6 +121,9 @@ export async function generateChapterStoryboard(input: ChapterStoryboardGenerati
             `章节：${input.chapterTitle}`,
             input.sourceText,
             "请将本章拆解为可直接进入短剧分镜制作的镜头脚本，保持剧情因果、人物关系、关键动作与台词完整。",
+            input.shotCount && input.shotCount > 0 ? `镜头数量：严格规划为 ${input.shotCount} 个镜头。` : "",
+            input.shotDurationSeconds && input.shotDurationSeconds > 0 ? `单镜时长：每个镜头约 ${input.shotDurationSeconds} 秒，按叙事需要可略有浮动。` : "",
+            input.userRequirements?.trim() || "",
         ].join("\n\n"),
         skills: input.skills,
         selectedSkillIds: input.selectedSkillIds,
@@ -130,7 +133,7 @@ export async function generateChapterStoryboard(input: ChapterStoryboardGenerati
         skillExecution.prompt,
         storyboardRowsOutputContract("每个镜头必须能独立用于生成首帧图片和镜头视频。"),
     ].join("\n\n");
-    const task = await createGenerationTaskWithConfirmation({
+    const task = await createGenerationTask({
         projectId: input.projectId,
         type: "canvas_text",
         operation: "storyboard",
@@ -144,8 +147,8 @@ export async function generateChapterStoryboard(input: ChapterStoryboardGenerati
             requirements: "输出可直接写入分镜制作并继续生成分镜图、动作预演和镜头视频的分镜表。",
             projectStyle: input.projectStyle,
             characters: input.characters,
-            shotDurationSeconds: 0,
-            shotCount: 0,
+            shotDurationSeconds: input.shotDurationSeconds && input.shotDurationSeconds > 0 ? input.shotDurationSeconds : 0,
+            shotCount: input.shotCount && input.shotCount > 0 ? input.shotCount : 0,
             config: backendProviderConfig(config, "text"),
             metadata: {
                 domainProjectId: input.projectId,
@@ -156,9 +159,9 @@ export async function generateChapterStoryboard(input: ChapterStoryboardGenerati
                 approvedShotIds: input.approvedShotIds.slice(),
             },
         },
-    }, options?.confirmTask, options?.expectedScope ? { expectedScope: options.expectedScope } : undefined);
+    });
     options?.onTaskUpdate?.(task);
-    const completed = await waitForGenerationTask(task.id, { initialTask: task, useTextEvents: true, onTaskUpdate: options?.onTaskUpdate, expectedScope: options?.expectedScope });
+    const completed = await waitForGenerationTask(task.id, { initialTask: task, useTextEvents: true, onTaskUpdate: options?.onTaskUpdate });
     return { ...storyboardRowsFromTask(completed), skillCount: skillExecution.selectedSkills.length, taskId: completed.id };
 }
 
@@ -176,8 +179,6 @@ async function runProjectTextTask(input: ChapterAnalysisInput, operation: string
             taskId = task.id;
             options?.onTaskUpdate?.(task);
         },
-        expectedScope: options?.expectedScope,
-        confirmTask: options?.confirmTask,
     });
     if (!result.text?.trim()) throw new Error("模型没有返回可用结果");
     if (!taskId) throw new Error("生成任务身份缺失");

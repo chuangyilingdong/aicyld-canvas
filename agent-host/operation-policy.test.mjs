@@ -35,6 +35,10 @@ test('Go descriptors drive default Pi discovery, calls and durable replay', asyn
   expect(build('full-access').some(tool => tool.label === 'conversation.message.attach')).toBe(false);
   expect(tools.some(tool => tool.label === 'unknown.write')).toBe(false);
   expect(build('full-access').some(tool => tool.label === 'unknown.write')).toBe(false);
+  for (const id of ['task.wait', 'canvas.nodes.get', 'canvas.nodes.configure', 'agent.guide']) {
+   expect(tools.some(tool => tool.label === id)).toBe(false);
+   expect(build('full-access').some(tool => tool.label === id)).toBe(false);
+  }
   expect(durableToolReplay({label:'canvas.script.rows.append'})).toBe('unsafe');
   const review = build('read-only').find(tool => tool.label === 'media.review');
   expect(review).toBeDefined();

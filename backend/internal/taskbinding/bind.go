@@ -49,11 +49,20 @@ func Bind(ports Ports, userID string, req Request) (Receipt, error) {
 	if projectID := strings.TrimSpace(task.ProjectID); projectID != "" && projectID != req.CanvasID {
 		return Receipt{}, conflict("canvas_mismatch", "任务不属于这块画布")
 	}
-	target := localtask.TargetBindingFromInput(task.InputJSON)
-	// The primary output belongs on the original node. Additional outputs are
-	// valid on batch child nodes created by the canvas for this same task; the
-	// canvas bind layer still enforces that each child carries this task ID.
-	if nodeID := strings.TrimSpace(target.NodeID); req.OutputIndex == 0 && nodeID != "" && nodeID != req.NodeID {
+	target := localtask.OutputBinding(*task, req.OutputIndex)
+	nodeID := strings.TrimSpace(target.NodeID)
+	if localtask.SeedreamOutputRoot(*task) != "" && nodeID == "" {
+		return Receipt{}, invalid("invalid_params", "outputIndex 无效")
+	}
+	// Multi-output image tasks freeze the destination for every output before
+	// submission. Never accept a new destination supplied by the bind request.
+	if len(localtask.FrozenOutputNodeIDs(*task)) > 0 {
+		nodeID = localtask.CanvasBindNodeID(*task, req.OutputIndex, "")
+		if nodeID == "" {
+			return Receipt{}, conflict("node_mismatch", "产物未指定画布节点")
+		}
+	}
+	if nodeID != "" && nodeID != req.NodeID && !req.AllowDifferentNode {
 		return Receipt{}, conflict("node_mismatch", "只能绑定到任务原先指定的节点")
 	}
 	wantKey := localtask.AttachNodeEffectKey(req.TaskID, req.NodeID, req.OutputIndex)
@@ -138,21 +147,22 @@ func durablePatch(ports Ports, userID string, task model.Task, req Request) (Nod
 		mediaType = strings.TrimSpace(resource.Kind)
 	}
 	return NodePatch{
-		CanvasID:    req.CanvasID,
-		NodeID:      req.NodeID,
-		TaskID:      req.TaskID,
-		OutputIndex: req.OutputIndex,
-		EffectKey:   req.EffectKey,
-		MediaType:   mediaType,
-		AssetID:     output.MaterializedAssetID,
-		ResourceID:  resource.ID,
-		StorageKey:  "resource:" + resource.ID,
-		Content:     assets.FileURL(resource.ID),
-		MimeType:    resource.MimeType,
-		Bytes:       resource.Size,
-		Width:       resource.Width,
-		Height:      resource.Height,
-		DurationMs:  resource.DurationMs,
+		CanvasID:           req.CanvasID,
+		NodeID:             req.NodeID,
+		TaskID:             req.TaskID,
+		OutputIndex:        req.OutputIndex,
+		EffectKey:          req.EffectKey,
+		AllowDifferentNode: req.AllowDifferentNode,
+		MediaType:          mediaType,
+		AssetID:            output.MaterializedAssetID,
+		ResourceID:         resource.ID,
+		StorageKey:         "resource:" + resource.ID,
+		Content:            assets.FileURL(resource.ID),
+		MimeType:           resource.MimeType,
+		Bytes:              resource.Size,
+		Width:              resource.Width,
+		Height:             resource.Height,
+		DurationMs:         resource.DurationMs,
 	}, nil
 }
 
@@ -168,14 +178,15 @@ func textPatch(task model.Task, req Request) (NodePatch, error) {
 		return NodePatch{}, precondition("output_not_ready", "文本任务还没有可绑定的结果")
 	}
 	return NodePatch{
-		CanvasID:    req.CanvasID,
-		NodeID:      req.NodeID,
-		TaskID:      req.TaskID,
-		OutputIndex: req.OutputIndex,
-		EffectKey:   req.EffectKey,
-		MediaType:   "text",
-		Content:     text,
-		Storyboard:  storyboard,
+		CanvasID:           req.CanvasID,
+		NodeID:             req.NodeID,
+		TaskID:             req.TaskID,
+		OutputIndex:        req.OutputIndex,
+		EffectKey:          req.EffectKey,
+		AllowDifferentNode: req.AllowDifferentNode,
+		MediaType:          "text",
+		Content:            text,
+		Storyboard:         storyboard,
 	}, nil
 }
 
@@ -183,27 +194,9 @@ func isTextTask(task model.Task) bool {
 	switch strings.TrimSpace(task.Type) {
 	case "canvas_text", "text_replay":
 		return true
-	case "canvas_image":
-		return midjourneyAction(task.InputJSON) == "describe"
 	default:
 		return false
 	}
-}
-
-func midjourneyAction(inputJSON string) string {
-	if strings.TrimSpace(inputJSON) == "" {
-		return ""
-	}
-	var input struct {
-		Metadata struct {
-			Midjourney map[string]any `json:"midjourney"`
-		} `json:"metadata"`
-	}
-	if json.Unmarshal([]byte(inputJSON), &input) != nil {
-		return ""
-	}
-	action, _ := input.Metadata.Midjourney["action"].(string)
-	return strings.ToLower(strings.TrimSpace(action))
 }
 
 func assetResourceID(asset *model.Asset) string {
@@ -267,6 +260,7 @@ func receiptFor(req Request, patch NodePatch, result NodeBindResult) Receipt {
 		Revision:     result.Revision,
 		AlreadyBound: patch.AlreadyBound,
 		Node:         result.Node,
+		AlsoChanged:  result.AlsoChanged,
 	}
 }
 

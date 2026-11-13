@@ -1,6 +1,6 @@
 import { Button, Select, Tooltip } from "antd";
 import { ArrowUp, Square, X, Paperclip, Sparkles } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { CanvasResourceMentionTextarea } from "@/components/canvas/canvas-resource-mention-textarea";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
@@ -23,6 +23,7 @@ type Props = {
     selectedCount: number;
     selectionAttached: boolean;
     onDetachSelection: () => void;
+    focusRequest?: number;
     modelBusy?: boolean;
     canSupplement?: boolean;
     supplementBusy?: boolean;
@@ -31,6 +32,9 @@ type Props = {
     onFiles?: (files: File[]) => void;
     onOpenSkills?: () => void;
     onOpenReferences?: () => void;
+    skillsOpen?: boolean;
+    referencesOpen?: boolean;
+    selectedSkillCount?: number;
     inputContent?: React.ReactNode;
     permissionMode?: AssistantPermissionMode;
     permissionLocked?: boolean;
@@ -49,6 +53,7 @@ export function CanvasAssistantComposer({
     selectedCount,
     selectionAttached,
     onDetachSelection,
+    focusRequest,
     modelBusy,
     canSupplement,
     supplementBusy,
@@ -57,6 +62,9 @@ export function CanvasAssistantComposer({
     onFiles,
     onOpenSkills,
     onOpenReferences,
+    skillsOpen,
+    referencesOpen,
+    selectedSkillCount = 0,
     inputContent,
     permissionMode = "canvas",
     permissionLocked,
@@ -64,8 +72,14 @@ export function CanvasAssistantComposer({
 }: Props) {
     const [contentHeight, setContentHeight] = useState(LINE_HEIGHT);
     const fileInput = useRef<HTMLInputElement>(null);
+    const messageInput = useRef<HTMLTextAreaElement>(null);
     const height = Math.min(MAX_LINES * LINE_HEIGHT, Math.max(MIN_LINES * LINE_HEIGHT, contentHeight));
     const canSend = !disabled && (!streaming || canSupplement) && !supplementBusy && !inputBusy && (Boolean(value.trim()) || Boolean(hasAttachments));
+
+    useEffect(() => {
+        if (!focusRequest) return;
+        requestAnimationFrame(() => messageInput.current?.focus());
+    }, [focusRequest]);
 
     return (
         <footer className="canvas-assistant-composer" onDragOver={event => { if (onFiles && !disabled && event.dataTransfer.types.includes("Files")) { event.preventDefault(); event.stopPropagation(); } }}
@@ -85,6 +99,7 @@ export function CanvasAssistantComposer({
 
             <div className="canvas-assistant-input" style={{ height: height + 14 }}>
                 <CanvasResourceMentionTextarea
+                    ref={messageInput}
                     value={value}
                     references={references}
                     onChange={onChange}
@@ -103,8 +118,8 @@ export function CanvasAssistantComposer({
 
             <div className="canvas-assistant-composer-tools">
                 {onFiles ? <Tooltip title="添加参考素材"><Button type="text" size="small" aria-label="添加参考素材" disabled={disabled || inputBusy} icon={<Paperclip size={15} />} onClick={() => fileInput.current?.click()} /></Tooltip> : null}
-                {onOpenSkills ? <Tooltip title="选择技能"><Button type="text" size="small" aria-label="选择技能" disabled={disabled} icon={<Sparkles size={15} />} onClick={onOpenSkills} /></Tooltip> : null}
-                {onOpenReferences ? <Button type="text" size="small" disabled={disabled} onClick={onOpenReferences}>画布素材</Button> : null}
+                {onOpenSkills ? <Tooltip title={selectedSkillCount ? `选择技能（本轮已启用 ${selectedSkillCount} 个）` : "选择技能"}><Button type="text" size="small" aria-label="选择技能" aria-expanded={skillsOpen} aria-haspopup="true" data-canvas-assistant-popover-trigger="skills" disabled={disabled} icon={<Sparkles size={15} />} onClick={onOpenSkills} /></Tooltip> : null}
+                {onOpenReferences ? <Button type="text" size="small" aria-expanded={referencesOpen} aria-haspopup="true" data-canvas-assistant-popover-trigger="references" disabled={disabled} onClick={onOpenReferences}>画布素材</Button> : null}
             </div>
             <div className="canvas-assistant-composer-footer">
                 <div className="canvas-assistant-composer-settings">

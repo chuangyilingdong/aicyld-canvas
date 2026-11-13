@@ -8,6 +8,7 @@ import {
     Clipboard,
     CloudUpload,
     Copy,
+    Download,
     FolderOpen,
     FolderPlus,
     Image as ImageIcon,
@@ -32,7 +33,7 @@ import { aceternityMotion } from "@/lib/aceternity-motion";
 import { SpotlightSurface } from "@/components/ui/aceternity/spotlight-surface";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { canvasNodeAssetCategory } from "@/lib/canvas/canvas-node-asset";
-import { isCanvasFolderNode } from "@/lib/canvas/canvas-frame";
+import { isCanvasFolderNode, isFrameNode } from "@/lib/canvas/canvas-frame";
 import { resolveAddNodeMenuCommands, type AddNodeMenuContext } from "@/lib/canvas/tool-registry";
 import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
 import { usePluginStore } from "@/stores/use-plugin-store";
@@ -79,8 +80,11 @@ type CanvasNodeContextMenuProps = {
     onSetAssetCategory: (category: CanvasAssetCategory) => void;
     onToggleFrame: () => void;
     onSpreadSelection?: () => void;
+    onPackSelectionToFolder?: () => void;
     onCopySelection?: () => void;
     onDeleteSelection?: () => void;
+    downloadableSelectionCount?: number;
+    onBatchDownloadSelection?: () => void;
 };
 
 export function CanvasNodeContextMenu({
@@ -119,8 +123,11 @@ export function CanvasNodeContextMenu({
     onSetAssetCategory,
     onToggleFrame,
     onSpreadSelection,
+    onPackSelectionToFolder,
     onCopySelection,
     onDeleteSelection,
+    downloadableSelectionCount = 0,
+    onBatchDownloadSelection,
 }: CanvasNodeContextMenuProps) {
     const theme = canvasThemes[useActiveTheme()];
     const [addOpen, setAddOpen] = useState(false);
@@ -162,7 +169,7 @@ export function CanvasNodeContextMenu({
     const isVideo = node?.type === CanvasNodeType.Video;
     const isMedia = isImage || isVideo;
     const isAudio = node?.type === CanvasNodeType.Audio;
-    const isFrame = node?.type === CanvasNodeType.Frame;
+    const isFrame = isFrameNode(node);
     const isFolder = isCanvasFolderNode(node);
     const hasNodeContent = isText ? Boolean(nodeContent.trim()) : Boolean(nodeContent);
     const canSaveAsset = Boolean(node && !isCharacterReference && (isText ? hasNodeContent : hasNodeContent && (isImage || isVideo || isAudio)));
@@ -205,6 +212,8 @@ export function CanvasNodeContextMenu({
                             {hasMultiSelection ? (
                                 <>
                                     <MenuButton icon={<LayoutTemplate className="size-4" />} label="自适应整理画布" detail="保持相对布局并加大边距" disabled={!onSpreadSelection} onClick={() => onSpreadSelection && runAction(onSpreadSelection)} />
+                                    <MenuButton icon={<FolderPlus className="size-4" />} label="收纳到文件夹" detail="合并进新建画布文件夹" disabled={!onPackSelectionToFolder} onClick={() => onPackSelectionToFolder && runAction(onPackSelectionToFolder)} />
+                                    <MenuButton icon={<Download className="size-4" />} label={downloadableSelectionCount ? `批量下载素材 (${downloadableSelectionCount})` : "批量下载素材"} disabled={!downloadableSelectionCount || !onBatchDownloadSelection} onClick={() => onBatchDownloadSelection && runAction(onBatchDownloadSelection)} />
                                     <MenuDivider />
                                 </>
                             ) : null}
@@ -222,6 +231,8 @@ export function CanvasNodeContextMenu({
                             <MenuHeader title={`已选 ${selectedCount} 个节点`} />
                             <MenuSection label="选区" />
                             <MenuButton icon={<LayoutTemplate />} label="自适应整理画布" detail="保持相对布局并加大边距" disabled={!onSpreadSelection} onClick={() => onSpreadSelection && runAction(onSpreadSelection)} />
+                            <MenuButton icon={<FolderPlus />} label="收纳到文件夹" detail="合并进新建画布文件夹" disabled={!onPackSelectionToFolder} onClick={() => onPackSelectionToFolder && runAction(onPackSelectionToFolder)} />
+                            <MenuButton icon={<Download />} label={downloadableSelectionCount ? `批量下载素材 (${downloadableSelectionCount})` : "批量下载素材"} disabled={!downloadableSelectionCount || !onBatchDownloadSelection} onClick={() => onBatchDownloadSelection && runAction(onBatchDownloadSelection)} />
                             <MenuDivider />
                             <MenuButton icon={<Copy />} label={`复制 ${selectedCount} 个节点`} shortcut="⌘C" disabled={!onCopySelection} onClick={() => onCopySelection && runAction(onCopySelection)} />
                             <MenuButton icon={<Trash2 />} label={`删除 ${selectedCount} 个节点`} danger disabled={!onDeleteSelection} onClick={() => onDeleteSelection && runAction(onDeleteSelection)} />
@@ -533,6 +544,6 @@ function nodeTypeLabel(node?: CanvasNodeData | null) {
     if (node.type === CanvasNodeType.Video) return "视频节点";
     if (node.type === CanvasNodeType.Audio) return "音频节点";
     if (node.type === CanvasNodeType.Drawing) return "绘图节点";
-    if (node.type === CanvasNodeType.Frame) return isCanvasFolderNode(node) ? "文件夹" : "背板";
+    if (isFrameNode(node)) return node.type === CanvasNodeType.Workflow ? "工作流" : isCanvasFolderNode(node) ? "文件夹" : "背板";
     return "生成配置节点";
 }

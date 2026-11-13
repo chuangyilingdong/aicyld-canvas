@@ -3,12 +3,13 @@ package canvas
 import (
 	"encoding/json"
 	"errors"
-	"log"
 	"net/http"
 	"strings"
 
+	"infinite-canvas/backend/internal/assets"
 	"infinite-canvas/backend/internal/kernel"
 	"infinite-canvas/backend/internal/repository"
+	"infinite-canvas/backend/internal/writechange"
 )
 
 const bindRevisionAttempts = 4
@@ -21,6 +22,9 @@ type TaskOutputBind struct {
 	// Trusted admission identity for a pending video saved before the task response.
 	PendingClientOperationID string `json:"-"`
 	TaskType                 string `json:"-"`
+	// AllowDifferentNode permits the explicit UI fallback path to bind a paid
+	// result to a newly-created node. It never permits recreating a deleted node.
+	AllowDifferentNode bool `json:"-"`
 
 	CanvasID    string
 	NodeID      string
@@ -28,30 +32,29 @@ type TaskOutputBind struct {
 	OutputIndex int
 	EffectKey   string
 	MediaType   string
-	// Prompt 由调用方从任务记录补上：节点被删除后按产物重建时，
-	// 只有任务身份是拿不到提示词的，用户就再也看不到当时写的是什么。
-	Prompt     string
-	AssetID    string
-	ResourceID string
-	StorageKey string
-	Content    string
-	MimeType   string
-	Bytes      int64
-	Width      int
-	Height     int
-	DurationMs int64
-	Storyboard map[string]any
+	AssetID     string
+	ResourceID  string
+	StorageKey  string
+	Content     string
+	MimeType    string
+	Bytes       int64
+	Width       int
+	Height      int
+	DurationMs  int64
+	Storyboard  map[string]any
 }
 
 // TaskOutputBindResult is the canvas write outcome after a generation bind.
+// AlsoChanged lists other media nodes whose assetId was reconciled so their
+// stored media references stay linked to the same owned asset.
 type TaskOutputBindResult struct {
-	Revision int64
-	Node     map[string]any
+	Revision    int64
+	Node        map[string]any
+	AlsoChanged []writechange.Node
 }
 
 // BindTaskOutputToExistingNode writes generation result fields onto the original
-// node whose metadata.taskId still matches the task. 如果原节点已被删除，则按任务产物
-// **重建**该节点（同一个 nodeId），避免用户已经付费的结果因为节点被删而永远取不回来。
+// node whose metadata.taskId still matches the task. A deleted node is not recreated.
 func (s *Service) BindTaskOutputToExistingNode(userID string, patch TaskOutputBind) (TaskOutputBindResult, error) {
 	var last error
 	for attempt := 0; attempt < bindRevisionAttempts; attempt++ {
@@ -78,9 +81,15 @@ func (s *Service) bindTaskOutputOnce(userID string, patch TaskOutputBind) (TaskO
 	if err != nil {
 		return TaskOutputBindResult{}, err
 	}
-	node, recreated := ensureBindableNode(doc, patch)
-	if recreated {
-		log.Printf("[canvas-bind] 原节点已删除，按任务产物重建节点 task=%s node=%s", patch.TaskID, patch.NodeID)
+	// Refusals carry the revision this read observed, so a caller can tell
+	// whether the canvas changed since the refusal without re-reading it.
+	refusal := map[string]any{"revision": canvasRevisionValue(doc)}
+	node := findCanvasNode(doc, patch.NodeID)
+	if node == nil {
+		return TaskOutputBindResult{}, &kernel.AppError{
+			Status: http.StatusNotFound, Reason: kernel.ErrorReason("node_deleted"),
+			Message: "原任务节点已删除，未重新创建节点", Details: refusal,
+		}
 	}
 	if got := nodeString(nodeMetadata(node), "taskId"); got != strings.TrimSpace(patch.TaskID) && !canBindEmptyRenderNode(node, patch) && !canBindPendingVideoNode(node, patch) {
 		message := "节点已绑定到其他任务，未覆盖该节点"
@@ -89,7 +98,7 @@ func (s *Service) bindTaskOutputOnce(userID string, patch TaskOutputBind) (TaskO
 		}
 		return TaskOutputBindResult{}, &kernel.AppError{
 			Status: http.StatusConflict, Reason: kernel.ErrorReason("node_task_mismatch"),
-			Message: message,
+			Message: message, Details: refusal,
 		}
 	}
 	metadata := nodeMetadata(node)
@@ -98,6 +107,7 @@ func (s *Service) bindTaskOutputOnce(userID string, patch TaskOutputBind) (TaskO
 	}
 	applyGenerationBindMetadata(metadata, patch)
 	node["metadata"] = metadata
+	alsoChanged := s.reconcileBoundCanvasDocMediaAssets(userID, doc, patch.NodeID)
 	expected := canvasRevisionValue(doc)
 	if expected <= 0 {
 		expected = 1
@@ -106,7 +116,286 @@ func (s *Service) bindTaskOutputOnce(userID string, patch TaskOutputBind) (TaskO
 	if err != nil {
 		return TaskOutputBindResult{}, err
 	}
-	return TaskOutputBindResult{Revision: summary.Revision, Node: cloneNode(node)}, nil
+	return TaskOutputBindResult{Revision: summary.Revision, Node: cloneNode(node), AlsoChanged: alsoChanged}, nil
+}
+
+// reconcileBoundCanvasDocMediaAssets links stored media references back to the
+// single owned asset that contains them. It returns only the other nodes whose
+// assetId actually changed, so the bind receipt can report side effects.
+func (s *Service) reconcileBoundCanvasDocMediaAssets(userID string, doc map[string]any, excludeNodeID string) []writechange.Node {
+	if s == nil || s.repo == nil || doc == nil {
+		return nil
+	}
+	changes := []writechange.Node{}
+	setAssetID := func(item map[string]any, meta map[string]any, assetID string) {
+		if assetID == "" || nodeString(meta, "assetId") == assetID {
+			return
+		}
+		meta["assetId"] = assetID
+		item["metadata"] = meta
+		id, _ := item["id"].(string)
+		if id == "" || id == excludeNodeID {
+			return
+		}
+		title, _ := item["title"].(string)
+		changes = writechange.Add(changes, id, title, "assetId")
+	}
+	nodes := canvasDocNodes(doc)
+	nodeByID := make(map[string]map[string]any, len(nodes))
+	for _, rawNode := range nodes {
+		if item, ok := rawNode.(map[string]any); ok {
+			if id, _ := item["id"].(string); strings.TrimSpace(id) != "" {
+				nodeByID[strings.TrimSpace(id)] = item
+			}
+		}
+	}
+	propagateBatchRoots := func() {
+		for _, rawNode := range nodes {
+			item, ok := rawNode.(map[string]any)
+			if !ok {
+				continue
+			}
+			meta := nodeMetadata(item)
+			if isBatchRoot, _ := meta["isBatchRoot"].(bool); !isBatchRoot || nodeString(meta, "assetId") != "" {
+				continue
+			}
+			primaryID := nodeString(meta, "primaryImageId")
+			primary, exists := nodeByID[primaryID]
+			if !exists {
+				continue
+			}
+			primaryMeta := nodeMetadata(primary)
+			primaryAssetID := nodeString(primaryMeta, "assetId")
+			if primaryAssetID == "" {
+				continue
+			}
+			rootResID := firstDocResourceID(nodeString(meta, "storageKey"), nodeString(meta, "content"))
+			primaryResID := firstDocResourceID(nodeString(primaryMeta, "storageKey"), nodeString(primaryMeta, "content"))
+			if rootResID != "" && rootResID == primaryResID {
+				setAssetID(item, meta, primaryAssetID)
+			}
+		}
+	}
+	propagateBatchRoots()
+
+	resourceSet := map[string]struct{}{}
+	declaredAssetIDSet := map[string]struct{}{}
+	hasMissingAssetID := false
+	for _, rawNode := range nodes {
+		item, ok := rawNode.(map[string]any)
+		if !ok || !isDocMediaKind(canvasNodeType(item)) {
+			continue
+		}
+		meta := nodeMetadata(item)
+		resID := firstDocResourceID(nodeString(meta, "storageKey"), nodeString(meta, "content"))
+		if resID == "" {
+			continue
+		}
+		resourceSet[resID] = struct{}{}
+		if assetID := nodeString(meta, "assetId"); assetID != "" {
+			declaredAssetIDSet[assetID] = struct{}{}
+		} else {
+			hasMissingAssetID = true
+		}
+	}
+	if timeline, ok := doc["timeline"].(map[string]any); ok {
+		if clips, ok := timeline["clips"].([]any); ok {
+			for _, rawClip := range clips {
+				clip, ok := rawClip.(map[string]any)
+				if !ok {
+					continue
+				}
+				media, ok := clip["directMedia"].(map[string]any)
+				if !ok || !isDocMediaKind(nodeString(media, "kind")) {
+					continue
+				}
+				resID := firstDocResourceID(nodeString(media, "storageKey"), nodeString(media, "url"), nodeString(media, "dataUrl"), nodeString(media, "content"))
+				if resID == "" {
+					continue
+				}
+				resourceSet[resID] = struct{}{}
+				if assetID := nodeString(media, "assetId"); assetID != "" {
+					declaredAssetIDSet[assetID] = struct{}{}
+				} else {
+					hasMissingAssetID = true
+				}
+			}
+		}
+	}
+	if len(resourceSet) == 0 {
+		return changes
+	}
+
+	declaredAssetRefs := make(map[string]map[string]struct{}, len(declaredAssetIDSet))
+	if len(declaredAssetIDSet) > 0 {
+		declaredAssets, err := s.repo.AssetsForUserIDs(userID, assets.SortedIDs(declaredAssetIDSet))
+		if err == nil {
+			for _, asset := range declaredAssets {
+				refs := map[string]struct{}{}
+				_ = assets.CollectOwnedDocumentReferences(asset.PayloadJSON, refs)
+				declaredAssetRefs[asset.ID] = refs
+			}
+		}
+	}
+	isDeclaredAssetPositivelyMismatched := func(assetID, resID string) bool {
+		if assetID == "" || resID == "" {
+			return false
+		}
+		refs, loaded := declaredAssetRefs[assetID]
+		if !loaded || len(refs) == 0 {
+			return false
+		}
+		_, matches := refs[resID]
+		return !matches
+	}
+
+	needsFallbackScan := hasMissingAssetID
+	if !needsFallbackScan {
+		for _, rawNode := range nodes {
+			item, ok := rawNode.(map[string]any)
+			if !ok || !isDocMediaKind(canvasNodeType(item)) {
+				continue
+			}
+			meta := nodeMetadata(item)
+			resID := firstDocResourceID(nodeString(meta, "storageKey"), nodeString(meta, "content"))
+			if resID != "" && isDeclaredAssetPositivelyMismatched(nodeString(meta, "assetId"), resID) {
+				needsFallbackScan = true
+				break
+			}
+		}
+	}
+	if !needsFallbackScan {
+		if timeline, ok := doc["timeline"].(map[string]any); ok {
+			if clips, ok := timeline["clips"].([]any); ok {
+				for _, rawClip := range clips {
+					clip, ok := rawClip.(map[string]any)
+					if !ok {
+						continue
+					}
+					media, ok := clip["directMedia"].(map[string]any)
+					if !ok || !isDocMediaKind(nodeString(media, "kind")) {
+						continue
+					}
+					resID := firstDocResourceID(nodeString(media, "storageKey"), nodeString(media, "url"), nodeString(media, "dataUrl"), nodeString(media, "content"))
+					if resID != "" && isDeclaredAssetPositivelyMismatched(nodeString(media, "assetId"), resID) {
+						needsFallbackScan = true
+						break
+					}
+				}
+			}
+		}
+	}
+	if !needsFallbackScan {
+		return changes
+	}
+
+	ownedAssets, err := s.repo.Assets(userID)
+	if err != nil || len(ownedAssets) == 0 {
+		return changes
+	}
+	uniqueAssetIDByResource := make(map[string]string, len(resourceSet))
+	resourceMatchCount := make(map[string]int, len(resourceSet))
+	for _, asset := range ownedAssets {
+		allRefs := map[string]struct{}{}
+		_ = assets.CollectOwnedDocumentReferences(asset.PayloadJSON, allRefs)
+		declaredAssetRefs[asset.ID] = allRefs
+		primaryResID := assetPrimaryResourceID(asset.PayloadJSON)
+		if primaryResID == "" {
+			continue
+		}
+		if _, relevant := resourceSet[primaryResID]; !relevant {
+			continue
+		}
+		resourceMatchCount[primaryResID]++
+		if resourceMatchCount[primaryResID] == 1 {
+			uniqueAssetIDByResource[primaryResID] = asset.ID
+		} else {
+			delete(uniqueAssetIDByResource, primaryResID)
+		}
+	}
+	for _, rawNode := range nodes {
+		item, ok := rawNode.(map[string]any)
+		if !ok || !isDocMediaKind(canvasNodeType(item)) {
+			continue
+		}
+		meta := nodeMetadata(item)
+		resID := firstDocResourceID(nodeString(meta, "storageKey"), nodeString(meta, "content"))
+		if resID == "" {
+			continue
+		}
+		currentAssetID := nodeString(meta, "assetId")
+		if currentAssetID != "" && !isDeclaredAssetPositivelyMismatched(currentAssetID, resID) {
+			continue
+		}
+		if fallbackID := uniqueAssetIDByResource[resID]; fallbackID != "" {
+			setAssetID(item, meta, fallbackID)
+		}
+	}
+	propagateBatchRoots()
+	if timeline, ok := doc["timeline"].(map[string]any); ok {
+		if clips, ok := timeline["clips"].([]any); ok {
+			for _, rawClip := range clips {
+				clip, ok := rawClip.(map[string]any)
+				if !ok {
+					continue
+				}
+				media, ok := clip["directMedia"].(map[string]any)
+				if !ok || !isDocMediaKind(nodeString(media, "kind")) {
+					continue
+				}
+				resID := firstDocResourceID(nodeString(media, "storageKey"), nodeString(media, "url"), nodeString(media, "dataUrl"), nodeString(media, "content"))
+				if resID == "" {
+					continue
+				}
+				currentAssetID := nodeString(media, "assetId")
+				if currentAssetID != "" && !isDeclaredAssetPositivelyMismatched(currentAssetID, resID) {
+					continue
+				}
+				if fallbackID := uniqueAssetIDByResource[resID]; fallbackID != "" {
+					media["assetId"] = fallbackID
+					clip["directMedia"] = media
+				}
+			}
+		}
+	}
+	return changes
+}
+
+func assetPrimaryResourceID(payloadJSON string) string {
+	if strings.TrimSpace(payloadJSON) == "" {
+		return ""
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(payloadJSON), &payload); err != nil {
+		return ""
+	}
+	data, _ := payload["data"].(map[string]any)
+	meta, _ := payload["metadata"].(map[string]any)
+	return firstDocResourceID(
+		nodeString(data, "storageKey"),
+		nodeString(data, "url"),
+		nodeString(data, "dataUrl"),
+		nodeString(meta, "resourceKey"),
+		nodeString(payload, "coverUrl"),
+	)
+}
+
+func firstDocResourceID(values ...string) string {
+	for _, value := range values {
+		if id := assets.ResourceID(value); id != "" {
+			return id
+		}
+	}
+	return ""
+}
+
+func isDocMediaKind(kind string) bool {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "image", "video", "audio":
+		return true
+	default:
+		return false
+	}
 }
 
 func canBindPendingVideoNode(node map[string]any, patch TaskOutputBind) bool {
@@ -152,7 +441,28 @@ func alreadyBound(metadata map[string]any, patch TaskOutputBind) bool {
 	if patch.Storyboard != nil && nodeString(metadata, "status") != "success" {
 		return false
 	}
+	if hasStaleGenerationOutcome(metadata) {
+		return false
+	}
 	return nodeString(metadata, "status") == "success" && nodeString(metadata, "taskId") == strings.TrimSpace(patch.TaskID)
+}
+
+// hasStaleGenerationOutcome reports whether an already-bound node still carries
+// an explicit non-ready taskOutcome or failure marker from a prior run. Nodes
+// saved before taskOutcome existed omit the field and remain idempotent.
+func hasStaleGenerationOutcome(metadata map[string]any) bool {
+	if raw, exists := metadata["taskOutcome"]; exists && raw != nil {
+		outcome, ok := raw.(map[string]any)
+		if !ok || nodeString(outcome, "phase") != "ready" || nodeString(outcome, "regenerate") != "allowed" {
+			return true
+		}
+	}
+	for _, key := range []string{"taskOutcomeSource", "generationFailure", "generationPreflightError"} {
+		if _, exists := metadata[key]; exists {
+			return true
+		}
+	}
+	return false
 }
 
 func applyGenerationBindMetadata(metadata map[string]any, patch TaskOutputBind) {
@@ -210,82 +520,23 @@ func applyGenerationBindMetadata(metadata map[string]any, patch TaskOutputBind) 
 	}
 	metadata["taskStatus"] = "succeeded"
 	metadata["taskProgress"] = 100
-	metadata["errorDetails"] = nil
-	metadata["generationErrorCode"] = nil
-	metadata["resourceReloadAvailable"] = nil
-	metadata["failedPromptFingerprint"] = nil
-	metadata["failedInputFingerprint"] = nil
+	delete(metadata, "taskStage")
+	metadata["taskOutcome"] = map[string]any{
+		"phase":      "ready",
+		"regenerate": "allowed",
+		"reason":     "result_ready",
+	}
+	delete(metadata, "taskOutcomeSource")
+	delete(metadata, "generationFailure")
+	delete(metadata, "generationPreflightError")
+	delete(metadata, "errorDetails")
+	delete(metadata, "generationErrorCode")
+	delete(metadata, "resourceReloadAvailable")
+	delete(metadata, "failedPromptFingerprint")
+	delete(metadata, "failedInputFingerprint")
 	if strings.TrimSpace(patch.EffectKey) != "" {
 		metadata["generationEffectKeys"] = appendEffectKey(metadata["generationEffectKeys"], patch.EffectKey)
 	}
-}
-
-// ensureBindableNode 找到目标节点；已被删除时按产物类型重建一个同 id 的节点。
-// 重建节点只带任务身份与占位尺寸，真实的媒体字段由随后的 bind 覆盖。
-func ensureBindableNode(doc map[string]any, patch TaskOutputBind) (map[string]any, bool) {
-	if node := findCanvasNode(doc, patch.NodeID); node != nil {
-		return node, false
-	}
-	kind := strings.TrimSpace(patch.MediaType)
-	if kind != "video" && kind != "audio" {
-		kind = "image"
-	}
-	width, height := patch.Width, patch.Height
-	if width <= 0 || width > 2048 {
-		width = 320
-	}
-	if height <= 0 || height > 2048 {
-		height = 320
-	}
-	node := map[string]any{
-		"id":       strings.TrimSpace(patch.NodeID),
-		"type":     kind,
-		"title":    "恢复的生成结果",
-		"position": map[string]any{"x": nextCanvasNodeX(doc), "y": 120},
-		"width":    width,
-		"height":   height,
-		"metadata": restoredNodeMetadata(patch),
-	}
-	nodes, _ := doc["nodes"].([]any)
-	doc["nodes"] = append(nodes, node)
-	return node, true
-}
-
-// restoredNodeMetadata 给重建节点带上任务身份，并尽量还原提示词，
-// 否则用户只看到一张图，不知道当时让它做什么。
-func restoredNodeMetadata(patch TaskOutputBind) map[string]any {
-	metadata := map[string]any{
-		"taskId":           strings.TrimSpace(patch.TaskID),
-		"status":           "loading",
-		"restoredFromTask": true,
-	}
-	if prompt := strings.TrimSpace(patch.Prompt); prompt != "" {
-		metadata["composerContent"] = prompt
-		metadata["prompt"] = prompt
-	}
-	return metadata
-}
-
-// nextCanvasNodeX 把重建的节点放到现有内容右侧的空位，不去猜原来的位置。
-func nextCanvasNodeX(doc map[string]any) float64 {
-	nodes, _ := doc["nodes"].([]any)
-	right := 120.0
-	for _, raw := range nodes {
-		node, ok := raw.(map[string]any)
-		if !ok {
-			continue
-		}
-		position, ok := node["position"].(map[string]any)
-		if !ok {
-			continue
-		}
-		x, _ := position["x"].(float64)
-		width, _ := node["width"].(float64)
-		if x+width > right {
-			right = x + width
-		}
-	}
-	return right + 96
 }
 
 func nodeMetadata(node map[string]any) map[string]any {

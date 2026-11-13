@@ -35,7 +35,6 @@ export function createModelConfigRepository(dependencies: ModelConfigRepositoryD
         publish({ status: "hydrating", error: "" });
         try {
             const result = await dependencies.read();
-            // 平台内置「功能 → 模型」映射随模型配置一起下发，画布功能据此取模型。
             setCanvasFeatureModels(result.featureModels);
             state = { status: "idle", revision: result.revision, dirty: Boolean(latestConfig), error: "" };
             return result;
@@ -53,7 +52,7 @@ export function createModelConfigRepository(dependencies: ModelConfigRepositoryD
     const runDrain = async () => {
         const write = async (config: AiConfig, revision: number) => {
             const result = await dependencies.write(config, revision);
-            if (!result.saved || !Number.isSafeInteger(result.revision) || result.revision <= revision) {
+            if (!result.saved || !Number.isSafeInteger(result.revision) || result.revision < revision) {
                 throw new Error("模型配置保存未得到确认，请重试");
             }
             return result;
@@ -69,6 +68,7 @@ export function createModelConfigRepository(dependencies: ModelConfigRepositoryD
                 if (isRevisionConflict(error)) {
                     try {
                         const current = await dependencies.read();
+                        setCanvasFeatureModels(current.featureModels);
                         state = { ...state, revision: current.revision, status: "saving", dirty: true, error: "" };
                         const retried = await write(config, state.revision);
                         state = { status: "saved", revision: retried.revision, dirty: generation !== savingGeneration, error: "" };

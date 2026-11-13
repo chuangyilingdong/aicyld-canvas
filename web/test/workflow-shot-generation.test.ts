@@ -1,10 +1,12 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 
 import { createModelChannel, defaultConfig, encodeChannelModel } from "../src/stores/use-config-store";
 import { submitBackendGenerationTask, type GenerationTaskDependencies } from "../src/services/api/generation-task";
 import type { GenerationTask } from "../src/services/api/task-center";
 import type { ProjectDetail } from "../src/services/api/projects";
 import { buildShotAssetReferenceContext, resolveShotAssetMentionPrompt } from "../src/pages/projects/detail/workflow-shot-references";
+import * as resources from "../src/services/api/resources";
+import * as storage from "../src/services/file-storage";
 
 function videoTaskConfig() {
     const channel = createModelChannel({
@@ -25,6 +27,18 @@ test("production workbench does not silently drop bound voice samples before bac
 
     expect(source).toContain('const generationReferenceAudios = generationCapability === "video" ? shotAssetReferenceContext.referenceAudios : [];');
     expect(source).not.toContain("selectedVideoProfile?.references.maxAudios");
+});
+
+test("production workbench can submit missing shots in one batch", async () => {
+    const source = await Bun.file(new URL("../src/pages/projects/detail/workflow-production-workbench.tsx", import.meta.url)).text();
+
+    expect(source).toContain("const generateAllArtifacts = async (options?: { automatic?: boolean }) =>");
+    expect(source).toContain("shotNeedsGeneration(detail, shot, artifactType)");
+    expect(source).toContain("补齐全部${stageCopy.label}");
+    expect(source).toContain("批量生成会产生积分消耗");
+    expect(source).toContain('setBatchProgress({ done: index + 1, total: targets.length, phase: "submitting" })');
+    expect(source).toContain("withStoryboardVideoReference");
+    expect(source).toContain("最后一张参考图是当前镜头分镜图");
 });
 
 test("shot generation submits historical character image, current voice and asset prompt", async () => {
@@ -105,25 +119,37 @@ test("shot generation submits historical character image, current voice and asse
         createdAt: "2026-08-30T00:00:00.000Z",
         updatedAt: "2026-08-30T00:00:00.000Z",
     } satisfies GenerationTask;
-    await submitBackendGenerationTask({
-        projectId: "project-1",
-        mode: "video",
-        prompt,
-        config: videoTaskConfig(),
-        referenceImages: context.referenceImages,
-        referenceAudios: context.referenceAudios,
-        metadata: { shotId: "shot-1", videoEditOperation: "reference_to_video" },
-    }, {
-        createTask: async (input) => { createdInput = input; return task; },
-        waitTask: async () => { throw new Error("should not wait"); },
-        runLocal: async () => ({ mode: "video" }),
-        createId: () => "id-1",
-        now: () => "2026-08-30T00:00:00.000Z",
-    });
+    // Task creation is already a fixture boundary; resource metadata must also
+    // come from its API fixture rather than the test runner's browser storage.
+    const resourceMetadata = spyOn(resources, "getResource").mockResolvedValue({ id: "character-audio-1", durationMs: 2500, mimeType: "audio/mpeg" } as resources.RemoteResource);
+    const browserBlob = spyOn(storage, "getMediaBlob").mockRejectedValue(new Error("known resource metadata must not read browser media"));
+    try {
+        await submitBackendGenerationTask({
+            projectId: "project-1",
+            mode: "video",
+            prompt,
+            config: videoTaskConfig(),
+            referenceImages: context.referenceImages,
+            referenceAudios: context.referenceAudios,
+            metadata: { shotId: "shot-1", videoEditOperation: "reference_to_video" },
+        }, {
+            createTask: async (input) => { createdInput = input; return task; },
+            waitTask: async () => { throw new Error("should not wait"); },
+            runLocal: async () => ({ mode: "video" }),
+            createId: () => "id-1",
+            now: () => "2026-08-30T00:00:00.000Z",
+        });
+        expect(resourceMetadata).toHaveBeenCalledWith("character-audio-1", expect.objectContaining({ params: { metadata: "ensure" } }));
+        expect(browserBlob).not.toHaveBeenCalled();
+    } finally {
+        resourceMetadata.mockRestore();
+        browserBlob.mockRestore();
+    }
 
     expect(createdInput?.prompt).toContain("【资产参考】");
     expect(createdInput?.input.referenceImages.map((reference) => reference.storageKey)).toEqual(["resource:character-image-1", "resource:scene-image-1"]);
     expect(createdInput?.input.referenceAudios.map((reference) => reference.storageKey)).toEqual(["resource:character-audio-1"]);
+    expect(createdInput?.input.referenceAudios[0]?.durationMs).toBe(2500);
 });
 
 test("background generation submission returns after task creation without waiting", async () => {
@@ -158,34 +184,4 @@ test("background generation submission returns after task creation without waiti
 
     expect(submitted).toBe(task);
     expect(waitCalls).toBe(0);
-});
-
-test("task confirmation runs before creation and can cancel without submitting", async () => {
-    let createCalls = 0;
-    let confirmedModel = "";
-    const dependencies: GenerationTaskDependencies = {
-        createTask: async () => {
-            createCalls += 1;
-            throw new Error("should not create");
-        },
-        waitTask: async () => { throw new Error("should not wait"); },
-        runLocal: async () => ({ mode: "video" }),
-        createId: () => "id-1",
-        now: () => "2026-08-30T00:00:00.000Z",
-    };
-
-    await expect(submitBackendGenerationTask({
-        projectId: "project-1",
-        mode: "video",
-        prompt: "角色表演",
-        config: videoTaskConfig(),
-        metadata: { shotId: "shot-1", videoEditOperation: "text_to_video" },
-        confirmTask: async (request) => {
-            confirmedModel = request.model || "";
-            return false;
-        },
-    }, dependencies)).rejects.toMatchObject({ name: "AbortError" });
-
-    expect(confirmedModel).toContain("MiniMax-H3");
-    expect(createCalls).toBe(0);
 });

@@ -71,3 +71,40 @@ func TestLocalIdentityUnavailableWithoutRepository(t *testing.T) {
 		t.Fatalf("nil public user error = %v", err)
 	}
 }
+
+func TestEnsureWorkspaceUserCreatesIndependentHostedWorkspace(t *testing.T) {
+	dir := t.TempDir()
+	db, err := gorm.Open(sqlite.Open(filepath.Join(dir, "hosted-identity.db")), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.MigrateLocalSchema(db); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewLocal(repository.New(db), dir)
+	first, err := svc.EnsureWorkspaceUser("main-user-1", "alice", "Alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := svc.EnsureWorkspaceUser("main-user-1", "alice", "Renamed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := svc.EnsureWorkspaceUser("main-user-2", "bob", "Bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ID != second.ID || first.ID != repository.SSOWorkspaceID("main-user-1") || first.DisplayName != "Alice" {
+		t.Fatalf("hosted workspace changed: first=%+v second=%+v", first, second)
+	}
+	if other.ID == first.ID || other.ID != repository.SSOWorkspaceID("main-user-2") {
+		t.Fatalf("hosted workspaces are not isolated: first=%+v other=%+v", first, other)
+	}
+	owner, err := svc.WorkspaceOwner(first.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if owner.ID != first.ID || owner.DisplayName != "Alice" {
+		t.Fatalf("workspace owner mismatch: %+v", owner)
+	}
+}

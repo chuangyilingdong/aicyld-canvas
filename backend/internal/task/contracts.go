@@ -42,11 +42,14 @@ type TimelineTranscriptionCreateRequest struct {
 }
 
 // TimelineRenderCreateRequest is the HTTP/local-port command for a native
-// ffmpeg render task. ClientOperationID is optional.
+// ffmpeg render task. ClientOperationID is optional. Metadata carries product
+// registration hints (short-drama delivery writes the result back to its
+// workflow step) and stays opaque to the render executor.
 type TimelineRenderCreateRequest struct {
 	ProjectID         string          `json:"projectId"`
 	Timeline          editing.Project `json:"timeline"`
 	Options           editing.Options `json:"options"`
+	Metadata          map[string]any  `json:"metadata,omitempty"`
 	ClientOperationID string          `json:"clientOperationId"`
 	TraceID           string          `json:"-"`
 	RequestID         string          `json:"-"`
@@ -68,6 +71,9 @@ type TimelineRenderInput struct {
 	ProjectID string          `json:"projectId"`
 	Timeline  editing.Project `json:"timeline"`
 	Options   editing.Options `json:"options"`
+	// Metadata is persisted so the worker can hand product registration data
+	// (workflowStepId/unitId/artifactType) to the project domain after success.
+	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
 // TimelineTranscriptionInput is the durable local-executor payload for
@@ -114,8 +120,6 @@ type Summary struct {
 	Operation                 string                        `json:"operation,omitempty"`
 	Provider                  string                        `json:"provider,omitempty"`
 	Model                     string                        `json:"model,omitempty"`
-	BillingStatus             string                        `json:"billingStatus,omitempty"`
-	BillingPoints             int                           `json:"billingPoints,omitempty"`
 	ProviderRequestID         string                        `json:"providerRequestId,omitempty"`
 	ProviderCancelStatus      model.ProviderCancelStatus    `json:"providerCancelStatus,omitempty"`
 	ProviderCancelError       string                        `json:"providerCancelError,omitempty"`
@@ -134,9 +138,11 @@ type Summary struct {
 	CreatedAt                 time.Time                     `json:"createdAt"`
 	UpdatedAt                 time.Time                     `json:"updatedAt"`
 	ClientContext             *ClientContext                `json:"clientContext,omitempty"`
+	Outcome                   *Outcome                      `json:"outcome,omitempty"`
 	ResultState               string                        `json:"resultState,omitempty"`
 	Outputs                   []CanonicalOutput             `json:"outputs,omitempty"`
 	Delivery                  *model.TaskDeliveryProgress   `json:"delivery,omitempty"`
+	ReferenceProgress         *model.TaskReferenceProgress  `json:"referenceProgress,omitempty"`
 }
 
 type ClientContext struct {

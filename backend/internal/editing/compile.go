@@ -12,6 +12,23 @@ import (
 // keys). When sources is non-nil, every visible video/audio/image clip must
 // match an opaque source id; native paths are never accepted.
 func Compile(project Project, sources []SourceMeta, opts Options) (*Plan, error) {
+	if project.Output != nil {
+		if opts.Width == 0 {
+			opts.Width = project.Output.Width
+		}
+		if opts.Height == 0 {
+			opts.Height = project.Output.Height
+		}
+		if opts.FPS == 0 {
+			opts.FPS = project.Output.FPS
+		}
+		if opts.SampleRate == 0 {
+			opts.SampleRate = project.Output.SampleRate
+		}
+		if opts.BurnSubtitles == nil {
+			opts.BurnSubtitles = project.Output.BurnSubtitles
+		}
+	}
 	opts, err := NormalizeOptions(opts)
 	if err != nil {
 		return nil, err
@@ -311,7 +328,9 @@ func validateSourceTiming(clip Clip, source SourceMeta, sourcesProvided bool) er
 	if !sourcesProvided || source.DurationMs <= 0 || clip.Kind == KindImage {
 		return nil
 	}
-	if clip.SourceStartMs+clip.DurationMs > source.DurationMs+DurationToleranceMs {
+	// Audio is padded with silence to the timeline duration by the renderer, so
+	// a short voice/BGM source must not reject an otherwise valid timeline.
+	if clip.Kind != KindAudio && clip.SourceStartMs+clip.DurationMs > source.DurationMs+DurationToleranceMs {
 		return fmt.Errorf("%w：%s", ErrInsufficientDuration, clipLabel(clip))
 	}
 	return nil

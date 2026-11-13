@@ -84,9 +84,6 @@ func TestSafeRouteRejectionAndFailureCode(t *testing.T) {
 	if !SafeRouteRejection(FailureInfo{StatusCode: 402}) {
 		t.Fatal("HTTP 402 should be a safe rejection")
 	}
-	if !SafeRouteRejection(FailureInfo{RequestNotSent: true}) {
-		t.Fatal("a request proven not sent should be a safe rejection")
-	}
 	if SafeRouteRejection(FailureInfo{ImageRecovery: true, StatusCode: 429}) {
 		t.Fatal("image recovery must not be a safe rejection")
 	}
@@ -95,8 +92,5 @@ func TestSafeRouteRejectionAndFailureCode(t *testing.T) {
 	}
 	if got := RouteFailureCode(FailureInfo{StatusCode: 402}); got != "upstream_402" {
 		t.Fatalf("RouteFailureCode 402 = %q", got)
-	}
-	if got := RouteFailureCode(FailureInfo{RequestNotSent: true}); got != "request_not_sent" {
-		t.Fatalf("RouteFailureCode request-not-sent = %q", got)
 	}
 }

@@ -9,7 +9,16 @@ import (
 )
 
 func MediaHydrationPolicyFor(ctx context.Context, input Input) MediaHydrationPolicy {
+	if managedConnection(input.Config) && (input.Mode == "image" || input.Mode == "video") {
+		return MediaHydrationPolicy{KeepLocal: true}
+	}
+	if input.Mode == "video" && IsBeefAPIVideoConfig(ctx, input.Config) {
+		return MediaHydrationPolicy{KeepLocal: true}
+	}
 	if input.Config.InterfaceType == "full-video" {
+		return MediaHydrationPolicy{KeepLocal: true}
+	}
+	if requiresBeefAPIHTTPReferences(ctx, input.Config) {
 		return MediaHydrationPolicy{KeepLocal: true}
 	}
 	policy := MediaHydrationPolicy{PreferURL: PrefersMediaURLs(input.Config.InterfaceType, input)}
@@ -30,27 +39,48 @@ func MediaHydrationPolicyFor(ctx context.Context, input Input) MediaHydrationPol
 	case string(model.ChannelInterfaceNewAPIVideo), string(model.ChannelInterfaceNewAPIChannel1), string(model.ChannelInterfaceNewAPIChannel2), string(model.ChannelInterfaceVolcengineArkVideo), string(model.ChannelInterfaceVolcengineArkAgentPlanVideo), string(model.ChannelInterfaceMiniMaxVideo):
 		policy.RequireURL = true
 		policy.PreferURL = true
-	case string(model.ChannelInterfaceNewAPIImage):
-		// 图片编辑要把参考图以公开 HTTP(S) 地址交给上游（ZhenZhen：images must contain public HTTP(S) URLs）；
-		// 以前没列入这里 → 参考图以 data URL 发出 → 上游 400。
-		policy.RequireURL = true
-		policy.PreferURL = true
-	case string(model.ChannelInterfaceMidjourney):
-		policy.RequireURL = true
-		policy.PreferURL = true
 	}
 	if adapter, ok := ProtocolAdapterForContext(ctx, input.Config.InterfaceType); ok {
-		// 适配器/插件只能提高要求，不能把协议层已确定的「必须公网地址」降级：
-		// newapi-image 这类上游明确要求 images 是公开 HTTP(S) 地址，一旦被插件声明成
-		// false，参考图就会以 data URL 直接发出并被上游 400（images must contain public HTTP(S) URLs）。
-		if adapter.Metadata().RequiresPublicMediaURLs {
-			policy.RequireURL = true
-		}
+		policy.RequireURL = adapter.Metadata().RequiresPublicMediaURLs
 		policy.PreferURL = policy.PreferURL || policy.RequireURL
 	}
 	if input.Mode == "image" && input.Mask != nil {
 		policy.RequireURL = false
 		policy.PreferURL = false
+	}
+	return policy
+}
+
+// One protocol can accept inline images while requiring URLs for video/audio.
+// Explicit custom-channel choices override that protocol's default only.
+func mediaPolicyForKind(ctx context.Context, input Input, kind string, policy MediaHydrationPolicy) MediaHydrationPolicy {
+	if policy.KeepLocal {
+		return policy // Provider-owned upload flows must retain their local bytes.
+	}
+	if kind == "mask" {
+		if input.Mode == "image" && strings.TrimSpace(input.Config.InterfaceType) == string(model.ChannelInterfaceOpenAIImage) {
+			return MediaHydrationPolicy{} // OpenAI Images sends the mask as multipart bytes.
+		}
+		kind = "image"
+	}
+	transport := ""
+	if adapter, ok := ProtocolAdapterForContext(ctx, input.Config.InterfaceType); ok {
+		transport = adapter.Metadata().MediaTransport[kind]
+	}
+	if input.Config.ChannelID == "" {
+		if override := input.Config.ReferenceMediaTransport[kind]; override != "" && override != "auto" {
+			transport = override
+		}
+	}
+	switch transport {
+	case "inline":
+		policy.RequireURL, policy.PreferURL, policy.PreferHTTPS = false, false, false
+	case "url", "link":
+		policy.RequireURL, policy.PreferURL, policy.PreferHTTPS = true, true, false
+		policy.ManualURL = transport == "link"
+	}
+	if kind == "video" && isBytePlusVideoInput(input) {
+		policy.RequireURL, policy.PreferURL, policy.PreferHTTPS = true, true, false
 	}
 	return policy
 }
@@ -65,7 +95,6 @@ func PrefersMediaURLs(interfaceType string, input Input) bool {
 	case string(model.ChannelInterfaceChatCompletion), string(model.ChannelInterfaceOpenAIResponse), string(model.ChannelInterfaceClaudeAPI),
 		string(model.ChannelInterfaceGrokImage), string(model.ChannelInterfaceVolcengineArkImage), string(model.ChannelInterfaceVolcengineArkAgentPlanImage),
 		string(model.ChannelInterfaceXAIVideo), string(model.ChannelInterfaceNovitaVideo),
-		string(model.ChannelInterfaceNewAPIImage), string(model.ChannelInterfaceMidjourney),
 		string(model.ChannelInterfaceMiniMaxVideo), string(model.ChannelInterfaceNewAPIVideo),
 		string(model.ChannelInterfaceNewAPIChannel1), string(model.ChannelInterfaceNewAPIChannel2),
 		string(model.ChannelInterfaceVolcengineArkVideo), string(model.ChannelInterfaceVolcengineArkAgentPlanVideo):

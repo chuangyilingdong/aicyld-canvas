@@ -7,33 +7,40 @@ import (
 	"strings"
 
 	"infinite-canvas/backend/internal/canvas/capability"
+	"infinite-canvas/backend/internal/modelcatalog"
+	"infinite-canvas/backend/internal/providerpreset"
 )
 
 func registerCanvasNodeConfigureOps(r *Registry) {
-	properties := map[string]any{}
-	for _, kind := range []string{"image", "video", "audio"} {
-		descriptor, _ := capability.BuiltinRegistry().Resolve(kind)
-		for name, field := range descriptor.PatchFields {
-			if name == "title" || name == "content" {
-				continue
-			}
-			if previous, exists := properties[name]; exists {
-				previous.(map[string]any)["description"] = previous.(map[string]any)["description"].(string) + "、" + kind
-				continue
-			}
-			properties[name] = map[string]any{"type": field.Kind, "description": field.Description + "；适用 " + kind}
-		}
-	}
-	properties["count"] = map[string]any{"type": "integer", "minimum": 1, "maximum": 8, "description": "仅 image"}
-	for _, name := range []string{"transparentBackground", "generateAudio", "watermark"} {
-		properties[name].(map[string]any)["enum"] = []string{"true", "false"}
-	}
+	properties := canvasNodeConfigurePatchProperties()
 	params, _ := json.Marshal(map[string]any{"type": "object", "additionalProperties": false,
 		"properties": map[string]any{"canvasId": map[string]any{"type": "string"}, "nodeId": map[string]any{"type": "string"},
 			"kind": map[string]any{"type": "string", "enum": []string{"image", "video", "audio"}}, "expectedRevision": map[string]any{"type": "integer", "minimum": 1},
-			"patch": map[string]any{"type": "object", "additionalProperties": false, "minProperties": 1, "properties": properties}},
+			"patch": map[string]any{"type": "object", "minProperties": 1, "additionalProperties": false, "properties": properties}},
 		"required": []string{"canvasId", "nodeId", "kind", "expectedRevision", "patch"}})
-	r.Register(Op{ReplaySafe: true, AssistantCanvas: true, ID: "canvas.node.configure", Summary: "设置已有媒体节点的生成草稿参数；不生成、不扣费，不改任务或现有成品", Scope: ScopeCanvas, Params: params, Handler: opCanvasNodeConfigure})
+	r.Register(Op{ReplaySafe: true, AssistantCanvas: true, ID: "canvas.node.configure", Summary: "设置媒体节点的提示词草稿与生成参数；不启动生成", Scope: ScopeCanvas, Params: params, Handler: opCanvasNodeConfigure})
+}
+
+func canvasNodeConfigurePatchProperties() map[string]any {
+	return map[string]any{
+		"model":                 map[string]any{"type": "string"},
+		"prompt":                map[string]any{"type": "string"},
+		"size":                  map[string]any{"type": "string"},
+		"quality":               map[string]any{"type": "string", "description": "图片质量档位，取自模型目录"},
+		"count":                 map[string]any{"type": "integer", "minimum": 1, "maximum": 8, "description": "图片生成数量；最终仍按模型能力校验"},
+		"transparentBackground": map[string]any{"type": "string", "enum": []string{"true", "false"}},
+		"seconds":               map[string]any{"type": "string"},
+		"vquality":              map[string]any{"type": "string", "description": "分辨率档位，取自模型目录"},
+		"generateAudio":         map[string]any{"type": "string", "enum": []string{"true", "false"}},
+		"watermark":             map[string]any{"type": "string", "enum": []string{"true", "false"}},
+		"videoEditOperation":    map[string]any{"type": "string", "description": "视频生成或编辑模式，例如 text_to_video、image_to_video、reference_to_video"},
+		"audioVoice":            map[string]any{"type": "string"},
+		"audioFormat":           map[string]any{"type": "string", "description": "音频输出格式，取自模型目录"},
+		"audioSpeed":            map[string]any{"type": "string", "description": "语速倍率，0.25–4"},
+		"audioPitch":            map[string]any{"type": "string", "description": "音高调整，-12–12"},
+		"audioVolume":           map[string]any{"type": "string", "description": "音量，0–1"},
+		"audioInstructions":     map[string]any{"type": "string", "description": "声音风格、情绪和表达要求"},
+	}
 }
 
 func opCanvasNodeConfigure(ctx *Context, raw json.RawMessage) (any, error) {
@@ -71,7 +78,7 @@ func opCanvasNodeConfigure(ctx *Context, raw json.RawMessage) (any, error) {
 	if node["type"] != args.Kind {
 		return nil, InvalidArg("node_kind_mismatch", "参数类型与目标节点不一致")
 	}
-	patch, err := resolveGenerationDraft(ctx, args.Kind, args.Patch)
+	patch, err := applyGenerationDraftToNode(ctx, node, args.Kind, args.Patch)
 	if err != nil {
 		return nil, err
 	}
@@ -83,8 +90,39 @@ func opCanvasNodeConfigure(ctx *Context, raw json.RawMessage) (any, error) {
 	})
 }
 
-// resolveGenerationDraft shares one validator between node edits and storyboard production preparation.
-func resolveGenerationDraft(ctx *Context, kind string, raw map[string]json.RawMessage) (map[string]any, error) {
+func applyGenerationDraftToNode(ctx *Context, node map[string]any, kind string, raw map[string]json.RawMessage) (map[string]any, error) {
+	// 节点上已有的草稿参数先铺底、patch 再覆盖：只改 size 时也要能看出节点是不是正在拆图层。
+	base := stringParameters(dependencyMetadata(node))
+	patch, err := resolveGenerationDraft(ctx, kind, raw, base)
+	if err != nil {
+		return nil, err
+	}
+	if _, hasModel := patch["model"]; !hasModel {
+		// 只改尺寸这类参数时 patch 里没有 model，用节点当前模型补上再校验，
+		// 否则同一份规则只在换模型时才生效。
+		if err := validateModelGenerationParameters(ctx.Domain, kind, nodeSelectedModel(node), mergeParameters(base, stringParameters(patch))); err != nil {
+			return nil, err
+		}
+	}
+	descriptor, _ := capability.BuiltinRegistry().Resolve(kind)
+	metadata, _ := node["metadata"].(map[string]any)
+	if metadata == nil {
+		metadata = map[string]any{}
+		node["metadata"] = metadata
+	}
+	if err := descriptor.ApplyPatch(node, patch); err != nil {
+		return nil, InvalidArg("invalid_parameter", err.Error())
+	}
+	if _, hasPrompt := patch["prompt"]; hasPrompt {
+		delete(metadata, "promptTemplateOperation")
+		delete(metadata, "promptTemplateVariables")
+	}
+	return patch, nil
+}
+
+// Single draft validator for a node edit and storyboard production preparation.
+// base 是节点上已有的草稿参数（新建节点时为空），校验要看它和 patch 合并后的结果。
+func resolveGenerationDraft(ctx *Context, kind string, raw map[string]json.RawMessage, base map[string]string) (map[string]any, error) {
 	descriptor, _ := capability.BuiltinRegistry().Resolve(kind)
 	patch := map[string]any{}
 	for name, value := range raw {
@@ -121,8 +159,86 @@ func resolveGenerationDraft(ctx *Context, kind string, raw map[string]json.RawMe
 			return nil, PreconditionFailed("generation_model_unavailable", "所选模型当前不可用", nil)
 		}
 		patch["model"] = choice.ModelKey
+		if err := validateModelGenerationParameters(ctx.Domain, kind, choice.ModelKey, mergeParameters(base, stringParameters(patch))); err != nil {
+			return nil, err
+		}
 	}
 	return patch, nil
+}
+
+// validateModelGenerationParameters 用与真实请求同一份型号族规则，在写草稿、
+// 准备分镜和提交整片之前拦住模型不接受的尺寸；等上游拒绝时请求已经发出去了。
+func validateModelGenerationParameters(domain Domain, kind, modelKey string, params map[string]string) error {
+	if kind == "video" {
+		return validateVideoResolutionParameter(domain, modelKey, params["vquality"])
+	}
+	if kind != "image" {
+		return nil
+	}
+	modelName := strings.TrimSpace(modelKey)
+	if i := strings.LastIndex(modelName, "::"); i >= 0 {
+		modelName = strings.TrimSpace(modelName[i+2:])
+	}
+	family := providerpreset.SeedreamFamily(modelName)
+	if family == "" {
+		return nil
+	}
+	if _, err := providerpreset.ResolveSeedreamSize(family, params["size"], params["seedreamMode"] == "layers"); err != nil {
+		return InvalidArg("invalid_parameter", err.Error())
+	}
+	return nil
+}
+
+// validateVideoResolutionParameter 的合法取值来自同一份模型目录，避免助手写入
+// 目录里不存在的档位，直到提交生成才被上游拒绝。
+func validateVideoResolutionParameter(domain Domain, modelKey, value string) error {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	reader, ok := domain.(ModelCatalogReader)
+	if !ok || reader == nil {
+		return nil
+	}
+	catalog, err := reader.AgentModelCatalog()
+	if err != nil || catalog == nil {
+		return nil
+	}
+	capability := findCatalogModelCapability(catalog, modelKey)
+	if capability == nil || capability.Video == nil || len(capability.Video.Resolutions) == 0 {
+		return nil
+	}
+	// auto/default/medium/high 是自动档位，不参与明确档位校验。
+	if modelcatalog.IsAutomaticVideoResolution(value) {
+		return nil
+	}
+	if modelcatalog.VideoResolutionNameRequest(capability.Video, value) != "" {
+		return nil
+	}
+	return InvalidArg("invalid_parameter", "当前模型不支持 "+value+" 分辨率，可选 "+strings.Join(capability.Video.Resolutions, "、"))
+}
+
+func stringParameters(values map[string]any) map[string]string {
+	params := map[string]string{}
+	for key, value := range values {
+		if text, ok := value.(string); ok {
+			params[key] = text
+		}
+	}
+	return params
+}
+
+// mergeParameters 把节点现状和本次 patch 合并，patch 覆盖节点。只传 patch 会漏掉
+// 「节点正在拆图层、这次只改尺寸」这类组合。
+func mergeParameters(base, patch map[string]string) map[string]string {
+	merged := make(map[string]string, len(base)+len(patch))
+	for key, value := range base {
+		merged[key] = value
+	}
+	for key, value := range patch {
+		merged[key] = value
+	}
+	return merged
 }
 
 func validateDraftValue(name, value string) error {
@@ -141,23 +257,11 @@ func validateDraftValue(name, value string) error {
 			(name == "audioPitch" && (number < -12 || number > 12)) || (name == "audioVolume" && (number < 0 || number > 1)) {
 			return invalid()
 		}
-	case "audioSampleRate":
-		// 上游 doubao-seed-audio-1.0 只接受这几个采样率
-		switch value {
-		case "8000", "16000", "24000", "32000", "44100":
-		default:
-			return invalid()
-		}
 	case "audioFormat":
 		if !strings.Contains("|mp3|wav|pcm|flac|aac|opus|ogg|m4a|", "|"+value+"|") {
 			return invalid()
 		}
-	case "audioLyrics":
-		// 歌词：允许留空（纯器乐），但不接受控制字符。
-		if strings.ContainsAny(value, "\x00\x01\x02\x03\x04\x05\x06\x07\x08") {
-			return invalid()
-		}
-	case "size", "quality", "vquality", "audioVoice":
+	case "size", "quality", "vquality", "audioVoice", "videoEditOperation":
 		if strings.TrimSpace(value) == "" {
 			return invalid()
 		}

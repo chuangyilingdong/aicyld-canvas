@@ -21,8 +21,8 @@ test("hydrates a completed text task from the generation result before consuming
             config: {} as never,
         },
         {
-            bindTask: () => undefined,
             prepareTarget: async () => undefined,
+            bindTask: () => undefined,
             consumeTask: async (task) => {
                 consumedTask = task;
             },
@@ -49,8 +49,8 @@ test("preserves existing text task result fields while hydrating the final text"
     await runCanvasGenerationTaskToConsumer(
         { projectId: "canvas-1", nodeId: "text-node-2", mode: "text", prompt: "你好", config: {} as never },
         {
-            bindTask: () => undefined,
             prepareTarget: async () => undefined,
+            bindTask: () => undefined,
             consumeTask: async (task) => {
                 consumedTask = task;
             },

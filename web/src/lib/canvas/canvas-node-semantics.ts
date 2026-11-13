@@ -13,17 +13,16 @@ function normalizeAudioSetting(metadata: CanvasNodeMetadata): CanvasNodeMetadata
 }
 
 export function isCanvasMediaNode(node: CanvasNodeData | null | undefined): boolean {
-    return node?.type === CanvasNodeType.Image || node?.type === CanvasNodeType.Video || node?.type === CanvasNodeType.Audio || node?.type === CanvasNodeType.Upscale;
+    return node?.type === CanvasNodeType.Image || node?.type === CanvasNodeType.Video || node?.type === CanvasNodeType.Audio;
 }
 
-function hasMediaResource(node: CanvasNodeData): boolean {
+export function hasMediaResource(node: CanvasNodeData): boolean {
     return Boolean(node.metadata?.content || node.metadata?.storageKey || node.metadata?.previewContent || node.metadata?.fileUpload);
 }
 
 /** Reads explicit semantics first and falls back to legacy persisted data. */
 export function canvasMediaNodeRole(node: CanvasNodeData | null | undefined): CanvasMediaNodeRole | null {
     if (!node || !isCanvasMediaNode(node)) return null;
-    if (node.type === CanvasNodeType.Upscale && !hasMediaResource(node)) return null;
     return node.metadata?.nodeRole || (hasMediaResource(node) ? "result" : "generator");
 }
 
@@ -79,16 +78,12 @@ export function canvasMediaNodeSemanticLabel(node: CanvasNodeData | null | undef
 }
 
 export function canOpenCanvasNodePromptPanel(node: CanvasNodeData | null | undefined): boolean {
-    if (!node) return false;
+    if (!node || node.metadata?.reusableWorkflow || node.metadata?.workflowSlot) return false;
     if (isCanvasMediaNode(node)) {
-        return canvasMediaNodeRole(node) === "generator"
-            || (canvasMediaNodeOrigin(node) === "generated" && Boolean((node.metadata?.composerContent || node.metadata?.prompt)?.trim()));
+        return canvasMediaNodeRole(node) === "generator" || canvasMediaNodeOrigin(node) === "generated";
     }
-    return node.type !== CanvasNodeType.Script
-        && node.type !== CanvasNodeType.Drawing
-        && node.type !== CanvasNodeType.Panorama
-        && node.type !== CanvasNodeType.Director
-        && node.type !== "art-critique";
+    // Generation is opt-in; viewers and containers never inherit a composer.
+    return node.type === CanvasNodeType.Config || node.type === CanvasNodeType.Text || node.type === CanvasNodeType.Skill;
 }
 
 /** Adds durable semantics to legacy media nodes without mutating the loaded snapshot. */

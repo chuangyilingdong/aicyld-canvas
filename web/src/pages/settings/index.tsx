@@ -9,14 +9,17 @@ import { ChannelSettingsPane, channelValidationError, focusInvalidChannelField, 
 import { ModelDefaultGrid } from "./model-default-grid";
 import DiagnosticsPanel from "./diagnostics-panel";
 import { StorageSettingsPane } from "./storage-settings-pane";
+import { AssistantSettingsPane } from "./assistant-settings-pane";
+import { DepthComponentsPanel } from "@/components/depth-components-panel";
 import { ReferenceStoragePane } from "./reference-storage-pane";
 import { getDesktopAppBinding } from "@/services/desktop-runtime";
 import { PageHeader } from "@/components/layout/workspace-page";
+import { canOpenLocalStorageSettings } from "@/services/workspace-mode";
 
-type ConfigSectionKey = "channels" | "models" | "storage" | "diagnostics";
+type ConfigSectionKey = "channels" | "models" | "assistant" | "storage" | "diagnostics";
 
 export function isConfigSection(value: string | null): value is ConfigSectionKey {
-    return value === "channels" || value === "storage" || value === "diagnostics";
+    return value === "channels" || value === "assistant" || value === "storage" || value === "diagnostics";
 }
 
 export default function SettingsPage() {
@@ -25,22 +28,23 @@ export default function SettingsPage() {
     const [searchParams, setSearchParams] = useSearchParams();
     const requestedSection = searchParams.get("section");
     const customChannelsEnabled = useUserStore((state) => state.features.customChannelsEnabled);
-    const initialSection = isConfigSection(requestedSection) ? requestedSection : "channels";
+    const nativeStorage = Boolean(getDesktopAppBinding()?.StorageSettings);
+    const storageSettingsAvailable = canOpenLocalStorageSettings(nativeStorage);
+    const initialSection = isConfigSection(requestedSection) && (requestedSection !== "storage" || storageSettingsAvailable) ? requestedSection : "channels";
     const [activeTab, setActiveTab] = useState<ConfigSectionKey>(initialSection === "models" ? "channels" : initialSection);
     const config = useConfigStore((state) => state.config);
     const effectiveConfig = useEffectiveConfig();
     const updateConfig = useConfigStore((state) => state.updateConfig);
     const shouldPromptContinue = searchParams.get("continue") === "1";
     const userChannels = config.channels.filter((channel) => channel.scope !== "system");
-    const nativeStorage = Boolean(getDesktopAppBinding()?.StorageSettings);
     useLayoutEffect(() => {
         document.body.classList.add("app-user-overlays");
         return () => document.body.classList.remove("app-user-overlays");
     }, []);
 
     useEffect(() => {
-        setActiveTab(isConfigSection(requestedSection) && (requestedSection !== "storage" || nativeStorage) ? requestedSection : "channels");
-    }, [requestedSection, nativeStorage]);
+        setActiveTab(isConfigSection(requestedSection) && (requestedSection !== "storage" || storageSettingsAvailable) ? requestedSection : "channels");
+    }, [requestedSection, storageSettingsAvailable]);
 
     const selectSection = (section: ConfigSectionKey) => {
         setActiveTab(section);
@@ -66,30 +70,8 @@ export default function SettingsPage() {
         navigate(-1);
     };
 
-    // 托管部署（hb.aicyld.com.cn）：模型渠道由平台统一维护，画布内只读展示。
-    const hostedReadOnly = !customChannelsEnabled;
-
     const panes: Record<Exclude<ConfigSectionKey, "diagnostics">, ReactNode> = {
-        channels: hostedReadOnly ? (
-            <SettingsPane>
-                <div className="settings-pane-header">
-                    <div className="min-w-0">
-                        <h2>模型配置</h2>
-                        <p>模型渠道由平台统一维护，画布内不再提供渠道、密钥与连接配置。下方为当前已接入的模型，如需调整请联系管理员。</p>
-                    </div>
-                </div>
-                <div className="settings-section">
-                    {effectiveConfig.channels.length ? effectiveConfig.channels.map((channel) => (
-                        <div className="settings-pane-header" key={channel.id}>
-                            <div className="min-w-0">
-                                <h3>{channel.name || channel.id}</h3>
-                                <p>{channel.models.length ? channel.models.join(" / ") : "未配置模型"}</p>
-                            </div>
-                        </div>
-                    )) : <p>当前没有可用模型，请联系管理员配置平台渠道。</p>}
-                </div>
-            </SettingsPane>
-        ) : (
+        channels: (
             <SettingsPane>
                 <ChannelSettingsPane onOpenDiagnostics={() => selectSection("diagnostics")} />
                 <div className="settings-section model-default-section">
@@ -102,12 +84,22 @@ export default function SettingsPage() {
                 </div>
             </SettingsPane>
         ),
+        assistant: (
+            <SettingsPane>
+                <PageHeader title="助手设置" />
+                <AssistantSettingsPane />
+            </SettingsPane>
+        ),
         storage: (
             <SettingsPane>
                 <PageHeader title="存储设置" />
                 <div className="storage-settings-sections">
                     <StorageSettingsPane />
                     <ReferenceStoragePane />
+                    <section className="settings-section storage-settings-block space-y-4" aria-label="深度捕捉组件">
+                        <div className="settings-pane-header"><h2>深度捕捉组件</h2></div>
+                        <DepthComponentsPanel />
+                    </section>
                 </div>
             </SettingsPane>
         ),
@@ -115,8 +107,8 @@ export default function SettingsPage() {
             <SettingsPane>
                 <div className="settings-pane-header">
                     <div className="min-w-0">
-                        <h2>{hostedReadOnly ? "可用模型" : "模型选择"}</h2>
-                        <p>{hostedReadOnly ? "模型由平台统一提供，选择结果已内置，无需手动配置。" : "按领域选择默认模型；模型能力与请求协议在渠道“模型与能力”中配置。"}</p>
+                        <h2>模型选择</h2>
+                        <p>按领域选择默认模型；模型能力与请求协议在渠道“模型与能力”中配置。</p>
                     </div>
                 </div>
                 <div className="settings-section">

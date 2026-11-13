@@ -45,8 +45,8 @@
 | `create.body.prompt` | `{"$ref":"request.prompt"}` |
 | `create.body.frame_rate` | `24` |
 | `create.body.num_frames` | `{"$min":[441,{"$add":[{"$ceilStep":[{"$multiply":[{"$coalesce":[{"$ref":"request.duration"},5]},24]},8]},1]}]}` |
-| `create.body.image` | `{"$if":{"condition":{"$eq":[{"$len":{"$filter":{"from":{"$sortByOrder":{"$ref":"request.images"}},"as":"media","where":{"$in":[{"$ref":"media.role"},["first_frame","last_frame"]]}}}},1]},"then":{"$first":{"$map":{"from":{"$filter":{"from":{"$sortByOrder":{"$ref":"request.images"}},"as":"media","where":{"$in":[{"$ref":"media.role"},["first_frame","last_frame"]]}}},"as":"media","in":{"$ref":"media.value"}}}},"else":null}}` |
-| `create.body.extra_body` | `{"$if":{"condition":{"$gt":[{"$len":{"$filter":{"from":{"$sortByOrder":{"$ref":"request.images"}},"as":"media","where":{"$in":[{"$ref":"media.role"},["first_frame","last_frame"]]}}}},1]},"then":{"image":{"$map":{"from":{"$filter":{"from":{"$sortByOrder":{"$ref":"request.images"}},"as":"media","where":{"$in":[{"$ref":"media.role"},["first_frame","last_frame"]]}}},"as":"media","in":{"$ref":"media.value"}}},"mode":"keyframes"},"else":null}}` |
+| `create.body.image` | `{"$if":{"condition":{"$eq":[{"$len":{"$filter":{"from":{"$sortByOrder":{"$ref":"request.images"}},"as":"media","where":{"$in":[{"$ref":"media.role"},["first_frame","last_frame",""]]}}}},1]},"then":{"$first":{"$map":{"from":{"$filter":{"from":{"$sortByOrder":{"$ref":"request.images"}},"as":"media","where":{"$in":[{"$ref":"media.role"},["first_frame","last_frame",""]]}}},"as":"media","in":{"$ref":"media.value"}}}},"else":null}}` |
+| `create.body.extra_body` | `{"$if":{"condition":{"$gt":[{"$len":{"$filter":{"from":{"$sortByOrder":{"$ref":"request.images"}},"as":"media","where":{"$in":[{"$ref":"media.role"},["first_frame","last_frame",""]]}}}},1]},"then":{"image":{"$map":{"from":{"$filter":{"from":{"$sortByOrder":{"$ref":"request.images"}},"as":"media","where":{"$in":[{"$ref":"media.role"},["first_frame","last_frame",""]]}}},"as":"media","in":{"$ref":"media.value"}}},"mode":"keyframes"},"else":null}}` |
 | `poll.method` | `"GET"` |
 | `poll.path` | `"/agnesapi"` |
 | `poll.contentType` | `"application/json"` |
@@ -89,7 +89,7 @@
   "id": "agnes-video-v20",
   "name": "Agnes Video V2.0",
   "version": "2.0.0",
-  "author": "灵动TV Contributors",
+  "author": "BeefTV Contributors",
   "description": "Agnes Video V2.0 独立请求协议插件。",
   "documentation": "<当前插件的完整 documentation，由 README.md 与 docs/interface.md 拼接而成；为避免 JSON 递归，此处不重复展开正文。>",
   "permissions": [
@@ -123,6 +123,11 @@
         ],
         "baseUrl": "https://apihub.agnes-ai.com/v1",
         "requiresPublicMediaUrls": true,
+        "mediaTransport": {
+          "image": "inline",
+          "video": "url",
+          "audio": "url"
+        },
         "auth": {
           "type": "bearer",
           "field": "apiKey"
@@ -295,7 +300,8 @@
                           },
                           [
                             "first_frame",
-                            "last_frame"
+                            "last_frame",
+                            ""
                           ]
                         ]
                       }
@@ -368,7 +374,8 @@
                               },
                               [
                                 "first_frame",
-                                "last_frame"
+                                "last_frame",
+                                ""
                               ]
                             ]
                           }
@@ -396,7 +403,8 @@
                               },
                               [
                                 "first_frame",
-                                "last_frame"
+                                "last_frame",
+                                ""
                               ]
                             ]
                           }
@@ -432,7 +440,8 @@
                               },
                               [
                                 "first_frame",
-                                "last_frame"
+                                "last_frame",
+                                ""
                               ]
                             ]
                           }
@@ -460,7 +469,8 @@
                               },
                               [
                                 "first_frame",
-                                "last_frame"
+                                "last_frame",
+                                ""
                               ]
                             ]
                           }

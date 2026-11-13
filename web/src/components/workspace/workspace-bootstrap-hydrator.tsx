@@ -8,9 +8,9 @@ import { preloadWorkspaceRoute } from "@/lib/workspace-route-modules";
 import { applyUserSession, localWorkspaceConfig } from "@/lib/user-session";
 import { getWorkspaceBootstrap, type WorkspaceBootstrapPayload } from "@/services/api/workspace";
 import { isSignInRequiredError } from "@/services/api/request";
+import { applyPlatformFeatureModels } from "@/lib/canvas/feature-models";
 import { isHostedBuild, isLocalWorkspaceMode } from "@/services/workspace-mode";
 import { commitModelConfig, flushModelConfig, hydrateModelConfig } from "@/services/model-config-repository";
-import { applyPlatformFeatureModels } from "@/lib/canvas/feature-models";
 import { normalizeConfigSnapshot, useConfigStore } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
 
@@ -55,8 +55,6 @@ export function WorkspaceBootstrapHydrator({ children }: { children: ReactNode }
     useEffect(() => {
         let ready = false;
         const unsubscribe = useConfigStore.subscribe((state) => {
-            // 托管形态：模型渠道由平台统一维护，浏览器不再回写服务端配置。
-            if (!isLocalWorkspaceMode()) return;
             if (!shouldSaveLocalModelConfig({ subscriptionReady: ready, modelConfigReady: modelConfigReady.current, channelCount: state.config.channels.length })) return;
             void commitModelConfig(state.config);
         });
@@ -91,8 +89,6 @@ export async function initializeWorkspaceState<T>({
         try {
             await applySession(await loadWorkspace());
         } catch (error) {
-            // 托管部署（hb.aicyld.com.cn）不能静默降级成"空白的本地工作区"：
-            // 会话失效交给 401 跳转处理，其它失败由外层显示错误态并允许重试。
             if (isSignInRequiredError(error) || isHostedBuild()) throw error;
             // Keep the desktop usable while the embedded backend is still
             // starting. There is no remote/account fallback in a local build.
@@ -113,11 +109,7 @@ export function shouldSaveLocalModelConfig({ subscriptionReady, modelConfigReady
 async function hydrateLocalModelConfig() {
     const result = await hydrateModelConfig();
     const normalized = normalizeConfigSnapshot({ config: result.config }).config;
-    // 托管形态：服务端下发的渠道（含平台统一渠道）必须原样保留，不做本地化过滤。
-    // 托管形态：平台内置「功能 → 模型」作为各模式的默认模型（用户仍可在节点上改）。
-    const normalizedConfig = isLocalWorkspaceMode()
-        ? localWorkspaceConfig(normalized)
-        : applyPlatformFeatureModels(normalized);
+    const normalizedConfig = applyPlatformFeatureModels(isLocalWorkspaceMode() ? localWorkspaceConfig(normalized) : normalized);
     useConfigStore.getState().replaceConfig(normalizedConfig);
     if (isLocalWorkspaceMode() && shouldPersistHydratedModelConfig(result.health)) await commitModelConfig(normalizedConfig);
 }

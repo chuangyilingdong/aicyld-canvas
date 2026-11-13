@@ -60,3 +60,41 @@ func TestBusinessCatalogOutboundPostsRequireWriteClient(t *testing.T) {
 		}
 	}
 }
+
+func TestBusinessCatalogMarketReadsCannotReachPublishingConfirmation(t *testing.T) {
+	routes := gin.RoutesInfo{{Method: "GET", Path: "/api/skills/:id"}, {Method: "GET", Path: "/api/skills/:id/file"}}
+	public := []string{"/skills"}
+	for _, path := range public {
+		routes = append(routes, gin.RouteInfo{Method: "GET", Path: "/api" + path})
+	}
+	private := []struct{ method, path string }{
+		{"GET", "/skills/review/submissions"},
+		{"POST", "/skills/review/submissions/:submissionId/review"},
+		{"POST", "/skills/:id/unpublish"},
+		{"GET", "/skills/:id/submissions"},
+		{"POST", "/skills/:id/submissions"},
+		{"POST", "/skills/submissions/:submissionId/submit"},
+	}
+	for _, r := range private {
+		routes = append(routes, gin.RouteInfo{Method: r.method, Path: "/api" + r.path})
+	}
+	c := NewBusinessCatalog(routes)
+	if len(c.Tools) != 3 {
+		t.Fatalf("publishing routes leaked: %+v", c.Tools)
+	}
+	for _, path := range []string{"/skills", "/skills/example", "/skills/example/file"} {
+		for _, prefix := range []string{"", "/api"} {
+			if tool, ok := c.Match("GET", prefix+path); !ok || !tool.ReadOnly {
+				t.Fatalf("public read lost: %s%s", prefix, path)
+			}
+		}
+	}
+	for _, r := range private {
+		for _, prefix := range []string{"", "/api"} {
+			path := strings.ReplaceAll(strings.ReplaceAll(r.path, ":id", "forged-plan"), ":submissionId", "forged-submission")
+			if _, ok := c.Match(r.method, prefix+path); ok {
+				t.Fatalf("private route callable: %s %s%s", r.method, prefix, r.path)
+			}
+		}
+	}
+}

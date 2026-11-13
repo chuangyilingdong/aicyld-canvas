@@ -1,6 +1,7 @@
 import type { CanvasColorGrade } from "@/lib/canvas/canvas-color-grade";
 import type { WorkflowDefinition, WorkflowMediaType, WorkflowNodeRole, WorkflowRun, WorkflowValue } from "@/services/api/canvas-workflows";
 import type { MediaConversionNodeState } from "@/lib/media-conversion/contracts";
+import type { CanvasUpscaleSettings, CanvasUpscaleBatch } from "@/lib/canvas/canvas-upscale";
 import type { AssetCategory } from "@/lib/asset-category";
 import type { PortraitTextureSettings } from "@/lib/canvas/canvas-portrait-texture";
 import type { StyleExecutionPlan } from "@/lib/canvas/style-profile";
@@ -69,7 +70,7 @@ export type CanvasGenerationBatchStatus = "queued" | "running" | "partial_failed
 export type CanvasGenerationBatchItemStatus = "waiting" | "submitting" | "queued" | "running" | "succeeded" | "failed" | "cancelled";
 export type CanvasImageGenerationType = "generation" | "edit";
 export type CanvasWorkflowKind = "free" | "script" | "story_input" | "character" | "scene" | "storyboard" | "shot" | "final" | "styleboard" | "reference_set" | "reference_video" | "action_board" | "video_retake";
-export type CanvasVideoEditOperation = "text_to_video" | "image_to_video" | "first_last_frame" | "reference_to_video" | "extend" | "inpaint" | "replace_element" | "camera_motion" | "style_transfer" | "audio_to_video" | "compare_versions" | "concat";
+export type CanvasVideoEditOperation = "text_to_video" | "image_to_video" | "reference_to_video" | "extend" | "inpaint" | "replace_element" | "camera_motion" | "style_transfer" | "audio_to_video" | "compare_versions" | "concat" | "draft_to_final";
 export type CanvasSkillCategory = "writing" | "storyboard" | "image" | "video" | "utility";
 export type CanvasSkillOutputMode = "text" | "json" | "image_prompt" | "workflow";
 export type StoryboardColumn =
@@ -155,6 +156,7 @@ export type CanvasGenerationBatchItem = {
     status: CanvasGenerationBatchItemStatus;
     retryCount: number;
     errorDetails?: string;
+    errorCode?: string;
     submissionUncertain?: boolean;
 };
 
@@ -185,12 +187,6 @@ export type CanvasSkillSnapshot = {
     outputContract: string;
     version: number;
     tags: string[];
-};
-
-export type MidjourneyButton = {
-    customId: string;
-    label?: string;
-    emoji?: string;
 };
 
 export type CanvasNodeMetadata = {
@@ -265,8 +261,8 @@ export type CanvasNodeMetadata = {
     locked?: boolean;
     errorDetails?: string;
     generationErrorCode?: string;
+    generationPreflightError?: string;
     outputParameterWarning?: string;
-    resourceReloadAvailable?: boolean;
     failedPromptFingerprint?: string;
     failedInputFingerprint?: string;
     lastGenerationRequestFingerprint?: string;
@@ -282,23 +278,26 @@ export type CanvasNodeMetadata = {
     size?: string;
     quality?: string;
     transparentBackground?: string;
+    imageLayer?: Record<string, unknown>;
+    seedreamMode?: string;
+    seedreamMaxImages?: string;
+    seedreamOutputFormat?: string;
+    seedreamOptimize?: string;
+    seedreamWatermark?: string;
     count?: number;
     textCount?: number;
     seconds?: string;
     vquality?: string;
     generateAudio?: string;
     watermark?: string;
+    draft?: string;
     audioVoice?: string;
-    /** 音频节点的用途：voice = 配音（TTS），music = 音乐 / BGM。决定用哪个平台内置模型。 */
-    audioPurpose?: string;
     audioFormat?: string;
-    audioSampleRate?: string;
     audioSpeed?: string;
     /** 原版 LibTV 音频节点的音高/音量控制；以字符串保存以兼容工作流字段。 */
     audioPitch?: string;
     audioVolume?: string;
     audioInstructions?: string;
-    audioLyrics?: string;
     references?: string[];
     naturalWidth?: number;
     naturalHeight?: number;
@@ -368,9 +367,12 @@ export type CanvasNodeMetadata = {
     actionBoardColumns?: number;
     taskId?: string;
     taskType?: string;
+    taskOutcome?: import("@/lib/task-outcome").TaskOutcome;
+    taskOutcomeSource?: "local";
+    generationFailure?: import("@/lib/canvas/canvas-node-failure-state").CanvasFailureRecord;
     taskClientOperationId?: string;
-    /** 当前生成尝试的提交状态；unknown 时禁止自动或手动重新提交。 */
-    generationSubmissionState?: "submitting" | "accepted" | "rejected" | "unknown";
+    taskOutputIndex?: number;
+    generationSubmissionState?: "submitting" | "unknown" | "accepted" | "rejected";
     taskClientOperationInput?: string;
     taskClientOperationTerminal?: boolean;
     retryOf?: string;
@@ -384,21 +386,9 @@ export type CanvasNodeMetadata = {
     taskDurationMs?: number;
     taskErrorCode?: string;
     generationErrorSummary?: string;
+    generationProviderCode?: string;
     taskFailureDiagnostics?: import("@/lib/generation-error").GenerationFailureDiagnostics;
     taskProviderRequestId?: string;
-    /** Upstream Midjourney task id. Never populate this from the local task-center id. */
-    midjourneyParentTaskId?: string;
-    midjourneyAction?: string;
-    midjourneyVersion?: string;
-    midjourneyStage?: "inpaint" | "modal";
-    midjourneyNextAction?: string;
-    midjourneyParameters?: Record<string, unknown>;
-    midjourneyButtons?: MidjourneyButton[];
-    midjourneyMaskSourceNodeId?: string;
-    midjourneyModalSubmittedTaskId?: string;
-    midjourneyModalStartedAt?: string;
-    /** Zero-based output position used to derive Midjourney's one-based index. */
-    taskOutputIndex?: number;
     taskOfficialStatus?: "pending" | "processing" | "completed" | "failed" | "cancelled";
     taskReceiptRecorded?: boolean;
     taskCreatedAt?: string;
@@ -415,6 +405,10 @@ export type CanvasNodeMetadata = {
     };
     sessionId?: string;
     videoEditOperation?: CanvasVideoEditOperation;
+    videoDraftTaskId?: string;
+    returnLastFrame?: string;
+    lastFrameUrl?: string;
+    lastFrameStorageKey?: string;
     videoMergeSourceNodeIds?: string[];
     depthSourceNodeId?: string;
     arkPrivateAssetUpload?: string;
@@ -449,6 +443,7 @@ export type CanvasNodeMetadata = {
     };
     videoCrop?: { x: number; y: number; width: number; height: number };
     videoCropSourceNodeId?: string;
+    videoSubtitleEraseSourceNodeId?: string;
     videoRetakeSourceNodeId?: string;
     videoRetakeCount?: number;
     videoRetakeMax?: number;
@@ -489,19 +484,13 @@ export type CanvasNodeMetadata = {
     /** 调色节点的参数；缺省视为未调色。 */
     colorGrade?: CanvasColorGrade;
     mediaConversion?: MediaConversionNodeState;
-    /** Dedicated server-side media upscale settings and last confirmed quote. */
-    mediaUpscale?: {
-        model: string;
-        resolution?: "720p" | "1080p" | "2K" | "4K";
-        quality?: "Low" | "Medium" | "High" | "Max" | "Ultra";
-        sourceNodeId?: string;
-        sourceResourceId?: string;
-        reservationCny?: number;
-        quotedAt?: number;
-    };
+    upscale?: CanvasUpscaleSettings;
+    upscaleBatch?: CanvasUpscaleBatch;
+    generatedFromProcessingNodeId?: string;
     /** 用户手动拉伸过尺寸；图片按真实比例自动适配时避让它。 */
     manualSize?: boolean;
     storyboard?: StoryboardData;
+    storyboardVisibleColumnsCustomized?: boolean;
     storyboardShotDuration?: StoryboardShotDuration;
     storyboardShotCount?: StoryboardShotCount;
     storyboardVideoInputMode?: StoryboardVideoInputMode;

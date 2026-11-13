@@ -1,40 +1,54 @@
 import { isCanvasNodeGenerating } from "@/lib/canvas/canvas-node-task-state";
+import { createClientId } from "@/lib/client-id";
 import { useCallback, useRef, type Dispatch, type SetStateAction } from "react";
 import { App } from "antd";
 
-import { buildNodeGenerationContext, hydrateNodeGenerationContext, type NodeGenerationContext } from "@/components/canvas/canvas-node-generation";
+import { compileNodeGenerationReferences, buildNodeGenerationContext, hydrateNodeGenerationContext } from "@/components/canvas/canvas-node-generation";
 import type { CanvasNodeGenerationMode } from "@/components/canvas/canvas-node-prompt-panel";
-import { isGenerationCanceled } from "@/lib/canvas/canvas-project-generation";
+import { buildVideoGenerationMetadata, isGenerationCanceled, MISSING_GENERATION_TASK_IDENTITY_DETAILS } from "@/lib/canvas/canvas-project-generation";
 import { buildConfirmedGenerationConfig } from "./canvas-assistant-proposal-execution";
 import type { ConfirmedGenerationInputs } from "./canvas-assistant-proposal-snapshot";
 import { canReleaseCanvasGenerationSource, canvasGenerationPromptMetadata, canvasGenerationRequestFingerprint, runCanvasGenerationSubmissionOnce } from "@/lib/canvas/canvas-generation-submission";
+import { resolvedCanvasGenerationRequirements } from "@/lib/canvas/canvas-generation-config";
 import { isGenerationTaskCapacityError } from "@/lib/canvas/canvas-generation-batch";
 import { buildPortraitTexturePrompt } from "@/lib/canvas/canvas-portrait-texture";
 import { buildCameraPrompt } from "@/lib/canvas/camera-prompt-library";
 import { buildTextRewritePrompt } from "@/lib/prompts";
 import { resolveCanvasStyleExecution } from "@/lib/canvas/canvas-style-execution";
+import { imagePromptLengthError } from "@/lib/canvas/image-prompt-limits";
 import { generationErrorMessage } from "@/lib/generation-error";
 import { navigateToSettings } from "@/lib/settings-navigation";
-import { mergedImageCapabilityConfig, modelCompatibilityError, modelGroupReferenceLimits, modelPromptLengthError, modelRequestOptions, type ModelRequirements } from "@/lib/model-selection";
+import { modelCompatibilityError, modelGroupReferenceLimits, modelRequestOptions, type ModelRequirements } from "@/lib/model-selection";
+import { resolveTextMediaModel } from "@/lib/media-review-model";
+import { referencedAssetIdsInPrompt } from "@/lib/canvas/canvas-resource-references";
 import type { Skill } from "@/services/api/skills";
 import { skillRuntime } from "@/services/skill-runtime";
-import { prepareBackendGenerationTask } from "@/services/api/generation-task";
-import { quoteGenerationTask, type GenerationBillingQuote } from "@/services/api/task-billing";
-import type { CreateTaskInput, GenerationTask } from "@/services/api/task-center";
+import { loadWorkspaceAssetsForUse } from "@/services/workspace-asset-read";
+import { recordDiagnosticEvent } from "@/services/diagnostics/client-diagnostics";
+import { buildCanvasGenerationQuoteInput } from "@/lib/canvas/canvas-generation-quote-input";
+import { buildGenerationQuotePlan, totalGenerationQuotePoints } from "@/lib/canvas/canvas-generation-quote-plan";
+import { quoteGenerationTask } from "@/services/api/task-billing";
+import { findGenerationTaskByOperation, queryGenerationTask, waitForGenerationTask, type GenerationTask } from "@/services/api/task-center";
 import { useConfigStore, useEffectiveConfig, resolveModelRequestConfig } from "@/stores/use-config-store";
 import { seedanceReferenceRatioWarning } from "@/lib/seedance-channel-warning";
-import type { Asset } from "@/stores/use-asset-store";
+import { useAssetStore, type Asset } from "@/stores/use-asset-store";
+import { CanvasGenerationTargetSaveError } from "@/services/canvas-generation-errors";
+import { cleanupPendingGenerationConnections } from "@/lib/canvas/canvas-generation-connection-cleanup";
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData } from "@/types/canvas";
-import { getGenerationCount } from "@/lib/canvas/canvas-project-generation";
-import { isImageEditModel, withPlatformImageEditModel } from "@/lib/canvas/feature-models";
 
 import { executeImageGeneration } from "./canvas-image-generation-executor";
 import { executeAudioGeneration, executeVideoGeneration } from "./canvas-media-generation-executors";
 import { executeTextGeneration } from "./canvas-text-generation-executor";
-import { canvasGenerationFailureMetadata, canvasGenerationRetryBlocked, canvasImageGenerationHasPendingResult, canvasImagePendingResultMessage } from "./canvas-generation-failure";
-import { createReferenceLinkResolver } from "./canvas-reference-links";
+import { canvasGenerationFailureMetadata, canvasImagePendingResultMessage } from "./canvas-generation-failure";
+import { canvasNodeHasPendingOutcomeResult, isNodeRegenerateBlocked, isNodeRegenerateConfirm, readNodeTaskOutcome, taskOutcomeCopy } from "@/lib/task-outcome";
+import { createReferenceLinkResolver } from "@/components/generation-reference-links";
+import { confirmCanvasGeneration, waitForCanvasPreparation } from "./canvas-generation-preflight";
+import { confirmCanvasBillingQuote } from "@/components/canvas/canvas-billing-confirmation";
+import { startOperation } from "@/stores/use-operation-progress";
+import type { CanvasPageUiStoreHook } from "@/stores/canvas/use-canvas-page-ui-store";
 
 type UseCanvasGenerationExecutorOptions = {
+    pageUi: CanvasPageUiStoreHook;
     projectId: string;
     domainProjectId?: string;
     addedSkills: Skill[];
@@ -43,9 +57,6 @@ type UseCanvasGenerationExecutorOptions = {
     connectionsRef: { current: CanvasConnection[] };
     setNodes: Dispatch<SetStateAction<CanvasNodeData[]>>;
     setConnections: Dispatch<SetStateAction<CanvasConnection[]>>;
-    setSelectedNodeIds: Dispatch<SetStateAction<Set<string>>>;
-    setSelectedConnectionId: Dispatch<SetStateAction<string | null>>;
-    setDialogNodeId: Dispatch<SetStateAction<string | null>>;
     setRunningNodeId: Dispatch<SetStateAction<string | null>>;
     startGenerationRequest: (targetNodeId: string, originNodeId: string, runningId?: string, controller?: AbortController) => AbortController;
     finishGenerationRequest: (targetNodeId: string, controller: AbortController) => void;
@@ -68,21 +79,12 @@ export type CanvasNodeGenerationOptions = {
     context?: { conversationId?: string; messageId?: string };
     retryContext?: { retryOf: string; attemptGroupId: string; clientOperationId: string };
     onTaskUpdate?: (task: GenerationTask) => void;
+    onSubmissionPlan?: (manifest: import("@/services/api/assistant-continuation").AssistantSubmissionManifest) => Promise<void>;
     skipDuplicateConfirmation?: boolean;
-    /** 助手提案等已有整批确认的入口，避免一次提案弹出多个报价框。 */
-    skipBillingConfirmation?: boolean;
-    /** 只完成素材准备和报价收集，不创建任务。 */
-    collectBillingQuote?: (plan: CanvasNodeBillingPlan) => void;
-    /** 助手整批确认后复用预报价阶段准备好的素材引用。 */
-    preparedBillingInput?: CreateTaskInput;
-};
-
-export type CanvasNodeBillingPlan = {
-    quote: GenerationBillingQuote;
-    preparedInput: CreateTaskInput;
 };
 
 export function useCanvasGenerationExecutor({
+    pageUi,
     projectId,
     domainProjectId,
     addedSkills,
@@ -91,9 +93,6 @@ export function useCanvasGenerationExecutor({
     connectionsRef,
     setNodes,
     setConnections,
-    setSelectedNodeIds,
-    setSelectedConnectionId,
-    setDialogNodeId,
     setRunningNodeId,
     startGenerationRequest,
     finishGenerationRequest,
@@ -105,441 +104,597 @@ export function useCanvasGenerationExecutor({
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const submissionLocksRef = useRef(new Map<string, Promise<unknown>>());
     const confirmDuplicateSubmission = useCallback(
-        () =>
-            new Promise<boolean>((resolve) => {
-                modal.confirm({
+        (signal: AbortSignal) =>
+            confirmCanvasGeneration((callbacks) => modal.confirm({
                     title: "再次生成相同内容？",
                     content: "当前节点已使用相同提示词、模型、参数和参考素材提交过任务。再次生成会新建任务，并可能再次消耗积分。",
                     okText: "仍然生成",
                     cancelText: "取消",
                     centered: true,
-                    onOk: () => resolve(true),
-                    onCancel: () => resolve(false),
-                });
-            }),
+                    ...callbacks,
+                }), signal),
         [modal],
     );
 
     return useCallback(
-        (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string, options?: CanvasNodeGenerationOptions) => {
-            let submissionReleased = false;
-            const submission = runCanvasGenerationSubmissionOnce(
+        (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string, options?: CanvasNodeGenerationOptions) =>
+            runCanvasGenerationSubmissionOnce(
                 submissionLocksRef.current,
                 nodeId,
                 async (releaseSubmission) => {
-                    const inputNodes = options?.confirmedInputs?.nodes ?? nodesRef.current;
-                    const inputConnections = options?.confirmedInputs?.connections ?? connectionsRef.current;
-                    const inputConfig = options?.confirmedInputs?.config ?? effectiveConfig;
-                    const inputAssets = options?.confirmedInputs?.assets ?? assets;
-                    const inputSkills = options?.confirmedInputs?.skills ?? addedSkills;
-                    const sourceNode = inputNodes.find((node) => node.id === nodeId);
-                    if (mode === "image" && canvasImageGenerationHasPendingResult(sourceNode, inputNodes)) {
-                        message.warning(canvasImagePendingResultMessage(sourceNode, inputNodes));
-                        return;
-                    }
-                    if (isCanvasNodeGenerating(nodesRef.current.find((node) => node.id === nodeId))) {
-                        message.info("该节点的生成任务仍在进行中，请等待完成后再生成");
-                        return;
-                    }
-                    if (sourceNode?.type === CanvasNodeType.Video && sourceNode.metadata?.videoEditOperation === "concat") {
-                        message.info("合并成片节点不直接重新生成，请重新选择源视频合并");
-                        return;
-                    }
-                    let generationConfig: ReturnType<typeof buildConfirmedGenerationConfig>;
-                    try {
-                        generationConfig = buildConfirmedGenerationConfig(inputConfig, sourceNode, mode, undefined, options?.confirmedModelKey);
-                    } catch (error) {
-                        message.error(generationErrorMessage(error));
-                        return;
-                    }
-                    const hasLiveBatchChildren =
-                        sourceNode?.type === CanvasNodeType.Image && (sourceNode.metadata?.batchChildIds || []).some((childId) => inputNodes.some((node) => node.id === childId && node.metadata?.batchRootId === sourceNode.id));
-                    const hasStaleImageBatchState =
-                        mode === "image" && sourceNode?.type === CanvasNodeType.Image && !sourceNode.metadata?.content && Boolean(sourceNode.metadata?.isBatchRoot || sourceNode.metadata?.batchChildIds?.length) && !hasLiveBatchChildren;
-                    if (hasStaleImageBatchState) {
-                        setNodes((current) =>
-                            current.map((node) => {
-                                if (node.id !== sourceNode.id) return node;
-                                const metadata = { ...node.metadata };
-                                delete metadata.isBatchRoot;
-                                delete metadata.batchChildIds;
-                                delete metadata.primaryImageId;
-                                delete metadata.imageBatchExpanded;
-                                delete metadata.batchUsesReferenceImages;
-                                return { ...node, metadata };
-                            }),
-                        );
-                    }
-                    if (!isAiConfigReady(generationConfig, generationConfig.model)) {
-                        navigateToSettings({ continueCreation: true });
-                        return;
-                    }
-
-                    const sourceTextContent = sourceNode?.type === CanvasNodeType.Text ? sourceNode.metadata?.content?.trim() || "" : "";
-                    const editingTextNode = mode === "text" && Boolean(sourceTextContent);
-                    let generationPrompt = mode === "image" && sourceNode?.metadata?.portraitTexture ? buildPortraitTexturePrompt(prompt, sourceNode.metadata.portraitTexture) : prompt;
-                    if (mode === "image" && sourceNode?.metadata?.cameraControl?.enabled) {
-                        const cameraControl = sourceNode.metadata.cameraControl;
-                        const cameraPrompt = buildCameraPrompt({ cameraId: cameraControl.camera, lensId: cameraControl.lens, focalLengthMm: cameraControl.focalLength, apertureF: cameraControl.aperture });
-                        generationPrompt = `${generationPrompt}\n${cameraPrompt}`;
-                    }
-                    const isPreparingEmptyImage = mode === "image" && sourceNode?.type === CanvasNodeType.Image && !sourceNode.metadata?.content;
-
-                    let rawGenerationContext: Awaited<ReturnType<typeof hydrateNodeGenerationContext>>;
-                    // AutoDL/其他声明式视频协议需要结构化参考素材；只有普通
-                    // 模型视频接口才把提示词视为纯文本输入。
-                    const usesWorkflowProvider = Boolean(mode !== "text" && generationConfig.taskWorkflowProvider && generationConfig.taskWorkflowProvider !== "model");
-                    // 普通视频协议只保留输入框文本（显式 @文本 引用仍会展开为真实内容）；声明式工作流还要保留连接媒体。
-                    const promptOnly = mode === "video" && !usesWorkflowProvider;
-                    try {
-                        const baseContext = buildNodeGenerationContext(
-                            nodeId,
-                            inputNodes,
-                            inputConnections,
-                            editingTextNode ? buildTextRewritePrompt(sourceTextContent, prompt) : generationPrompt,
-                            inputAssets,
-                            promptOnly,
-                        );
-                        const requirements = generationModelRequirements(mode, baseContext, sourceNode, generationConfig, true);
-                        generationConfig = buildConfirmedGenerationConfig(inputConfig, sourceNode, mode, requirements, options?.confirmedModelKey);
-                        const compatibilityError = usesWorkflowProvider ? "" : modelCompatibilityError(generationConfig, generationConfig.model, requirements);
-                        if (compatibilityError) throw new Error(`当前模型无法支持这组输入和参数：${compatibilityError}`);
-                        const referenceLimits = usesWorkflowProvider ? undefined : modelGroupReferenceLimits(inputConfig, generationConfig.model, mode, requirements);
-                        rawGenerationContext = await hydrateNodeGenerationContext(baseContext, projectId, domainProjectId, mode, mode === "video" && Boolean(referenceLimits?.maxAudios), !promptOnly, referenceLimits);
-                        const hydratedRequirements = generationModelRequirements(mode, rawGenerationContext, sourceNode, generationConfig);
-                        generationConfig = buildConfirmedGenerationConfig(inputConfig, sourceNode, mode, hydratedRequirements, options?.confirmedModelKey);
-                        const hydratedCompatibilityError = usesWorkflowProvider ? "" : modelCompatibilityError(generationConfig, generationConfig.model, hydratedRequirements);
-                        if (hydratedCompatibilityError) throw new Error(`当前模型无法支持这组输入和参数：${hydratedCompatibilityError}`);
-                    } catch (error) {
-                        const errorDetails = generationErrorMessage(error);
-                        message.error(errorDetails);
-                        return;
-                    }
-
-                    let skillExecution: Awaited<ReturnType<typeof skillRuntime.prepare<"canvas">>>;
-                    try {
-                        skillExecution = await skillRuntime.prepare({ profile: "canvas", prompt: rawGenerationContext.prompt, skills: inputSkills });
-                    } catch (error) {
-                        message.error(error instanceof Error ? error.message : "技能上下文加载失败");
-                        return;
-                    }
-                    let effectivePrompt = skillExecution.prompt.trim();
-                    let styleMetadata = {};
-                    if (mode === "image") {
-                        try {
-                            const styleRuntime = resolveCanvasStyleExecution(inputNodes, sourceNode, effectivePrompt, generationConfig, mode);
-                            if (styleRuntime) {
-                                effectivePrompt = styleRuntime.prompt;
-                                styleMetadata = { styleProfileJson: styleRuntime.profileJson, styleExecutionPlan: styleRuntime.plan };
-                            }
-                        } catch (error) {
-                            const errorDetails = generationErrorMessage(error);
-                            message.error(errorDetails);
-                            return;
-                        }
-                    }
-                    const promptLengthError = mode === "video" ? modelPromptLengthError(generationConfig, generationConfig.model, mode, effectivePrompt) : "";
-                    if (promptLengthError) {
-                        message.error(promptLengthError);
-                        return;
-                    }
-                    let generationContext = { ...rawGenerationContext, prompt: effectivePrompt };
-                    if (options?.preparedBillingInput) {
-                        generationContext = adoptPreparedGenerationReferences(generationContext, options.preparedBillingInput);
-                    }
-                    if (canvasGenerationRetryBlocked(sourceNode?.metadata, { ...generationContext, mode })) {
-                        message.warning(sourceNode?.metadata?.errorDetails || "请先查看失败原因并调整输入，再重新生成");
-                        return;
-                    }
-                    if (mode === "audio" && generationContext.characterReferences.length) {
-                        if (generationContext.characterReferences.length !== 1) {
-                            message.error("角色配音一次只能引用一个角色卡");
-                            return;
-                        }
-                        const voice = generationContext.resolvedCharacterVoices[0];
-                        if (!voice) {
-                            message.error("角色尚未绑定可用声音，无法创建角色配音任务");
-                            return;
-                        }
-                        generationConfig = { ...generationConfig, audioVoice: voice.voiceKey, audioInstructions: [voice.instructions, generationConfig.audioInstructions].filter(Boolean).join("；") };
-                    }
-                    if (!effectivePrompt && (mode === "text" || mode === "audio")) {
-                        return;
-                    }
-
-                    const requestFingerprint = canvasGenerationRequestFingerprint({
-                        nodeId,
-                        mode,
-                        prompt: effectivePrompt,
-                        model: generationConfig.model,
-                        options: modelRequestOptions(generationConfig, mode),
-                        workflow:
-                            generationConfig.taskWorkflowProvider && generationConfig.taskWorkflowProvider !== "model"
-                                ? {
-                                      provider: generationConfig.taskWorkflowProvider,
-                                      workflowId: generationConfig.runningHub.workflowId,
-                                      workflowKind: generationConfig.runningHub.selectedKind,
-                                      parameters: sourceNode?.metadata?.workflowParameters,
-                                  }
-                                : undefined,
-                        operation: sourceNode?.metadata?.videoEditOperation,
-                        audioInstructions: generationConfig.audioInstructions,
-                        promptTemplateOperation: sourceNode?.metadata?.promptTemplateOperation,
-                        promptTemplateVariables: sourceNode?.metadata?.promptTemplateVariables,
-                        context: generationContext,
-                    });
-                    const duplicateConfirmationRequired = !options?.skipDuplicateConfirmation && !options?.retryContext && sourceNode?.metadata?.lastGenerationRequestFingerprint === requestFingerprint;
-                    if (duplicateConfirmationRequired && !(await confirmDuplicateSubmission())) return;
-
-                    const ratioWarning = mode === "video" && !usesWorkflowProvider ? seedanceReferenceRatioWarning({
-                        ...resolveModelRequestConfig(generationConfig, generationConfig.model),
-                        videoCount: generationContext.referenceVideos.length,
-                        ratio: generationConfig.size,
-                        operation: sourceNode?.metadata?.videoEditOperation,
-                    }) : undefined;
-                    if (ratioWarning && !options?.collectBillingQuote) {
-                        const accepted = await new Promise<boolean>((resolve) => {
-                            modal.confirm({ ...ratioWarning, centered: true, onOk: () => resolve(true), onCancel: () => resolve(false), afterClose: () => resolve(false) });
-                        });
-                        if (!accepted || options?.controller?.signal.aborted) return;
-                    }
-
-                    if (mode !== "text" && options?.collectBillingQuote) {
-                        let quoteConfig = generationConfig;
-                        if (mode === "image" && generationContext.referenceImages.length > 0 && !isImageEditModel(quoteConfig.model)) {
-                            quoteConfig = withPlatformImageEditModel(quoteConfig);
-                        }
-                        const quoteMessageKey = `canvas-billing-quote-${nodeId}`;
-                        let quoteMessageHidden = false;
-                        const hideQuoteMessage = () => {
-                            if (quoteMessageHidden) return;
-                            quoteMessageHidden = true;
-                            message.destroy(quoteMessageKey);
-                        };
-                        message.loading({ key: quoteMessageKey, content: "正在准备参考素材并计算积分", duration: 0 });
-                        try {
-                            const preparedInput = await prepareBackendGenerationTask({
-                                projectId,
-                                mode,
-                                prompt: effectivePrompt,
-                                config: quoteConfig,
-                                referenceImages: generationContext.referenceImages,
-                                referenceVideos: generationContext.referenceVideos,
-                                referenceAudios: generationContext.referenceAudios,
-                                signal: options?.controller?.signal,
-                                metadata: {
-                                    sourceNodeId: nodeId,
-                                    ...(sourceNode?.metadata?.videoEditOperation ? { videoEditOperation: sourceNode.metadata.videoEditOperation } : {}),
-                                    ...options?.context,
-                                },
-                            });
-                            let quoteInput = preparedInput;
-                            let quote = await quoteGenerationTask(quoteInput);
-                            const requestConfig = resolveModelRequestConfig(quoteConfig, quoteConfig.model);
-                            const nativeOutputCount = requestConfig.interfaceType === "midjourney"
-                                ? 4
-                                : mergedImageCapabilityConfig(quoteConfig, quoteConfig.model || quoteConfig.imageModel).fixedOutputs || 0;
-                            const taskCount = mode === "image" && !nativeOutputCount ? getGenerationCount(quoteConfig.count) : 1;
-                            const billingMode = String(quote.breakdown?.billingMode || "");
-                            if (mode === "image" && taskCount > 1 && billingMode !== "per_output") {
-                                quoteInput = structuredClone(preparedInput);
-                                const inputConfig = quoteInput.input?.config as Record<string, unknown> | undefined;
-                                if (inputConfig) {
-                                    inputConfig.count = "1";
-                                }
-                                const singleQuote = await quoteGenerationTask(quoteInput);
-                                quote = {
-                                    ...singleQuote,
-                                    points: singleQuote.points * taskCount,
-                                    breakdown: { ...singleQuote.breakdown, taskCount, aggregate: `${billingMode || "fixed"}_x_tasks` },
-                                };
-                            }
-                            hideQuoteMessage();
-                            generationContext = adoptPreparedGenerationReferences(generationContext, preparedInput);
-                            options.collectBillingQuote({ quote, preparedInput });
-                            return;
-                        } catch (error) {
-                            if (options?.controller?.signal?.aborted || isGenerationCanceled(error)) return;
-                            message.error(generationErrorMessage(error) || "获取积分报价失败");
-                            return;
-                        } finally {
-                            hideQuoteMessage();
-                        }
-                    }
-
-                    setRunningNodeId(nodeId);
-                    const controller = startGenerationRequest(nodeId, nodeId, nodeId, options?.controller);
+                    let stage = "validation";
+                    const attemptId = createClientId();
+                    let preparing = false;
+                    let preparationProgress: ReturnType<typeof startOperation> | undefined;
                     let sourceReleased = false;
-                    if (controller.signal.aborted) {
-                        finishGenerationRequest(nodeId, controller);
-                        setRunningNodeId(null);
-                        return;
-                    }
-                    if (isPreparingEmptyImage) {
-                        setNodes((current) =>
-                            current.map((node) =>
-                                node.id === nodeId
-                                    ? {
-                                          ...node,
-                                          metadata: {
-                                              ...node.metadata,
-                                              prompt,
-                                              composerContent: prompt,
-                                              status: NODE_STATUS_LOADING,
-                                              taskStage: "正在准备生成任务",
-                                              taskProgress: 0,
-                                              taskCreatedAt: new Date().toISOString(),
-                                              errorDetails: undefined,
-                                              generationErrorCode: undefined,
-                                              resourceReloadAvailable: undefined,
-                                              failedPromptFingerprint: undefined,
-                                              failedInputFingerprint: undefined,
-                                          },
-                                      }
-                                    : node,
-                            ),
-                        );
-                    }
-
-                    // 已有内容节点只是本次生成的来源；任务状态归新目标所有，不能覆盖已成功结果。
-                    const markSourceStatus = !sourceNode?.metadata?.content && !editingTextNode;
-                    const hasPreviousResult = Boolean(sourceNode?.metadata?.content || sourceNode?.metadata?.storageKey);
-                    const statusPrompt = sourceNode?.type === CanvasNodeType.Config ? effectivePrompt : prompt;
-                    if (markSourceStatus)
-                        setNodes((current) =>
-                            current.map((node) =>
-                                node.id === nodeId
-                                    ? {
-                                          ...node,
-                                          metadata: { ...node.metadata, ...canvasGenerationPromptMetadata(prompt, statusPrompt), status: NODE_STATUS_LOADING, errorDetails: undefined, generationErrorCode: undefined, resourceReloadAvailable: undefined, failedPromptFingerprint: undefined, failedInputFingerprint: undefined },
-                                      }
-                                    : node,
-                            ),
-                        );
-
-                    let pendingNodeIds: string[] = [];
-                    const boundTaskIds = new Set<string>();
-                    const execution = {
-                        projectId,
-                        nodesRef,
-                        nodeId,
-                        sourceNode,
-                        // 收费输入保持确认时的快照；目标节点写回必须使用当前画布。
-                        // 另一目标可能已在重复生成确认等待期间完成，不能把整图回滚到旧结果。
-                        canvasNodes: nodesRef.current,
-                        canvasConnections: connectionsRef.current,
-                        prompt,
-                        effectivePrompt,
-                        generationConfig,
-                        generationContext,
-                        controller,
-                        editingTextNode,
-                        styleMetadata,
-                        skillMetadata: skillExecution.metadata,
-                        taskContext: options?.context,
-                        retryContext: options?.retryContext,
-                        clientOperationId: options?.clientOperationId,
-                        setNodes,
-                        setConnections,
-                        setSelectedNodeIds,
-                        setSelectedConnectionId,
-                        setDialogNodeId,
-                        startGenerationRequest,
-                        finishGenerationRequest,
-                        bindGenerationTask: (targetNodeId: string, task: GenerationTask) => {
-                            const firstBinding = boundTaskIds.size === 0;
-                            boundTaskIds.add(task.id);
-                            bindGenerationTask(targetNodeId, task);
-                            if (!sourceReleased && !controller.signal.aborted && canReleaseCanvasGenerationSource(nodeId, targetNodeId, task)) {
-                                sourceReleased = true;
-                                submissionReleased = true;
-                                finishGenerationRequest(nodeId, controller);
-                                setRunningNodeId((current) => current === nodeId ? null : current);
-                                releaseSubmission();
-                            }
-                            if (firstBinding) setNodes((current) => {
-                                const source = current.find((node) => node.id === nodeId);
-                                if (!source || source.metadata?.lastGenerationRequestFingerprint === requestFingerprint) return current;
-                                return current.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, lastGenerationRequestFingerprint: requestFingerprint } } : node));
-                            });
-                            options?.onTaskUpdate?.(task);
-                        },
-                        applyGenerationTaskResult,
-                        showError: (content: string) => message.error(content),
-                        resolveReferenceLinks: createReferenceLinkResolver(modal),
-                        registerPendingNodeIds: (nodeIds: string[]) => {
-                            pendingNodeIds = nodeIds;
-                        },
+                    let selectedModel = options?.confirmedModelKey || "";
+                    let refSummary = "";
+                    const startedAt = performance.now();
+                    const diagnostic = (code: string, level: "info" | "warning" | "error" = "info", detail = "") => {
+                        const meta = [ `mode=${mode}`, selectedModel ? `model=${selectedModel}` : "", refSummary, detail ].filter(Boolean).join(" ");
+                        recordDiagnosticEvent({
+                            category: "action", level, code, reason: stage, canvasId: projectId, requestId: attemptId,
+                            message: meta ? `画布生成提交：${code} (${meta})` : `画布生成提交：${code}`, durationMs: Math.round(performance.now() - startedAt),
+                        });
                     };
-
+                    diagnostic("generation_submit_started");
+                    const controller = options?.controller ?? new AbortController();
+                    const preparationMessageKey = `canvas-generation-preparation-${attemptId}`;
+                    const setPreflightNotice = (errText: string) => {
+                        setNodes((current) => current.map((node) => node.id === nodeId
+                            ? { ...node, metadata: { ...node.metadata, generationPreflightError: errText } }
+                            : node));
+                    };
+                    const reportError = (error: unknown) => {
+                        if (controller.signal.aborted || isGenerationCanceled(error)) return;
+                        const errText = generationErrorMessage(error);
+                        diagnostic(error instanceof Error && error.name === "CanvasPreparationTimeoutError" ? "generation_preflight_timeout" : "generation_preflight_failed", "error", errText);
+                        if (["validation", "references", "skills", "parameters"].includes(stage)) {
+                            setPreflightNotice(errText);
+                        }
+                        message.error(errText);
+                    };
                     try {
-                        if (mode === "image") await executeImageGeneration(execution);
-                        else if (mode === "video") await executeVideoGeneration(execution);
-                        else if (mode === "audio") await executeAudioGeneration(execution);
-                        else await executeTextGeneration(execution);
-                    } catch (error) {
-                        if (isGenerationCanceled(error)) return;
-                        const failure = canvasGenerationFailureMetadata(error, { ...generationContext, mode });
-                        if (options?.waitForTaskCapacity && isGenerationTaskCapacityError(error)) {
+                        controller.signal.throwIfAborted();
+                        const frozen = structuredClone(options?.confirmedInputs ?? { nodes: nodesRef.current, connections: connectionsRef.current, config: effectiveConfig, assets, skills: addedSkills });
+                        const inputNodes = frozen.nodes;
+                        const inputConnections = frozen.connections;
+                        const inputConfig = frozen.config;
+                        let inputAssets = frozen.assets;
+                        const inputSkills = frozen.skills;
+                        const sourceNode = inputNodes.find((node) => node.id === nodeId);
+                        const pendingSubmissions = nodesRef.current.filter((node) => (node.id === nodeId || node.metadata?.generatedFromNodeId === nodeId) && ["submitting", "unknown"].includes(node.metadata?.generationSubmissionState || ""));
+                        if (pendingSubmissions.length) {
+                            startGenerationRequest(nodeId, nodeId, nodeId, controller);
+                            for (const target of pendingSubmissions) {
+                                const taskId = target.metadata?.taskId;
+                                const operationId = target.metadata?.taskClientOperationId;
+                                if (!taskId && !operationId?.trim()) throw new Error(MISSING_GENERATION_TASK_IDENTITY_DETAILS);
+                                const task = taskId
+                                    ? await queryGenerationTask(taskId, { signal: controller.signal })
+                                    : await findGenerationTaskByOperation(operationId!, projectId, controller.signal);
+                                controller.signal.throwIfAborted();
+                                if (!task) {
+                                    const warningText = "尚未查到上次提交的任务，请稍后再查询，暂勿重新生成";
+                                    setPreflightNotice(warningText);
+                                    message.warning(warningText);
+                                    continue;
+                                }
+                                if (task.projectId && task.projectId !== projectId) throw new Error("生成任务不属于当前画布");
+                                bindGenerationTask(target.id, task);
+                                const completed = await waitForGenerationTask(task.id, { signal: controller.signal, initialTask: task, onTaskUpdate: (update) => bindGenerationTask(target.id, update) });
+                                controller.signal.throwIfAborted();
+                                await applyGenerationTaskResult(target.id, completed);
+                            }
+                            return;
+                        }
+                        const liveNode = nodesRef.current.find((node) => node.id === nodeId);
+                        const guardNode = liveNode ?? sourceNode;
+                        if (mode === "image" && (canvasNodeHasPendingOutcomeResult(guardNode, nodesRef.current) || canvasNodeHasPendingOutcomeResult(sourceNode, inputNodes))) {
+                            diagnostic("generation_pending_result", "warning");
+                            const pendingText = canvasImagePendingResultMessage(guardNode, nodesRef.current);
+                            setPreflightNotice(pendingText);
+                            message.warning(pendingText);
+                            return;
+                        }
+                        if (isCanvasNodeGenerating(liveNode)) {
+                            diagnostic("generation_task_active", "warning");
+                            message.info("该节点的生成任务仍在进行中，请等待完成后再生成");
+                            return;
+                        }
+                        if (isNodeRegenerateBlocked(guardNode?.metadata) || isNodeRegenerateBlocked(sourceNode?.metadata)) {
+                            diagnostic("generation_retry_blocked", "warning");
+                            const blockedMeta = isNodeRegenerateBlocked(guardNode?.metadata) ? guardNode?.metadata : sourceNode?.metadata;
+                            const blockedText = blockedMeta?.errorDetails || taskOutcomeCopy(readNodeTaskOutcome(blockedMeta)).message;
+                            setPreflightNotice(blockedText);
+                            message.warning(blockedText);
+                            return;
+                        }
+                        if (sourceNode?.type === CanvasNodeType.Video && sourceNode.metadata?.videoEditOperation === "concat") {
+                            diagnostic("generation_concat_source", "warning");
+                            const concatText = "合并成片节点不直接重新生成，请重新选择源视频合并";
+                            setPreflightNotice(concatText);
+                            message.info(concatText);
+                            return;
+                        }
+                        let generationConfig: ReturnType<typeof buildConfirmedGenerationConfig>;
+                        try {
+                            generationConfig = buildConfirmedGenerationConfig(inputConfig, sourceNode, mode, undefined, options?.confirmedModelKey);
+                            selectedModel = generationConfig.model;
+                        } catch (error) {
+                            reportError(error);
+                            return;
+                        }
+                        const hasLiveBatchChildren =
+                            sourceNode?.type === CanvasNodeType.Image && (sourceNode.metadata?.batchChildIds || []).some((childId) => inputNodes.some((node) => node.id === childId && node.metadata?.batchRootId === sourceNode.id));
+                        const hasStaleImageBatchState =
+                            mode === "image" && sourceNode?.type === CanvasNodeType.Image && !sourceNode.metadata?.content && Boolean(sourceNode.metadata?.isBatchRoot || sourceNode.metadata?.batchChildIds?.length) && !hasLiveBatchChildren;
+                        if (hasStaleImageBatchState) {
                             setNodes((current) =>
                                 current.map((node) => {
-                                    if (node.id !== nodeId && !pendingNodeIds.includes(node.id)) return node;
-                                    const metadata = { ...(node.metadata || {}), status: NODE_STATUS_IDLE, errorDetails: undefined };
-                                    delete metadata.taskId;
-                                    delete metadata.taskStatus;
-                                    delete metadata.taskProgress;
-                                    delete metadata.taskStage;
-                                    delete metadata.taskCreatedAt;
-                                    delete metadata.taskUpdatedAt;
-                                    delete metadata.taskStartedAt;
-                                    delete metadata.taskCompletedAt;
-                                    delete metadata.taskDurationMs;
+                                    if (node.id !== sourceNode.id) return node;
+                                    const metadata = { ...node.metadata };
+                                    delete metadata.isBatchRoot;
+                                    delete metadata.batchChildIds;
+                                    delete metadata.primaryImageId;
+                                    delete metadata.imageBatchExpanded;
+                                    delete metadata.batchUsesReferenceImages;
                                     return { ...node, metadata };
                                 }),
                             );
+                        }
+                        if (!isAiConfigReady(generationConfig, generationConfig.model)) {
+                            diagnostic("generation_config_missing", "warning");
+                            navigateToSettings({ continueCreation: true });
                             return;
                         }
-                        message.error(failure.errorDetails);
-                        setNodes((current) =>
-                            current.map((node) => {
-                                if (node.id !== nodeId && !pendingNodeIds.includes(node.id)) return node;
-                                    if (node.id === nodeId && sourceReleased) return node;
-                                if (node.id === nodeId && !pendingNodeIds.includes(node.id)) {
-                                    if (hasPreviousResult) {
-                                        return { ...node, metadata: { ...node.metadata, status: NODE_STATUS_SUCCESS, errorDetails: undefined, generationErrorCode: undefined, failedPromptFingerprint: undefined, failedInputFingerprint: undefined } };
-                                    }
-                                    if (!markSourceStatus) return node;
+
+                        const sourceTextContent = sourceNode?.type === CanvasNodeType.Text ? sourceNode.metadata?.content?.trim() || "" : "";
+                        const editingTextNode = mode === "text" && Boolean(sourceTextContent);
+                        let generationPrompt = mode === "image" && sourceNode?.metadata?.portraitTexture ? buildPortraitTexturePrompt(prompt, sourceNode.metadata.portraitTexture) : prompt;
+                        if (mode === "image" && sourceNode?.metadata?.cameraControl?.enabled) {
+                            const cameraControl = sourceNode.metadata.cameraControl;
+                            const cameraPrompt = buildCameraPrompt({ cameraId: cameraControl.camera, lensId: cameraControl.lens, focalLengthMm: cameraControl.focalLength, apertureF: cameraControl.aperture });
+                            generationPrompt = `${generationPrompt}\n${cameraPrompt}`;
+                        }
+                        const isPreparingEmptyImage = mode === "image" && sourceNode?.type === CanvasNodeType.Image && !sourceNode.metadata?.content;
+
+                        let rawGenerationContext: Awaited<ReturnType<typeof hydrateNodeGenerationContext>>;
+                        startGenerationRequest(nodeId, nodeId, nodeId, controller);
+                        preparing = true;
+                        setRunningNodeId(nodeId);
+                        if (mode === "video") preparationProgress = startOperation("准备视频素材", { target: { projectId, nodeId }, detail: "正在准备参考素材" });
+                        else message.loading({ key: preparationMessageKey, content: "正在准备参考素材…", duration: 0 });
+                        stage = "references";
+                        setNodes((current) => current.map((node) => node.id === nodeId && node.metadata?.generationPreflightError
+                            ? { ...node, metadata: { ...node.metadata, generationPreflightError: undefined } }
+                            : node));
+                        diagnostic("generation_preflight_stage");
+                        // AutoDL/其他声明式视频协议需要结构化参考素材；只有普通
+                        // 模型视频接口才把提示词视为纯文本输入。
+                        const usesWorkflowProvider = Boolean(mode !== "text" && generationConfig.taskWorkflowProvider && generationConfig.taskWorkflowProvider !== "model");
+                        // 普通视频协议只保留输入框文本（显式 @文本 引用仍会展开为真实内容）；声明式工作流还要保留连接媒体。
+                        const promptOnly = mode === "video" && !usesWorkflowProvider;
+                        try {
+                            // 素材库列表按需加载，显式引用不能仅凭是否出现在列表中判断失效。
+                            const missingAssetIds = referencedAssetIdsInPrompt(generationPrompt).filter((id) => !inputAssets.some((asset) => asset.id === id));
+                            if (missingAssetIds.length) {
+                                await waitForCanvasPreparation(() => loadWorkspaceAssetsForUse(missingAssetIds), controller.signal);
+                                const loaded = useAssetStore.getState().assets.filter((asset) => missingAssetIds.includes(asset.id));
+                                inputAssets = [...inputAssets, ...structuredClone(loaded)];
+                            }
+                            const baseContext = buildNodeGenerationContext(
+                                nodeId,
+                                inputNodes,
+                                inputConnections,
+                                editingTextNode ? buildTextRewritePrompt(sourceTextContent, prompt) : generationPrompt,
+                                inputAssets,
+                                promptOnly,
+                                { preserveMediaBindings: mode === "video" },
+                            );
+                            const requirements = generationModelRequirements(mode, baseContext, sourceNode, generationConfig, true);
+                            if (requirements?.input) {
+                                const { imageCount = 0, videoCount = 0, audioCount = 0, characterCount = 0 } = requirements.input;
+                                refSummary = `refs=i:${imageCount},v:${videoCount},a:${audioCount},c:${characterCount}`;
+                            }
+                            generationConfig = buildConfirmedGenerationConfig(inputConfig, sourceNode, mode, requirements, options?.confirmedModelKey);
+                            selectedModel = generationConfig.model;
+                            const referenceLimits = usesWorkflowProvider ? undefined : modelGroupReferenceLimits(inputConfig, generationConfig.model, mode, requirements);
+                            rawGenerationContext = await waitForCanvasPreparation(() => hydrateNodeGenerationContext(baseContext, projectId, domainProjectId, mode, mode === "video" && Boolean(referenceLimits?.maxAudios), !promptOnly, referenceLimits), controller.signal);
+                            const hydratedRequirements = generationModelRequirements(mode, rawGenerationContext, sourceNode, generationConfig);
+                            if (hydratedRequirements?.input) {
+                                const { imageCount = 0, videoCount = 0, audioCount = 0, characterCount = 0 } = hydratedRequirements.input;
+                                refSummary = `refs=i:${imageCount},v:${videoCount},a:${audioCount},c:${characterCount}`;
+                            }
+                            generationConfig = buildConfirmedGenerationConfig(inputConfig, sourceNode, mode, hydratedRequirements, options?.confirmedModelKey);
+                            selectedModel = generationConfig.model;
+                        } catch (error) {
+                            reportError(error);
+                            return;
+                        }
+
+                        let skillExecution: Awaited<ReturnType<typeof skillRuntime.prepare<"canvas">>>;
+                        stage = "skills";
+                        diagnostic("generation_preflight_stage");
+                        try {
+                            skillExecution = await waitForCanvasPreparation(() => skillRuntime.prepare({ profile: "canvas", prompt: rawGenerationContext.prompt, skills: inputSkills }), controller.signal);
+                        } catch (error) {
+                            reportError(error);
+                            return;
+                        }
+                        let effectivePrompt = skillExecution.prompt.trim();
+                        if (mode === "video") {
+                            rawGenerationContext = compileNodeGenerationReferences({ ...rawGenerationContext, prompt: effectivePrompt }, generationConfig, buildVideoGenerationMetadata(sourceNode, rawGenerationContext, generationConfig).videoEditOperation);
+                            effectivePrompt = rawGenerationContext.prompt;
+                        }
+                        stage = "parameters";
+                        let styleMetadata = {};
+                        if (mode === "image") {
+                            try {
+                                const styleRuntime = resolveCanvasStyleExecution(inputNodes, sourceNode, effectivePrompt, generationConfig, mode);
+                                if (styleRuntime) {
+                                    effectivePrompt = styleRuntime.prompt;
+                                    styleMetadata = { styleProfileJson: styleRuntime.profileJson, styleExecutionPlan: styleRuntime.plan };
                                 }
-                                return { ...node, metadata: { ...node.metadata, status: NODE_STATUS_ERROR, ...failure } };
-                            }),
-                        );
+                            } catch (error) {
+                                reportError(error);
+                                return;
+                            }
+                        }
+                        if (mode === "image") {
+                            const promptError = imagePromptLengthError(effectivePrompt, generationConfig.model);
+                            if (promptError) {
+                                reportError(new Error(promptError));
+                                return;
+                            }
+                        }
+                        const generationContext = { ...rawGenerationContext, prompt: effectivePrompt };
+                        if (!usesWorkflowProvider) {
+                            let compatibilityError = modelCompatibilityError(
+                                inputConfig,
+                                generationConfig.model,
+                                generationModelRequirements(mode, generationContext, sourceNode, generationConfig),
+                            );
+                            if (compatibilityError && mode === "text") {
+                                const mediaKind = generationContext.referenceVideos.length ? "video" : generationContext.referenceImages.length ? "image" : "";
+                                const mediaModel = mediaKind ? resolveTextMediaModel(inputConfig, mediaKind) : "";
+                                if (mediaModel && mediaModel !== generationConfig.model) {
+                                    generationConfig = { ...generationConfig, model: mediaModel };
+                                    setNodes((current) => current.map((item) => item.id === nodeId ? { ...item, metadata: { ...item.metadata, model: mediaModel } } : item));
+                                    message.info(`当前模型不支持参考${mediaKind === "video" ? "视频" : "图片"}，已切换到支持媒体输入的多模态模型`);
+                                    compatibilityError = modelCompatibilityError(
+                                        inputConfig,
+                                        generationConfig.model,
+                                        generationModelRequirements(mode, generationContext, sourceNode, generationConfig),
+                                    );
+                                }
+                            }
+                            if (compatibilityError) {
+                                reportError(new Error(compatibilityError));
+                                return;
+                            }
+                        }
+                        if (isNodeRegenerateConfirm(sourceNode?.metadata) && modal?.confirm) {
+                            const copy = taskOutcomeCopy(readNodeTaskOutcome(sourceNode?.metadata));
+                            stage = "duplicate_confirmation";
+                            diagnostic("generation_confirmation_waiting");
+                            const confirmed = await confirmCanvasGeneration(
+                                (callbacks) =>
+                                    modal.confirm({
+                                        title: copy.confirmTitle || "确认重新生成？",
+                                        content: copy.confirmContent || copy.message,
+                                        okText: "确认重新生成",
+                                        cancelText: "取消",
+                                        centered: true,
+                                        ...callbacks,
+                                    }),
+                                controller.signal,
+                            );
+                            if (!confirmed) {
+                                diagnostic("generation_confirmation_cancelled");
+                                return;
+                            }
+                        }
+                        if (mode === "audio" && generationContext.characterReferences.length) {
+                            if (generationContext.characterReferences.length !== 1) {
+                                reportError(new Error("角色配音一次只能引用一个角色卡"));
+                                return;
+                            }
+                            const voice = generationContext.resolvedCharacterVoices[0];
+                            if (!voice) {
+                                reportError(new Error("角色尚未绑定可用声音，无法创建角色配音任务"));
+                                return;
+                            }
+                            generationConfig = { ...generationConfig, audioVoice: voice.voiceKey, audioInstructions: [voice.instructions, generationConfig.audioInstructions].filter(Boolean).join("；") };
+                        }
+                        if (!effectivePrompt && (mode === "text" || mode === "audio")) {
+                            reportError(new Error("请输入生成内容"));
+                            return;
+                        }
+
+                        const requestFingerprint = canvasGenerationRequestFingerprint({
+                            nodeId,
+                            mode,
+                            prompt: effectivePrompt,
+                            model: generationConfig.model,
+                            options: modelRequestOptions(generationConfig, mode),
+                            workflow:
+                                generationConfig.taskWorkflowProvider && generationConfig.taskWorkflowProvider !== "model"
+                                    ? {
+                                          provider: generationConfig.taskWorkflowProvider,
+                                          workflowId: generationConfig.runningHub.workflowId,
+                                          workflowKind: generationConfig.runningHub.selectedKind,
+                                          parameters: sourceNode?.metadata?.workflowParameters,
+                                      }
+                                    : undefined,
+                            operation: sourceNode?.metadata?.videoEditOperation,
+                            audioInstructions: generationConfig.audioInstructions,
+                            promptTemplateOperation: sourceNode?.metadata?.promptTemplateOperation,
+                            promptTemplateVariables: sourceNode?.metadata?.promptTemplateVariables,
+                            context: generationContext,
+                        });
+                        const duplicateConfirmationRequired = !options?.skipDuplicateConfirmation && !options?.retryContext && sourceNode?.metadata?.lastGenerationRequestFingerprint === requestFingerprint;
+                        message.destroy(preparationMessageKey);
+                        stage = "duplicate_confirmation";
+                        if (duplicateConfirmationRequired) {
+                            diagnostic("generation_confirmation_waiting");
+                            if (!(await confirmDuplicateSubmission(controller.signal))) {
+                                diagnostic("generation_confirmation_cancelled");
+                                return;
+                            }
+                        }
+
+                        const ratioWarning = mode === "video" && !usesWorkflowProvider ? seedanceReferenceRatioWarning({
+                            ...resolveModelRequestConfig(generationConfig, generationConfig.model),
+                            videoCount: generationContext.referenceVideos.length,
+                            ratio: generationConfig.size,
+                            operation: sourceNode?.metadata?.videoEditOperation,
+                        }) : undefined;
+                        if (ratioWarning) {
+                            stage = "ratio_confirmation";
+                            diagnostic("generation_confirmation_waiting");
+                            const accepted = await confirmCanvasGeneration((callbacks) => modal.confirm({ ...ratioWarning, centered: true, ...callbacks }), controller.signal);
+                            if (!accepted) {
+                                diagnostic("generation_confirmation_cancelled");
+                                return;
+                            }
+                        }
+
+
+                        if (mode !== "text") {
+                            stage = "billing_confirmation";
+                            const quoteMessageKey = `canvas-billing-quote-${nodeId}`;
+                            message.loading({ key: quoteMessageKey, content: "正在计算本次生成所需积分", duration: 0 });
+                            try {
+                                const quotePlan = buildGenerationQuotePlan(mode, generationConfig);
+                                const quoteInput = buildCanvasGenerationQuoteInput({
+                                    projectId,
+                                    mode,
+                                    prompt: effectivePrompt,
+                                    config: quotePlan.quoteConfig,
+                                    signal: controller.signal,
+                                    metadata: {
+                                        sourceNodeId: nodeId,
+                                        ...(sourceNode?.metadata?.videoEditOperation ? { videoEditOperation: sourceNode.metadata.videoEditOperation } : {}),
+                                        ...options?.context,
+                                        ...styleMetadata,
+                                        ...skillExecution.metadata,
+                                    },
+                                }, generationContext);
+                                const quote = await quoteGenerationTask(quoteInput);
+                                message.destroy(quoteMessageKey);
+                                const confirmed = await confirmCanvasBillingQuote(modal, quotePlan.taskCount > 1 ? {
+                                    ...quote,
+                                    points: totalGenerationQuotePoints(quote.points, quotePlan.taskCount),
+                                    breakdown: {
+                                        ...quote.breakdown,
+                                        taskCount: quotePlan.taskCount,
+                                        aggregate: `${String(quote.breakdown?.billingMode || "fixed")}_x_tasks`,
+                                    },
+                                } : quote, {
+                                    signal: controller.signal,
+                                    description: "提交后先预扣积分；任务失败、取消或确认未发出上游请求时，会按规则退回预扣积分。",
+                                });
+                                if (!confirmed) {
+                                    diagnostic("generation_confirmation_cancelled");
+                                    return;
+                                }
+                            } catch (error) {
+                                message.destroy(quoteMessageKey);
+                                if (controller.signal.aborted || isGenerationCanceled(error)) return;
+                                message.error(generationErrorMessage(error) || "获取积分报价失败，请稍后重试");
+                                return;
+                            } finally {
+                                message.destroy(quoteMessageKey);
+                            }
+                        }
+                        controller.signal.throwIfAborted();
+                        stage = "dispatch";
+                        preparationProgress?.dismiss();
+                        diagnostic("generation_dispatch_started");
+                        if (isPreparingEmptyImage) {
+                            setNodes((current) =>
+                                current.map((node) =>
+                                    node.id === nodeId
+                                        ? {
+                                              ...node,
+                                              metadata: {
+                                                  ...node.metadata,
+                                                  prompt,
+                                                  composerContent: prompt,
+                                                  status: NODE_STATUS_LOADING,
+                                                  taskStage: "正在准备生成任务",
+                                                  taskProgress: 0,
+                                                  taskCreatedAt: new Date().toISOString(),
+                                                  errorDetails: undefined,
+                                                  generationErrorCode: undefined,
+                                                  generationErrorSummary: undefined,
+                                                  generationProviderCode: undefined,
+                                                  taskFailureDiagnostics: undefined,
+                                                  taskOutcome: undefined,
+                                                  failedPromptFingerprint: undefined,
+                                                  failedInputFingerprint: undefined,
+                                              },
+                                          }
+                                        : node,
+                                ),
+                            );
+                        }
+
+                        // 已有内容节点只是本次生成的来源；任务状态归新目标所有，不能覆盖已成功结果。
+                        const markSourceStatus = !sourceNode?.metadata?.content && !editingTextNode;
+                        const hasPreviousResult = Boolean(sourceNode?.metadata?.content || sourceNode?.metadata?.storageKey);
+                        const statusPrompt = sourceNode?.type === CanvasNodeType.Config ? effectivePrompt : prompt;
+                        if (markSourceStatus)
+                            setNodes((current) =>
+                                current.map((node) =>
+                                    node.id === nodeId
+                                        ? {
+                                              ...node,
+                                              metadata: { ...node.metadata, ...canvasGenerationPromptMetadata(prompt, statusPrompt), status: NODE_STATUS_LOADING, errorDetails: undefined, generationErrorCode: undefined, generationErrorSummary: undefined, generationProviderCode: undefined, taskFailureDiagnostics: undefined, taskOutcome: undefined, failedPromptFingerprint: undefined, failedInputFingerprint: undefined },
+                                          }
+                                        : node,
+                                ),
+                            );
+
+                        let pendingNodeIds: string[] = [];
+                        const boundTaskIds = new Set<string>();
+                        const execution = {
+                            pageUi,
+                            projectId,
+                            nodesRef,
+                            nodeId,
+                            sourceNode,
+                            // 收费输入保持确认时的快照；目标节点写回必须使用当前画布。
+                            // 另一目标可能已在重复生成确认等待期间完成，不能把整图回滚到旧结果。
+                            canvasNodes: nodesRef.current,
+                            canvasConnections: connectionsRef.current,
+                            prompt,
+                            effectivePrompt,
+                            generationConfig,
+                            generationContext,
+                            controller,
+                            editingTextNode,
+                            styleMetadata,
+                            skillMetadata: skillExecution.metadata,
+                            taskContext: options?.context,
+                            retryContext: options?.retryContext,
+                            onSubmissionPlan: options?.onSubmissionPlan,
+                                clientOperationId:
+                                    options?.clientOperationId ||
+                                    options?.retryContext?.clientOperationId ||
+                                    (sourceNode?.metadata?.taskClientOperationId && !sourceNode?.metadata?.taskId ? sourceNode.metadata.taskClientOperationId : undefined) ||
+                                    `canvas:${createClientId()}`,
+                            setNodes,
+                            setConnections,
+                            startGenerationRequest,
+                            finishGenerationRequest,
+                            bindGenerationTask: (targetNodeId: string, task: GenerationTask) => {
+                                const firstBinding = boundTaskIds.size === 0;
+                                if (!boundTaskIds.has(task.id)) {
+                                    boundTaskIds.add(task.id);
+                                    recordDiagnosticEvent({ category: "task", level: "info", code: "generation_submission_bound", message: "画布提交已关联生成任务", requestId: attemptId, canvasId: projectId, taskId: task.id, canvasBinding: { source: "client", nodeId: targetNodeId, clientOperationId: task.clientOperationId } });
+                                }
+                                bindGenerationTask(targetNodeId, task);
+                                if (!sourceReleased && !controller.signal.aborted && canReleaseCanvasGenerationSource(nodeId, targetNodeId, task)) {
+                                    sourceReleased = true;
+                                    preparing = false;
+                                    finishGenerationRequest(nodeId, controller);
+                                    setRunningNodeId((current) => current === nodeId ? null : current);
+                                    releaseSubmission();
+                                }
+                                if (firstBinding) setNodes((current) => {
+                                    const source = current.find((node) => node.id === nodeId);
+                                    if (!source || source.metadata?.lastGenerationRequestFingerprint === requestFingerprint) return current;
+                                    return current.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, lastGenerationRequestFingerprint: requestFingerprint } } : node));
+                                });
+                                options?.onTaskUpdate?.(task);
+                            },
+                            applyGenerationTaskResult,
+                            showError: (content: string) => message.error(content),
+                            resolveReferenceLinks: createReferenceLinkResolver(modal),
+                            registerPendingNodeIds: (nodeIds: string[]) => {
+                                pendingNodeIds = nodeIds;
+                            },
+                        };
+
+                        try {
+                            if (mode === "image") await executeImageGeneration(execution);
+                            else if (mode === "video") await executeVideoGeneration(execution);
+                            else if (mode === "audio") await executeAudioGeneration(execution);
+                            else await executeTextGeneration(execution);
+                        } catch (error) {
+                            if (isGenerationCanceled(error)) return;
+                            if (error instanceof CanvasGenerationTargetSaveError) {
+                                // Canvas conflicts are a canvas-level preflight state, not a
+                                // generation result for this node. Restore the node and remove
+                                // placeholders instead of creating another failed frame.
+                                const pending = new Set(pendingNodeIds);
+                                setNodes((current) => current
+                                    .filter((node) => node.id === nodeId || !pending.has(node.id))
+                                    .map((node) => {
+                                        if (node.id !== nodeId) return node;
+                                        const metadata = sourceNode?.metadata ?? {
+                                            ...node.metadata,
+                                            status: node.metadata?.content ? NODE_STATUS_SUCCESS : NODE_STATUS_IDLE,
+                                            errorDetails: undefined,
+                                        };
+                                        return { ...node, metadata };
+                                    }));
+                                setConnections((current) => cleanupPendingGenerationConnections(current, nodeId, [...pending]));
+                                message.warning(error.message);
+                                return;
+                            }
+                            const failure = canvasGenerationFailureMetadata(error, { ...generationContext, mode });
+                            if (options?.waitForTaskCapacity && isGenerationTaskCapacityError(error)) {
+                                setNodes((current) =>
+                                    current.map((node) => {
+                                        if (node.id !== nodeId && !pendingNodeIds.includes(node.id)) return node;
+                                        const metadata = { ...(node.metadata || {}), status: NODE_STATUS_IDLE, errorDetails: undefined };
+                                        delete metadata.taskId;
+                                        delete metadata.taskStatus;
+                                        delete metadata.taskProgress;
+                                        delete metadata.taskStage;
+                                        delete metadata.taskCreatedAt;
+                                        delete metadata.taskUpdatedAt;
+                                        delete metadata.taskStartedAt;
+                                        delete metadata.taskCompletedAt;
+                                        delete metadata.taskDurationMs;
+                                        return { ...node, metadata };
+                                    }),
+                                );
+                                return;
+                            }
+                            message.error(failure.errorDetails);
+                            setNodes((current) =>
+                                current.map((node) => {
+                                    if (node.id !== nodeId && !pendingNodeIds.includes(node.id)) return node;
+                                    if (node.id === nodeId && !pendingNodeIds.includes(node.id)) {
+                                        if (sourceReleased) return node;
+                                        if (hasPreviousResult) {
+                                            return { ...node, metadata: { ...node.metadata, status: NODE_STATUS_SUCCESS, errorDetails: undefined, generationErrorCode: undefined, generationErrorSummary: undefined, generationProviderCode: undefined, taskFailureDiagnostics: undefined, failedPromptFingerprint: undefined, failedInputFingerprint: undefined } };
+                                        }
+                                        if (!markSourceStatus) return node;
+                                    }
+                                    return { ...node, metadata: { ...node.metadata, status: NODE_STATUS_ERROR, ...failure } };
+                                }),
+                            );
+                        }
+                    } catch (error) {
+                        reportError(error);
                     } finally {
+                        diagnostic(controller.signal.aborted ? "generation_submission_aborted" : "generation_submission_finished");
+                        message.destroy(preparationMessageKey);
                         finishGenerationRequest(nodeId, controller);
-                        if (!sourceReleased) setRunningNodeId((current) => current === nodeId ? null : current);
+                        preparationProgress?.dismiss();
+                        if (preparing) setRunningNodeId((current) => current === nodeId ? null : current);
                     }
                 },
-                () => message.info({ key: `canvas-generation-submission-${nodeId}`, content: "该节点已有生成请求正在提交或执行，请勿重复点击" }),
-            );
-            // 提交链里任何"逃逸的异常"或"卡住的 await"都不能表现为"点了没反应"：
-            // - 逃逸异常：这里兜底提示 + 留 console 线索；
-            // - 卡住：30 秒后给一条可见提示（不取消请求，避免误杀已经发出的付费提交）。
-            let settled = false;
-            const watchdog = window.setTimeout(() => {
-                if (settled || submissionReleased) return;
-                console.warn("[canvas-generate] submission still pending after 30s", { nodeId, mode });
-                message.warning({ key: `canvas-generation-slow-${nodeId}`, content: "生成提交超过 30 秒仍未完成（可能卡在读取参考素材），请稍候或刷新页面重试" });
-            }, 30_000);
-            return submission
-                .finally(() => {
-                    settled = true;
-                    window.clearTimeout(watchdog);
-                })
-                .catch((error) => {
-                    if (isGenerationCanceled(error)) return;
-                    console.error("[canvas-generate] submission failed", { nodeId, mode, error });
-                    message.error(generationErrorMessage(error) || "生成提交失败，请重试");
-                });
-        },
+                () => {
+                    recordDiagnosticEvent({ category: "action", level: "warning", code: "generation_duplicate_click", canvasId: projectId, message: "该节点已有生成请求正在提交或执行" });
+                    message.info({ key: `canvas-generation-submission-${nodeId}`, content: "该节点已有生成请求正在提交或执行，请勿重复点击" });
+                },
+            ),
         [
             addedSkills,
             applyGenerationTaskResult,
@@ -555,25 +710,13 @@ export function useCanvasGenerationExecutor({
             connectionsRef,
             projectId,
             setConnections,
-            setDialogNodeId,
             setNodes,
             setRunningNodeId,
-            setSelectedConnectionId,
-            setSelectedNodeIds,
             startGenerationRequest,
         ],
     );
 }
 
-function adoptPreparedGenerationReferences(context: NodeGenerationContext, input: CreateTaskInput): NodeGenerationContext {
-    const payload = input.input && typeof input.input === "object" ? input.input as Record<string, unknown> : undefined;
-    return {
-        ...context,
-        referenceImages: Array.isArray(payload?.referenceImages) ? payload.referenceImages as NodeGenerationContext["referenceImages"] : context.referenceImages,
-        referenceVideos: Array.isArray(payload?.referenceVideos) ? payload.referenceVideos as NodeGenerationContext["referenceVideos"] : context.referenceVideos,
-        referenceAudios: Array.isArray(payload?.referenceAudios) ? payload.referenceAudios as NodeGenerationContext["referenceAudios"] : context.referenceAudios,
-    };
-}
 
 function generationModelRequirements(
     mode: CanvasNodeGenerationMode,
@@ -582,17 +725,11 @@ function generationModelRequirements(
     config: ReturnType<typeof useEffectiveConfig>,
     includeCharacterMinimum = false,
 ): ModelRequirements {
-    return {
-        capability: mode,
-        input: {
+    return resolvedCanvasGenerationRequirements(config, sourceNode, mode, {
             textCount: input.textCount,
             imageCount: input.imageCount,
             videoCount: input.videoCount,
             audioCount: input.audioCount,
             characterCount: includeCharacterMinimum ? input.characterReferences.length : 0,
-        },
-        videoOperation: sourceNode?.metadata?.videoEditOperation,
-        videoSeconds: config.videoSeconds,
-        options: config.taskWorkflowProvider === "model" ? modelRequestOptions(config, mode) : undefined,
-    };
+    });
 }

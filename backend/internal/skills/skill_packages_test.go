@@ -3,6 +3,13 @@ package skills
 import (
 	"archive/zip"
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"path"
+	"regexp"
+	"strconv"
+	"strings"
 	"testing"
 
 	"infinite-canvas/backend/internal/kernel"
@@ -44,19 +51,47 @@ func TestArchiveFromZipNormalizesWrapperAndNestedFiles(t *testing.T) {
 	}
 }
 
-func TestArchiveFromZipRejectsTraversalAndMultipleSkills(t *testing.T) {
-	for name, files := range map[string]map[string]string{
-		"traversal": {"../SKILL.md": "# Bad"},
-		"multiple": {
-			"one/SKILL.md": "# One\n\nFirst",
-			"two/SKILL.md": "# Two\n\nSecond",
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			if _, err := archiveFromZip(skillZip(t, files), ""); err == nil {
-				t.Fatal("expected package validation error")
-			}
-		})
+func TestArchiveFromZipRejectsTraversal(t *testing.T) {
+	if _, err := archiveFromZip(skillZip(t, map[string]string{"../SKILL.md": "# Bad"}), ""); err == nil {
+		t.Fatal("expected package validation error")
+	}
+}
+
+func TestArchiveFromZipBuildsRoutableBundleFromMultipleSkills(t *testing.T) {
+	files := map[string]string{
+		"repo-main/skills/story/SKILL.md":            "---\nname: 故事结构\ndescription: 规划故事主线与节拍\n---\n# 故事结构\n",
+		"repo-main/skills/story/reference.md":        "story reference",
+		"repo-main/skills/characters/SKILL.md":       "---\nname: 人物冲突\ndescription: 设计人物关系与戏剧冲突\n---\n# 人物冲突\n",
+		"repo-main/plugin/.codex-plugin/plugin.json": `{"name":"bundle","description":"整体编剧插件","interface":{"displayName":"编剧技能包"}}`,
+		"repo-main/README.md":                        "repository docs",
+		"repo-main/.agents/notes/design.md":          "implementation notes",
+	}
+	for index := 0; index < 520; index++ {
+		files[path.Join("repo-main/.agents/archive", strconv.Itoa(index)+".md")] = "notes"
+	}
+	archive, err := archiveFromZip(skillZip(t, files), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if archive.Metadata.Name != "编剧技能包" || archive.Metadata.Description != "整体编剧插件" {
+		t.Fatalf("bundle metadata = %#v", archive.Metadata)
+	}
+	if len(archive.Files) != 4 {
+		t.Fatalf("bundle files = %d, want root + 3 member files", len(archive.Files))
+	}
+	for _, filePath := range []string{"skills/story/SKILL.md", "skills/story/reference.md", "skills/characters/SKILL.md"} {
+		if _, ok := archive.Files[filePath]; !ok {
+			t.Fatalf("bundle lost member file %q", filePath)
+		}
+	}
+	if _, ok := archive.Files["README.md"]; ok {
+		t.Fatal("bundle retained unrelated repository documentation")
+	}
+	router := string(archive.Files["SKILL.md"])
+	for _, expected := range []string{"skills/story/SKILL.md", "规划故事主线与节拍", "skills/characters/SKILL.md", "设计人物关系与戏剧冲突", "不要一次加载全部子技能"} {
+		if !strings.Contains(router, expected) {
+			t.Fatalf("bundle router missing %q:\n%s", expected, router)
+		}
 	}
 }
 
@@ -78,7 +113,7 @@ func TestEnsureSkillPackagesMigratesAndRefreshesBuiltinSkills(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.Skill{}, &model.SkillVersion{}, &model.SkillFile{}); err != nil {
+	if err := db.AutoMigrate(&model.Skill{}, &model.SkillVersion{}, &model.SkillFile{}, &model.SystemSetting{}); err != nil {
 		t.Fatal(err)
 	}
 	svc := New(repository.New(db), t.TempDir(), nil)
@@ -125,6 +160,199 @@ func TestEnsureSkillPackagesMigratesAndRefreshesBuiltinSkills(t *testing.T) {
 	}
 	if refreshed.ContentHash != wantArchive.ContentHash || refreshed.CurrentVersionID == "" {
 		t.Fatalf("builtin package was not refreshed: %#v", refreshed)
+	}
+}
+
+func TestBuiltinSeedSkillsIncludeLuckyPlusOnePackagesAndAuxiliaryFiles(t *testing.T) {
+	svc, _ := agentSkillFixture(t)
+	if err := svc.EnsureBuiltinSkills(); err != nil {
+		t.Fatalf("EnsureBuiltinSkills: %v", err)
+	}
+	if err := svc.EnsureSkillPackages(); err != nil {
+		t.Fatalf("EnsureSkillPackages: %v", err)
+	}
+
+	expected := []struct {
+		skillID   string
+		skillName string
+		minFiles  int
+		auxPaths  []string
+	}{
+		{
+			skillID:   "novel-to-manju-agent",
+			skillName: "小说改编漫剧 Agent",
+			minFiles:  20,
+			auxPaths:  []string{"references/dialogue.md", "references/requirements.md", "agents/director.md"},
+		},
+		{
+			skillID:   "ai-drama-reference-art",
+			skillName: "AI短剧参考图提示词编写",
+			minFiles:  1,
+			auxPaths:  nil,
+		},
+		{
+			skillID:   "seedance-clip-writer",
+			skillName: "Seedance 视频提示词编写",
+			minFiles:  9,
+			auxPaths:  []string{"references/performance_layer.md", "references/script_to_shot_breakdown.md", "references/transition_grammar.md"},
+		},
+	}
+
+	var pins []Pin
+	for _, tc := range expected {
+		detail, err := svc.SkillDetail("tester", tc.skillID)
+		if err != nil {
+			t.Fatalf("SkillDetail(%s): %v", tc.skillID, err)
+		}
+		if detail.SkillName != tc.skillName {
+			t.Fatalf("%s SkillName = %q, want %q", tc.skillID, detail.SkillName, tc.skillName)
+		}
+		if detail.EffectiveUser.Name != "lucky加一" || detail.OwnerUID != "lucky-plus-one" {
+			t.Fatalf("%s attribution = %+v (owner=%q), want lucky加一 / lucky-plus-one", tc.skillID, detail.EffectiveUser, detail.OwnerUID)
+		}
+		if detail.FileCount < tc.minFiles {
+			t.Fatalf("%s FileCount = %d, want >= %d", tc.skillID, detail.FileCount, tc.minFiles)
+		}
+		added, err := svc.SetSkillAdded("tester", tc.skillID, true)
+		if err != nil {
+			t.Fatalf("SetSkillAdded(%s): %v", tc.skillID, err)
+		}
+		pin := Pin{SkillID: added.SkillID, VersionID: added.VersionID, ContentHash: added.ContentHash}
+		pins = append(pins, pin)
+
+		resource, err := svc.AgentVersion("tester", pin)
+		if err != nil {
+			t.Fatalf("AgentVersion(%s): %v", tc.skillID, err)
+		}
+		if !strings.Contains(resource.Instruction, "lucky加一") {
+			t.Fatalf("%s instruction missing attribution lucky加一", tc.skillID)
+		}
+		if !strings.Contains(resource.Instruction, "{ expectedRevision, nodes: [") || !strings.Contains(resource.Instruction, "{ nodeId, expectedRevision, patch: { title:") {
+			t.Fatalf("%s instruction missing expectedRevision / patch schema guidance", tc.skillID)
+		}
+		fileContents := map[string]string{"SKILL.md": resource.Instruction}
+		for _, item := range resource.Files {
+			file, err := svc.AgentFile("tester", pin, item.Path)
+			if err != nil || strings.TrimSpace(file.Content) == "" {
+				t.Fatalf("AgentFile(%s, %s) failed: err=%v", tc.skillID, item.Path, err)
+			}
+			fileContents[item.Path] = file.Content
+		}
+		for _, auxPath := range tc.auxPaths {
+			if _, ok := fileContents[auxPath]; !ok {
+				t.Fatalf("expected auxiliary path %s in %s", auxPath, tc.skillID)
+			}
+		}
+		linkRe := regexp.MustCompile(`\]\(([^)]+)\)`)
+		for filePath, body := range fileContents {
+			if !strings.HasSuffix(filePath, ".md") {
+				continue
+			}
+			for _, match := range linkRe.FindAllStringSubmatch(body, -1) {
+				target := match[1]
+				if strings.Contains(target, "://") || strings.HasPrefix(target, "#") {
+					continue
+				}
+				cleanTarget := path.Clean(path.Join(path.Dir(filePath), strings.SplitN(target, "#", 2)[0]))
+				if _, ok := fileContents[cleanTarget]; !ok {
+					t.Fatalf("%s broken markdown link in %s -> %s (resolved %s)", tc.skillID, filePath, target, cleanTarget)
+				}
+			}
+		}
+		if tc.skillID == "novel-to-manju-agent" {
+			manifestRaw, ok := fileContents["bundle-manifest.json"]
+			if !ok {
+				t.Fatal("novel-to-manju-agent missing bundle-manifest.json")
+			}
+			var manifest struct {
+				Files []struct {
+					Path   string `json:"path"`
+					Bytes  int    `json:"bytes"`
+					SHA256 string `json:"sha256"`
+				} `json:"files"`
+			}
+			if err := json.Unmarshal([]byte(manifestRaw), &manifest); err != nil {
+				t.Fatalf("invalid bundle-manifest.json: %v", err)
+			}
+			if len(manifest.Files) == 0 || len(manifest.Files) != len(fileContents)-1 {
+				t.Fatalf("manifest file count = %d, want %d", len(manifest.Files), len(fileContents)-1)
+			}
+			seen := make(map[string]bool, len(manifest.Files))
+			for _, entry := range manifest.Files {
+				body, exists := fileContents[entry.Path]
+				if !exists {
+					t.Fatalf("manifest file missing from package: %s", entry.Path)
+				}
+				seen[entry.Path] = true
+				sum := sha256.Sum256([]byte(body))
+				if len(body) != entry.Bytes || hex.EncodeToString(sum[:]) != entry.SHA256 {
+					t.Fatalf("manifest mismatch for %s", entry.Path)
+				}
+			}
+			for pkgPath := range fileContents {
+				if pkgPath != "bundle-manifest.json" && !seen[pkgPath] {
+					t.Fatalf("package file omitted from manifest: %s", pkgPath)
+				}
+			}
+			for _, deliveryRel := range []string{"assets/example-project/delivery.json", "assets/complete-example/delivery.json"} {
+				var delivery struct {
+					SourceFiles []struct {
+						Path   string `json:"path"`
+						SHA256 string `json:"sha256"`
+					} `json:"source_files"`
+				}
+				if err := json.Unmarshal([]byte(fileContents[deliveryRel]), &delivery); err != nil || len(delivery.SourceFiles) == 0 {
+					t.Fatalf("invalid %s: %v", deliveryRel, err)
+				}
+				for _, sf := range delivery.SourceFiles {
+					srcPath := path.Clean(path.Join(path.Dir(deliveryRel), sf.Path))
+					srcBody, exists := fileContents[srcPath]
+					if !exists {
+						t.Fatalf("%s references missing source file %s", deliveryRel, srcPath)
+					}
+					sum := sha256.Sum256([]byte(srcBody))
+					if hex.EncodeToString(sum[:]) != sf.SHA256 {
+						t.Fatalf("%s source hash mismatch for %s", deliveryRel, srcPath)
+					}
+				}
+			}
+		}
+	}
+
+	if _, err := svc.ValidateAgentSkills("tester", pins); err != nil {
+		t.Fatalf("ValidateAgentSkills(all 3 lucky加一 skills): %v", err)
+	}
+}
+
+func TestNormalizeBuiltinSkillFilesRejectsTotalSizeOverflow(t *testing.T) {
+	chunk := strings.Repeat("a", 70<<20)
+	if _, err := normalizeBuiltinSkillFiles(map[string]string{
+		"references/one.md":   chunk,
+		"references/two.md":   chunk,
+		"references/three.md": chunk,
+	}); err == nil {
+		t.Fatal("expected aggregate size limit error from normalizeBuiltinSkillFiles")
+	}
+	skillBody := []byte("---\nname: demo\ndescription: demo\n---\nbody\n")
+	chunkA := []byte(strings.Repeat("b", 7<<20))
+	chunkB := []byte(strings.Repeat("b", 7<<20))
+	remaining := maxSkillPackageBytes - len(skillBody) - len(chunkA) - len(chunkB)
+	meta := skillPackageMetadata{Name: "demo", Description: "demo"}
+	if _, err := finalizeSkillArchive(map[string][]byte{
+		"SKILL.md":          skillBody,
+		"references/a.md":   chunkA,
+		"references/b.md":   chunkB,
+		"references/fit.md": []byte(strings.Repeat("b", remaining)),
+	}, meta); err != nil {
+		t.Fatalf("finalizeSkillArchive at exact limit failed: %v", err)
+	}
+	if _, err := finalizeSkillArchive(map[string][]byte{
+		"SKILL.md":               skillBody,
+		"references/a.md":        chunkA,
+		"references/b.md":        chunkB,
+		"references/overflow.md": []byte(strings.Repeat("b", remaining+1)),
+	}, meta); err == nil {
+		t.Fatal("expected finalizeSkillArchive to reject package exceeding maxSkillPackageBytes")
 	}
 }
 

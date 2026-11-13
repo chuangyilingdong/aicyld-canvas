@@ -144,8 +144,8 @@ func TestDownloadResumableRestartsWhenServerIgnoresRange(t *testing.T) {
 		}
 		mu.Unlock()
 		w.Header().Set("Content-Type", "image/png")
-		w.Header().Set("Accept-Ranges", "none")
 		w.Header().Set("ETag", `"artifact-v1"`)
+		w.Header().Set("Accept-Ranges", "none")
 		w.Header().Set("Content-Length", strconv.Itoa(len(payload)))
 		w.WriteHeader(http.StatusOK)
 		if attempt == 1 {
@@ -255,6 +255,7 @@ func TestDownloadResumableIdleTimeoutResumesAndSteadyTransferSurvives(t *testing
 			}
 			body := payload[start:]
 			w.Header().Set("Content-Type", "image/png")
+			w.Header().Set("ETag", `"artifact-v1"`)
 			w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 			if start > 0 {
 				w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, len(payload)-1, len(payload)))

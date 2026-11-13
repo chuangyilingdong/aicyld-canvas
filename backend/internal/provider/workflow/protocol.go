@@ -158,9 +158,11 @@ func runningHubOutputs(value interface{}) []runningHubOutput {
 		switch item := current.(type) {
 		case string:
 			item = strings.TrimSpace(item)
-			if runningHubIsOutputURL(item) && !seen[item] {
-				seen[item] = true
-				result = append(result, runningHubOutput{URL: item, ID: id, Field: field, Owner: owner})
+			if runningHubIsOutputURL(item) {
+				if !seen[item] {
+					seen[item] = true
+					result = append(result, runningHubOutput{URL: item, ID: id, Field: field, Owner: owner})
+				}
 			}
 		case []interface{}:
 			for index, child := range item {
@@ -197,6 +199,7 @@ func runningHubOutputField(key string) bool {
 
 func runningHubOutputID(item map[string]interface{}) string {
 	for _, key := range []string{"outputId", "outputID", "output_id", "fileId", "fileID", "file_id", "id"} {
+		// A status envelope's generic id belongs to the task, not its outputs.
 		if key == "id" && !runningHubHasOutputURL(item) {
 			continue
 		}
@@ -246,31 +249,21 @@ func validateRunningHubQueryTaskID(response map[string]any, taskID string) error
 func matchRunningHubOutput(original runningHubOutput, fresh []runningHubOutput) (runningHubOutput, error) {
 	matched := make([]runningHubOutput, 0, 1)
 	owners := map[string]bool{}
-	if original.ID != "" {
-		byID := make([]runningHubOutput, 0, 2)
-		for _, output := range fresh {
+	for _, output := range fresh {
+		if original.ID != "" {
 			if output.ID == original.ID {
-				byID = append(byID, output)
 				owners[output.Owner] = true
 			}
-		}
-		if len(byID) == 1 {
-			matched = append(matched, byID[0])
-		} else {
-			for _, output := range byID {
-				if output.Field == original.Field {
-					matched = append(matched, output)
-				}
-			}
-		}
-	} else {
-		for _, output := range fresh {
-			if output.URL == original.URL && output.Field == original.Field {
+			if output.ID == original.ID && output.Field == original.Field {
 				matched = append(matched, output)
 			}
+		} else if output.URL == original.URL && output.Field == original.Field {
+			matched = append(matched, output)
 		}
 	}
 	if original.ID == "" && len(matched) == 0 {
+		// Legacy signed URLs retain the asset path. Never substitute the new
+		// array index if that path is missing or shared by different outputs.
 		locator := runningHubOutputLocator(original.URL)
 		for _, output := range fresh {
 			if locator != "" && runningHubOutputLocator(output.URL) == locator {
@@ -296,6 +289,8 @@ func runningHubOutputLocator(rawURL string) string {
 	if err != nil {
 		return ""
 	}
+	// Only comparison ignores signing metadata; the actual request keeps the
+	// original query spelling. Resource selectors such as asset/id must stay.
 	for key := range query {
 		name := strings.ToLower(key)
 		switch name {

@@ -1,11 +1,13 @@
-import { type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { Square, Volume2 } from "lucide-react";
 
 import { ImageSettingsTheme } from "@/components/image-settings-panel";
-import { audioPitchLabel, audioSampleRateLabel, audioSpeedLabel, audioSpeechProfile, audioVolumeLabel, normalizeAudioFormatValue, normalizeAudioPitchValue, normalizeAudioSampleRateValue, normalizeAudioSpeedValue, normalizeAudioVolumeValue, normalizeAudioVoiceValue } from "@/lib/audio-generation";
+import { audioPitchLabel, audioSpeedLabel, audioSpeechProfile, audioVolumeLabel, normalizeAudioFormatValue, normalizeAudioPitchValue, normalizeAudioSpeedValue, normalizeAudioVolumeValue, normalizeAudioVoiceValue } from "@/lib/audio-generation";
 import { type CanvasTheme } from "@/lib/canvas-theme";
+import { getPlayingAudioVoiceId, previewAudioVoice, stopAudioVoicePreview } from "@/lib/voice-preview-player";
 import type { AiConfig } from "@/stores/use-config-store";
 
-type AudioSettingKey = "audioVoice" | "audioFormat" | "audioSpeed" | "audioPitch" | "audioVolume" | "audioInstructions" | "audioSampleRate" | "audioLyrics";
+type AudioSettingKey = "audioVoice" | "audioFormat" | "audioSpeed" | "audioPitch" | "audioVolume" | "audioInstructions";
 
 type AudioSettingsPanelProps = {
     config: AiConfig;
@@ -20,19 +22,38 @@ export function AudioSettingsPanel({ config, onConfigChange, theme, showTitle = 
     const profile = audioSpeechProfile(model);
     const voice = normalizeAudioVoiceValue(config.audioVoice, model);
     const format = normalizeAudioFormatValue(config.audioFormat, model);
-    const sampleRate = normalizeAudioSampleRateValue(config.audioSampleRate, model);
     const speed = normalizeAudioSpeedValue(config.audioSpeed, model);
     const pitch = normalizeAudioPitchValue(config.audioPitch);
     const volume = normalizeAudioVolumeValue(config.audioVolume);
-    // 音乐 / 音效档只吃提示词，没有任何可调参数；此时面板只给一句说明，不展示语音参数。
-    const configurable = profile.showVoice || profile.formats.length > 0 || profile.showSampleRate || profile.showSpeed || profile.showPitch || profile.showVolume || profile.showInstructions || profile.showLyrics;
+    const [playingVoice, setPlayingVoice] = useState<string | null>(() => getPlayingAudioVoiceId());
+
+    useEffect(() => () => stopAudioVoicePreview(), []);
+
+    const isPreviewingCurrentVoice = Boolean(voice && playingVoice === voice);
 
     return (
         <ImageSettingsTheme theme={theme}>
             <div className={className} style={{ color: theme.node.text }} onMouseDown={(event) => event.stopPropagation()}>
                 {showTitle ? <div className="text-lg font-semibold">音频设置</div> : null}
                 {profile.showVoice ? (
-                    <SettingGroup title="音色" color={theme.node.muted}>
+                    <SettingGroup
+                        title="音色"
+                        color={theme.node.muted}
+                        action={
+                            <button
+                                type="button"
+                                aria-label={isPreviewingCurrentVoice ? "停止试听" : "试听当前音色"}
+                                aria-pressed={isPreviewingCurrentVoice}
+                                className="inline-flex h-6 cursor-pointer items-center gap-1 rounded-full border px-2.5 text-xs transition hover:opacity-80"
+                                style={{ borderColor: isPreviewingCurrentVoice ? theme.node.text : theme.node.stroke, color: theme.node.text }}
+                                onMouseDown={(event) => event.stopPropagation()}
+                                onClick={() => void previewAudioVoice(voice, setPlayingVoice, { speed: Number(speed) || 1 })}
+                            >
+                                {isPreviewingCurrentVoice ? <Square className="size-3" aria-hidden="true" /> : <Volume2 className="size-3.5" aria-hidden="true" />}
+                                <span>{isPreviewingCurrentVoice ? "停止试听" : "试听当前音色"}</span>
+                            </button>
+                        }
+                    >
                         <div className="grid grid-cols-3 gap-2.5">
                             {profile.voices.map((item) => (
                                 <OptionPill key={item.value} selected={voice === item.value} theme={theme} onClick={() => onConfigChange("audioVoice", item.value)}>
@@ -42,28 +63,15 @@ export function AudioSettingsPanel({ config, onConfigChange, theme, showTitle = 
                         </div>
                     </SettingGroup>
                 ) : null}
-                {profile.formats.length ? (
-                    <SettingGroup title="格式" color={theme.node.muted}>
-                        <div className="grid grid-cols-3 gap-2.5">
-                            {profile.formats.map((item) => (
-                                <OptionPill key={item.value} selected={format === item.value} theme={theme} onClick={() => onConfigChange("audioFormat", item.value)}>
-                                    {item.label}
-                                </OptionPill>
-                            ))}
-                        </div>
-                    </SettingGroup>
-                ) : null}
-                {profile.showSampleRate ? (
-                    <SettingGroup title="采样率" color={theme.node.muted}>
-                        <div className="grid grid-cols-3 gap-2.5">
-                            {profile.sampleRates.map((item) => (
-                                <OptionPill key={item.value} selected={sampleRate === item.value} theme={theme} onClick={() => onConfigChange("audioSampleRate", item.value)}>
-                                    {item.label}
-                                </OptionPill>
-                            ))}
-                        </div>
-                    </SettingGroup>
-                ) : null}
+                <SettingGroup title="格式" color={theme.node.muted}>
+                    <div className="grid grid-cols-3 gap-2.5">
+                        {profile.formats.map((item) => (
+                            <OptionPill key={item.value} selected={format === item.value} theme={theme} onClick={() => onConfigChange("audioFormat", item.value)}>
+                                {item.label}
+                            </OptionPill>
+                        ))}
+                    </div>
+                </SettingGroup>
                 {profile.showSpeed ? (
                     <SettingGroup title="语速" color={theme.node.muted}>
                         <div className="grid grid-cols-4 gap-2.5">
@@ -103,26 +111,6 @@ export function AudioSettingsPanel({ config, onConfigChange, theme, showTitle = 
                         </div>
                     </SettingGroup>
                 ) : null}
-                {!configurable ? (
-                    <div className="rounded-xl border px-3 py-2 text-xs leading-5" style={{ borderColor: theme.node.stroke, color: theme.node.muted }}>
-                        当前模型没有可调参数：音乐 / 音效只要提示词（描述你想要的风格或声音）。
-                    </div>
-                ) : null}
-                {profile.showLyrics ? (
-                    <SettingGroup title="歌词" color={theme.node.muted}>
-                        <textarea
-                            value={config.audioLyrics || ""}
-                            placeholder={"带人声的音乐需要填歌词，例如：\n[verse]\n第一句…\n[chorus]\n副歌…"}
-                            className="thin-scrollbar h-28 w-full resize-none rounded-xl border bg-transparent px-3 py-2 text-sm leading-5 outline-none"
-                            style={{ borderColor: theme.node.stroke, color: theme.node.text }}
-                            onChange={(event) => onConfigChange("audioLyrics", event.target.value)}
-                            onMouseDown={(event) => event.stopPropagation()}
-                        />
-                        <div className="text-xs leading-5" style={{ color: theme.node.muted }}>
-                            当前模型要出人声就必须给歌词；留空时上行缺少 lyrics，上游会拒绝这条请求。
-                        </div>
-                    </SettingGroup>
-                ) : null}
                 {profile.showInstructions ? (
                     <SettingGroup title="声音指令" color={theme.node.muted}>
                         <textarea
@@ -154,11 +142,14 @@ function OptionPill({ selected, theme, onClick, children }: { selected: boolean;
     );
 }
 
-function SettingGroup({ title, color, children }: { title: string; color: string; children: ReactNode }) {
+function SettingGroup({ title, color, action, children }: { title: string; color: string; action?: ReactNode; children: ReactNode }) {
     return (
         <div className="space-y-2.5">
-            <div className="text-xs font-medium" style={{ color }}>
-                {title}
+            <div className="flex items-center justify-between gap-2">
+                <div className="text-xs font-medium" style={{ color }}>
+                    {title}
+                </div>
+                {action}
             </div>
             {children}
         </div>

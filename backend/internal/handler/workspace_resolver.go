@@ -9,7 +9,6 @@ import (
 
 	"infinite-canvas/backend/internal/agentops"
 	"infinite-canvas/backend/internal/model"
-	"infinite-canvas/backend/internal/platform"
 	"infinite-canvas/backend/internal/workspace"
 
 	"github.com/gin-gonic/gin"
@@ -168,16 +167,6 @@ func WorkspaceResolverMiddleware(dataDir string, fallback workspace.Context, res
 		c.Set(workspaceContextKey, scope)
 		c.Next()
 	}
-}
-
-// hostedFeatureOverrides 在托管形态下收紧功能开关：模型渠道由平台统一维护，
-// 画布内不再开放用户自定义渠道（前端据此隐藏渠道编辑与内部系统渠道）。
-func hostedFeatureOverrides(setting *platform.PublicFeatureAvailability) *platform.PublicFeatureAvailability {
-	if setting == nil || !SSOConfigured() {
-		return setting
-	}
-	setting.CustomChannelsEnabled = false
-	return setting
 }
 
 // workspacePublicAPIPath 列出无需主站会话即可访问的 API 前缀。

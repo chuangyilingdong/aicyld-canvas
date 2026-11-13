@@ -107,11 +107,17 @@ func changeFromReceipts(record Record, receipts []model.AgentOpRecord) (*Change,
 			if item.payload["timelineUpdated"] == true {
 				change.TimelineUpdated = true
 			}
-		case "canvas.nodes.create":
+		case "canvas.nodes.create", "canvas.script.prepare":
 			for _, raw := range docItems(item.payload["created"]) {
 				if id, _ := raw["id"].(string); id != "" && !slices.Contains(change.CreatedNodeIDs, id) {
 					change.CreatedNodeIDs = append(change.CreatedNodeIDs, id)
 				}
+			}
+			if item.op == "canvas.script.prepare" {
+				if id, _ := item.payload["nodeId"].(string); id != "" {
+					change.UpdatedNodeIDs = uniqueSorted(append(change.UpdatedNodeIDs, id))
+				}
+				change.CreatedEdgeIDs = uniqueSorted(append(change.CreatedEdgeIDs, stringItems(item.payload["createdEdgeIds"])...))
 			}
 		case "canvas.document.commit":
 			change.DocumentUpdated = true
@@ -120,8 +126,28 @@ func changeFromReceipts(record Record, receipts []model.AgentOpRecord) (*Change,
 			change.DeletedEdgeIDs = uniqueSorted(append(change.DeletedEdgeIDs, stringItems(item.payload["deletedEdgeIds"])...))
 		case "canvas.node.update", "canvas.node.bind_asset", "canvas.node.configure", "canvas.node.move", "canvas.task.bind",
 			"canvas.script.rows.append", "canvas.script.row.update", "canvas.script.row.remove":
-			if item.op == "canvas.script.row.remove" {
+			if item.op == "canvas.script.row.remove" || item.op == "canvas.script.row.update" {
 				change.DeletedEdgeIDs = uniqueSorted(append(change.DeletedEdgeIDs, stringItems(item.payload["deletedEdgeIds"])...))
+			}
+			if item.op == "canvas.script.row.update" {
+				for _, id := range stringItems(item.payload["createdEdgeIds"]) {
+					if id != "" && !slices.Contains(change.CreatedEdgeIDs, id) {
+						change.CreatedEdgeIDs = append(change.CreatedEdgeIDs, id)
+					}
+				}
+			}
+			for _, id := range alsoChangedNodeIDs(item.payload) {
+				if id != "" && !slices.Contains(change.UpdatedNodeIDs, id) {
+					change.UpdatedNodeIDs = append(change.UpdatedNodeIDs, id)
+				}
+			}
+			if item.op == "canvas.script.row.update" {
+				// 旧回执只有 syncedNodeIds；新回执的 alsoChanged 带字段，两者都算本轮改过的节点。
+				for _, id := range stringItems(item.payload["syncedNodeIds"]) {
+					if id != "" && !slices.Contains(change.UpdatedNodeIDs, id) {
+						change.UpdatedNodeIDs = append(change.UpdatedNodeIDs, id)
+					}
+				}
 			}
 			if id, _ := item.payload["nodeId"].(string); id != "" && !slices.Contains(change.UpdatedNodeIDs, id) {
 				change.UpdatedNodeIDs = append(change.UpdatedNodeIDs, id)
@@ -259,6 +285,22 @@ func stringItems(raw any) []string {
 	var result []string
 	for _, item := range anyItems(raw) {
 		if id, ok := item.(string); ok {
+			result = append(result, id)
+		}
+	}
+	return result
+}
+
+// alsoChangedNodeIDs reads the shared side-effect receipt shape. It is the one
+// reader for every operation that reports indirectly changed nodes.
+func alsoChangedNodeIDs(payload map[string]any) []string {
+	var result []string
+	for _, raw := range anyItems(payload["alsoChanged"]) {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if id, _ := item["nodeId"].(string); id != "" {
 			result = append(result, id)
 		}
 	}

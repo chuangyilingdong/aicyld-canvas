@@ -3,13 +3,13 @@ import { Alert, Button, Checkbox, Input, InputNumber, Select } from "antd";
 import { Plus, Redo2, Save, Trash2, Undo2, X } from "lucide-react";
 import { nanoid } from "nanoid";
 import { AppModal } from "@/components/ui/product/app-modal";
+import { useAppUpdateSafetyBlocker } from "@/stores/use-app-update-safety-store";
 import { canvasNodeResourceId } from "@/lib/canvas/canvas-resource-id";
 import { compileCanvasWorkflow } from "@/lib/canvas/reusable-workflow";
 import { abstractWorkflowDefinition, connectWorkflowDraft, isWorkflowOperation, removeWorkflowDraftNode, switchWorkflowOperation, validateWorkflowDraft, workflowAppendPositions, workflowDurationSources, workflowEditableFields, workflowEditorPositions, workflowOperationDefaults, workflowOperationId } from "@/lib/canvas/workflow-editor";
 import { listCanvasWorkflowCapabilities } from "@/lib/canvas/workflow-capabilities";
 import { getNodeIcon } from "@/lib/canvas/node-registry";
 import { canvasProcessingRecipe } from "@/lib/canvas/canvas-processing-recipe";
-import { captureUserScope, assertUserScope } from "@/lib/user-scope-guard";
 import { uploadMediaFile } from "@/services/file-storage";
 import { resourceIdFromStorageKey } from "@/services/api/resources";
 import { saveCanvasWorkflow, updateCanvasWorkflow, validateCanvasWorkflow, type CanvasWorkflow, type WorkflowMediaType, type WorkflowNode, type WorkflowOperation } from "@/services/api/canvas-workflows";
@@ -27,7 +27,6 @@ export function CanvasWorkflowEditor({ initial, operations, canvasNodes, canvasC
     initial: CanvasWorkflow; operations: WorkflowOperation[]; canvasNodes: CanvasNodeData[]; canvasConnections: CanvasConnection[];
     readOnly: boolean; onClose(): void; onSaved(workflow: CanvasWorkflow): void; onReturnToCanvas(): void;
 }) {
-    const [scope] = useState(captureUserScope);
     const [initialDraft] = useState(() => {
         const value = structuredClone(initial);
         if (!value.definition.presentationVersion) value.definition = abstractWorkflowDefinition(value.definition, operations);
@@ -51,6 +50,11 @@ export function CanvasWorkflowEditor({ initial, operations, canvasNodes, canvasC
     const alive = useRef(true);
     useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
     const dirty = JSON.stringify(draft) !== JSON.stringify(initialDraft);
+    useAppUpdateSafetyBlocker(
+        `workflow-editor:${draft.id}`,
+        !readOnly && (dirty || saving || uploading),
+        saving ? "工作流正在保存" : uploading ? "工作流正在上传素材" : "工作流还有未保存的修改",
+    );
     const commit = (change: (current: CanvasWorkflow) => CanvasWorkflow) => {
         if (saving || uploading || readOnly) return;
         setHistory(current => {
@@ -97,8 +101,7 @@ export function CanvasWorkflowEditor({ initial, operations, canvasNodes, canvasC
     const importSource = async (id: string, title?: string) => {
         try {
             const raw = compileCanvasWorkflow(canvasNodes, canvasConnections, new Set([id])).definition;
-            const imported = abstractWorkflowDefinition((await validateCanvasWorkflow(raw, { expectedScope: scope })).definition, operations);
-            assertUserScope(scope);
+            const imported = abstractWorkflowDefinition((await validateCanvasWorkflow(raw)).definition, operations);
             if (!alive.current) return;
             const root = imported.nodes.find(item => item.id === id && isWorkflowOperation(item)) || imported.nodes.find(isWorkflowOperation);
             const ids = new Map(imported.nodes.map(item => [item.id, `step-${nanoid()}`]));
@@ -116,13 +119,11 @@ export function CanvasWorkflowEditor({ initial, operations, canvasNodes, canvasC
             validateWorkflowDraft(definition, operations);
             validateWorkflowPromptMentions(definition);
             setSaving(true);
-            const prepared = await validateCanvasWorkflow(definition, { expectedScope: scope }, draft.id ? { templateId: draft.id, templateRevision: initial.revision || 1 } : undefined);
-            assertUserScope(scope);
+            const prepared = await validateCanvasWorkflow(definition, {}, draft.id ? { templateId: draft.id, templateRevision: initial.revision || 1 } : undefined);
             const values = { name: draft.name.trim(), description: draft.description, definition: prepared.definition };
             const updated = draft.id
-                ? await updateCanvasWorkflow(draft.id, { ...values, expectedRevision: initial.revision || 1 }, { expectedScope: scope })
-                : await saveCanvasWorkflow(values, { expectedScope: scope });
-            assertUserScope(scope);
+                ? await updateCanvasWorkflow(draft.id, { ...values, expectedRevision: initial.revision || 1 })
+                : await saveCanvasWorkflow(values);
             if (alive.current) onSaved(updated);
         } catch (cause) { if (alive.current) setError(cause instanceof Error ? cause.message : "保存失败，草稿已保留"); }
         finally { if (alive.current) setSaving(false); }
@@ -135,8 +136,7 @@ export function CanvasWorkflowEditor({ initial, operations, canvasNodes, canvasC
         const nodeId = node.id;
         setUploading(true);
         try {
-            const resource = await uploadMediaFile(file, node.mediaType, undefined, scope);
-            assertUserScope(scope);
+            const resource = await uploadMediaFile(file, node.mediaType);
             const resourceId = resourceIdFromStorageKey(resource.storageKey);
             if (!resourceId || resource.pendingRemoteUpload) throw new Error("素材尚未保存完成");
             if (alive.current) setHistory(current => ({ past: [...current.past, current.current], future: [], current: { ...current.current, definition: { ...current.current.definition, nodes: current.current.definition.nodes.map(item => item.id === nodeId ? { ...item, resourceId, useDefault: true } : item) } } }));

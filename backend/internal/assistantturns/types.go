@@ -89,15 +89,16 @@ type Input struct {
 
 // Scope is the backend-verified read/write range for an open round.
 type Scope struct {
-	PermissionMode string
-
-	ActiveSkillPins  []skills.Pin
+	PermissionMode  string
+	CanvasID        string
+	AssetIDs        []string
+	CanvasIDs       []string
+	TaskIDs         []string
+	SkillPins       []skills.Pin
+	ActiveSkillPins []skills.Pin
+	// SessionSkillPins are pins of earlier rounds of the same Durable
+	// conversation and owner. Their bodies are already in that transcript.
 	SessionSkillPins []skills.Pin
-	CanvasID         string
-	AssetIDs         []string
-	CanvasIDs        []string
-	TaskIDs          []string
-	SkillPins        []skills.Pin
 }
 
 // HistoryState supplements pi conversation history with business receipts.
@@ -178,6 +179,8 @@ type CanvasSnapshot struct {
 	Document       json.RawMessage `json:"document"`
 }
 
+// skillPinIdentities ignores display labels: a skill renamed between a
+// replayed Begin and the stored round is still the same pinned package.
 func skillPinIdentities(pins []skills.Pin) []skills.Pin {
 	result := make([]skills.Pin, 0, len(pins))
 	for _, pin := range SortedSkillPins(pins) {

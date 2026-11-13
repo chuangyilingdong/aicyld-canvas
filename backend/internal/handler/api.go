@@ -48,12 +48,14 @@ func registerDesktopCanvasAPI(api *gin.RouterGroup, svc *app.Service, dependenci
 	// root supplies it; standalone route registration must not create a child
 	// whose lifetime has no owner.
 	api.Use(RuntimeDependenciesMiddleware(dependencies))
+	api.Use(SupportTracingMiddleware(svc))
 	RegisterOpenAPIRoutes(api)
 	RegisterWorkspaceRoutes(api, svc)
 	RegisterBeefAPIConnectionRoutes(api, svc)
 	RegisterDesktopAppearanceRoutes(api, svc)
 	RegisterDesktopFeatureAvailabilityRoutes(api, svc)
-	// 平台模型渠道的内部管理接口（共享密钥鉴权，供主站后台调用）。
+	// Platform channel management is server-to-server only. The route group
+	// checks AICYLD_CANVAS_INTERNAL_TOKEN before reading or writing the file.
 	RegisterInternalChannelRoutes(api, svc)
 	// 旧内置 Agent 已从产品运行面退场：这里不再注册 /agent/*，运行、审批和记忆入口
 	// 都不能由浏览器或直接 API 触发。历史执行、偏好和记忆数据保留在本地数据库，
@@ -63,18 +65,19 @@ func registerDesktopCanvasAPI(api *gin.RouterGroup, svc *app.Service, dependenci
 	RegisterChannelModelRoutes(api, svc)
 	RegisterCustomRelayRoutes(api, svc)
 	RegisterTaskRoutes(api, svc, false)
+	RegisterPointsRoutes(api, svc)
 	RegisterRunningHubRoutes(api, svc, false)
-	RegisterDesktopSkillRoutes(api, svc)
-	RegisterDesktopUserDataRoutes(api, svc)
+	RegisterDesktopSkillRoutes(api, svc, svc.SkillsDomain())
+	RegisterDesktopUserDataRoutes(api, svc, svc.CanvasService(), svc.PromptService(), svc.AssetLibraryService(), svc.ResourceService(), svc.PlaybackService(), svc, svc, svc)
 	// 登记表在进程内单实例（避免每请求新建导致并发丢记录）。
 	// 凭据落盘属于组合根职责：路由注册不产生文件副作用。
 	clients := agentops.NewClientRegistry(svc.DataDir())
-	// 统一操作层：CLI、MCP 与内置 pi 共用同一组操作与校验，连同一个运行中的工作区。
-	if db := svc.Database(); db != nil {
-		RegisterAgentOpsRoutes(api, svc, agentops.NewStore(db), clients)
-	}
 	// 内置创作助手：短期限 UI 会话凭据 + 可信代理；浏览器不接触 owner/宿主/模型凭据。
 	uiSessions := newUISessionStore()
+	// 统一操作层：CLI、MCP 与内置 pi 共用同一组操作与校验，连同一个运行中的工作区。
+	if db := svc.Database(); db != nil {
+		RegisterAgentOpsRoutes(api, svc, agentops.NewStore(db), clients, uiSessions)
+	}
 	RegisterAgentUISessionRoutes(api, svc, uiSessions, dependencies.DesktopTrust)
 	// 外部 Agent 凭据的签发与吊销：只有受信任的桌面界面能进，外部客户端拿不到桌面启动令牌。
 	RegisterAgentClientRoutes(api, svc, clients, dependencies.DesktopTrust)
@@ -86,7 +89,14 @@ func registerDesktopCanvasAPI(api *gin.RouterGroup, svc *app.Service, dependenci
 	RegisterPluginRoutes(api, svc, false)
 	projectAPI := api.Group("")
 	projectAPI.Use(RequireFeature(svc, app.FeatureShortDrama))
-	RegisterProjectRoutes(projectAPI, svc)
+	registerShortDramaRoutes(projectAPI, svc)
+}
+
+// registerShortDramaRoutes groups the routes gated by the short-drama feature.
+func registerShortDramaRoutes(r *gin.RouterGroup, svc *app.Service) {
+	RegisterStyleProfileRoutes(r, svc, svc.PromptService())
+	registerCanvasProductionRoutes(r, svc)
+	RegisterProjectRoutes(r, svc, svc.ProjectService(), svc)
 }
 
 func RegisterOpenAPIRoutes(api *gin.RouterGroup) {

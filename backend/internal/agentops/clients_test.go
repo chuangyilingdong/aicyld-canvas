@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"infinite-canvas/backend/internal/securefile"
 )
 
 // 已有安装的登记文件没有 kind / lastUsedAt / revokedAt：升级后必须照旧能用，
@@ -122,12 +124,30 @@ func TestRegistryNeverStoresRawToken(t *testing.T) {
 	if strings.Contains(string(raw), token) {
 		t.Fatal("登记文件里出现了原始 token")
 	}
-	info, err := os.Stat(registry.path)
-	if err != nil {
+	if err := securefile.Verify(registry.path); err != nil {
+		t.Fatalf("登记文件没有收紧到只有当前用户可读：%v", err)
+	}
+}
+
+// owner 与宿主凭据是原始 token：新写的、以及旧版本按默认权限写下的，都要只有当前用户可读。
+func TestAgentCredentialsAreRestrictedToTheCurrentUser(t *testing.T) {
+	dir := t.TempDir()
+	// 旧版本留下的宿主凭据：Unix 上是 0644，Windows 上继承目录权限。
+	if err := os.WriteFile(HostTokenPath(dir), []byte("legacy-host-token"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o600 {
-		t.Fatalf("登记文件权限应为 0600，得到 %v", info.Mode().Perm())
+	if err := os.Chmod(HostTokenPath(dir), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	EnsureAgentCredentials(dir)
+	for _, path := range []string{OwnerTokenPath(dir), HostTokenPath(dir)} {
+		if err := securefile.Verify(path); err != nil {
+			t.Fatalf("%s: %v", filepath.Base(path), err)
+		}
+	}
+	raw, err := os.ReadFile(HostTokenPath(dir))
+	if err != nil || string(raw) != "legacy-host-token" {
+		t.Fatalf("已有宿主凭据被改写：%q %v", raw, err)
 	}
 }
 
@@ -177,6 +197,35 @@ func TestNormalizeClientKind(t *testing.T) {
 	} {
 		if got := NormalizeClientKind(input); got != want {
 			t.Fatalf("NormalizeClientKind(%q) = %q，期望 %q", input, got, want)
+		}
+	}
+}
+
+func TestNormalizeAndRegisterClientApprovalMode(t *testing.T) {
+	for input, want := range map[string]ClientApprovalMode{
+		"ask": ClientApprovalAsk, "ASK": ClientApprovalAsk,
+		"caller": ClientApprovalCaller, "": ClientApprovalCaller,
+		"auto": ClientApprovalAuto, " AUTO ": ClientApprovalAuto,
+	} {
+		if got, err := NormalizeClientApprovalMode(input); err != nil || got != want {
+			t.Fatalf("NormalizeClientApprovalMode(%q) = %q, %v，期望 %q, nil", input, got, err, want)
+		}
+	}
+	if _, err := NormalizeClientApprovalMode("unknown"); err == nil {
+		t.Fatal("NormalizeClientApprovalMode(\"unknown\") 应报错")
+	}
+	registry := NewClientRegistry(t.TempDir())
+	for _, mode := range []ClientApprovalMode{ClientApprovalAsk, ClientApprovalCaller, ClientApprovalAuto} {
+		reg, token, err := registry.RegisterClient("cli-"+string(mode), "codex", ClientReadWrite, mode)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if reg.ApprovalMode != mode {
+			t.Fatalf("registered ApprovalMode = %q, want %q", reg.ApprovalMode, mode)
+		}
+		lookedUp, ok := registry.Lookup(reg.ID, token)
+		if !ok || lookedUp.ApprovalMode != mode {
+			t.Fatalf("lookup ApprovalMode = %+v, want %q", lookedUp, mode)
 		}
 	}
 }

@@ -21,7 +21,7 @@ func TestTrustedDesktopUICanCommitDocument(t *testing.T) {
 	router := gin.New()
 	router.Use(RuntimeDependenciesMiddleware(RuntimeDependencies{DesktopTrust: trust}))
 	api := router.Group("/api")
-	RegisterAgentOpsRoutes(api, env.service, agentops.NewStore(env.service.Database()), env.clients)
+	RegisterAgentOpsRoutes(api, env.service, agentops.NewStore(env.service.Database()), env.clients, newUISessionStore())
 
 	code, body := postOps(t, router, "canvas.document.commit", "ui-doc-1", map[string]string{
 		"X-Desktop-Token": "launch", "X-Beeftv-UI-Bootstrap": "ui",

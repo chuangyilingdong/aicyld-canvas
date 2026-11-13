@@ -73,7 +73,7 @@ func TestSeedanceMultipartRecoversLostAckPartialBodyAndCompletion(t *testing.T) 
 				defer mu.Unlock()
 				w.Header().Set("Content-Type", "application/json")
 				switch r.URL.Path {
-				case "/v1/video-references/uploads", "/v1/video-references/uploads/resume":
+				case "/v1/media/uploads", "/v1/media/uploads/resume":
 					if strings.HasSuffix(r.URL.Path, "/resume") {
 						resumes++
 					} else {
@@ -90,7 +90,7 @@ func TestSeedanceMultipartRecoversLostAckPartialBodyAndCompletion(t *testing.T) 
 						plan.Parts = append(plan.Parts, BeefAPISeedanceUploadPart{Number: n, Bytes: int64(size), Received: len(stored[n]) == size, UploadURL: fmt.Sprintf("%s/part/%d", storageURL, n), RequiredHeaders: map[string]string{"Authorization": "must-drop", "Cookie": "must-drop", "X-Api-Key": "must-drop"}})
 					}
 					_ = json.NewEncoder(w).Encode(BeefAPISeedanceUploadSession{Ticket: "same-owned-upload", Multipart: plan})
-				case "/v1/video-references/uploads/complete":
+				case "/v1/media/uploads/complete":
 					completes++
 					if !bytes.Equal(append(append(append([]byte{}, stored[1]...), stored[2]...), stored[3]...), data) {
 						t.Error("completed bytes differ")
@@ -101,7 +101,7 @@ func TestSeedanceMultipartRecoversLostAckPartialBodyAndCompletion(t *testing.T) 
 						return
 					}
 					_ = json.NewEncoder(w).Encode(BeefAPISeedanceUploadComplete{URL: "https://example.com/completed.png", Kind: "image", Mime: "image/png", Bytes: int64(len(data)), SHA256: hexDigest})
-				case "/v1/video-references/uploads/abort":
+				case "/v1/media/uploads/abort":
 					aborts++
 					_, _ = io.WriteString(w, "{}")
 				default:
@@ -112,7 +112,7 @@ func TestSeedanceMultipartRecoversLostAckPartialBodyAndCompletion(t *testing.T) 
 			defer gateway.Close()
 			ctx := WithRuntime(context.Background(), Runtime{Endpoints: Endpoints{BeefAPIVideoBaseURL: gateway.URL}})
 			input := Input{Config: Config{BaseURL: gateway.URL + "/v1", APIKey: "gateway-key", Model: "seedance-2.0-mini", InterfaceType: "newapi"}, ReferenceImages: []Media{{DataURL: "fixture", MimeType: "image/png"}}}
-			err := PrepareBeefAPISeedanceReferences(ctx, input.Config, &input, func(string, Media) ([]byte, string, bool, error) { return data, "image/png", false, nil })
+			err := PrepareBeefAPIVideoReferences(ctx, input.Config, &input, func(string, Media) ([]byte, string, bool, error) { return data, "image/png", false, nil })
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -144,6 +144,46 @@ func TestSeedanceMultipartRejectsCorruptPlanBeforeNetwork(t *testing.T) {
 	}
 }
 
+func TestSeedanceMultipartProgressResumesAtAcknowledgedBytes(t *testing.T) {
+	t.Setenv("CANVAS_ALLOW_PRIVATE_UPSTREAMS", "true")
+	data := make([]byte, (5<<20)+100)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut {
+			_, _ = io.Copy(io.Discard, r.Body)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"url":"https://example.com/completed.png"}`)
+	}))
+	defer server.Close()
+	port := &referenceProgressRecorder{}
+	ctx := WithRuntime(context.Background(), Runtime{ReferenceProgress: port, Endpoints: Endpoints{BeefAPIVideoBaseURL: server.URL}})
+	ctx, reporter := beginReferenceProgress(ctx, "参考图片 1", int64(len(data)))
+	// The previous attempt sent half of the last part without a receipt.
+	reporter.report("transferring", (5<<20)+50)
+	session := BeefAPISeedanceUploadSession{Ticket: "owned-ticket", Multipart: &BeefAPISeedanceMultipartPlan{
+		PartBytes: 5 << 20,
+		Parts: []BeefAPISeedanceUploadPart{
+			{Number: 1, Bytes: 5 << 20, Received: true},
+			{Number: 2, Bytes: 100, UploadURL: server.URL + "/part/2"},
+		},
+	}}
+	_, err := CompleteBeefAPISeedanceUpload(ctx, Config{BaseURL: server.URL + "/v1", APIKey: "fixture-key"}, session, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	acknowledged := false
+	for _, value := range port.values {
+		if value.LoadedBytes == 5<<20 && value.BytesPerSecond == 0 {
+			acknowledged = true
+		}
+	}
+	last := port.values[len(port.values)-1]
+	if !acknowledged || last.Phase != "processing" || last.LoadedBytes != int64(len(data)) {
+		t.Fatalf("resume must skip acknowledged bytes and replace partial traffic: acknowledged=%t last=%+v", acknowledged, last)
+	}
+}
+
 func TestSeedanceMultipartStopsOnGatewayRejectionAndCleansOnCancel(t *testing.T) {
 	for _, status := range []int{0, 400, 401, 403} {
 		t.Run(fmt.Sprint(status), func(t *testing.T) {
@@ -155,11 +195,11 @@ func TestSeedanceMultipartStopsOnGatewayRejectionAndCleansOnCancel(t *testing.T)
 				defer mu.Unlock()
 				w.Header().Set("Content-Type", "application/json")
 				switch r.URL.Path {
-				case "/v1/video-references/uploads/complete":
+				case "/v1/media/uploads/complete":
 					completes++
 					w.WriteHeader(status)
 					_, _ = io.WriteString(w, `{"error":{"message":"rejected"}}`)
-				case "/v1/video-references/uploads/abort":
+				case "/v1/media/uploads/abort":
 					aborts++
 					_, _ = io.WriteString(w, `{}`)
 				default:
@@ -169,6 +209,7 @@ func TestSeedanceMultipartStopsOnGatewayRejectionAndCleansOnCancel(t *testing.T)
 			}))
 			defer server.Close()
 			ctx, cancel := context.WithCancel(context.Background())
+			ctx = WithEndpoints(ctx, Endpoints{BeefAPIVideoBaseURL: server.URL})
 			defer cancel()
 			if status == 0 {
 				cancel()
@@ -188,5 +229,33 @@ func TestSeedanceMultipartStopsOnGatewayRejectionAndCleansOnCancel(t *testing.T)
 				t.Fatalf("gateway rejection retried %d times", completes)
 			}
 		})
+	}
+}
+
+func TestSeedanceMultipartReceivedPartsWaitForConfirmation(t *testing.T) {
+	t.Setenv("CANVAS_ALLOW_PRIVATE_UPSTREAMS", "true")
+	var reporter *referenceReporter
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/media/uploads/complete" {
+			t.Errorf("unexpected upload request: %s", r.URL.Path)
+		}
+		reporter.mu.Lock()
+		value := reporter.value
+		reporter.mu.Unlock()
+		if value.Phase != "processing" || value.LoadedBytes != 100 {
+			t.Errorf("all received parts must wait for confirmation, got %+v", value)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"url":"https://example.com/completed.png"}`)
+	}))
+	defer server.Close()
+	port := &referenceProgressRecorder{}
+	ctx := WithRuntime(context.Background(), Runtime{ReferenceProgress: port, Endpoints: Endpoints{BeefAPIVideoBaseURL: server.URL}})
+	ctx, reporter = beginReferenceProgress(ctx, "参考图片 1", 100)
+	session := BeefAPISeedanceUploadSession{Ticket: "owned-ticket", Multipart: &BeefAPISeedanceMultipartPlan{
+		PartBytes: 5 << 20, Parts: []BeefAPISeedanceUploadPart{{Number: 1, Bytes: 100, Received: true}},
+	}}
+	if _, err := CompleteBeefAPISeedanceUpload(ctx, Config{BaseURL: server.URL + "/v1"}, session, make([]byte, 100)); err != nil {
+		t.Fatal(err)
 	}
 }

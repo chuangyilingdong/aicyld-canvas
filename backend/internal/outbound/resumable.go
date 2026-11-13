@@ -267,33 +267,20 @@ func downloadResumableAttempt(ctx context.Context, parsed *url.URL, opts Resumab
 		total = contentTotal
 	default:
 		if retryableHTTPStatus(response.StatusCode) {
-			return ResumableResult{}, true, fmt.Errorf("远程资源下载失败：%s", response.Status)
+			return ResumableResult{}, true, &HTTPStatusError{StatusCode: response.StatusCode, Message: fmt.Sprintf("远程资源下载失败：%s", response.Status)}
 		}
 		// Expired signed links may later be refreshed for the same artifact.
 		// Keep bytes, but require source/validator checks before any reuse.
 		if response.StatusCode != http.StatusUnauthorized && response.StatusCode != http.StatusForbidden {
 			removeResumablePartial(opts.PartialPath)
 		}
-		return ResumableResult{}, false, fmt.Errorf("远程资源下载失败：%s", response.Status)
+		return ResumableResult{}, false, &HTTPStatusError{StatusCode: response.StatusCode, Message: fmt.Sprintf("远程资源下载失败：%s", response.Status)}
 	}
 	pending.Total = total
 	if total >= 0 && total >= opts.MaxBytes {
 		removeResumablePartial(opts.PartialPath)
 		return ResumableResult{}, false, ErrResourceTooLarge
 	}
-	// Persist the sidecar before streaming. A process crash or kill mid-transfer
-	// never runs a failure path, and without the sidecar the next call would
-	// discard the partial and restart from byte zero.
-	saveResumableSidecar(opts.PartialPath, pending)
-	emitter.observe(offset)
-	emitter.emit(offset, total, "downloading", true)
-
-	idleTimer := time.AfterFunc(idleTimeout, func() {
-		cancel(fmt.Errorf("下载长时间没有收到数据：%w", context.DeadlineExceeded))
-	})
-	defer idleTimer.Stop()
-	reader := &idleResetReader{body: response.Body, timer: idleTimer, idle: idleTimeout}
-
 	file, err := os.OpenFile(opts.PartialPath, os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return ResumableResult{}, false, err
@@ -308,6 +295,21 @@ func downloadResumableAttempt(ctx context.Context, parsed *url.URL, opts Resumab
 		_ = file.Close()
 		return ResumableResult{}, false, err
 	}
+	// A full response replaces the old representation: discard its bytes before
+	// publishing the new validator. Never stream without successfully saving the
+	// matching sidecar, or a later retry could combine two different artifacts.
+	if err := saveResumableSidecar(opts.PartialPath, pending); err != nil {
+		_ = file.Close()
+		return ResumableResult{}, false, err
+	}
+	emitter.observe(offset)
+	emitter.emit(offset, total, "downloading", true)
+
+	idleTimer := time.AfterFunc(idleTimeout, func() {
+		cancel(fmt.Errorf("下载长时间没有收到数据：%w", context.DeadlineExceeded))
+	})
+	defer idleTimer.Stop()
+	reader := &idleResetReader{body: response.Body, timer: idleTimer, idle: idleTimeout}
 
 	written := offset
 	buffer := make([]byte, resumableReadBuffer)
@@ -454,12 +456,12 @@ func loadResumableSidecar(partialPath string) *resumableSidecar {
 	return &sidecar
 }
 
-func saveResumableSidecar(partialPath string, sidecar resumableSidecar) {
+func saveResumableSidecar(partialPath string, sidecar resumableSidecar) error {
 	raw, err := json.Marshal(sidecar)
 	if err != nil {
-		return
+		return err
 	}
-	_ = os.WriteFile(partialPath+".json", raw, 0o600)
+	return os.WriteFile(partialPath+".json", raw, 0o600)
 }
 
 func removeResumablePartial(partialPath string) {

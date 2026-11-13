@@ -100,23 +100,6 @@ func TestBindTextUsesDurableResultJSON(t *testing.T) {
 	}
 }
 
-func TestBindMidjourneyDescribeUsesDurableTextResult(t *testing.T) {
-	ports := &fakePorts{
-		task: &model.Task{
-			ID: "task-mj-describe", UserID: "user-1", ProjectID: "canvas-1", Type: "canvas_image",
-			Status:     model.TaskStatusSucceeded,
-			InputJSON:  `{"metadata":{"nodeId":"node-text","midjourney":{"action":"describe"}}}`,
-			ResultJSON: `{"text":"a quiet forest at dawn"}`,
-		},
-	}
-	receipt, err := Bind(ports, "user-1", Request{CanvasID: "canvas-1", TaskID: "task-mj-describe", NodeID: "node-text"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if receipt.Content != "a quiet forest at dawn" || ports.lastPatch.MediaType != "text" {
-		t.Fatalf("describe receipt = %#v patch=%#v", receipt, ports.lastPatch)
-	}
-}
 func TestBindRejectsUnreadableAndNotReadyOutputs(t *testing.T) {
 	unreadable := &fakePorts{
 		task:      testImageTask(),
@@ -155,17 +138,29 @@ func TestBindRejectsForeignAssetAndWrongNode(t *testing.T) {
 	}
 }
 
-func TestBindAllowsAdditionalOutputOnTaskBatchChild(t *testing.T) {
+func TestBindAllowsDifferentNodeOnlyWithExplicitFallback(t *testing.T) {
 	ports := &fakePorts{
 		task: testImageTask(),
-		outputs: []localtask.CanonicalOutput{
-			{OutputIndex: 1, MaterializedAssetID: "generation_abc", ResourceID: "res-1"},
-		},
-		resource: &model.Resource{ID: "res-1", UserID: "user-1", Status: model.ResourceStatusReady},
+		outputs: []localtask.CanonicalOutput{{
+			OutputIndex: 0, MediaType: "image", MaterializedAssetID: "generation_abc", ResourceID: "res-1",
+		}},
+		resource: &model.Resource{ID: "res-1", UserID: "user-1", Status: model.ResourceStatusReady, Kind: "image"},
 		asset:    testAsset("generation_abc", "user-1", "res-1"),
 	}
-	if _, err := Bind(ports, "user-1", Request{CanvasID: "canvas-1", TaskID: "task-1", NodeID: "batch-child-2", OutputIndex: 1}); err != nil {
-		t.Fatalf("additional output = %v", err)
+	if _, err := Bind(ports, "user-1", Request{CanvasID: "canvas-1", TaskID: "task-1", NodeID: "fallback-node"}); !isBindReason(err, "node_mismatch") {
+		t.Fatalf("implicit fallback = %v", err)
+	}
+	receipt, err := Bind(ports, "user-1", Request{
+		CanvasID: "canvas-1", TaskID: "task-1", NodeID: "fallback-node", AllowDifferentNode: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt.NodeID != "fallback-node" || !ports.lastPatch.AllowDifferentNode {
+		t.Fatalf("fallback receipt = %#v patch=%#v", receipt, ports.lastPatch)
+	}
+	if ports.lastPatch.EffectKey != localtask.AttachNodeEffectKey("task-1", "fallback-node", 0) {
+		t.Fatalf("fallback effect = %q", ports.lastPatch.EffectKey)
 	}
 }
 
@@ -230,4 +225,28 @@ func TestBindRejectsPortReturnedForeignResourceAndMismatchedAsset(t *testing.T) 
 func isBindReason(err error, reason string) bool {
 	var bindErr *Error
 	return errors.As(err, &bindErr) && bindErr.Reason == reason && strings.TrimSpace(bindErr.Message) != ""
+}
+
+func TestBindImageOutputsRequireFrozenDestinationAtEachIndex(t *testing.T) {
+	nodes := []string{"first", "second", "third", "fourth"}
+	for index, nodeID := range nodes {
+		task := testImageTask()
+		task.InputJSON = `{"metadata":{"source":"canvas","nodeId":"first","outputNodeIds":["first","second","third","fourth"]}}`
+		ports := &fakePorts{
+			task:     task,
+			outputs:  []localtask.CanonicalOutput{{OutputIndex: index, MediaType: "image", MaterializedAssetID: "asset", ResourceID: "resource"}},
+			resource: &model.Resource{ID: "resource", UserID: "user-1", Status: model.ResourceStatusReady, Kind: "image"},
+			asset:    testAsset("asset", "user-1", "resource"),
+		}
+		if _, err := Bind(ports, "user-1", Request{CanvasID: "canvas-1", TaskID: "task-1", NodeID: nodes[(index+1)%4], OutputIndex: index}); !isBindReason(err, "node_mismatch") {
+			t.Fatalf("wrong destination for output %d accepted: %v", index, err)
+		}
+		receipt, err := Bind(ports, "user-1", Request{CanvasID: "canvas-1", TaskID: "task-1", NodeID: nodeID, OutputIndex: index})
+		if err != nil || receipt.NodeID != nodeID || receipt.OutputIndex != index || ports.binds != 1 {
+			t.Fatalf("output %d destination %q: receipt=%#v err=%v", index, nodeID, receipt, err)
+		}
+		if _, err := Bind(ports, "user-1", Request{CanvasID: "canvas-1", TaskID: "task-1", NodeID: nodeID, OutputIndex: 4}); !isBindReason(err, "node_mismatch") {
+			t.Fatalf("undeclared output destination accepted: %v", err)
+		}
+	}
 }

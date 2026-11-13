@@ -12,7 +12,7 @@ func TestBuiltinCatalogContainsRequestedProtocols(t *testing.T) {
 	registry := Builtins()
 	expected := []string{
 		"chat-completion", "openai-response", "claude-api",
-		"midjourney", "newapi", "newapi-channel-2", "xai-video", "volcengine-ark-video", "volcengine-jimeng-video", "gemini-veo", "novita-video", "minimax-video", "agnes-video",
+		"newapi", "newapi-channel-2", "xai-video", "volcengine-ark-video", "volcengine-jimeng-video", "gemini-veo", "novita-video", "minimax-video", "agnes-video",
 	}
 	for _, id := range expected {
 		if _, ok := registry.Get(id); !ok {
@@ -55,159 +55,6 @@ func TestBuiltinCatalogContainsRequestedProtocols(t *testing.T) {
 	}
 	if _, ok := registry.Get("autodl-comfyui"); ok {
 		t.Fatal("AutoDL must be provided by the uploaded plugin package, not the host registry")
-	}
-}
-
-func TestMidjourneyImagineMapsRequestAndGridPoll(t *testing.T) {
-	adapter, ok := Builtins().Get("midjourney")
-	if !ok {
-		t.Fatal("Midjourney adapter missing")
-	}
-	spec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
-		Model: "midjourney-imagine", Prompt: "a red fox in snow", AspectRatio: "16:9", Quality: "fast",
-		Images: []MediaReference{{URL: "https://cdn.example.com/reference.png", Kind: "image"}},
-		Extra: map[string]any{"midjourney": map[string]any{
-			"action": "imagine", "quality": "1", "version": "8.1", "style": "raw", "stylize": float64(750),
-			"negativePrompt": "blurry", "tile": true, "niji": false, "hd": true,
-		}},
-	}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if spec.Method != http.MethodPost || spec.Path != "/v1/midjourney/generations/imagine" {
-		t.Fatalf("create spec = %#v", spec)
-	}
-	body, _ := json.Marshal(spec.Body)
-	var got map[string]any
-	if err := json.Unmarshal(body, &got); err != nil {
-		t.Fatal(err)
-	}
-	if got["model"] != "midjourney" || got["prompt"] != "a red fox in snow" || got["size"] != "16:9" || got["speed"] != "fast" || got["quality"] != "1" || got["version"] != "8.1" ||
-		got["style"] != "raw" || got["stylize"] != float64(750) || got["negative_prompt"] != "blurry" || got["tile"] != true || got["niji"] != false || got["hd"] != true {
-		t.Fatalf("create body = %#v", got)
-	}
-	if images, _ := got["image_urls"].([]any); len(images) != 1 || images[0] != "https://cdn.example.com/reference.png" {
-		t.Fatalf("image_urls = %#v", got["image_urls"])
-	}
-
-	poll, err := adapter.BuildPoll(context.Background(), PollContext{TaskID: "mj-task-1"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if poll.Method != http.MethodGet || poll.Path != "/v1/midjourney/tasks/mj-task-1" {
-		t.Fatalf("poll spec = %#v", poll)
-	}
-	result, err := adapter.ParsePoll(context.Background(), PollContext{TaskID: "mj-task-1"}, []byte(`{"task_id":"mj-task-1","status":"SUCCESS","grid_image_url":"https://cdn.example.com/grid.png","image_urls":["https://cdn.example.com/a.png","https://cdn.example.com/b.png","https://cdn.example.com/c.png","https://cdn.example.com/d.png"],"buttons":[{"customId":"MJ::JOB::upsample::1::token","label":"U1"}]}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Status != StatusSucceeded || result.Result == nil || len(result.Result.Images) != 4 || result.Result.Images[0].URL != "https://cdn.example.com/a.png" || result.Result.Images[3].URL != "https://cdn.example.com/d.png" {
-		t.Fatalf("poll result = %#v", result)
-	}
-	buttons, _ := result.Result.ProviderMetadata["midjourneyButtons"].([]map[string]any)
-	if len(buttons) != 1 || buttons[0]["customId"] != "MJ::JOB::upsample::1::token" || buttons[0]["label"] != "U1" {
-		t.Fatalf("midjourney buttons = %#v", result.Result.ProviderMetadata)
-	}
-}
-
-func TestMidjourneyDescribeAcceptsSynchronousCreateResult(t *testing.T) {
-	adapter, ok := Builtins().Get("midjourney")
-	if !ok {
-		t.Fatal("Midjourney adapter missing")
-	}
-	result, err := adapter.ParseCreate(context.Background(), []byte(`{"description":"a quiet forest at dawn"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Status != StatusSucceeded || result.Result == nil || result.Result.Text != "a quiet forest at dawn" {
-		t.Fatalf("create result = %#v", result)
-	}
-}
-
-func TestMidjourneyActionsMapIndependentParameters(t *testing.T) {
-	adapter, _ := Builtins().Get("midjourney")
-	tests := []struct {
-		action string
-		opts   map[string]any
-		images []MediaReference
-		want   map[string]any
-	}{
-		{"upscale", map[string]any{"taskId": "mj-parent", "index": float64(2)}, nil, map[string]any{"task_id": "mj-parent", "index": 2}},
-		{"variation", map[string]any{"taskId": "mj-parent", "index": float64(3)}, nil, map[string]any{"task_id": "mj-parent", "index": 3}},
-		{"high-variation", map[string]any{"taskId": "mj-single", "index": float64(1)}, nil, map[string]any{"task_id": "mj-single"}},
-		{"low-variation", map[string]any{"taskId": "mj-single", "index": float64(1)}, nil, map[string]any{"task_id": "mj-single"}},
-		{"reroll", map[string]any{"taskId": "mj-grid"}, nil, map[string]any{"task_id": "mj-grid"}},
-		{"zoom", map[string]any{"taskId": "mj-single", "zoomRatio": 1.5}, nil, map[string]any{"task_id": "mj-single", "zoom_ratio": 1.5}},
-		{"pan", map[string]any{"taskId": "mj-single", "direction": "right"}, nil, map[string]any{"task_id": "mj-single", "direction": "right"}},
-		{"blend", map[string]any{"dimensions": "LANDSCAPE"}, []MediaReference{{URL: "https://cdn/a.png"}, {URL: "https://cdn/b.png"}}, map[string]any{"dimensions": "LANDSCAPE"}},
-		{"describe", map[string]any{}, []MediaReference{{URL: "https://cdn/a.png"}}, map[string]any{}},
-		{"edits", map[string]any{}, []MediaReference{{URL: "https://cdn/a.png"}}, map[string]any{"prompt": "replace sky"}},
-		{"video", map[string]any{"motion": "high", "videoType": "vid_1.1_i2v_720", "batchSize": float64(2)}, []MediaReference{{URL: "https://cdn/a.png"}}, map[string]any{"motion": "high", "video_type": "vid_1.1_i2v_720", "batch_size": 2}},
-		{"remix-strong", map[string]any{"taskId": "mj-parent", "index": float64(1)}, nil, map[string]any{"task_id": "mj-parent", "index": 1}},
-		{"remix-subtle", map[string]any{"taskId": "mj-parent", "index": float64(2)}, nil, map[string]any{"task_id": "mj-parent", "index": 2}},
-	}
-	for _, test := range tests {
-		t.Run(test.action, func(t *testing.T) {
-			opts := map[string]any{"action": test.action}
-			for key, value := range test.opts {
-				opts[key] = value
-			}
-			request := GenerationRequest{Model: "midjourney-imagine", Prompt: "replace sky", Images: test.images, Extra: map[string]any{"midjourney": opts}}
-			spec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: request})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if spec.Path != "/v1/midjourney/generations/"+test.action {
-				t.Fatalf("path=%s", spec.Path)
-			}
-			body, _ := spec.Body.(map[string]any)
-			for key, want := range test.want {
-				if got := body[key]; got != want {
-					t.Fatalf("%s=%#v want %#v body=%#v", key, got, want, body)
-				}
-			}
-		})
-	}
-}
-
-func TestMidjourneyVideoAutoKeepsZeroBasedIndex(t *testing.T) {
-	adapter, _ := Builtins().Get("midjourney")
-	spec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
-		Model: "midjourney-imagine",
-		Extra: map[string]any{"midjourney": map[string]any{"action": "video", "taskId": "mj-parent", "index": float64(0), "animateMode": "auto"}},
-	}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	body, _ := spec.Body.(map[string]any)
-	if body["index"] != 0 || body["task_id"] != "mj-parent" {
-		t.Fatalf("video body=%#v", body)
-	}
-	_, err = adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
-		Model: "midjourney-imagine",
-		Extra: map[string]any{"midjourney": map[string]any{"action": "video", "taskId": "mj-parent", "index": float64(4), "animateMode": "auto"}},
-	}})
-	if err == nil {
-		t.Fatal("expected video index 4 to be rejected")
-	}
-}
-func TestMidjourneyInpaintModalDescribeAndVideoResults(t *testing.T) {
-	adapter, _ := Builtins().Get("midjourney")
-	spec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{Model: "midjourney-imagine", Prompt: "new sofa", Extra: map[string]any{"midjourney": map[string]any{"action": "modal", "taskId": "mj-modal", "maskUrl": "https://cdn/mask.png"}}, Images: []MediaReference{{URL: "https://cdn/mask.png", Role: "mask"}}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	body, _ := spec.Body.(map[string]any)
-	if body["task_id"] != "mj-modal" || body["mask_url"] != "https://cdn/mask.png" || body["prompt"] != "new sofa" {
-		t.Fatalf("modal body=%#v", body)
-	}
-	describe, err := adapter.ParsePoll(context.Background(), PollContext{Request: GenerationRequest{Extra: map[string]any{"midjourney": map[string]any{"action": "describe"}}}}, []byte(`{"status":"SUCCESS","description":"a quiet forest"}`))
-	if err != nil || describe.Result == nil || describe.Result.Text != "a quiet forest" {
-		t.Fatalf("describe=%#v %v", describe, err)
-	}
-	video, err := adapter.ParsePoll(context.Background(), PollContext{Request: GenerationRequest{Extra: map[string]any{"midjourney": map[string]any{"action": "video"}}}}, []byte(`{"status":"SUCCESS","video_url":"https://cdn/out.mp4"}`))
-	if err != nil || video.Result == nil || len(video.Result.Videos) != 1 {
-		t.Fatalf("video=%#v %v", video, err)
 	}
 }
 
@@ -512,6 +359,20 @@ func TestAgnesVideo25UsesRequestedReferenceOperationForSingleImage(t *testing.T)
 	body := spec.Body.(map[string]any)
 	if body["mode"] != "reference" || body["images"] == nil || body["first_frame"] != nil {
 		t.Fatalf("Agnes reference body = %#v", body)
+	}
+}
+
+func TestAgnesVideo25AllowsCustomDuration(t *testing.T) {
+	adapter, _ := Builtins().Get("agnes-video")
+	spec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
+		Model: "agnes-video-2.5", Prompt: "long clip", Duration: 30, Resolution: "720P", AspectRatio: "16:9",
+	}})
+	if err != nil {
+		t.Fatalf("BuildCreate() error = %v", err)
+	}
+	body := spec.Body.(map[string]any)
+	if body["seconds"] != "30" {
+		t.Fatalf("Agnes seconds = %#v, want \"30\"", body["seconds"])
 	}
 }
 

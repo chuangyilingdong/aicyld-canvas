@@ -1,8 +1,10 @@
 import { readdirSync, readFileSync } from "node:fs";
+import { availableParallelism } from "node:os";
 import { join, relative } from "node:path";
 
 const root = join(import.meta.dir, "..");
 const testFilePattern = /\.test\.[cm]?[jt]sx?$/;
+const browserTestPattern = /\.browser\.test\.[jt]sx?$/;
 const browserGlobalName = /\b(?:window|document|navigator)\b/;
 
 function collectTestFiles(directory) {
@@ -24,17 +26,77 @@ function run(files) {
     if (result.exitCode !== 0) process.exit(result.exitCode ?? 1);
 }
 
-const files = [...collectTestFiles(join(root, "test")), ...collectTestFiles(join(root, "src"))].sort();
-const isolated = files.filter((file) => {
-    // Browser suites own subprocesses and should not share a Bun worker with
-    // shell-script tests or modules that replace browser globals.
-    if (/\.browser\.test\.[jt]sx?$/.test(file)) return true;
-    const source = readFileSync(join(root, file), "utf8");
-    // Bun module replacements persist beyond mock.restore(); isolate their import graphs.
-    if (source.includes("mock.module(")) return true;
-    return source.includes("globalThis") && browserGlobalName.test(source);
-});
-const shared = files.filter((file) => !isolated.includes(file));
+async function defaultSpawnFile(file) {
+    const proc = Bun.spawn([process.execPath, "test", file], {
+        cwd: root,
+        stdin: "ignore",
+        stdout: "pipe",
+        stderr: "pipe",
+    });
+    const [stdout, stderr, exitCode] = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+        proc.exited,
+    ]);
+    if (stdout) process.stdout.write(stdout);
+    if (stderr) process.stderr.write(stderr);
+    return exitCode ?? 1;
+}
 
-run(shared);
-for (const file of isolated) run([file]);
+async function spawnBrowserFile(file) {
+    const firstExitCode = await defaultSpawnFile(file);
+    if (firstExitCode === 0) return 0;
+    console.error(`浏览器测试失败，隔离重试一次：${file}`);
+    return defaultSpawnFile(file);
+}
+
+export async function runIsolatedPool(files, concurrency, spawnFile = defaultSpawnFile) {
+    if (files.length === 0) return 0;
+    let nextIndex = 0;
+    let firstExitCode = 0;
+    const workerCount = Math.max(1, Math.min(concurrency, files.length));
+    const workers = Array.from({ length: workerCount }, async () => {
+        while (nextIndex < files.length && firstExitCode === 0) {
+            const file = files[nextIndex++];
+            const exitCode = await spawnFile(file);
+            if (exitCode !== 0 && firstExitCode === 0) {
+                firstExitCode = exitCode;
+            }
+        }
+    });
+    await Promise.all(workers);
+    return firstExitCode;
+}
+
+if (import.meta.main) {
+    const files = [...collectTestFiles(join(root, "test")), ...collectTestFiles(join(root, "src"))].sort();
+    const isolated = files.filter((file) => {
+        // Browser suites own subprocesses and should not share a Bun worker with
+        // shell-script tests or modules that replace browser globals.
+        if (browserTestPattern.test(file)) return true;
+        const source = readFileSync(join(root, file), "utf8");
+        // Bun module replacements persist beyond mock.restore(); isolate their import graphs.
+        if (source.includes("mock.module(")) return true;
+        // Tests that materialize transformed source modules into a temp directory need
+        // their own Bun process so their specifier cache cannot collide with the real graph.
+        if (source.includes("pathToFileURL(") && source.includes("writeFileSync(")) return true;
+        return source.includes("globalThis") && browserGlobalName.test(source);
+    });
+    const shared = files.filter((file) => !isolated.includes(file));
+    const concurrency = Math.max(1, Math.min(Number(process.env.BEEFTV_TEST_CONCURRENCY) || Math.min(availableParallelism(), 4), 4));
+
+    run(shared);
+    if (concurrency <= 1) {
+        for (const file of isolated) run([file]);
+    } else {
+        const browserFiles = isolated.filter((file) => browserTestPattern.test(file));
+        const otherFiles = isolated.filter((file) => !browserTestPattern.test(file));
+        const otherExitCode = await runIsolatedPool(otherFiles, concurrency);
+        if (otherExitCode !== 0) {
+            process.exitCode = otherExitCode;
+        } else {
+            const browserExitCode = await runIsolatedPool(browserFiles, 1, spawnBrowserFile);
+            if (browserExitCode !== 0) process.exitCode = browserExitCode;
+        }
+    }
+}

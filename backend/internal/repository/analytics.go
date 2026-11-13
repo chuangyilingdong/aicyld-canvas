@@ -184,9 +184,10 @@ func (r *Repository) HasAPICallLogForTask(taskID string) (bool, error) {
 	return count > 0, err
 }
 
-// ImageCreateReceipt returns one unambiguous image create response. A later
-// failed, pending, or unknown create must never be hidden by an earlier
-// successful receipt from the same task.
+var ErrAmbiguousImageCreateReceipts = errors.New("图片包含多条已接受或结果未知的创建回执，不能重新生成")
+
+// Recovery requires one unambiguous create receipt. A later failed/unknown
+// create must never be hidden by selecting an earlier successful response.
 func (r *Repository) ImageCreateReceipt(userID, taskID string) (*model.ApiCallLog, error) {
 	query := r.db.Model(&model.ApiCallLog{}).Where("user_id = ? AND task_id = ? AND capability = ? AND request_kind = ? AND method = ?", userID, taskID, "image", "create", "POST")
 	var count int64
@@ -199,7 +200,7 @@ func (r *Repository) ImageCreateReceipt(userID, taskID string) (*model.ApiCallLo
 			return nil, err
 		}
 		if uncertain > 0 {
-			return nil, errors.New("图片包含多条已接受或结果未知的创建回执，不能重新生成")
+			return nil, ErrAmbiguousImageCreateReceipts
 		}
 		return nil, nil
 	}

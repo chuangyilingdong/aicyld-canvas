@@ -1,0 +1,1 @@
+{"code":0,"data":{"status":"ok","ready":true,"started":true,"draining":false,"activeWorkerTasks":0,"build":{"version":"dev","commit":"unknown","buildTime":"unknown","goVersion":"go1.26.9"},"schema":{"current":1,"expected":1,"ready":true},"checks":{"database":true,"runtime":true,"schema":true}},"msg":"ok"}

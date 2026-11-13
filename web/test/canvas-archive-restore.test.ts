@@ -3,7 +3,7 @@ import { zipSync } from "fflate";
 
 import { archiveMediaIdempotencyKey, assertRestoredCanvasMatches, restoreCanvasArchive, type CanvasArchiveRestoreHost } from "@/lib/canvas/canvas-archive-restore";
 import { openCanvasArchive } from "@/lib/canvas/canvas-export";
-import { setActiveUserScope } from "@/lib/user-scope";
+import { useOperationProgress } from "@/stores/use-operation-progress";
 import { ARCHIVE_MAX_ENTRY_BYTES, ARCHIVE_MAX_FILES, ARCHIVE_MAX_TOTAL_BYTES, createZip } from "@/lib/zip";
 import type { CanvasProject } from "@/stores/canvas/use-canvas-store";
 import type { CanvasNodeData } from "@/types/canvas";
@@ -12,6 +12,7 @@ import type { TimelineProject } from "@/types/timeline";
 const encoder = new TextEncoder();
 
 afterEach(() => {
+    useOperationProgress.setState({ entries: {} });
     globalThis.window = undefined as unknown as Window & typeof globalThis;
 });
 
@@ -342,6 +343,8 @@ test("production restore remaps media and timeline, preserves drawings, and igno
 test("persist failure does not report saved and rolls back this attempt", async () => {
     const { host, folders, projects, deleted } = memoryHost({
         persistProject: async () => {
+            const operation = Object.values(useOperationProgress.getState().entries).find(item => item.title === "导入画布备份");
+            expect(operation?.phase).toBe("processing");
             throw new Error("画布未保存到工作区");
         },
     });
@@ -349,6 +352,7 @@ test("persist failure does not report saved and rolls back this attempt", async 
     expect(projects).toEqual([]);
     expect(folders).toEqual([]);
     expect(deleted).toEqual(["imported-1"]);
+    expect(Object.values(useOperationProgress.getState().entries).find(item => item.title === "导入画布备份")?.phase).toBe("error");
 });
 
 test("retrying a valid archive creates new IDs and never reuses archive workspace IDs", async () => {
@@ -536,16 +540,3 @@ test("native canonical restore reports local saving rather than cloud synchroniz
     expect(progress.every((value) => value.phase === "saving" && value.message.includes("本地"))).toBe(true);
 });
 
-test("account switch abandons restore without cleaning the new account", async () => {
-    setActiveUserScope("owner-a");
-    const { host, projects, folders, deleted } = memoryHost({
-        persistProject: async () => {
-            setActiveUserScope("owner-b");
-            throw new Error("persist-after-switch");
-        },
-    });
-    await expect(restoreCanvasArchive(await validZip(), host)).rejects.toThrow("persist-after-switch");
-    expect(deleted).toEqual([]);
-    expect(projects).toHaveLength(1);
-    expect(folders).toHaveLength(1);
-});

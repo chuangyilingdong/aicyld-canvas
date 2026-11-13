@@ -71,3 +71,15 @@ func TestGenericWrapperRefinementPreservesAuthoritativeCodes(t *testing.T) {
 		}
 	}
 }
+
+func TestContentSecurityAuditFailureIsModerationOutput(t *testing.T) {
+	for _, input := range []string{
+		"Content security audit did not pass | 内容安全审查未通过",
+		`{"error":{"code":"1501","message":"Content security audit did not pass | 内容安全审查未通过"}}`,
+	} {
+		got := generation.ClassifyText(input)
+		if got.Category != generation.CategoryModerationOutput || got.Reason != "生成结果未通过内容安全审核" || !got.IsModeration() || (got.ProviderCode != "1501" && got.ProviderCode != "moderation_output") {
+			t.Fatalf("input=%s got=%+v", input, got)
+		}
+	}
+}

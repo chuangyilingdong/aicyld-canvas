@@ -35,7 +35,6 @@
 - 图片最多 9 张、视频最多 3 个、音频最多 3 个。
 - 首帧和尾帧各最多 1 张；尾帧不能脱离首帧。
 - 首尾帧模式不能混入 `reference_image/subject_reference/style_reference`。
-- duration 超出 4-15 秒直接失败，不静默裁剪。
 
 ## 中转兼容边界
 
@@ -60,7 +59,7 @@
   "id": "minimax-hailuo-video-v2",
   "name": "MiniMax Hailuo Video V2 / H3",
   "version": "2.0.0",
-  "author": "灵动TV Contributors",
+  "author": "BeefTV Contributors",
   "description": "MiniMax / Hailuo V2 视频生成协议，保留首帧、尾帧、参考图、视频和音频角色语义。",
   "documentation": "<当前插件的完整 documentation，由 README.md 与 docs/interface.md 拼接而成；为避免 JSON 递归，此处不重复展开正文。>",
   "permissions": [
@@ -228,29 +227,6 @@
               ]
             },
             "message": "MiniMax H3 最多支持 3 个参考音频"
-          },
-          {
-            "assert": {
-              "$and": [
-                {
-                  "$gte": [
-                    {
-                      "$ref": "request.duration"
-                    },
-                    4
-                  ]
-                },
-                {
-                  "$lte": [
-                    {
-                      "$ref": "request.duration"
-                    },
-                    15
-                  ]
-                }
-              ]
-            },
-            "message": "MiniMax H3 duration 必须在 4-15 秒之间"
           },
           {
             "assert": {
@@ -600,6 +576,12 @@
                 "$ref": "response.task_id"
               },
               {
+                "$ref": "response.data.task_id"
+              },
+              {
+                "$ref": "response.data.id"
+              },
+              {
                 "$ref": "response.id"
               },
               {
@@ -615,22 +597,31 @@
               {
                 "$ref": "response.status"
               },
+              {
+                "$ref": "response.data.status"
+              },
               "pending"
             ]
           },
           "message": {
             "$coalesce": [
               {
+                "$ref": "response.task.error.message"
+              },
+              {
                 "$ref": "response.task.message"
               },
               {
-                "$ref": "response.base_resp.status_msg"
+                "$ref": "response.error.message"
+              },
+              {
+                "$ref": "response.data.error.message"
               },
               {
                 "$ref": "response.message"
               },
               {
-                "$ref": "response.error.message"
+                "$ref": "response.base_resp.status_msg"
               }
             ]
           },
@@ -646,11 +637,21 @@
                 "$ref": "response.video_url"
               },
               {
+                "$ref": "response.data.video_url"
+              },
+              {
                 "$ref": "response.file.url"
+              },
+              {
+                "$ref": "response.file.download_url"
+              },
+              {
+                "$ref": "response.data.file.download_url"
               }
             ]
           },
           "errorPaths": [
+            "task.error.code",
             "base_resp.status_code",
             "error.code"
           ],

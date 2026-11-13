@@ -1,11 +1,11 @@
 import { App, Button } from "antd";
 import copy from "copy-to-clipboard";
 import { Crosshair, Undo2 } from "lucide-react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import { ASSISTANT_PROPOSAL_INVALIDATED_TEXT, ASSISTANT_PROPOSAL_UNDONE_TEXT, agentAssistantFailureText, type AgentToolCall, type AssistantGenerationProposal, type AssistantTurn } from "@/services/api/agent-assistant";
-import { ASSISTANT_UNDONE_INCOMPLETE_TEXT, assistantChangeSummary, assistantSkillLabel, assistantChangedNodeIds, assistantProposalText, assistantProposalProgress, assistantTurnCanContinue, assistantUnresolvedFailures, assistantUndoFailureText, assistantVisibleReply } from "./canvas-assistant-copy";
+import { ASSISTANT_PROPOSAL_INVALIDATED_TEXT, ASSISTANT_PROPOSAL_UNDONE_TEXT, agentAssistantFailureText, type AgentToolCall, type AssistantGenerationProposal, type AssistantScriptProposal, type AssistantTurn } from "@/services/api/agent-assistant";
+import { ASSISTANT_UNDONE_INCOMPLETE_TEXT, assistantChangeSummary, assistantSkillLabel, assistantChangedNodeIds, assistantOrderTargetLines, assistantProductionProposalParts, assistantProposalText, assistantProposalProgress, assistantScriptProposalLines, assistantScriptResultStatusText, assistantTurnCanContinue, assistantUnresolvedFailures, assistantUndoFailureText, assistantVisibleReply } from "./canvas-assistant-copy";
 import type { CanvasNodeData } from "@/types/canvas";
 import { dismissedProposalKey, type AssistantTurnStatus } from "./use-canvas-assistant";
 import { modelOptionName, resolveModelChannel, useEffectiveConfig } from "@/stores/use-config-store";
@@ -14,6 +14,7 @@ import { portraitGenerationError } from "@/lib/model-selection";
 import { CanvasAssistantAttachments } from "./canvas-assistant-attachments";
 import { CanvasAssistantOutputs } from "./canvas-assistant-outputs";
 import { CanvasAssistantMediaFacts } from "./canvas-assistant-media-facts";
+import { AssistantReasoning } from "@/components/ai/message-reasoning";
 import { formatAssistantDiagnostics } from "@/services/diagnostics/assistant-diagnostics";
 
 type Props = {
@@ -29,10 +30,23 @@ type Props = {
     onLocate: (nodeIds: string[]) => void;
     onUndo: (turnId: string) => void;
     onRunProposal: (proposal: AssistantGenerationProposal, turnId: string) => void;
+    onRunScriptProposal?: (proposal: AssistantScriptProposal, turnId: string, alwaysAllowSession: boolean) => void;
+    runningScriptProposalIds?: ReadonlySet<string>;
+    scriptProposalFeedback?: Record<string, string>;
     onDismissProposal: (proposalId: string) => void;
     onContinue?: () => void;
+    onRepropose?: () => void;
     nodes?: CanvasNodeData[];
     onCheckResults?: (nodeIds: string[]) => void;
+    /** 思考区域是否展开；展开状态由调用方按回合持有，这里只负责显示。 */
+    reasoningOpen?: boolean;
+    onReasoningOpenChange?: (open: boolean) => void;
+};
+
+const replyMarkdownComponents: Components = {
+    table: ({ children }) => <div className="canvas-assistant-table-scroll" role="region" aria-label="回复表格" tabIndex={0}>
+        <table>{children}</table>
+    </div>,
 };
 
 /** 助手回复用 Markdown 渲染，只走 react-markdown 的安全默认值，不放开原始 HTML。 */
@@ -41,7 +55,7 @@ export function CanvasAssistantReply({ text }: { text: string }) {
     if (!visible) return null;
     return (
         <div className="canvas-assistant-reply">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{visible}</ReactMarkdown>
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={replyMarkdownComponents}>{visible}</ReactMarkdown>
         </div>
     );
 }
@@ -58,7 +72,7 @@ export function CanvasAssistantUserMessage({ text, selectedCount, continuationId
     );
 }
 
-export function CanvasAssistantTurnView({ turn, canvasId, sessionId, status, handledProposals, proposalFeedback, runningProposalIds, generationDisabled, onLocate, onUndo, onRunProposal, onDismissProposal, onContinue, nodes, onCheckResults }: Props) {
+export function CanvasAssistantTurnView({ turn, canvasId, sessionId, status, handledProposals, proposalFeedback, runningProposalIds, generationDisabled, onLocate, onUndo, onRunProposal, onRunScriptProposal, runningScriptProposalIds, scriptProposalFeedback, onDismissProposal, onContinue, onRepropose, nodes, onCheckResults, reasoningOpen, onReasoningOpenChange }: Props) {
     const { message } = App.useApp();
     const config = useEffectiveConfig();
     const summary = assistantChangeSummary(turn.change);
@@ -81,11 +95,13 @@ export function CanvasAssistantTurnView({ turn, canvasId, sessionId, status, han
             <CanvasAssistantUserMessage text={turn.userText} selectedCount={turn.selectedNodeIds?.length ?? 0} continuationId={turn.continuationId} />
             <CanvasAssistantAttachments attachments={turn.attachments || []} />
             {(turn.skills || []).map(skill => <span className="canvas-assistant-chip" key={skill.skillId}>{assistantSkillLabel(skill)}</span>)}
-            {turn.supplementInputs?.length ? turn.supplementInputs.map((input, index) => <div key={`supplement:${index}`}>
+            {/* 思考过程默认折叠，与下面的正文分开；工具活动和改动卡片仍在正文之后。 */}
+            <AssistantReasoning segments={turn.reasoning || []} open={Boolean(reasoningOpen)} onOpenChange={(open) => onReasoningOpenChange?.(open)} />
+            {turn.reply ? <CanvasAssistantReply text={turn.reply} /> : null}
+            {turn.supplementInputs?.length ? turn.supplementInputs.map((input, index) => <div key={`supplement:${index}`} className="canvas-assistant-supplement">
                 <CanvasAssistantUserMessage text={input.message} selectedCount={0} /><CanvasAssistantAttachments attachments={input.attachments || []} />
                 {(input.skills || []).map(skill => <span className="canvas-assistant-chip" key={skill.skillId}>{assistantSkillLabel(skill)}</span>)}
-            </div>) : (turn.supplements || []).map((text, index) => <CanvasAssistantUserMessage key={`supplement:${index}`} text={text} selectedCount={0} />)}
-            {turn.reply ? <CanvasAssistantReply text={turn.reply} /> : null}
+            </div>) : (turn.supplements || []).map((text, index) => <div key={`supplement:${index}`} className="canvas-assistant-supplement"><CanvasAssistantUserMessage text={text} selectedCount={0} /></div>)}
             <CanvasAssistantMediaFacts calls={turn.toolCalls || []} nodes={nodes} />
             {turn.outputs?.length ? <CanvasAssistantOutputs outputs={turn.outputs} /> : null}
             {turn.cancelled && stoppedWithChanges ? (
@@ -145,18 +161,62 @@ export function CanvasAssistantTurnView({ turn, canvasId, sessionId, status, han
             ) : null}
 
             {(turn.proposals || []).map((proposal) => {
-                const started = handledProposals.has(proposal.proposalId);
+                const prefix = `proposal:${proposal.proposalId}:`;
+                const admittedOnCanvas = Boolean(nodes?.some((node) => (node.metadata?.taskClientOperationId || "").startsWith(prefix)));
+                const started = handledProposals.has(proposal.proposalId) || admittedOnCanvas;
                 const skipped = handledProposals.has(dismissedProposalKey(proposal.proposalId));
                 const selectedModel = proposal.modelKey || proposal.model;
-                const portrait = seedancePortraitModel(selectedModel);
+                const videoModels = proposal.production
+                    ? proposal.production.targets.filter((target) => target.kind === "video").map((target) => target.modelKey)
+                    : [selectedModel];
                 const profile = proposal.kind === "video" ? resolveModelChannel(config, selectedModel).modelProfiles?.find((item) => item.model === modelOptionName(selectedModel)) : undefined;
-                const priceError = portrait ? portraitGenerationError(config, selectedModel) : "";
+                const priceError = videoModels.filter((model) => seedancePortraitModel(model)).map((model) => portraitGenerationError(config, model)).find(Boolean) || "";
                 const running = Boolean(runningProposalIds?.has(proposal.proposalId));
                 const progress = started && nodes ? assistantProposalProgress(proposal, nodes) : null;
+                const awaitingConfirmation = !started && !skipped && !undone && !turn.proposalsInvalidated;
+                const productionParts = assistantProductionProposalParts(proposal, awaitingConfirmation, config);
+                const orderTargetLines = assistantOrderTargetLines(proposal);
+                const legacyProposalNote = !assistantVisibleReply(turn.reply || "") && proposal.note?.trim() ? proposal.note.trim() : "";
+                const proposalFeedbackText = proposalFeedback?.[proposal.proposalId] || "";
+                const needsReproposal = /请让助手重新提出(?:生成)?方案/.test(proposalFeedbackText);
                 return (
                     <div key={proposal.proposalId} className="canvas-assistant-card">
-                        <span style={{ whiteSpace: "pre-line", overflowWrap: "anywhere" }}>{assistantProposalText(proposal, portraitPriceLines(profile?.videoPricing), !started && !skipped && !undone && !turn.proposalsInvalidated)}</span>
-                        {priceError && !started && !skipped && !undone && !turn.proposalsInvalidated ? <span className="canvas-assistant-meta" role="status">{priceError}</span> : null}
+                        {legacyProposalNote ? <span className="canvas-assistant-proposal-note" style={{ whiteSpace: "pre-line", overflowWrap: "anywhere" }}>{legacyProposalNote}</span> : null}
+                        {productionParts ? (
+                            <>
+                                <span style={{ whiteSpace: "pre-line", overflowWrap: "anywhere" }}>{productionParts.header}</span>
+                                {productionParts.targetLines.length > 0 ? (
+                                    <details className="canvas-assistant-proposal-details">
+                                        <summary>查看 {productionParts.targetLines.length} 项镜头与提示词明细</summary>
+                                        <div className="canvas-assistant-proposal-targets">
+                                            {productionParts.targetLines.map((line, index) => (
+                                                <div key={proposal.production?.targets[index]?.nodeId || index} className="canvas-assistant-proposal-target">
+                                                    {line}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </details>
+                                ) : null}
+                                {productionParts.footer ? <span className="canvas-assistant-meta" style={{ whiteSpace: "pre-line", overflowWrap: "anywhere" }}>{productionParts.footer}</span> : null}
+                            </>
+                        ) : (
+                            <>
+                                <span style={{ whiteSpace: "pre-line", overflowWrap: "anywhere" }}>{assistantProposalText(proposal, portraitPriceLines(profile?.videoPricing), awaitingConfirmation, config)}</span>
+                                {orderTargetLines.length > 0 ? (
+                                    <details className="canvas-assistant-proposal-details">
+                                        <summary>查看 {orderTargetLines.length} 项生成单明细</summary>
+                                        <div className="canvas-assistant-proposal-targets">
+                                            {orderTargetLines.map((line, index) => (
+                                                <div key={proposal.targets?.[index]?.nodeId || index} className="canvas-assistant-proposal-target">
+                                                    {line}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </details>
+                                ) : null}
+                            </>
+                        )}
+                        {priceError && awaitingConfirmation ? <span className="canvas-assistant-meta" role="status">{priceError}</span> : null}
                         {!skipped && !running && ((!undone && !turn.proposalsInvalidated) || started) && proposalFeedback?.[proposal.proposalId] ? <span className="canvas-assistant-meta" role="status" style={{ overflowWrap: "anywhere" }}>{proposalFeedback[proposal.proposalId]}</span> : null}
                         {started ? (
                             <>
@@ -174,8 +234,78 @@ export function CanvasAssistantTurnView({ turn, canvasId, sessionId, status, han
                             <span className="canvas-assistant-meta" role="status">{ASSISTANT_PROPOSAL_INVALIDATED_TEXT}</span>
                         ) : (
                             <div className="canvas-assistant-card-actions">
-                                <Button size="small" type="primary" autoInsertSpace={false} loading={running} disabled={generationDisabled || Boolean(priceError)} onClick={() => onRunProposal(proposal, turn.turnId)}>
-                                    {proposal.production ? "确认并制作整片" : "生成"}
+                                {needsReproposal ? (
+                                    <Button size="small" type="primary" autoInsertSpace={false} disabled={!onRepropose || generationDisabled || running} onClick={onRepropose}>
+                                        让助手重新提方案
+                                    </Button>
+                                ) : (
+                                    <Button size="small" type="primary" autoInsertSpace={false} loading={running} disabled={generationDisabled || Boolean(priceError)} onClick={() => onRunProposal(proposal, turn.turnId)}>
+                                        {proposal.production ? "确认并制作整片" : "生成"}
+                                    </Button>
+                                )}
+                                <Button size="small" disabled={running} onClick={() => onDismissProposal(proposal.proposalId)}>
+                                    先不用
+                                </Button>
+                            </div>
+                        )}
+                    </div>
+                );
+            })}
+
+            {(turn.scriptProposals || []).map((proposal) => {
+                const running = Boolean(runningScriptProposalIds?.has(proposal.proposalId)) || proposal.status === "running";
+                const finished = proposal.status === "completed" || proposal.status === "failed" || proposal.status === "cancelled" || Boolean(proposal.result);
+                const skipped = handledProposals.has(dismissedProposalKey(proposal.proposalId)) || proposal.status === "skipped";
+                const awaitingConfirmation = !finished && !running && !skipped && !undone && !turn.proposalsInvalidated;
+                const lines = assistantScriptProposalLines(proposal, awaitingConfirmation);
+                const feedback = scriptProposalFeedback?.[proposal.proposalId] || proposalFeedback?.[proposal.proposalId];
+                const hasOutput = Boolean(proposal.result && (proposal.result.stdout || proposal.result.stderr));
+                return (
+                    <div key={proposal.proposalId} className="canvas-assistant-card">
+                        <div className="canvas-assistant-proposal-lines">
+                            {lines.map((line, index) => (
+                                <div key={index} className={line.length > 80 ? "canvas-assistant-pretty-line" : undefined}>{line}</div>
+                            ))}
+                        </div>
+                        {feedback ? <span className="canvas-assistant-meta" role="status" style={{ overflowWrap: "anywhere" }}>{feedback}</span> : null}
+                        {finished ? (
+                            <>
+                                <span className="canvas-assistant-meta" role="status">{assistantScriptResultStatusText(proposal)}</span>
+                                {hasOutput ? (
+                                    <details className="canvas-assistant-proposal-details">
+                                        <summary>查看脚本输出</summary>
+                                        <div className="canvas-assistant-proposal-targets">
+                                            {proposal.result?.stdout ? (
+                                                <div className="canvas-assistant-proposal-target">
+                                                    <div className="canvas-assistant-meta">标准输出：</div>
+                                                    <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", margin: 0 }}>{proposal.result.stdout}</pre>
+                                                </div>
+                                            ) : null}
+                                            {proposal.result?.stderr ? (
+                                                <div className="canvas-assistant-proposal-target">
+                                                    <div className="canvas-assistant-meta">错误输出：</div>
+                                                    <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", margin: 0 }}>{proposal.result.stderr}</pre>
+                                                </div>
+                                            ) : null}
+                                        </div>
+                                    </details>
+                                ) : null}
+                            </>
+                        ) : running ? (
+                            <span className="canvas-assistant-meta" role="status">正在运行脚本…</span>
+                        ) : undone ? (
+                            <span className="canvas-assistant-meta">这一轮已撤销，不会运行脚本。</span>
+                        ) : skipped ? (
+                            <span className="canvas-assistant-meta">这次没有运行脚本</span>
+                        ) : turn.proposalsInvalidated ? (
+                            <span className="canvas-assistant-meta" role="status">已失效，请让助手重新提出脚本运行请求。</span>
+                        ) : (
+                            <div className="canvas-assistant-card-actions">
+                                <Button size="small" type="primary" autoInsertSpace={false} loading={running} disabled={generationDisabled} onClick={() => onRunScriptProposal?.(proposal, turn.turnId, false)}>
+                                    运行脚本
+                                </Button>
+                                <Button size="small" disabled={generationDisabled || running} onClick={() => onRunScriptProposal?.(proposal, turn.turnId, true)}>
+                                    本对话始终允许
                                 </Button>
                                 <Button size="small" disabled={running} onClick={() => onDismissProposal(proposal.proposalId)}>
                                     先不用

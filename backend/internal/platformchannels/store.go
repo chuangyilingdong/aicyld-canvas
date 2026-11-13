@@ -235,6 +235,7 @@ func seedanceCapabilityConfigBody(mode string, is25 bool) []byte {
 		defaultOperation = "text_to_video"
 	}
 	durationMax := 15
+	durationMin := 4
 	if is25 {
 		durationMax = 30
 	}
@@ -242,7 +243,7 @@ func seedanceCapabilityConfigBody(mode string, is25 bool) []byte {
 		"version": 1,
 		"video": map[string]any{
 			"references":        references,
-			"duration":          map[string]any{"selection": "range", "min": 1, "max": durationMax, "step": 1, "default": 6},
+			"duration":          map[string]any{"selection": "range", "min": durationMin, "max": durationMax, "step": 1, "default": 6},
 			"ratios":            []string{"adaptive", "16:9", "9:16", "1:1", "4:3", "3:4", "21:9"},
 			"defaultRatio":      "16:9",
 			"resolutions":       []string{"480p", "720p", "1080p"},
@@ -301,6 +302,24 @@ const defaultImageCapabilityConfig = `{
     "responseFormat": { "supported": true },
     "outputFormat": { "supported": true },
     "maxOutputs": 4
+  }
+}`
+
+const zhenzhenGPTImage26CapabilityConfig = `{
+  "version": 1,
+  "image": {
+    "references": { "promptMaxChars": 5000, "maxImages": 2, "maxImageBytes": 31457280, "maskSupported": false },
+    "size": {
+      "parameter": "aspect_ratio",
+      "values": ["auto", "1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "5:4", "4:5", "21:9", "9:21", "1:2", "2:1", "10:16", "16:10"],
+      "default": "1:1",
+      "allowCustom": false
+    },
+    "quality": { "supported": true, "values": ["1k"], "default": "1k" },
+    "transparentBackground": { "supported": false, "default": false },
+    "responseFormat": { "supported": true },
+    "outputFormat": { "supported": false },
+    "maxOutputs": 1
   }
 }`
 
@@ -367,7 +386,11 @@ func CapabilityConfigFor(capability, model string) (json.RawMessage, bool) {
 		}
 		return json.RawMessage(defaultVideoCapabilityConfig), true
 	case "image":
-		if strings.Contains(strings.ToLower(strings.TrimSpace(model)), "midjourney") {
+		name := strings.ToLower(strings.TrimSpace(model))
+		if name == "zhenzhen-image-g-v2.6-lowprice" {
+			return json.RawMessage(zhenzhenGPTImage26CapabilityConfig), true
+		}
+		if strings.Contains(name, "midjourney") {
 			return json.RawMessage(midjourneyImageCapabilityConfig), true
 		}
 		return json.RawMessage(defaultImageCapabilityConfig), true
@@ -457,6 +480,7 @@ func Defaults() []Channel {
 		platformProfile("zhenzhen-image-nb-2.1-lowprice", "zhenzhen nb 2.1（特价）", "image", "newapi-image"),
 		platformProfile("zhenzhen-image-nb-pro-lowprice", "zhenzhen nb pro（特价）", "image", "newapi-image"),
 		platformProfile("zhenzhen-image-g-v2.5-lowprice", "zhenzhen g v2.5（特价）", "image", "newapi-image"),
+		platformProfile("zhenzhen-image-g-v2.6-lowprice", "GPT Image 2.6（特价）", "image", "newapi-image"),
 		platformProfile("midjourney-imagine", "Midjourney Imagine", "image", "midjourney"),
 		platformProfile("deepseek/deepseek-v4.1-flash", "DeepSeek V4.1 Flash", "text", "chat-completion"),
 		platformProfile("qwen/qwen3.8-omni-flash", "Qwen 3.8 Omni Flash（多模态审核）", "text", "chat-completion"),
@@ -485,6 +509,17 @@ func Defaults() []Channel {
 func (s *Store) List() ([]Channel, error) {
 	channels, _, err := s.Config()
 	return channels, err
+}
+
+// Configured reports whether an operator has written the platform channel
+// document. Defaults are a first-run template for the admin UI; they must not
+// be injected into a desktop or a hosted workspace before they are configured.
+func (s *Store) Configured() bool {
+	if s == nil {
+		return false
+	}
+	info, err := os.Stat(s.path)
+	return err == nil && !info.IsDir()
 }
 
 // AssistantModel 读取平台配置的助手模型；空表示按 DefaultAssistantModel 自动挑选。

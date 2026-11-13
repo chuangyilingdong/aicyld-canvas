@@ -7,20 +7,67 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"time"
-
-	"infinite-canvas/backend/internal/model"
 )
 
-// Client talks to the main-site points ledger. It is intentionally disabled in
-// local/desktop mode unless CANVAS_BILLING_SECRET is explicitly configured.
+// Client talks to the main-site points ledger. It stays disabled unless
+// CANVAS_BILLING_SECRET is explicitly configured.
 type Client struct {
 	baseURL string
 	secret  string
 	http    *http.Client
+}
+
+// TaskSnapshot is the AICYLD billing view of an upstream task. Keeping this
+// separate from model.Task prevents hosted billing fields from changing the
+// upstream persistence contract.
+type TaskSnapshot struct {
+	ID                string
+	ProjectID         string
+	RouteRun          int
+	Type              string
+	Operation         string
+	Provider          string
+	Model             string
+	InputJSON         string
+	ClientOperationID string
+	BillingHoldID     string
+}
+
+type BillingQuote struct {
+	Enabled          bool           `json:"enabled"`
+	Points           int            `json:"points"`
+	ModelKey         string         `json:"modelKey,omitempty"`
+	DisplayName      string         `json:"displayName,omitempty"`
+	RuleID           string         `json:"ruleId,omitempty"`
+	RuleVersion      int            `json:"ruleVersion,omitempty"`
+	Balance          int            `json:"balance"`
+	EstimatedCostCNY float64        `json:"estimatedCostCny,omitempty"`
+	Breakdown        map[string]any `json:"breakdown,omitempty"`
+}
+
+type BillingReservation struct {
+	Enabled bool   `json:"enabled"`
+	HoldID  string `json:"holdId,omitempty"`
+	Points  int    `json:"points"`
+	Balance int    `json:"balance"`
+	Status  string `json:"status,omitempty"`
+}
+
+type BillingBalance struct {
+	Enabled bool `json:"enabled"`
+	Balance int  `json:"balance"`
+}
+
+type BillingSettlement struct {
+	Status         string `json:"status,omitempty"`
+	ChargedPoints  int    `json:"chargedPoints"`
+	RefundedPoints int    `json:"refundedPoints"`
+	Pending        bool   `json:"pending,omitempty"`
 }
 
 func NewFromEnv() *Client {
@@ -52,33 +99,132 @@ func IsRuleMissing(err error) bool {
 	return errors.As(err, &target) && target.Code == "BILLING_RULE_MISSING"
 }
 
-func (c *Client) Quote(ctx context.Context, userID string, task *model.Task) (*model.BillingQuote, error) {
+func (c *Client) Quote(ctx context.Context, userID string, task *TaskSnapshot) (*BillingQuote, error) {
 	if !c.Enabled() || task == nil || !Billable(task) {
-		return &model.BillingQuote{Enabled: false}, nil
+		return &BillingQuote{Enabled: false}, nil
 	}
 	body := map[string]any{"userId": mainUserID(userID), "facts": Facts(task)}
-	var quote model.BillingQuote
+	var quote BillingQuote
 	if err := c.post(ctx, "/quote", body, &quote); err != nil {
 		return nil, err
 	}
 	return &quote, nil
 }
 
-func (c *Client) Balance(ctx context.Context, userID string) (*model.BillingBalance, error) {
+func (c *Client) Balance(ctx context.Context, userID string) (*BillingBalance, error) {
 	if !c.Enabled() {
-		return &model.BillingBalance{Enabled: false}, nil
+		return &BillingBalance{Enabled: false}, nil
 	}
 	body := map[string]any{"userId": mainUserID(userID)}
-	var balance model.BillingBalance
+	var balance BillingBalance
 	if err := c.post(ctx, "/balance", body, &balance); err != nil {
 		return nil, err
 	}
 	return &balance, nil
 }
 
-func (c *Client) Reserve(ctx context.Context, userID string, task *model.Task) (*model.BillingReservation, error) {
+// PointsWallet fetches the user's points wallet through the main-site internal auth boundary.
+func (c *Client) PointsWallet(ctx context.Context, userID string) (json.RawMessage, error) {
+	return c.mainRequest(ctx, http.MethodGet, "/api/points/wallet", userID, nil)
+}
+
+func (c *Client) PointsLedger(ctx context.Context, userID, rawQuery string) (json.RawMessage, error) {
+	path := "/api/points/ledger"
+	if rawQuery != "" {
+		path += "?" + rawQuery
+	}
+	return c.mainRequest(ctx, http.MethodGet, path, userID, nil)
+}
+
+func (c *Client) PointsSummary(ctx context.Context, userID string) (json.RawMessage, error) {
+	return c.mainRequest(ctx, http.MethodGet, "/api/points/summary", userID, nil)
+}
+
+func (c *Client) PointsPlans(ctx context.Context, userID string) (json.RawMessage, error) {
+	return c.mainRequest(ctx, http.MethodGet, "/api/points/plans", userID, nil)
+}
+
+func (c *Client) GetPointsOrder(ctx context.Context, userID, orderID string) (json.RawMessage, error) {
+	return c.mainRequest(ctx, http.MethodGet, "/api/points/order/"+url.PathEscape(orderID), userID, nil)
+}
+
+func (c *Client) CreatePointsOrder(ctx context.Context, userID string, body any) (json.RawMessage, error) {
+	return c.mainRequest(ctx, http.MethodPost, "/api/points/order", userID, body)
+}
+
+func (c *Client) CreatePointsWxpay(ctx context.Context, userID, orderID string) (json.RawMessage, error) {
+	return c.mainRequest(ctx, http.MethodPost, "/api/payments/wxpay/create", userID, map[string]any{"type": "points", "id": orderID})
+}
+
+func (c *Client) CreatePointsAlipayQr(ctx context.Context, userID, orderID string) (json.RawMessage, error) {
+	// Use the signed page-pay URL because some production merchants do not have
+	// Alipay's precreate (face-to-face payment) product enabled. The resulting
+	// URL is still rendered as a QR code and settled through the same callback.
+	return c.mainRequest(ctx, http.MethodPost, "/api/payments/alipay/page", userID, map[string]any{"businessType": "points_order", "businessId": orderID})
+}
+
+func (c *Client) QueryPointsWxpay(ctx context.Context, userID, outTradeNo string) (json.RawMessage, error) {
+	return c.mainRequest(ctx, http.MethodGet, "/api/payments/wxpay/query/"+url.PathEscape(outTradeNo), userID, nil)
+}
+
+func (c *Client) QueryPointsAlipay(ctx context.Context, userID, outTradeNo string) (json.RawMessage, error) {
+	return c.mainRequest(ctx, http.MethodGet, "/api/payments/alipay/status?outTradeNo="+url.QueryEscape(outTradeNo), userID, nil)
+}
+
+func (c *Client) GenerateQR(ctx context.Context, value string) (json.RawMessage, error) {
+	return c.mainRequest(ctx, http.MethodPost, "/api/internal/canvas-billing/qr", "", map[string]any{"value": value})
+}
+
+func (c *Client) mainRequest(ctx context.Context, method, path, userID string, body any) (json.RawMessage, error) {
+	if !c.Enabled() {
+		return nil, errors.New("主站积分服务未配置")
+	}
+	var reader *bytes.Reader
+	if body != nil {
+		raw, err := json.Marshal(body)
+		if err != nil {
+			return nil, err
+		}
+		reader = bytes.NewReader(raw)
+	} else {
+		reader = bytes.NewReader(nil)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, reader)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-canvas-billing-secret", c.secret)
+	if uid := mainUserID(userID); uid != "" {
+		req.Header.Set("x-canvas-user-id", uid)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("主站积分服务不可用：%w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		var envelope struct {
+			Error string `json:"error"`
+			Code  string `json:"code"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&envelope)
+		if envelope.Error == "" {
+			envelope.Error = "主站积分请求失败"
+		}
+		return nil, &apiError{Status: resp.StatusCode, Code: envelope.Code, Message: envelope.Error}
+	}
+	var raw json.RawMessage
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return nil, fmt.Errorf("解析主站积分响应失败：%w", err)
+	}
+	return raw, nil
+}
+
+func (c *Client) Reserve(ctx context.Context, userID string, task *TaskSnapshot) (*BillingReservation, error) {
 	if !c.Enabled() || task == nil || !Billable(task) {
-		return &model.BillingReservation{Enabled: false, Status: "free"}, nil
+		return &BillingReservation{Enabled: false, Status: "free"}, nil
 	}
 	routeRun := task.RouteRun
 	if routeRun < 1 {
@@ -86,40 +232,50 @@ func (c *Client) Reserve(ctx context.Context, userID string, task *model.Task) (
 	}
 	body := map[string]any{
 		"userId":         mainUserID(userID),
-		"idempotencyKey": task.ID + ":" + strconv.Itoa(routeRun),
+		"idempotencyKey": reserveIdempotencyKey(task, routeRun),
 		"taskId":         task.ID,
 		"projectId":      task.ProjectID,
 		"facts":          Facts(task),
 	}
-	var reservation model.BillingReservation
+	var reservation BillingReservation
 	if err := c.post(ctx, "/reserve", body, &reservation); err != nil {
 		return nil, err
 	}
 	return &reservation, nil
 }
 
+func reserveIdempotencyKey(task *TaskSnapshot, routeRun int) string {
+	if task == nil {
+		return ""
+	}
+	if operationID := strings.TrimSpace(task.ClientOperationID); operationID != "" {
+		return operationID + ":" + strconv.Itoa(routeRun)
+	}
+	return task.ID + ":" + strconv.Itoa(routeRun)
+}
+
 func mainUserID(canvasUserID string) string {
 	return strings.TrimPrefix(strings.TrimSpace(canvasUserID), "sso_")
 }
 
-func (c *Client) Settle(ctx context.Context, task *model.Task, outcome string, reason string) (*model.BillingSettlement, error) {
+func (c *Client) Settle(ctx context.Context, task *TaskSnapshot, outcome string, reason string) (*BillingSettlement, error) {
 	if !c.Enabled() || task == nil || strings.TrimSpace(task.BillingHoldID) == "" {
-		return &model.BillingSettlement{Status: "free"}, nil
+		return &BillingSettlement{Status: "free"}, nil
 	}
 	body := map[string]any{
 		"holdId":      task.BillingHoldID,
 		"outcome":     outcome,
 		"reason":      reason,
-		"actualFacts": Facts(task),
+		"actualFacts": SettlementFacts(task),
 	}
-	var settlement model.BillingSettlement
+	var settlement BillingSettlement
 	if err := c.post(ctx, "/settle", body, &settlement); err != nil {
 		return nil, err
 	}
 	return &settlement, nil
 }
 
-func (c *Client) Release(ctx context.Context, task *model.Task, reason string) (*model.BillingSettlement, error) {
+func (c *Client) Release(ctx context.Context, task *TaskSnapshot, reason string) (*BillingSettlement, error) {
 	return c.Settle(ctx, task, "failed", reason)
 }
 
@@ -161,7 +317,7 @@ func (c *Client) post(ctx context.Context, path string, body any, out any) error
 
 // Billable excludes local executors and private text persistence. The main
 // service still re-checks the model rule, so this is only a fast local guard.
-func Billable(task *model.Task) bool {
+func Billable(task *TaskSnapshot) bool {
 	if task == nil || strings.TrimSpace(task.Model) == "" || strings.TrimSpace(task.Provider) == "local" {
 		return false
 	}
@@ -175,14 +331,17 @@ func Billable(task *model.Task) bool {
 
 // Facts extracts only the parameters needed for pricing. It never forwards
 // API keys, channel credentials, prompts, media bytes or headers to the main site.
-func Facts(task *model.Task) map[string]any {
+func Facts(task *TaskSnapshot) map[string]any {
 	input := map[string]any{}
-	_ = json.Unmarshal([]byte(task.InputJSON), &input)
+	if task != nil {
+		_ = json.Unmarshal([]byte(task.InputJSON), &input)
+	}
 	config, _ := input["config"].(map[string]any)
+	videoParameters, _ := input["videoParameters"].(map[string]any)
 	metadata, _ := input["metadata"].(map[string]any)
-	modelKey := firstString(config["providerModelKey"], config["channelModelKey"], config["model"], task.Model)
+	modelKey := firstString(config["providerModelKey"], config["channelModelKey"], config["model"], videoParameters["model"], taskModel(task))
 	category := categoryFor(task)
-	duration := firstInt(config["videoSeconds"], input["videoSeconds"], config["duration"], input["duration"], metadata["duration_seconds"])
+	duration := firstInt(config["videoSeconds"], videoParameters["videoSeconds"], input["videoSeconds"], config["duration"], videoParameters["duration"], input["duration"], metadata["duration_seconds"])
 	if raw := firstString(config["duration"], input["duration"], metadata["duration"]); raw == "-1" {
 		duration = 1
 	}
@@ -192,10 +351,10 @@ func Facts(task *model.Task) map[string]any {
 	if duration == 1 && firstString(config["duration"], input["duration"], metadata["duration"]) == "-1" {
 		duration = maxDurationFor(modelKey)
 	}
-	resolution := normalizeResolution(firstString(config["vquality"], config["resolution"], metadata["resolution"], metadata["upscaleResolution"]))
+	resolution := normalizeResolution(firstString(config["vquality"], config["resolution"], videoParameters["vquality"], videoParameters["resolution"], metadata["resolution"], metadata["upscaleResolution"]))
 	quality := strings.ToLower(firstString(config["quality"], metadata["quality"], metadata["upscaleQuality"]))
 	speed := strings.ToLower(firstString(config["speed"], metadata["speed"]))
-	outputs := firstInt(config["count"], input["count"], config["n"], input["n"], config["outputCount"])
+	outputs := firstInt(config["count"], videoParameters["count"], input["count"], config["n"], input["n"], config["outputCount"])
 	if outputs <= 0 {
 		outputs = 1
 	}
@@ -207,6 +366,10 @@ func Facts(task *model.Task) map[string]any {
 	if value, ok := config["videoGenerateAudio"].(string); ok {
 		generateAudio = strings.EqualFold(value, "true")
 	} else if value, ok := config["videoGenerateAudio"].(bool); ok {
+		generateAudio = value
+	} else if value, ok := videoParameters["videoGenerateAudio"].(string); ok {
+		generateAudio = strings.EqualFold(value, "true")
+	} else if value, ok := videoParameters["videoGenerateAudio"].(bool); ok {
 		generateAudio = value
 	}
 	sourceDuration := firstFloat(metadata["sourceDurationSeconds"])
@@ -221,7 +384,7 @@ func Facts(task *model.Task) map[string]any {
 		"providerModelKey":      firstString(config["providerModelKey"], modelKey),
 		"displayName":           firstString(config["displayName"], modelKey),
 		"category":              category,
-		"operation":             task.Operation,
+		"operation":             taskOperation(task),
 		"resolution":            resolution,
 		"quality":               quality,
 		"speed":                 speed,
@@ -233,15 +396,74 @@ func Facts(task *model.Task) map[string]any {
 	}
 }
 
-func categoryFor(task *model.Task) string {
+// SettlementFacts only carries values explicitly present in the persisted
+// task input. Facts fills defaults for quote/reserve, but forwarding those
+// defaults at settlement would overwrite the original reserved facts when
+// completion has stripped provider configuration from InputJSON.
+func SettlementFacts(task *TaskSnapshot) map[string]any {
+	facts := Facts(task)
+	input := map[string]any{}
+	if task != nil {
+		_ = json.Unmarshal([]byte(task.InputJSON), &input)
+	}
+	config, _ := input["config"].(map[string]any)
+	videoParameters, _ := input["videoParameters"].(map[string]any)
+	metadata, _ := input["metadata"].(map[string]any)
+	if firstInt(config["videoSeconds"], videoParameters["videoSeconds"], input["videoSeconds"], config["duration"], videoParameters["duration"], input["duration"], metadata["duration_seconds"]) <= 0 {
+		delete(facts, "durationSeconds")
+	}
+	if firstString(config["vquality"], config["resolution"], videoParameters["vquality"], videoParameters["resolution"], metadata["resolution"], metadata["upscaleResolution"]) == "" {
+		delete(facts, "resolution")
+	}
+	if firstString(config["quality"], metadata["quality"], metadata["upscaleQuality"]) == "" {
+		delete(facts, "quality")
+	}
+	if firstString(config["speed"], metadata["speed"]) == "" {
+		delete(facts, "speed")
+	}
+	if firstInt(config["count"], videoParameters["count"], input["count"], config["n"], input["n"], config["outputCount"]) <= 0 {
+		delete(facts, "outputCount")
+	}
+	if firstInt(config["batch_size"], config["batchSize"], input["batch_size"], input["batchSize"]) <= 0 {
+		delete(facts, "batchCount")
+	}
+	_, audioString := config["videoGenerateAudio"].(string)
+	_, audioBool := config["videoGenerateAudio"].(bool)
+	_, videoAudioString := videoParameters["videoGenerateAudio"].(string)
+	_, videoAudioBool := videoParameters["videoGenerateAudio"].(bool)
+	if !audioString && !audioBool && !videoAudioString && !videoAudioBool {
+		delete(facts, "generateAudio")
+	}
+	return facts
+}
+
+func taskModel(task *TaskSnapshot) string {
+	if task == nil {
+		return ""
+	}
+	return task.Model
+}
+
+func taskOperation(task *TaskSnapshot) string {
+	if task == nil {
+		return ""
+	}
+	return task.Operation
+}
+
+func categoryFor(task *TaskSnapshot) string {
+	taskType := ""
+	if task != nil {
+		taskType = task.Type
+	}
 	switch {
-	case strings.Contains(task.Type, "video"):
+	case strings.Contains(taskType, "video"):
 		return "video"
-	case strings.Contains(task.Type, "image"):
+	case strings.Contains(taskType, "image"):
 		return "image"
-	case strings.Contains(task.Type, "audio"):
+	case strings.Contains(taskType, "audio"):
 		return "audio"
-	case strings.Contains(task.Type, "upscale"):
+	case strings.Contains(taskType, "upscale"):
 		return "upscale"
 	default:
 		return "image"
@@ -259,14 +481,14 @@ func normalizeResolution(value string) string {
 	return resolution
 }
 
-func defaultDuration(task *model.Task, modelKey string) int {
+func defaultDuration(task *TaskSnapshot, modelKey string) int {
 	if strings.Contains(strings.ToLower(modelKey), "minimax-h3") {
 		return 5
 	}
 	if strings.Contains(strings.ToLower(modelKey), "seedance") {
 		return 6
 	}
-	if strings.Contains(task.Type, "video") {
+	if task != nil && strings.Contains(task.Type, "video") {
 		return 5
 	}
 	return 1

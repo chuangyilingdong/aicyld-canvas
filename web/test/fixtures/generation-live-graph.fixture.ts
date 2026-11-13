@@ -1,90 +1,43 @@
 import { mock } from "bun:test";
 import { strict as assert } from "node:assert";
+import { createCanvasPageUiStore } from "../../src/stores/canvas/use-canvas-page-ui-store";
+const pageUi = createCanvasPageUiStore();
 
 // Run in a separate process: deterministic model/network boundaries must not leak
 // into the rest of the frontend suite. The real hook owns confirmation and dispatch.
-(globalThis as any).window = globalThis;
 const confirmations: { onOk: () => void }[] = [];
 const dispatched: any[] = [];
+const errors: string[] = [];
 const react = await import("react");
+const clientDiagnostics = await import("@/services/diagnostics/client-diagnostics");
+const configStore = await import("@/stores/use-config-store");
+const modelSelection = await import("@/lib/model-selection");
+const generationTask = await import("@/services/api/generation-task");
+const generationError = await import("@/lib/generation-error");
+mock.module("@/lib/canvas/canvas-generation-config", () => ({ resolvedCanvasGenerationRequirements: (config: any, node: any, capability: string, input: any) => ({ capability, input, videoSeconds: config.videoSeconds, videoOperation: node?.metadata?.videoEditOperation }) }));
 mock.module("react", () => ({ ...react, default: react.default, useCallback: (fn: any) => fn, useRef: (value: any) => ({ current: value }) }));
-mock.module("antd", () => ({ App: { useApp: () => ({ modal: { confirm: (input: any) => confirmations.push(input) }, message: { error: (x: string) => { throw Error(x); }, info: () => {}, warning: () => {}, loading: () => {}, destroy: () => {} } }) } }));
-const configStoreMock = {
-    useEffectiveConfig: () => ({}),
-    useConfigStore: Object.assign((select: any) => select({ isAiConfigReady: () => true }), {
-        getState: () => ({}),
-        setState: () => {},
-        subscribe: () => () => {},
-    }),
-    resolveModelRequestConfig: () => ({}),
-    isSystemProxyBaseUrl: () => false,
-    buildApiUrl: (baseUrl: string, path: string) => `${baseUrl.replace(/\/+$/, "")}${path.startsWith("/") ? path : `/${path}`}`,
-    resolveBackendApiUrl: (value: string) => value,
-    systemProxyChannelId: () => "",
-    MANAGED_BEEFAPI_CREDENTIAL_REF: "beefapi-enterprise",
-    modelOptionName: (value: string) => String(value || "").split("::").pop() || "",
-    modelDisplayName: (_config: unknown, value: string) => value,
-    resolveModelChannel: () => ({}),
-    logicalModelIDForConfig: () => "",
-    modelMatchesCapability: () => false,
-    configuredModelMatchesCapability: () => false,
-    channelHasGenerationCredential: () => false,
-    channelHasManagedBeefAPICredential: () => false,
-    isBuiltinBeefAPIChannel: () => false,
-    modelOptionsFromChannels: () => [],
-    encodeChannelModel: (channelId: string, model: string) => `${channelId}::${model}`,
-    decodeChannelModel: (value: string) => ({ channelId: String(value || "").split("::")[0] || "", model: String(value || "").split("::").pop() || "" }),
-    isChannelModelValue: (value: string) => String(value || "").includes("::"),
-    normalizeRunningHubCapability: (_value: unknown, fallback = "image") => fallback,
-    normalizeRunningHubWorkflowKind: (value: unknown) => value === "app" ? "app" : "workflow",
-    normalizeWorkflowFieldMappings: () => [],
-    mergeWorkflowFieldMappings: () => [],
-    PUBLIC_MODEL_CATALOG_ID: "managed",
-    CONFIG_STORE_KEY: "open_ai_canvas:ai_config_store",
-    defaultConfig: {},
-    channelModelProfile: () => undefined,
-    filterModelsByCapability: (models: string[]) => models,
-    selectableModelsByCapability: () => [],
-    effectiveConfigForCustomChannels: (config: unknown) => config,
-    createModelChannel: (channel: Record<string, unknown> = {}) => ({ id: "", ...channel }),
-    configWithoutCachedSecrets: (config: unknown) => config,
-    normalizeConfigSnapshot: (snapshot: unknown) => snapshot || {},
-    modelIcon: () => undefined,
-    modelOptionLabel: (_config: unknown, value: string) => value,
-    hasSystemModelProfile: () => false,
-    normalizeModelOptionValue: (value: unknown) => value,
-    channelConnectionSignature: () => "",
-    defaultBaseUrlForApiFormat: () => "",
-    defaultBaseUrlForChannelInterface: () => "",
-};
-mock.module("@/stores/use-config-store", () => configStoreMock);
-mock.module("@/components/canvas/canvas-node-generation", () => ({ buildNodeGenerationContext: (_nodes: any, _edges: any, _id: any, prompt: string) => ({ prompt, referenceImages: [], referenceVideos: [], referenceAudios: [], characterReferences: [], resolvedCharacterVoices: [] }), hydrateNodeGenerationContext: async (context: any) => context }));
-mock.module("@/pages/canvas/canvas-assistant-proposal-execution", () => ({ buildConfirmedGenerationConfig: () => ({ model: "fixture", taskWorkflowProvider: "model", size: "1:1" }) }));
-mock.module("@/lib/canvas/canvas-generation-submission", () => ({ canReleaseCanvasGenerationSource: () => false, canvasGenerationPromptMetadata: () => ({}), canvasGenerationRequestFingerprint: () => "repeat", runCanvasGenerationSubmissionOnce: async (locks: Map<string, any>, id: string, fn: any) => { if (locks.has(id)) return; const running = fn(() => { if (locks.get(id) === running) locks.delete(id); }); locks.set(id, running); try { return await running; } finally { if (locks.get(id) === running) locks.delete(id); } } }));
-mock.module("@/lib/canvas/canvas-project-generation", () => ({ isGenerationCanceled: () => false, getGenerationCount: (value: unknown) => Math.max(1, Number(value) || 1) }));
-mock.module("@/lib/model-selection", () => ({
-    modelCompatibilityError: () => "",
-    modelGroupReferenceLimits: () => undefined,
-    modelPromptLengthError: () => "",
-    modelRequestOptions: () => ({}),
-    portraitGenerationError: () => undefined,
-    mergeImageCapabilityConfig: (config: unknown) => config,
-    mergedImageCapabilityConfig: (config: unknown) => config,
-    resolveCompatibleModel: (_config: unknown, selected: string) => selected,
-    resolveModelGenerationDefaults: () => ({}),
-    resolveModelVideoBooleanOptions: () => ({}),
-    resolveVideoOperation: () => undefined,
-    inferVideoOperation: () => undefined,
-    defaultImageParamsForModel: () => ({}),
-    groupModelsByDisplayName: () => [],
-    configuredModelDisplayName: (_config: unknown, value: string) => value,
-    compatibleModelInGroup: (_config: unknown, models: string[]) => models[0],
-    maxModelInputCapacity: () => 0,
-}));
+mock.module("antd", () => ({ App: { useApp: () => ({ modal: { confirm: (input: any) => { confirmations.push(input); return { destroy() {} }; } }, message: { loading: () => {}, destroy: () => {}, error: (x: string) => { errors.push(x); }, info: () => {}, warning: () => {} } }) } }));
+// Only suppress event recording; task/operation dependencies retain real trace helpers.
+mock.module("@/services/diagnostics/client-diagnostics", () => ({ ...clientDiagnostics, recordDiagnosticEvent: () => {} }));
+mock.module("@/lib/generation-error", () => ({ ...generationError, generationErrorMessage: (error: any) => error?.stack || error?.message || String(error) }));
+const fixtureConfig = { channels: [], model: "fixture", imageModel: "fixture", count: "1", videoSeconds: "5" } as any;
+mock.module("@/stores/use-config-store", () => ({ ...configStore, useEffectiveConfig: () => fixtureConfig, useConfigStore: (select: any) => select({ isAiConfigReady: () => true }), resolveModelRequestConfig: () => ({}) }));
+mock.module("@/lib/canvas/canvas-resource-references", () => ({ referencedAssetIdsInPrompt: () => [] }));
+mock.module("@/services/workspace-asset-read", () => ({ loadWorkspaceAssetsForUse: async () => { throw new Error("unexpected library lookup in live-graph-only fixture"); } }));
+mock.module("@/stores/use-asset-store", () => ({ useAssetStore: { getState: () => ({ assets: [] }) } }));
+mock.module("@/components/canvas/canvas-node-generation", () => ({ buildNodeGenerationContext: (_nodes: any, _edges: any, _id: any, prompt: string) => ({ prompt, referenceImages: [], referenceVideos: [], referenceAudios: [], characterReferences: [], resolvedCharacterVoices: [] }), hydrateNodeGenerationContext: async (context: any) => context, compileNodeGenerationReferences: (context: any) => context }));
+mock.module("@/pages/canvas/canvas-assistant-proposal-execution", () => ({ buildConfirmedGenerationConfig: () => ({ model: "fixture", taskWorkflowProvider: "model", size: "1:1", channels: [], count: "1", videoSeconds: "5" }) }));
+const submission = await import("@/lib/canvas/canvas-generation-submission");
+mock.module("@/lib/canvas/canvas-generation-submission", () => ({ ...submission, canvasGenerationRequestFingerprint: () => "repeat" }));
+mock.module("@/lib/canvas/canvas-project-generation", () => ({ MISSING_GENERATION_TASK_IDENTITY_DETAILS: "missing task identity", isGenerationCanceled: () => false, buildVideoGenerationMetadata: () => ({ videoEditOperation: "text_to_video" }), getGenerationCount: (count: string) => Math.max(1, Math.floor(Math.abs(Number(count) || 1))) }));
+mock.module("@/lib/model-selection", () => ({ ...modelSelection, modelCompatibilityError: () => "", modelGroupReferenceLimits: () => undefined, modelRequestOptions: () => ({}) }));
 mock.module("@/services/skill-runtime", () => ({ skillRuntime: { prepare: async ({ prompt }: any) => ({ prompt, metadata: {} }) } }));
 mock.module("@/lib/canvas/canvas-style-execution", () => ({ resolveCanvasStyleExecution: () => undefined }));
-mock.module("@/pages/canvas/canvas-generation-failure", () => ({ canvasGenerationRetryBlocked: () => false, canvasImageGenerationHasPendingResult: () => false, canvasImagePendingResultMessage: () => "", canvasGenerationFailureMetadata: () => ({}) }));
-mock.module("@/pages/canvas/canvas-reference-links", () => ({ createReferenceLinkResolver: () => undefined }));
+mock.module("@/pages/canvas/canvas-generation-failure", () => ({ canvasImagePendingResultMessage: () => "", canvasGenerationFailureMetadata: () => ({}) }));
+mock.module("@/services/api/task-billing", () => ({ quoteGenerationTask: async () => ({}) }));
+mock.module("@/components/canvas/canvas-billing-confirmation", () => ({ confirmCanvasBillingQuote: async () => true }));
+mock.module("@/services/api/generation-task", () => ({ ...generationTask, buildBackendGenerationTaskQuoteInput: () => ({}) }));
+mock.module("@/components/generation-reference-links", () => ({ createReferenceLinkResolver: () => undefined }));
 mock.module("@/pages/canvas/canvas-image-generation-executor", () => ({ executeImageGeneration: async (input: any) => { dispatched.push(input); input.nodesRef.current = input.canvasNodes.map((n: any) => n.id === input.nodeId ? { ...n, metadata: { ...n.metadata, storageKey: "new:" + n.id, taskId: "new-task:" + n.id } } : n); } }));
 mock.module("@/pages/canvas/canvas-media-generation-executors", () => ({ executeVideoGeneration: async (input: any) => { dispatched.push(input); }, executeAudioGeneration: async () => {} }));
 mock.module("@/pages/canvas/canvas-text-generation-executor", () => ({ executeTextGeneration: async () => {} }));
@@ -95,8 +48,8 @@ const frozenNodes = [node("image"), node("text")];
 const nodesRef = { current: structuredClone(frozenNodes) };
 const connectionsRef = { current: [] as any[] };
 const no = () => {};
-const generate = useCanvasGenerationExecutor({ projectId: "canvas", addedSkills: [], assets: [], nodesRef, connectionsRef, setNodes: no, setConnections: no, setSelectedNodeIds: no, setSelectedConnectionId: no, setDialogNodeId: no, setRunningNodeId: no, startGenerationRequest: () => new AbortController(), finishGenerationRequest: no, bindGenerationTask: no, applyGenerationTaskResult: async () => {} });
-const options = { confirmedInputs: { nodes: frozenNodes, connections: [], config: {} as any, assets: [], skills: [] }, skipBillingConfirmation: true };
+const generate = useCanvasGenerationExecutor({ pageUi, projectId: "canvas", addedSkills: [], assets: [], nodesRef, connectionsRef, setNodes: no, setConnections: no, setRunningNodeId: no, startGenerationRequest: () => new AbortController(), finishGenerationRequest: no, bindGenerationTask: no, applyGenerationTaskResult: async () => {} });
+const options = { confirmedInputs: { nodes: frozenNodes, connections: [], config: {} as any, assets: [], skills: [] } };
 const first = generate("image", "image", "coffee", options);
 const second = generate("text", "image", "coffee", options);
 const deadline = Date.now() + 2000;
@@ -108,11 +61,12 @@ connectionsRef.current = [{ id: "new-link", fromNodeId: "image", toNodeId: "text
 // A user may wait until the first paid task finishes before confirming the second.
 confirmations[1]!.onOk();
 await second;
-assert.equal(dispatched.length, 2);
+assert.equal(dispatched.length, 2, JSON.stringify({ errors }));
 assert.equal(dispatched[1].canvasNodes.find((n: any) => n.id === "image").metadata.storageKey, "new:image");
 assert.equal(nodesRef.current.find(n => n.id === "image")!.metadata.taskId, "new-task:image");
 assert.equal(nodesRef.current.find(n => n.id === "text")!.metadata.taskId, "new-task:text");
 assert.equal(dispatched[1].canvasConnections[0].id, "new-link");
 assert.equal(dispatched[1].sourceNode.metadata.storageKey, "old:text");
 assert.equal(frozenNodes[0]!.metadata.storageKey, "old:image");
+assert.deepEqual(errors, []);
 console.log("PASS: shared frozen inputs, two concurrent targets, delayed repeat confirmation retain live results and connections");

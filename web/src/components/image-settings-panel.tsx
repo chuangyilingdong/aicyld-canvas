@@ -1,7 +1,7 @@
 import { ImageSizePicker } from "./image-size-picker";
 import { imageResolutionUsesQuality } from "@/lib/image-size-presets";
 import { type ReactNode } from "react";
-import { ConfigProvider, Input, InputNumber, Select, Slider } from "antd";
+import { ConfigProvider } from "antd";
 import { Switch } from "@/components/ui/base/switch";
 
 import { type CanvasTheme } from "@/lib/canvas-theme";
@@ -9,15 +9,16 @@ import { buildImageResolutionOptions, formatImageResolutionSize } from "@/lib/im
 import { modelCapabilityConfigFor, normalizeImageValue, type ImageCapabilityConfig } from "@/lib/model-capabilities";
 import { mergedImageCapabilityConfig } from "@/lib/model-selection";
 import { type AiConfig } from "@/stores/use-config-store";
+import { seedreamFamily } from "@/lib/seedream-image";
+import { SeedreamSettings } from "./seedream-settings";
 
 const qualityOptions = [
     { value: "auto", label: "自动" },
     { value: "high", label: "高" },
+    { value: "xhigh", label: "超高" },
+    { value: "max", label: "最高" },
     { value: "medium", label: "中" },
     { value: "low", label: "低" },
-    { value: "relax", label: "放松" },
-    { value: "fast", label: "快速" },
-    { value: "turbo", label: "极速" },
     { value: "1k", label: "1K" },
     { value: "2k", label: "2K" },
     { value: "4k", label: "4K" },
@@ -46,9 +47,7 @@ const aspectOptions: AspectOption[] = [
 
 type ImageSettingsPanelProps = {
     config: AiConfig;
-    onConfigChange: (key: "quality" | "size" | "transparentBackground" | "count", value: string) => void;
-    midjourneyParameters?: Record<string, unknown>;
-    onMidjourneyParameterChange?: (key: string, value: string | number | boolean | undefined) => void;
+    onConfigChange: (key: "quality" | "size" | "transparentBackground" | "count" | "seedreamMode" | "seedreamMaxImages" | "seedreamOutputFormat" | "seedreamOptimize" | "seedreamWatermark", value: string) => void;
     theme: CanvasTheme;
     showTitle?: boolean;
     showQuality?: boolean;
@@ -60,17 +59,17 @@ type ImageSettingsPanelProps = {
     quickCount?: number;
 };
 
-export function ImageSettingsPanel({ config, onConfigChange, midjourneyParameters, onMidjourneyParameterChange, theme, showTitle = true, showQuality = true, showTransparent = true, showSize = true, showCount = true, className = "w-[304px] space-y-3 rounded-2xl px-1 py-0.5", maxCount = 15, quickCount = 3 }: ImageSettingsPanelProps) {
+export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = true, showQuality = true, showTransparent = true, showSize = true, showCount = true, className = "w-[304px] space-y-3 rounded-2xl px-1 py-0.5", maxCount = 15, quickCount = 3 }: ImageSettingsPanelProps) {
     const profile = mergedImageCapabilityConfig(config, config.model || config.imageModel);
+    const seedream = seedreamFamily(config.model || config.imageModel);
     const normalized = normalizeImageValue(profile, config);
     const quality = normalized.quality;
     const transparentBackground = normalized.transparentBackground === "true";
-    const effectiveMaxCount = Math.min(maxCount, profile.maxOutputs);
+    const batchCounts = profile.generationOutputs?.filter((value) => value <= maxCount);
+    const effectiveMaxCount = Math.min(maxCount, batchCounts?.length ? Math.max(...batchCounts) : profile.maxOutputs);
     const count = Math.max(1, Math.min(effectiveMaxCount, Number(normalized.count)));
     const activeSize = normalized.size;
     const activeQualityOptions = profile.quality.values.map((value) => qualityOptions.find((item) => item.value === value) || { value, label: value });
-    const isMidjourney = isMidjourneySpeedQuality(profile);
-    const midjourneyQuality = typeof midjourneyParameters?.quality === "string" ? midjourneyParameters.quality : "";
 
     return (
         <ImageSettingsTheme theme={theme}>
@@ -85,7 +84,7 @@ export function ImageSettingsPanel({ config, onConfigChange, midjourneyParameter
             >
                 {showTitle ? <div className="text-base font-semibold">图像设置</div> : null}
                 {showQuality && profile.quality.supported && !imageResolutionUsesQuality(profile) ? <div className="space-y-2">
-                    <SettingTitle color={theme.node.muted}>{isMidjourneySpeedQuality(profile) ? "生成速度" : isGrokResolutionQuality(profile) ? "分辨率" : "质量"}</SettingTitle>
+                    <SettingTitle color={theme.node.muted}>{isGrokResolutionQuality(profile) ? "分辨率" : "质量"}</SettingTitle>
                     <div className={`grid gap-1.5 ${activeQualityOptions.length <= 2 ? "grid-cols-2" : "grid-cols-4"}`}>
 						{activeQualityOptions.map((item) => (
                             <OptionPill key={item.value} selected={quality === item.value} theme={theme} onClick={() => onConfigChange("quality", item.value)}>
@@ -94,36 +93,51 @@ export function ImageSettingsPanel({ config, onConfigChange, midjourneyParameter
                         ))}
                     </div>
                 </div> : null}
-                {showQuality && isMidjourney && onMidjourneyParameterChange ? <div className="space-y-2">
-                    <SettingTitle color={theme.node.muted}>细节质量（--q）</SettingTitle>
-                    <div className="grid grid-cols-5 gap-1.5">
-                        {["default", "0.25", "0.5", "1", "2"].map((value) => (
-                            <OptionPill key={value} selected={(midjourneyQuality || "default") === value} theme={theme} onClick={() => onMidjourneyParameterChange("quality", value === "default" ? undefined : value)}>
-                                {value === "default" ? "默认" : value}
-                            </OptionPill>
-                        ))}
-                    </div>
-                    <MidjourneyAdvancedPanel theme={theme} parameters={midjourneyParameters || {}} onChange={onMidjourneyParameterChange} />
-                </div> : null}
-                {showTransparent && profile.transparentBackground.supported ? <div className="flex items-center justify-between gap-3">
+                {showTransparent && profile.transparentBackground.supported && (!seedream || config.seedreamMode !== "layers") ? <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
                         <SettingTitle color={theme.node.muted}>透明背景</SettingTitle>
                         <div className="mt-1 text-[var(--fs-label)]" style={{ color: theme.node.muted }}>
-                            请求模型输出保留 Alpha 通道的 PNG
+                            {seedream ? "保留参考图中的透明区域，需要连接一张透明图片。" : "请求模型输出保留 Alpha 通道的 PNG"}
                         </div>
                     </div>
                     <span title="是否支持透明背景由当前模型接口决定" onMouseDown={(event) => event.stopPropagation()}>
                         <Switch
                             size="sm"
                             checked={transparentBackground}
-                            onChange={(checked) => onConfigChange("transparentBackground", checked ? "true" : "false")}
+                            onChange={(checked) => { onConfigChange("transparentBackground", checked ? "true" : "false"); if (checked && seedream) onConfigChange("seedreamOutputFormat", "png"); }}
                         />
                     </span>
                 </div> : null}
-                {showSize ? <ImageSizePicker profile={profile} size={activeSize} quality={quality} onChange={(size, nextQuality) => applyImageSizeSelection(onConfigChange, size, nextQuality)} /> : null}
-                {showCount && effectiveMaxCount > 1 ? (
+                {seedream ? <SeedreamSettings config={config} family={seedream} profile={profile} onChange={onConfigChange} theme={theme} /> : showSize ? <ImageSizePicker profile={profile} size={activeSize} quality={quality} onChange={(size, nextQuality) => applyImageSizeSelection(onConfigChange, size, nextQuality)} /> : null}
+                {!seedream && profile.sequentialGeneration?.supported ? (
+                    <label className="block space-y-1.5 text-xs">
+                        <span>关联组图上限</span>
+                        <input
+                            aria-label="关联组图上限"
+                            type="number"
+                            min={1}
+                            max={15}
+                            className="h-8 w-full rounded-lg border px-2"
+                            style={{ background: theme.canvas.background, color: theme.node.text, borderColor: theme.node.stroke }}
+                            value={config.seedreamMaxImages || "1"}
+                            onChange={(event) => onConfigChange("seedreamMaxImages", event.target.value)}
+                        />
+                        <span className="block leading-relaxed" style={{ color: theme.node.muted }}>
+                            同一次生成中的关联图片，按实际出图收费；参考图与输出图合计最多 15 张。
+                        </span>
+                    </label>
+                ) : null}
+                {showCount && profile.fixedOutputs ? (
                     <div className="space-y-2">
-                        <SettingTitle color={theme.node.muted}>生成张数</SettingTitle>
+                        <SettingTitle color={theme.node.muted}>{seedream ? "生成批次" : "生成张数"}</SettingTitle>
+                        <div className="grid grid-cols-3 gap-1.5">
+                            {(batchCounts?.length ? batchCounts : [profile.fixedOutputs]).map((value) => <OptionPill key={value} selected={count === value} theme={theme} onClick={() => onConfigChange("count", String(value))}>{value}</OptionPill>)}
+                        </div>
+                        <div className="text-[var(--fs-label)]" style={{ color: theme.node.muted }}>每批 {profile.fixedOutputs} 张，共 {count / profile.fixedOutputs} 批；按实际批次计费</div>
+                    </div>
+                ) : showCount && effectiveMaxCount > 1 ? (
+                    <div className="space-y-2">
+                        <SettingTitle color={theme.node.muted}>{seedream ? "生成批次" : "生成张数"}</SettingTitle>
                         <div className="grid grid-cols-4 gap-1.5">
                             {Array.from({ length: Math.min(quickCount, effectiveMaxCount) }, (_, index) => index + 1).map((value) => (
                                 <OptionPill key={value} selected={count === value} theme={theme} onClick={() => onConfigChange("count", String(value))}>
@@ -158,7 +172,7 @@ export function ImageSettingsTheme({ theme, children }: { theme: CanvasTheme; ch
 }
 
 export function imageQualityLabel(value: string) {
-    return ({ auto: "自动", high: "高", medium: "中", low: "低", relax: "放松", fast: "快速", turbo: "极速", "1k": "1K", "2k": "2K", "4k": "4K" } as Record<string, string>)[value.toLowerCase()] || value || "默认";
+    return ({ auto: "自动", high: "高", xhigh: "超高", max: "最高", medium: "中", low: "低", "1k": "1K", "2k": "2K", "4k": "4K" } as Record<string, string>)[value.toLowerCase()] || value || "默认";
 }
 
 function isGrokResolutionQuality(profile: ImageCapabilityConfig) {
@@ -166,19 +180,15 @@ function isGrokResolutionQuality(profile: ImageCapabilityConfig) {
     return values.some((value) => ["1k", "2k", "4k"].includes(value));
 }
 
-function isMidjourneySpeedQuality(profile: ImageCapabilityConfig) {
-    const values = profile.quality.values.map((item) => item.toLowerCase());
-    return values.some((value) => ["relax", "fast", "turbo"].includes(value));
-}
-
-export function imageSizeLabel(size: string) {
-    const resolutionLabel = formatImageResolutionSize(size, buildImageResolutionOptions([size]));
+export function imageSizeLabel(size: string, profile?: ImageCapabilityConfig) {
+    const resolutionLabel = formatImageResolutionSize(size, profile?.size.presets || buildImageResolutionOptions([size]));
     return resolutionLabel !== size ? resolutionLabel : aspectOptions.find((item) => (item.size || item.value) === size || item.value === size)?.label || size;
 }
 
 function OptionPill({ selected, disabled = false, theme, onClick, children }: { selected: boolean; disabled?: boolean; theme: CanvasTheme; onClick: () => void; children: ReactNode }) {
     return (
         <button
+            aria-pressed={selected}
             type="button"
 			className="h-8 cursor-pointer rounded-full px-2 text-xs transition-colors hover:brightness-110 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 disabled:cursor-not-allowed disabled:opacity-40"
 			style={{ background: selected ? theme.toolbar.activeBg : "transparent", color: theme.node.text, outlineColor: theme.node.muted }}
@@ -225,79 +235,4 @@ function SettingTitle({ children, color }: { children: string; color: string }) 
             {children}
         </div>
     );
-}
-
-function MidjourneyAdvancedPanel({
-    theme,
-    parameters,
-    onChange,
-}: {
-    theme: CanvasTheme;
-    parameters: Record<string, unknown>;
-    onChange: (key: string, value: string | number | boolean | undefined) => void;
-}) {
-    const version = typeof parameters.version === "string" ? parameters.version : "";
-    const stringValue = (key: string) => typeof parameters[key] === "string" ? parameters[key] as string : "";
-    const numberValue = (key: string) => typeof parameters[key] === "number" ? parameters[key] as number : undefined;
-    const booleanValue = (key: string) => parameters[key] === true;
-    const numberChange = (key: string) => (value: number | null) => onChange(key, value ?? undefined);
-    const stringChange = (key: string) => (value: string) => onChange(key, value.trim() || undefined);
-    return (
-        <details className="rounded-xl border px-2.5 py-2" style={{ borderColor: theme.node.stroke }}>
-            <summary className="cursor-pointer select-none text-xs font-medium" style={{ color: theme.node.muted }}>高级设置</summary>
-            <div className="mt-3 space-y-3">
-                <SmallField label="风格">
-                    <Select size="small" value={stringValue("style") || "default"} onChange={(value) => onChange("style", value === "default" ? undefined : value)} options={[{ value: "default", label: "默认" }, { value: "raw", label: "Raw" }]} />
-                </SmallField>
-                <SliderField label="风格化程度" value={numberValue("stylize")} fallback={100} min={0} max={1000} step={25} onChange={(value) => onChange("stylize", value)} />
-                <SliderField label="怪异度" value={numberValue("weird")} fallback={0} min={0} max={3000} step={50} onChange={(value) => onChange("weird", value)} />
-                <SliderField label="多样性" value={numberValue("chaos")} fallback={0} min={0} max={100} step={1} onChange={(value) => onChange("chaos", value)} />
-                <SmallField label="负面提示词"><Input value={stringValue("negativePrompt")} onChange={(event) => stringChange("negativePrompt")(event.target.value)} placeholder="ugly, blurry" /></SmallField>
-                <div className="grid grid-cols-2 gap-2">
-                    {version === "7" ? <ToggleRow label="Niji" checked={booleanValue("niji")} theme={theme} onChange={(checked) => onChange("niji", checked)} /> : null}
-                    <ToggleRow label="Tiled" checked={booleanValue("tile")} theme={theme} onChange={(checked) => onChange("tile", checked)} />
-                    <ToggleRow label="Draft" checked={booleanValue("draft")} theme={theme} onChange={(checked) => onChange("draft", checked)} />
-                    {(version === "8.1" || version === "8.2") ? <ToggleRow label="HD" checked={booleanValue("hd")} theme={theme} onChange={(checked) => onChange("hd", checked)} /> : null}
-                </div>
-                <details className="rounded-lg border px-2 py-1.5" style={{ borderColor: theme.node.stroke }}>
-                    <summary className="cursor-pointer select-none text-[11px]" style={{ color: theme.node.muted }}>更多参数</summary>
-                    <div className="mt-2 space-y-2">
-                        <div className="grid grid-cols-2 gap-2">
-                            <SmallField label="种子"><InputNumber className="w-full" min={0} precision={0} value={numberValue("seed")} onChange={numberChange("seed")} placeholder="默认" /></SmallField>
-                            <SmallField label="图片权重"><InputNumber className="w-full" min={0} max={3} step={0.1} value={numberValue("iw")} onChange={numberChange("iw")} placeholder="0–3" /></SmallField>
-                            <SmallField label="角色权重"><InputNumber className="w-full" min={0} max={100} value={numberValue("cw")} onChange={numberChange("cw")} placeholder="0–100" /></SmallField>
-                            <SmallField label="风格权重"><InputNumber className="w-full" min={0} max={1000} value={numberValue("sw")} onChange={numberChange("sw")} placeholder="0–1000" /></SmallField>
-                            <SmallField label="深度权重"><InputNumber className="w-full" min={0} max={100} value={numberValue("dw")} onChange={numberChange("dw")} placeholder="0–100" /></SmallField>
-                        </div>
-                        <SmallField label="角色参考"><Input value={stringValue("cref")} onChange={(event) => stringChange("cref")(event.target.value)} placeholder="URL" /></SmallField>
-                        <SmallField label="风格参考"><Input value={stringValue("sref")} onChange={(event) => stringChange("sref")(event.target.value)} placeholder="URL" /></SmallField>
-                        <SmallField label="深度参考"><Input value={stringValue("dref")} onChange={(event) => stringChange("dref")(event.target.value)} placeholder="URL" /></SmallField>
-                        <SmallField label="额外参数"><Input value={stringValue("extra")} onChange={(event) => stringChange("extra")(event.target.value)} placeholder="--xxx" /></SmallField>
-                    </div>
-                </details>
-            </div>
-        </details>
-    );
-}
-
-function SmallField({ label, children }: { label: string; children: ReactNode }) {
-    return <label className="block space-y-1"><span className="text-[11px]" style={{ color: "var(--muted-foreground)" }}>{label}</span>{children}</label>;
-}
-
-function SliderField({ label, value, fallback, min, max, step, onChange }: { label: string; value?: number; fallback: number; min: number; max: number; step: number; onChange: (value: number | undefined) => void }) {
-    return (
-        <div className="space-y-1">
-            <div className="flex items-center justify-between text-xs">
-                <span style={{ color: "var(--muted-foreground)" }}>{label}</span>
-                <button type="button" className="min-w-10 text-right tabular-nums" style={{ color: value === undefined ? "var(--muted-foreground)" : "var(--foreground)" }} title={value === undefined ? undefined : "恢复默认"} onClick={() => value !== undefined && onChange(undefined)} disabled={value === undefined}>
-                    {value ?? "默认"}
-                </button>
-            </div>
-            <Slider min={min} max={max} step={step} value={value ?? fallback} onChange={(next) => onChange(Number(next))} />
-        </div>
-    );
-}
-
-function ToggleRow({ label, checked, theme, onChange }: { label: string; checked: boolean; theme: CanvasTheme; onChange: (checked: boolean) => void }) {
-    return <label className="flex min-h-8 items-center justify-between gap-3 rounded-lg px-2 text-xs" style={{ background: theme.toolbar.itemHover, color: theme.node.text }}><span>{label}</span><Switch size="sm" checked={checked} onChange={onChange} /></label>;
 }

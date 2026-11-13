@@ -1,5 +1,18 @@
 [
   {
+    "id": "agent.guide",
+    "summary": "读取 AICYLD 画布外部 Agent 使用说明和内容哈希",
+    "readOnly": true,
+    "scope": "workspace_read",
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {}
+    },
+    "assistantModes": [],
+    "replay": "safe"
+  },
+  {
     "id": "asset.get",
     "summary": "按 ID 读取单个素材",
     "readOnly": true,
@@ -24,7 +37,7 @@
   },
   {
     "id": "asset.list",
-    "summary": "分页列出用户素材库中的素材",
+    "summary": "列出素材库中的素材",
     "readOnly": true,
     "scope": "workspace_read",
     "params": {
@@ -66,8 +79,44 @@
     "replay": "safe"
   },
   {
+    "id": "canvas.create",
+    "summary": "创建新画布",
+    "readOnly": false,
+    "scope": "canvas",
+    "params": {
+      "properties": {
+        "canvasId": {
+          "description": "可选自定义画布 ID；省略时由服务端生成",
+          "type": "string"
+        },
+        "folderId": {
+          "description": "可选画布文件夹 ID",
+          "type": "string"
+        },
+        "operationId": {
+          "description": "调用方生成的稳定幂等键；重试同一操作必须复用同一个值，服务端据此回读原结果",
+          "type": "string"
+        },
+        "projectId": {
+          "description": "可选关联项目 ID",
+          "type": "string"
+        },
+        "title": {
+          "description": "画布名称（默认：未命名画布）",
+          "type": "string"
+        }
+      },
+      "required": [
+        "operationId"
+      ],
+      "type": "object"
+    },
+    "assistantModes": [],
+    "replay": "safe"
+  },
+  {
     "id": "canvas.document.commit",
-    "summary": "按已知服务端 revision 提交整份画布文档（保留未触及字段，带 CAS）",
+    "summary": "按 revision 提交整份画布文档",
     "readOnly": false,
     "scope": "canvas",
     "params": {
@@ -101,7 +150,7 @@
   },
   {
     "id": "canvas.edge.create",
-    "summary": "连接两个节点（重复连接幂等返回）",
+    "summary": "连接两个节点",
     "readOnly": false,
     "scope": "canvas",
     "params": {
@@ -140,11 +189,10 @@
   },
   {
     "id": "canvas.edge.delete",
-    "summary": "移除指定连接，保留两个节点及素材",
+    "summary": "移除指定连线",
     "readOnly": false,
     "scope": "canvas",
     "params": {
-      "additionalProperties": false,
       "properties": {
         "canvasId": {
           "type": "string"
@@ -153,7 +201,6 @@
           "type": "string"
         },
         "expectedRevision": {
-          "minimum": 0,
           "type": "integer"
         },
         "operationId": {
@@ -177,7 +224,7 @@
   },
   {
     "id": "canvas.generation.propose",
-    "summary": "提议对选中节点做付费图片/视频生成（只登记提议，不生成、不扣费）",
+    "summary": "登记付费生成单提议（不直接扣费）",
     "readOnly": true,
     "scope": "canvas",
     "params": {
@@ -198,8 +245,17 @@
           "type": "string",
           "enum": [
             "image",
-            "video"
+            "video",
+            "audio"
           ]
+        },
+        "productionNodeIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 24,
+          "description": "本批生成的节点（每批≤24，超出分批提案）；nodeIds 只列已就绪首批"
         },
         "note": {
           "type": "string"
@@ -219,7 +275,7 @@
   },
   {
     "id": "canvas.generation.submit",
-    "summary": "执行用户已确认的整片制作素材并等待保存绑定；按已确认节点幂等恢复原任务，不重复下单。没有整片授权时先提出生成方案",
+    "summary": "凭已批准生成单执行画布生成并计费",
     "readOnly": false,
     "scope": "canvas",
     "params": {
@@ -227,8 +283,15 @@
         "canvasId": {
           "type": "string"
         },
+        "expectedModelConfigRevision": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "expectedRevision": {
+          "minimum": 1,
+          "type": "integer"
+        },
         "kind": {
-          "description": "可省略以按每个已授权节点的实际类型提交混合批次",
           "enum": [
             "image",
             "video",
@@ -237,7 +300,6 @@
           "type": "string"
         },
         "nodeIds": {
-          "description": "同批必须相互独立且参考已就绪；可以同时提交已授权的视频和旁白，避免串行等待",
           "items": {
             "type": "string"
           },
@@ -247,6 +309,12 @@
         },
         "operationId": {
           "description": "调用方生成的稳定幂等键；重试同一操作必须复用同一个值，服务端据此回读原结果",
+          "type": "string"
+        },
+        "orderId": {
+          "type": "string"
+        },
+        "proposalId": {
           "type": "string"
         }
       },
@@ -265,7 +333,7 @@
   },
   {
     "id": "canvas.get",
-    "summary": "读取指定画布的完整内容（节点与连线）",
+    "summary": "读取画布内容（节点与连线）",
     "readOnly": true,
     "scope": "canvas",
     "params": {
@@ -288,7 +356,7 @@
   },
   {
     "id": "canvas.node.bind_asset",
-    "summary": "把已上传的素材库图片/视频/音频绑定到已有同类型参考节点；写入真实资源与素材身份，不生成不付费，再用 edge.create 连接生成节点",
+    "summary": "把素材库素材绑定到同类型节点",
     "readOnly": false,
     "scope": "canvas",
     "params": {
@@ -312,7 +380,6 @@
           "type": "string"
         },
         "resourceId": {
-          "description": "可省略；素材包含多个资源时必填，只能选择该素材已有资源",
           "type": "string"
         }
       },
@@ -333,7 +400,7 @@
   },
   {
     "id": "canvas.node.configure",
-    "summary": "设置已有媒体节点的生成草稿参数；不生成、不扣费，不改任务或现有成品",
+    "summary": "设置媒体节点的提示词草稿与生成参数；不启动生成",
     "readOnly": false,
     "scope": "canvas",
     "params": {
@@ -366,45 +433,35 @@
           "minProperties": 1,
           "properties": {
             "audioFormat": {
-              "description": "下次生成使用的草稿参数；提交生成时仍会校验模型能力；适用 audio",
+              "description": "音频输出格式，取自模型目录",
               "type": "string"
             },
             "audioInstructions": {
-              "description": "下次生成使用的草稿参数；提交生成时仍会校验模型能力；适用 audio",
-              "type": "string"
-            },
-            "audioLyrics": {
-              "description": "下次生成使用的草稿参数；提交生成时仍会校验模型能力；适用 audio",
+              "description": "声音风格、情绪和表达要求",
               "type": "string"
             },
             "audioPitch": {
-              "description": "下次生成使用的草稿参数；提交生成时仍会校验模型能力；适用 audio",
-              "type": "string"
-            },
-            "audioSampleRate": {
-              "description": "下次生成使用的草稿参数；提交生成时仍会校验模型能力；适用 audio",
+              "description": "音高调整，-12–12",
               "type": "string"
             },
             "audioSpeed": {
-              "description": "下次生成使用的草稿参数；提交生成时仍会校验模型能力；适用 audio",
+              "description": "语速倍率，0.25–4",
               "type": "string"
             },
             "audioVoice": {
-              "description": "下次生成使用的草稿参数；提交生成时仍会校验模型能力；适用 audio",
               "type": "string"
             },
             "audioVolume": {
-              "description": "下次生成使用的草稿参数；提交生成时仍会校验模型能力；适用 audio",
+              "description": "音量，0–1",
               "type": "string"
             },
             "count": {
-              "description": "仅 image",
+              "description": "图片生成数量；最终仍按模型能力校验",
               "maximum": 8,
               "minimum": 1,
               "type": "integer"
             },
             "generateAudio": {
-              "description": "下次生成使用的草稿参数；提交生成时仍会校验模型能力；适用 video",
               "enum": [
                 "true",
                 "false"
@@ -412,35 +469,37 @@
               "type": "string"
             },
             "model": {
-              "description": "下次生成使用的草稿参数；提交生成时仍会校验模型能力；适用 image、video、audio",
+              "type": "string"
+            },
+            "prompt": {
               "type": "string"
             },
             "quality": {
-              "description": "下次生成使用的草稿参数；提交生成时仍会校验模型能力；适用 image",
+              "description": "图片质量档位，取自模型目录",
               "type": "string"
             },
             "seconds": {
-              "description": "下次生成使用的草稿参数；提交生成时仍会校验模型能力；适用 video",
               "type": "string"
             },
             "size": {
-              "description": "下次生成使用的草稿参数；提交生成时仍会校验模型能力；适用 image、video",
               "type": "string"
             },
             "transparentBackground": {
-              "description": "下次生成使用的草稿参数；提交生成时仍会校验模型能力；适用 image",
               "enum": [
                 "true",
                 "false"
               ],
               "type": "string"
             },
+            "videoEditOperation": {
+              "description": "视频生成或编辑模式，例如 text_to_video、image_to_video、reference_to_video",
+              "type": "string"
+            },
             "vquality": {
-              "description": "下次生成使用的草稿参数；提交生成时仍会校验模型能力；适用 video",
+              "description": "分辨率档位，取自模型目录",
               "type": "string"
             },
             "watermark": {
-              "description": "下次生成使用的草稿参数；提交生成时仍会校验模型能力；适用 video",
               "enum": [
                 "true",
                 "false"
@@ -469,17 +528,15 @@
   },
   {
     "id": "canvas.node.delete",
-    "summary": "移除一个画布节点及连接；保留素材库原件和任务",
+    "summary": "移除画布节点及连线",
     "readOnly": false,
     "scope": "canvas",
     "params": {
-      "additionalProperties": false,
       "properties": {
         "canvasId": {
           "type": "string"
         },
         "expectedRevision": {
-          "minimum": 0,
           "type": "integer"
         },
         "nodeId": {
@@ -506,17 +563,15 @@
   },
   {
     "id": "canvas.node.move",
-    "summary": "移动一个节点，保留节点内容、参数和素材",
+    "summary": "移动节点位置",
     "readOnly": false,
     "scope": "canvas",
     "params": {
-      "additionalProperties": false,
       "properties": {
         "canvasId": {
           "type": "string"
         },
         "expectedRevision": {
-          "minimum": 0,
           "type": "integer"
         },
         "nodeId": {
@@ -527,7 +582,6 @@
           "type": "string"
         },
         "position": {
-          "additionalProperties": false,
           "properties": {
             "x": {
               "type": "number"
@@ -560,7 +614,7 @@
   },
   {
     "id": "canvas.node.update",
-    "summary": "局部修改一个节点（只提交目标字段，其余数据保持原样，带 revision CAS）",
+    "summary": "局部修改节点（省略的字段保持原样）",
     "readOnly": false,
     "scope": "canvas",
     "params": {
@@ -581,9 +635,11 @@
         "patch": {
           "properties": {
             "content": {
+              "description": "文本节点的正文，或下次生成提示词草稿",
               "type": "string"
             },
             "prompt": {
+              "description": "外部 CLI/MCP 提示词草稿别名",
               "type": "string"
             },
             "title": {
@@ -609,8 +665,147 @@
     "replay": "safe"
   },
   {
+    "id": "canvas.nodes.configure",
+    "summary": "批量设置媒体节点提示词草稿与生成参数；全部成功后只推进一次画布版本",
+    "readOnly": false,
+    "scope": "canvas",
+    "params": {
+      "additionalProperties": false,
+      "properties": {
+        "canvasId": {
+          "type": "string"
+        },
+        "expectedRevision": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "nodes": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "enum": [
+                  "image",
+                  "video",
+                  "audio"
+                ],
+                "type": "string"
+              },
+              "nodeId": {
+                "type": "string"
+              },
+              "patch": {
+                "additionalProperties": false,
+                "minProperties": 1,
+                "properties": {
+                  "audioFormat": {
+                    "description": "音频输出格式，取自模型目录",
+                    "type": "string"
+                  },
+                  "audioInstructions": {
+                    "description": "声音风格、情绪和表达要求",
+                    "type": "string"
+                  },
+                  "audioPitch": {
+                    "description": "音高调整，-12–12",
+                    "type": "string"
+                  },
+                  "audioSpeed": {
+                    "description": "语速倍率，0.25–4",
+                    "type": "string"
+                  },
+                  "audioVoice": {
+                    "type": "string"
+                  },
+                  "audioVolume": {
+                    "description": "音量，0–1",
+                    "type": "string"
+                  },
+                  "count": {
+                    "description": "图片生成数量；最终仍按模型能力校验",
+                    "maximum": 8,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "generateAudio": {
+                    "enum": [
+                      "true",
+                      "false"
+                    ],
+                    "type": "string"
+                  },
+                  "model": {
+                    "type": "string"
+                  },
+                  "prompt": {
+                    "type": "string"
+                  },
+                  "quality": {
+                    "description": "图片质量档位，取自模型目录",
+                    "type": "string"
+                  },
+                  "seconds": {
+                    "type": "string"
+                  },
+                  "size": {
+                    "type": "string"
+                  },
+                  "transparentBackground": {
+                    "enum": [
+                      "true",
+                      "false"
+                    ],
+                    "type": "string"
+                  },
+                  "videoEditOperation": {
+                    "description": "视频生成或编辑模式，例如 text_to_video、image_to_video、reference_to_video",
+                    "type": "string"
+                  },
+                  "vquality": {
+                    "description": "分辨率档位，取自模型目录",
+                    "type": "string"
+                  },
+                  "watermark": {
+                    "enum": [
+                      "true",
+                      "false"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "nodeId",
+              "kind",
+              "patch"
+            ],
+            "type": "object"
+          },
+          "maxItems": 20,
+          "minItems": 1,
+          "type": "array"
+        },
+        "operationId": {
+          "description": "调用方生成的稳定幂等键；重试同一操作必须复用同一个值，服务端据此回读原结果",
+          "type": "string"
+        }
+      },
+      "required": [
+        "canvasId",
+        "expectedRevision",
+        "nodes",
+        "operationId"
+      ],
+      "type": "object"
+    },
+    "assistantModes": [],
+    "replay": "safe"
+  },
+  {
     "id": "canvas.nodes.create",
-    "summary": "在画布上批量创建节点（整批校验，带 revision CAS）",
+    "summary": "批量创建画布节点",
     "readOnly": false,
     "scope": "canvas",
     "params": {
@@ -662,8 +857,69 @@
     "replay": "safe"
   },
   {
+    "id": "canvas.nodes.get",
+    "summary": "批量读取指定画布节点；单个节点缺失不会拒绝整批",
+    "readOnly": true,
+    "scope": "canvas",
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "canvasId": {
+          "type": "string"
+        },
+        "nodeIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "maxItems": 50
+        }
+      },
+      "required": [
+        "canvasId",
+        "nodeIds"
+      ]
+    },
+    "assistantModes": [],
+    "replay": "safe"
+  },
+  {
+    "id": "canvas.project.export",
+    "summary": "免费导出可编辑工程 ZIP",
+    "readOnly": false,
+    "scope": "canvas",
+    "params": {
+      "properties": {
+        "canvasId": {
+          "type": "string"
+        },
+        "expectedRevision": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "operationId": {
+          "description": "调用方生成的稳定幂等键；重试同一操作必须复用同一个值，服务端据此回读原结果",
+          "type": "string"
+        }
+      },
+      "required": [
+        "canvasId",
+        "expectedRevision",
+        "operationId"
+      ],
+      "type": "object"
+    },
+    "assistantModes": [
+      "full-access",
+      "canvas"
+    ],
+    "replay": "safe"
+  },
+  {
     "id": "canvas.script.prepare",
-    "summary": "一次准备分镜与配置好的首帧/视频草稿；新作品直接传 script 正文，已有分镜传 nodeId/rowIds。绑定分镜、连接参考图并按镜头排布，不开始生成；已有绑定拒绝覆盖",
+    "summary": "准备分镜脚本与可选首帧/视频草稿（不开始生成）",
     "readOnly": false,
     "scope": "canvas",
     "params": {
@@ -677,23 +933,16 @@
           "type": "integer"
         },
         "image": {
-          "additionalProperties": false,
-          "description": "本批节点共同生成参数；省略则不创建该类型。视频时长采用每行 durationSeconds，提示词直接采用分镜原文；视频必须明确是否生成声音",
           "properties": {
             "model": {
-              "description": "下次生成使用的草稿参数；提交生成时仍会校验模型能力",
-              "type": "string"
-            },
-            "quality": {
-              "description": "下次生成使用的草稿参数；提交生成时仍会校验模型能力",
               "type": "string"
             },
             "size": {
-              "description": "下次生成使用的草稿参数；提交生成时仍会校验模型能力",
               "type": "string"
             },
-            "transparentBackground": {
-              "description": "下次生成使用的草稿参数；提交生成时仍会校验模型能力",
+            "title": {
+              "description": "标题模板，{n} 为镜号，如「镜 {n} 首帧」；省略默认「镜头 {n} · 首帧」",
+              "maxLength": 40,
               "type": "string"
             }
           },
@@ -703,7 +952,6 @@
           "type": "object"
         },
         "nodeId": {
-          "description": "已有分镜脚本节点",
           "type": "string"
         },
         "operationId": {
@@ -711,7 +959,6 @@
           "type": "string"
         },
         "referenceNodeIds": {
-          "description": "同画布角色或风格图片，仅连接到各首帧图片节点；视频只连接自己的首帧",
           "items": {
             "type": "string"
           },
@@ -728,94 +975,25 @@
         },
         "script": {
           "additionalProperties": false,
-          "description": "新作品可直接提交分镜正文，一次创建脚本、分镜行与配置好的首帧/视频节点；与 nodeId/rowIds 二选一，失败全部回滚",
+          "description": "新建分镜（省略 image/video 只建分镜）",
           "properties": {
             "rows": {
               "items": {
-                "additionalProperties": false,
+                "description": "行ID与镜号由服务端分配",
                 "properties": {
-                  "audioEffects": {
-                    "description": "音效要求",
-                    "type": "string"
-                  },
-                  "camera": {
-                    "description": "机位与焦段",
-                    "type": "string"
-                  },
-                  "continuityOut": {
-                    "description": "本镜结束时保留到下一镜的连续性要素",
-                    "type": "string"
-                  },
                   "dialogue": {
-                    "description": "本镜台词",
                     "type": "string"
                   },
                   "durationSeconds": {
-                    "description": "镜头时长（秒），缺省 6",
-                    "maximum": 60,
-                    "minimum": 1,
                     "type": "number"
                   },
-                  "emotion": {
-                    "description": "情绪基调",
-                    "type": "string"
-                  },
                   "imageGenerationPrompt": {
-                    "description": "首帧图片生成提示词",
-                    "type": "string"
-                  },
-                  "lightingAndAtmosphere": {
-                    "description": "灯光与氛围",
-                    "type": "string"
-                  },
-                  "motion": {
-                    "description": "镜头运动",
-                    "type": "string"
-                  },
-                  "mustHave": {
-                    "description": "画面必须出现的要素",
-                    "items": {
-                      "type": "string"
-                    },
-                    "type": "array"
-                  },
-                  "narrativeIntent": {
-                    "description": "叙事意图",
-                    "type": "string"
-                  },
-                  "negativePrompt": {
-                    "description": "反向提示词",
-                    "type": "string"
-                  },
-                  "optionalDetails": {
-                    "description": "可选细节",
-                    "items": {
-                      "type": "string"
-                    },
-                    "type": "array"
-                  },
-                  "performanceBlocking": {
-                    "description": "表演与走位",
                     "type": "string"
                   },
                   "plotDescription": {
-                    "description": "本镜剧情描述",
-                    "type": "string"
-                  },
-                  "shotSize": {
-                    "description": "景别（远景/全景/中景/近景/特写等）",
-                    "type": "string"
-                  },
-                  "timeBeats": {
-                    "description": "时间节拍",
                     "type": "string"
                   },
                   "videoMotionPrompt": {
-                    "description": "视频运动提示词",
-                    "type": "string"
-                  },
-                  "viewerPOV": {
-                    "description": "观众视角",
                     "type": "string"
                   }
                 },
@@ -837,11 +1015,8 @@
           "type": "object"
         },
         "video": {
-          "additionalProperties": false,
-          "description": "本批节点共同生成参数；省略则不创建该类型。视频时长采用每行 durationSeconds，提示词直接采用分镜原文；视频必须明确是否生成声音",
           "properties": {
             "generateAudio": {
-              "description": "下次生成使用的草稿参数；提交生成时仍会校验模型能力",
               "enum": [
                 "true",
                 "false"
@@ -849,19 +1024,14 @@
               "type": "string"
             },
             "model": {
-              "description": "下次生成使用的草稿参数；提交生成时仍会校验模型能力",
               "type": "string"
             },
             "size": {
-              "description": "下次生成使用的草稿参数；提交生成时仍会校验模型能力",
               "type": "string"
             },
-            "vquality": {
-              "description": "下次生成使用的草稿参数；提交生成时仍会校验模型能力",
-              "type": "string"
-            },
-            "watermark": {
-              "description": "下次生成使用的草稿参数；提交生成时仍会校验模型能力",
+            "title": {
+              "description": "标题模板，{n} 为镜号，如「镜 {n} 视频」；省略默认「镜头 {n} · 视频」",
+              "maxLength": 40,
               "type": "string"
             }
           },
@@ -887,7 +1057,7 @@
   },
   {
     "id": "canvas.script.row.remove",
-    "summary": "按行 ID 批量删除分镜行并重排镜号（未知行整批拒绝）",
+    "summary": "按行 ID 删除分镜行并重排镜号",
     "readOnly": false,
     "scope": "canvas",
     "params": {
@@ -896,7 +1066,6 @@
           "type": "string"
         },
         "expectedRevision": {
-          "description": "读取画布时拿到的 revision，写入做 CAS 校验",
           "type": "integer"
         },
         "nodeId": {
@@ -907,12 +1076,9 @@
           "type": "string"
         },
         "rowIds": {
-          "description": "删除后剩余行镜号自动重排为 1..n；任何一个行 ID 不存在则整批拒绝",
           "items": {
             "type": "string"
           },
-          "maxItems": 32,
-          "minItems": 1,
           "type": "array"
         }
       },
@@ -933,7 +1099,7 @@
   },
   {
     "id": "canvas.script.row.update",
-    "summary": "按行 ID 批量局部更新分镜行（只覆盖给出的字段，未知行整批拒绝）",
+    "summary": "按行 ID 局部更新分镜行（自动同步已绑定且未单独手改的首帧/视频节点草稿）",
     "readOnly": false,
     "scope": "canvas",
     "params": {
@@ -942,7 +1108,6 @@
           "type": "string"
         },
         "expectedRevision": {
-          "description": "读取画布时拿到的 revision，写入做 CAS 校验",
           "type": "integer"
         },
         "nodeId": {
@@ -954,93 +1119,31 @@
         },
         "patches": {
           "items": {
-            "description": "只覆盖给出的字段；任何一个 rowId 不存在则整批拒绝",
             "properties": {
-              "audioEffects": {
-                "description": "音效要求",
-                "type": "string"
-              },
-              "camera": {
-                "description": "机位与焦段",
-                "type": "string"
-              },
-              "continuityOut": {
-                "description": "本镜结束时保留到下一镜的连续性要素",
-                "type": "string"
-              },
               "dialogue": {
-                "description": "本镜台词",
                 "type": "string"
               },
               "durationSeconds": {
-                "description": "镜头时长（秒），缺省 6",
-                "maximum": 60,
-                "minimum": 1,
                 "type": "number"
               },
-              "emotion": {
-                "description": "情绪基调",
-                "type": "string"
-              },
               "imageGenerationPrompt": {
-                "description": "首帧图片生成提示词",
                 "type": "string"
               },
-              "lightingAndAtmosphere": {
-                "description": "灯光与氛围",
-                "type": "string"
-              },
-              "motion": {
-                "description": "镜头运动",
-                "type": "string"
-              },
-              "mustHave": {
-                "description": "画面必须出现的要素",
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "narrativeIntent": {
-                "description": "叙事意图",
-                "type": "string"
-              },
-              "negativePrompt": {
-                "description": "反向提示词",
-                "type": "string"
-              },
-              "optionalDetails": {
-                "description": "可选细节",
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "performanceBlocking": {
-                "description": "表演与走位",
+              "imageNodeId": {
+                "description": "绑定图片节点；空串解绑",
                 "type": "string"
               },
               "plotDescription": {
-                "description": "本镜剧情描述",
                 "type": "string"
               },
               "rowId": {
                 "type": "string"
               },
-              "shotSize": {
-                "description": "景别（远景/全景/中景/近景/特写等）",
-                "type": "string"
-              },
-              "timeBeats": {
-                "description": "时间节拍",
-                "type": "string"
-              },
               "videoMotionPrompt": {
-                "description": "视频运动提示词",
                 "type": "string"
               },
-              "viewerPOV": {
-                "description": "观众视角",
+              "videoNodeId": {
+                "description": "绑定视频节点；空串解绑",
                 "type": "string"
               }
             },
@@ -1049,8 +1152,6 @@
             ],
             "type": "object"
           },
-          "maxItems": 32,
-          "minItems": 1,
           "type": "array"
         }
       },
@@ -1071,7 +1172,7 @@
   },
   {
     "id": "canvas.script.rows.append",
-    "summary": "向分镜脚本节点批量追加分镜行（行 ID 与镜号由服务端分配，行结构对齐界面默认值）",
+    "summary": "向分镜脚本追加分镜行",
     "readOnly": false,
     "scope": "canvas",
     "params": {
@@ -1080,7 +1181,6 @@
           "type": "string"
         },
         "expectedRevision": {
-          "description": "读取画布时拿到的 revision，写入做 CAS 校验",
           "type": "integer"
         },
         "nodeId": {
@@ -1092,97 +1192,26 @@
         },
         "rows": {
           "items": {
-            "description": "行 ID 与镜号由服务端分配（镜号从现有行数 +1 递增）",
+            "description": "行ID与镜号由服务端分配",
             "properties": {
-              "audioEffects": {
-                "description": "音效要求",
-                "type": "string"
-              },
-              "camera": {
-                "description": "机位与焦段",
-                "type": "string"
-              },
-              "continuityOut": {
-                "description": "本镜结束时保留到下一镜的连续性要素",
-                "type": "string"
-              },
               "dialogue": {
-                "description": "本镜台词",
                 "type": "string"
               },
               "durationSeconds": {
-                "description": "镜头时长（秒），缺省 6",
-                "maximum": 60,
-                "minimum": 1,
                 "type": "number"
               },
-              "emotion": {
-                "description": "情绪基调",
-                "type": "string"
-              },
               "imageGenerationPrompt": {
-                "description": "首帧图片生成提示词",
-                "type": "string"
-              },
-              "lightingAndAtmosphere": {
-                "description": "灯光与氛围",
-                "type": "string"
-              },
-              "motion": {
-                "description": "镜头运动",
-                "type": "string"
-              },
-              "mustHave": {
-                "description": "画面必须出现的要素",
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "narrativeIntent": {
-                "description": "叙事意图",
-                "type": "string"
-              },
-              "negativePrompt": {
-                "description": "反向提示词",
-                "type": "string"
-              },
-              "optionalDetails": {
-                "description": "可选细节",
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "performanceBlocking": {
-                "description": "表演与走位",
                 "type": "string"
               },
               "plotDescription": {
-                "description": "本镜剧情描述",
-                "type": "string"
-              },
-              "shotSize": {
-                "description": "景别（远景/全景/中景/近景/特写等）",
-                "type": "string"
-              },
-              "timeBeats": {
-                "description": "时间节拍",
                 "type": "string"
               },
               "videoMotionPrompt": {
-                "description": "视频运动提示词",
-                "type": "string"
-              },
-              "viewerPOV": {
-                "description": "观众视角",
                 "type": "string"
               }
             },
             "type": "object"
           },
-          "maxItems": 32,
-          "minItems": 1,
           "type": "array"
         }
       },
@@ -1203,7 +1232,7 @@
   },
   {
     "id": "canvas.search",
-    "summary": "按关键字分页搜索工作区内的画布",
+    "summary": "搜索工作区内的画布",
     "readOnly": true,
     "scope": "workspace_read",
     "params": {
@@ -1234,11 +1263,15 @@
   },
   {
     "id": "canvas.task.bind",
-    "summary": "把已交付的任务产物绑定到原画布节点（校验归属与就绪资源，带 revision CAS，幂等回执）",
+    "summary": "把已交付任务产物绑定到原节点；同画布本地时间线成片可绑定到空 video 节点，绑定后用 nodeId 检查成片（校验归属、就绪资源与版本，幂等回执）",
     "readOnly": false,
     "scope": "canvas",
     "params": {
       "properties": {
+        "allowDifferentNode": {
+          "description": "仅前端明确创建回退节点时使用",
+          "type": "boolean"
+        },
         "canvasId": {
           "type": "string"
         },
@@ -1272,7 +1305,7 @@
   },
   {
     "id": "canvas.timeline.render",
-    "summary": "免费本地渲染已保存的时间线，返回任务以供查询成片；不调用付费生成",
+    "summary": "免费本地渲染已保存的时间线",
     "readOnly": false,
     "scope": "canvas",
     "params": {
@@ -1324,7 +1357,7 @@
   },
   {
     "id": "canvas.timeline.update",
-    "summary": "修改当前画布时间线（裁剪、顺序、音量、字幕；仅用已关联素材，带 revision CAS）",
+    "summary": "修改画布时间线或用 refreshNodeIds 局部刷新节点素材",
     "readOnly": false,
     "scope": "canvas",
     "params": {
@@ -1333,61 +1366,32 @@
           "type": "string"
         },
         "expectedRevision": {
-          "minimum": 0,
           "type": "integer"
         },
         "operationId": {
           "description": "调用方生成的稳定幂等键；重试同一操作必须复用同一个值，服务端据此回读原结果",
           "type": "string"
         },
+        "refreshNodeIds": {
+          "description": "仅刷新指定节点素材引用（与 timeline 二选一）",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "timeline": {
-          "description": "时间线 v2；时间均为毫秒。所有可见 video/image 片段按 startMs 播放且不可重叠（跨轨也一样）；空隙补黑。音频、字幕可与视觉重叠。仅使用当前画布已关联的素材或已保存时间线中的资源。",
+          "description": "时间线 v2（毫秒）；可见 video/image 不可重叠",
           "properties": {
             "clips": {
               "items": {
                 "properties": {
-                  "directMedia": {
-                    "description": "也可引用当前画布已关联的资源；不能传路径或任意 URL",
-                    "properties": {
-                      "assetId": {
-                        "type": "string"
-                      },
-                      "id": {
-                        "type": "string"
-                      },
-                      "kind": {
-                        "enum": [
-                          "video",
-                          "image",
-                          "audio"
-                        ],
-                        "type": "string"
-                      },
-                      "storageKey": {
-                        "description": "resource:资源ID",
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "id",
-                      "kind",
-                      "storageKey"
-                    ],
-                    "type": "object"
-                  },
                   "durationMs": {
-                    "description": "播放及裁剪长度；sourceStartMs + durationMs 不得超过素材时长（静态图片除外）",
-                    "minimum": 1,
                     "type": "integer"
                   },
                   "fadeInMs": {
-                    "description": "音频淡入时长；不改变画面",
-                    "minimum": 0,
                     "type": "integer"
                   },
                   "fadeOutMs": {
-                    "description": "音频淡出时长；不改变画面",
-                    "minimum": 0,
                     "type": "integer"
                   },
                   "id": {
@@ -1403,28 +1407,21 @@
                     "type": "string"
                   },
                   "nodeId": {
-                    "description": "媒体片段对应当前画布节点；字幕无需 nodeId",
                     "type": "string"
                   },
                   "sourceStartMs": {
-                    "description": "媒体裁剪起点；默认 0",
-                    "minimum": 0,
                     "type": "integer"
                   },
                   "startMs": {
-                    "minimum": 0,
                     "type": "integer"
                   },
                   "text": {
-                    "description": "字幕内容；仅 kind=subtitle 使用",
                     "type": "string"
                   },
                   "trackId": {
                     "type": "string"
                   },
                   "volume": {
-                    "description": "默认 1；0 为静音",
-                    "minimum": 0,
                     "type": "number"
                   }
                 },
@@ -1440,8 +1437,27 @@
               "type": "array"
             },
             "durationMs": {
-              "minimum": 0,
               "type": "integer"
+            },
+            "output": {
+              "properties": {
+                "burnSubtitles": {
+                  "type": "boolean"
+                },
+                "fps": {
+                  "type": "integer"
+                },
+                "height": {
+                  "type": "integer"
+                },
+                "width": {
+                  "type": "integer"
+                }
+              },
+              "type": [
+                "object",
+                "null"
+              ]
             },
             "tracks": {
               "items": {
@@ -1493,7 +1509,6 @@
       "required": [
         "canvasId",
         "expectedRevision",
-        "timeline",
         "operationId"
       ],
       "type": "object"
@@ -1506,7 +1521,7 @@
   },
   {
     "id": "conversation.message.attach",
-    "summary": "把已交付的任务产物绑定到原对话消息（校验归属与就绪资源，带 revision CAS，幂等回执）",
+    "summary": "把已交付任务产物绑定到对话消息",
     "readOnly": false,
     "scope": "conversation",
     "params": {
@@ -1541,52 +1556,48 @@
   },
   {
     "id": "media.check",
-    "summary": "客观测量指定区间的黑屏、音量与静音停顿（固定 -35 dB、最少 120 ms，返回原素材坐标）；音量与停顿不能判断声音内容。停顿仅是候选切点，随后用 media.inspect audio 裁剪并实际听取确认，不能当作词时间戳或语义切点，不能替代实际查看和听取。",
+    "summary": "客观测量黑屏、音量与静音停顿；不能判断声音内容，不能替代实际听看",
     "readOnly": true,
     "scope": "canvas",
     "params": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
-        "assetId": {
-          "type": "string"
-        },
         "canvasId": {
-          "type": "string"
-        },
-        "endMs": {
-          "minimum": 0,
-          "type": "integer"
-        },
-        "expectedVersion": {
-          "description": "先调用 media.overview，使用返回的 version；inspect 和 check 必填，不猜版本。",
-          "minLength": 1,
-          "type": "string"
-        },
-        "mode": {
-          "description": "frames：离散静态截图，用于构图与画面内容，不能判断连续运动或声音；video：连续原生视频片段，用于运镜、动作、转场与音画关系，保留可用音轨；audio：原生音频片段，用于说话、对白、音乐和声音内容。按检查目标选择；inspect 每次最多 15 秒。",
-          "enum": [
-            "frames",
-            "video",
-            "audio"
-          ],
           "type": "string"
         },
         "nodeId": {
           "type": "string"
         },
+        "assetId": {
+          "type": "string"
+        },
         "resourceId": {
           "type": "string"
         },
+        "expectedVersion": {
+          "type": "string",
+          "minLength": 1
+        },
         "startMs": {
-          "minimum": 0,
           "type": "integer"
+        },
+        "endMs": {
+          "type": "integer"
+        },
+        "mode": {
+          "type": "string",
+          "description": "frames静态截图（不能判断连续运动或声音）；video连续；audio声音",
+          "enum": [
+            "frames",
+            "video",
+            "audio"
+          ]
         }
       },
       "required": [
         "canvasId",
         "expectedVersion"
-      ],
-      "type": "object"
+      ]
     },
     "assistantModes": [
       "full-access",
@@ -1597,52 +1608,72 @@
   },
   {
     "id": "media.inspect",
-    "summary": "实际读取指定区间，每次最多 15 秒：frames 看静态截图，video 看连续原生视频，audio 听原生音频；按问题选择，不把抽帧当作完整影音审查。",
+    "summary": "读取媒体片段（每次最多 15 秒；图片可用 imageCrop 分区查看）",
     "readOnly": true,
     "scope": "canvas",
     "params": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
-        "assetId": {
-          "type": "string"
-        },
         "canvasId": {
-          "type": "string"
-        },
-        "endMs": {
-          "minimum": 0,
-          "type": "integer"
-        },
-        "expectedVersion": {
-          "description": "先调用 media.overview，使用返回的 version；inspect 和 check 必填，不猜版本。",
-          "minLength": 1,
-          "type": "string"
-        },
-        "mode": {
-          "description": "frames：离散静态截图，用于构图与画面内容，不能判断连续运动或声音；video：连续原生视频片段，用于运镜、动作、转场与音画关系，保留可用音轨；audio：原生音频片段，用于说话、对白、音乐和声音内容。按检查目标选择；inspect 每次最多 15 秒。",
-          "enum": [
-            "frames",
-            "video",
-            "audio"
-          ],
           "type": "string"
         },
         "nodeId": {
           "type": "string"
         },
+        "assetId": {
+          "type": "string"
+        },
         "resourceId": {
           "type": "string"
         },
+        "expectedVersion": {
+          "type": "string",
+          "minLength": 1
+        },
         "startMs": {
-          "minimum": 0,
           "type": "integer"
+        },
+        "endMs": {
+          "type": "integer"
+        },
+        "mode": {
+          "type": "string",
+          "description": "frames静态截图（不能判断连续运动或声音）；video连续；audio声音",
+          "enum": [
+            "frames",
+            "video",
+            "audio"
+          ]
+        },
+        "imageCrop": {
+          "type": "object",
+          "description": "图片局部原像素裁剪（0~1比例）",
+          "properties": {
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            },
+            "width": {
+              "type": "number"
+            },
+            "height": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "x",
+            "y",
+            "width",
+            "height"
+          ]
         }
       },
       "required": [
         "canvasId",
         "expectedVersion"
-      ],
-      "type": "object"
+      ]
     },
     "assistantModes": [
       "full-access",
@@ -1653,51 +1684,78 @@
   },
   {
     "id": "media.overview",
-    "summary": "获取已关联媒体的版本、时长与静态预览；用于选择检查区间，不能替代连续视频或声音内容审查。",
+    "summary": "获取媒体版本、时长与概览（可选15秒内 evidence）；概览不能替代连续影音审查",
     "readOnly": true,
     "scope": "canvas",
     "params": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
-        "assetId": {
-          "type": "string"
-        },
         "canvasId": {
-          "type": "string"
-        },
-        "endMs": {
-          "minimum": 0,
-          "type": "integer"
-        },
-        "expectedVersion": {
-          "description": "先调用 media.overview，使用返回的 version；inspect 和 check 必填，不猜版本。",
-          "minLength": 1,
-          "type": "string"
-        },
-        "mode": {
-          "description": "frames：离散静态截图，用于构图与画面内容，不能判断连续运动或声音；video：连续原生视频片段，用于运镜、动作、转场与音画关系，保留可用音轨；audio：原生音频片段，用于说话、对白、音乐和声音内容。按检查目标选择；inspect 每次最多 15 秒。",
-          "enum": [
-            "frames",
-            "video",
-            "audio"
-          ],
           "type": "string"
         },
         "nodeId": {
           "type": "string"
         },
+        "assetId": {
+          "type": "string"
+        },
         "resourceId": {
           "type": "string"
         },
+        "expectedVersion": {
+          "type": "string",
+          "minLength": 1
+        },
         "startMs": {
-          "minimum": 0,
           "type": "integer"
+        },
+        "endMs": {
+          "type": "integer"
+        },
+        "mode": {
+          "type": "string",
+          "description": "frames静态截图（不能判断连续运动或声音）；video连续；audio声音",
+          "enum": [
+            "frames",
+            "video",
+            "audio"
+          ]
+        },
+        "evidence": {
+          "type": "object",
+          "description": "一次读取15秒内区间的证据",
+          "properties": {
+            "startMs": {
+              "type": "integer"
+            },
+            "endMs": {
+              "type": "integer"
+            },
+            "modes": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "frames",
+                  "video",
+                  "audio"
+                ]
+              }
+            },
+            "checks": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "startMs",
+            "endMs",
+            "modes"
+          ]
         }
       },
       "required": [
         "canvasId"
-      ],
-      "type": "object"
+      ]
     },
     "assistantModes": [
       "full-access",
@@ -1708,7 +1766,7 @@
   },
   {
     "id": "media.review",
-    "summary": "用单独配置的多模态审片模型检查已关联影音的指定区间（最多15秒），返回观察和用量，可能收费。mode默认video，包含原音轨；独立音频用audio。先用media.overview取得版本。问题应来自用户要求，不预填正确答案或已知缺陷。结果是模型观察，不是整片合格证明；失败或中断不自动重发。未配置时明确不可用。",
+    "summary": "用独立多模态审片模型检查指定区间（可能收费，最多15秒）",
     "readOnly": true,
     "scope": "canvas",
     "params": {
@@ -1724,17 +1782,17 @@
         "assetId": {
           "type": "string"
         },
+        "resourceId": {
+          "type": "string"
+        },
         "expectedVersion": {
-          "type": "string",
-          "minLength": 1
+          "type": "string"
         },
         "startMs": {
-          "type": "integer",
-          "minimum": 0
+          "type": "integer"
         },
         "endMs": {
-          "type": "integer",
-          "minimum": 1
+          "type": "integer"
         },
         "mode": {
           "type": "string",
@@ -1744,9 +1802,7 @@
           ]
         },
         "question": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 4000
+          "type": "string"
         }
       },
       "required": [
@@ -1766,13 +1822,34 @@
   },
   {
     "id": "model.catalog",
-    "summary": "查询公开模型目录、类型和参考能力；实际可用性仍由节点配置校验；不含密钥",
+    "summary": "按类型查询可用模型、参考能力与报价",
     "readOnly": true,
     "scope": "workspace_read",
     "params": {
       "type": "object",
-      "properties": {},
-      "additionalProperties": false
+      "properties": {
+        "capability": {
+          "type": "string",
+          "enum": [
+            "text",
+            "image",
+            "video",
+            "audio"
+          ]
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "text",
+              "image",
+              "video",
+              "audio"
+            ]
+          }
+        }
+      }
     },
     "assistantModes": [
       "full-access",
@@ -1783,7 +1860,7 @@
   },
   {
     "id": "project.canvas.search",
-    "summary": "在当前画布所属项目查找媒体或画布；无项目只查当前画布关联资源",
+    "summary": "在当前项目查找媒体或画布",
     "readOnly": true,
     "scope": "canvas",
     "params": {
@@ -1823,7 +1900,7 @@
   },
   {
     "id": "project.media.search",
-    "summary": "在当前画布所属项目查找媒体或画布；无项目只查当前画布关联资源",
+    "summary": "在当前项目查找媒体或画布",
     "readOnly": true,
     "scope": "canvas",
     "params": {
@@ -1853,6 +1930,35 @@
       "required": [
         "canvasId"
       ]
+    },
+    "assistantModes": [
+      "full-access",
+      "read-only",
+      "canvas"
+    ],
+    "replay": "safe"
+  },
+  {
+    "id": "skill.catalog",
+    "summary": "列出已安装技能",
+    "readOnly": true,
+    "scope": "workspace_read",
+    "params": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "q": {
+          "type": "string"
+        },
+        "offset": {
+          "type": "integer"
+        },
+        "limit": {
+          "type": "integer"
+        }
+      }
     },
     "assistantModes": [
       "full-access",
@@ -1903,7 +2009,7 @@
   },
   {
     "id": "skill.file",
-    "summary": "读取当前对话选定技能的固定版本正文或包内辅助文本；不执行脚本",
+    "summary": "读取选定技能固定版本的正文或包内文件",
     "readOnly": true,
     "scope": "canvas",
     "params": {
@@ -1937,7 +2043,7 @@
   },
   {
     "id": "skill.get",
-    "summary": "读取当前对话选定技能的固定版本正文或包内辅助文本；不执行脚本",
+    "summary": "读取选定技能固定版本的正文或包内文件",
     "readOnly": true,
     "scope": "canvas",
     "params": {
@@ -1970,191 +2076,67 @@
     "replay": "safe"
   },
   {
-    "id": "skill.market.file",
-    "summary": "读取公共技能指定版本的清单文件，仅供检查；文件内容不是执行授权，不自动启用",
-    "readOnly": true,
-    "scope": "workspace_read",
-    "params": {
-      "type": "object",
-      "properties": {
-        "skillId": {
-          "type": "string"
-        },
-        "releaseId": {
-          "type": "string"
-        },
-        "path": {
-          "type": "string"
-        },
-        "offset": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "limit": {
-          "type": "integer",
-          "minimum": 4,
-          "maximum": 65536
-        }
-      },
-      "required": [
-        "skillId",
-        "releaseId",
-        "path"
-      ],
-      "additionalProperties": false
-    },
-    "assistantModes": [
-      "full-access",
-      "read-only",
-      "canvas"
-    ],
-    "replay": "safe"
-  },
-  {
-    "id": "skill.market.get",
-    "summary": "读取公共市场指定发布版本的资料和清单；不安装、不启用",
-    "readOnly": true,
-    "scope": "workspace_read",
-    "params": {
-      "type": "object",
-      "properties": {
-        "skillId": {
-          "type": "string"
-        },
-        "releaseId": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "skillId",
-        "releaseId"
-      ],
-      "additionalProperties": false
-    },
-    "assistantModes": [
-      "full-access",
-      "read-only",
-      "canvas"
-    ],
-    "replay": "safe"
-  },
-  {
-    "id": "skill.market.search",
-    "summary": "搜索已审核的公共技能市场，返回确切发布版本和能力要求；不安装、不启用",
-    "readOnly": true,
-    "scope": "workspace_read",
-    "params": {
-      "type": "object",
-      "properties": {
-        "q": {
-          "type": "string"
-        },
-        "page": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "pageSize": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 20
-        }
-      },
-      "additionalProperties": false
-    },
-    "assistantModes": [
-      "full-access",
-      "read-only",
-      "canvas"
-    ],
-    "replay": "safe"
-  },
-  {
-    "id": "skill.publish.prepare",
-    "summary": "准备技能投稿，展示确切文件和元信息；等待用户在对话确认卡上传及送审，不执行任何云端写入",
+    "id": "skill.script.run",
+    "summary": "运行已选用技能的脚本（用户确认后执行）",
     "readOnly": false,
     "scope": "canvas",
     "params": {
       "additionalProperties": false,
       "properties": {
+        "args": {
+          "items": {
+            "maxLength": 4096,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
         "canvasId": {
           "type": "string"
         },
-        "marketSkillId": {
-          "description": "仅 existing 时填写用户已发布的市场技能编号；不得复制本机 skillId。new 时省略。",
+        "contentHash": {
           "type": "string"
         },
-        "metadata": {
-          "additionalProperties": false,
-          "properties": {
-            "description": {
-              "type": "string"
-            },
-            "license": {
-              "type": "string"
-            },
-            "name": {
-              "type": "string"
-            },
-            "requirementNotes": {
-              "description": "自然语言描述模型、素材和费用条件，不作为能力 ID。",
-              "maxLength": 1000,
-              "type": "string"
-            },
-            "requirements": {
-              "description": "仅列出必需能力的明确 ID。纯文字技能使用空数组 []，不得填写 text 或模型名称；其他使用条件写入 requirementNotes。",
-              "items": {
-                "enum": [
-                  "beeftv.canvas",
-                  "model.image",
-                  "model.video",
-                  "model.audio"
-                ],
-                "type": "string"
-              },
-              "type": "array",
-              "uniqueItems": true
-            },
-            "showcase": {
-              "items": {
-                "type": "object"
-              },
-              "type": "array"
-            },
-            "sourceUrl": {
-              "type": "string"
-            },
-            "versionLabel": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "license",
-            "requirements"
-          ],
-          "type": "object"
+        "note": {
+          "description": "告诉用户运行原因",
+          "maxLength": 500,
+          "type": "string"
         },
         "operationId": {
           "description": "调用方生成的稳定幂等键；重试同一操作必须复用同一个值，服务端据此回读原结果",
           "type": "string"
         },
-        "publicationTarget": {
-          "description": "新投稿使用 new。只有用户明确要求为其已发布的市场技能更新版本才使用 existing；改写他人技能仍为 new。",
-          "enum": [
-            "new",
-            "existing"
-          ],
+        "scriptPath": {
+          "description": "scripts/ 或 script/ 下的相对路径",
           "type": "string"
         },
         "skillId": {
-          "description": "本机技能编号，仅用于选取原文件。不是市场编号。",
+          "type": "string"
+        },
+        "stdin": {
+          "maxLength": 65536,
+          "type": "string"
+        },
+        "timeoutSec": {
+          "description": "默认 300",
+          "maximum": 1800,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "useWorkspaceOutputDir": {
+          "description": "输出目录经 BEEFTV_OUTPUT_DIR 传入",
+          "type": "boolean"
+        },
+        "versionId": {
           "type": "string"
         }
       },
       "required": [
         "canvasId",
         "skillId",
-        "publicationTarget",
-        "metadata",
+        "versionId",
+        "contentHash",
+        "scriptPath",
         "operationId"
       ],
       "type": "object"
@@ -2163,39 +2145,11 @@
       "full-access",
       "canvas"
     ],
-    "replay": "unsafe"
-  },
-  {
-    "id": "skill.publish.status",
-    "summary": "读取本次技能投稿的文件预览、用户待确认动作及状态；凭据不会提供给助手",
-    "readOnly": true,
-    "scope": "workspace_read",
-    "params": {
-      "type": "object",
-      "properties": {
-        "canvasId": {
-          "type": "string"
-        },
-        "planId": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "canvasId",
-        "planId"
-      ],
-      "additionalProperties": false
-    },
-    "assistantModes": [
-      "full-access",
-      "read-only",
-      "canvas"
-    ],
     "replay": "safe"
   },
   {
     "id": "task.get",
-    "summary": "按 ID 查询任务状态与产物引用",
+    "summary": "查询任务状态与产物",
     "readOnly": true,
     "scope": "workspace_read",
     "params": {
@@ -2214,6 +2168,45 @@
       "read-only",
       "canvas"
     ],
+    "replay": "safe"
+  },
+  {
+    "id": "task.wait",
+    "summary": "短时等待最多 8 个任务进入可交付或终态；超时返回 pending，不重复提交任务",
+    "readOnly": true,
+    "scope": "workspace_read",
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "taskId": {
+          "type": "string"
+        },
+        "taskIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "maxItems": 8
+        },
+        "canvasId": {
+          "type": "string",
+          "description": "可选；与 nodeId 一起检查产物是否已绑定目标节点"
+        },
+        "nodeId": {
+          "type": "string",
+          "description": "可选；与 canvasId 一起检查产物是否已绑定目标节点"
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 50,
+          "maximum": 25000,
+          "default": 5000
+        }
+      }
+    },
+    "assistantModes": [],
     "replay": "safe"
   }
 ]

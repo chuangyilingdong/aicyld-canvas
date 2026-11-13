@@ -1,5 +1,9 @@
 # Google Gemini Veo 接口字段
 
+> 官方服务状态：Google 已停止 Gemini API 的 Veo 预览模型（`veo-3.1-*-preview`、`veo-3.1-lite-generate-preview` 于 2026-10-22 关闭），Veo 3.0 与 2.0 的正式模型也于 2026-06-30 关闭，官方建议改用 Gemini Omni Flash（接口不同，本协议不覆盖）。
+> 因此这条协议只在两类情况下可用：仍把同名 `predictLongRunning` 接口转发出去的第三方中转；或尚未关闭的模型与区域。用普通 Gemini API Key 直接生成 Veo 视频不保证可用。
+> 本协议按原样保留，不因官方停用而删除，也不代表官方链路仍在服务。
+
 ## 协议身份
 
 - 插件 ID：`google-gemini-veo`。
@@ -93,7 +97,7 @@
   "id": "google-gemini-veo",
   "name": "Google Gemini Veo",
   "version": "2.0.0",
-  "author": "灵动TV Contributors",
+  "author": "BeefTV Contributors",
   "description": "Google Gemini Veo 独立请求协议插件。",
   "documentation": "<当前插件的完整 documentation，由 README.md 与 docs/interface.md 拼接而成；为避免 JSON 递归，此处不重复展开正文。>",
   "permissions": [

@@ -26,11 +26,11 @@ describe("asset upload entry points", () => {
         const page = readFileSync(resolve(import.meta.dir, "../src/pages/assets/index.tsx"), "utf8");
         const handler = readFileSync(resolve(import.meta.dir, "../src/services/workspace-asset-upload.ts"), "utf8");
         expect(page).toContain("<AssetsEmptyState onImport={() => assetUploadInputRef.current?.click()} />");
-        expect(page).toContain('accept="image/*,video/*"');
-        expect(page).toContain("await uploadWorkspaceAssetFiles(files, folderId, entryScope)");
+        expect(page).toContain('accept="image/*,video/*,audio/*"');
+        expect(page).toContain("await uploadWorkspaceAssetFiles(files, folderId)");
         expect(page).toContain('label: "上传资产"');
         expect(handler).toContain("uploadMediaFile(file, \"video\"");
-        expect(handler).toContain("请选择图片或视频文件");
+        expect(handler).toContain("请选择图片、视频或音频文件");
         expect(page).not.toContain("AssetBatchUploadModal");
         expect(page).not.toContain("batchUploadOpen");
     });
@@ -40,6 +40,14 @@ describe("asset upload entry points", () => {
         expect(page).toContain('label: "上传资产"');
         expect(page).toContain('label: "新建文件夹"');
         expect(page).not.toContain('label: "新建文本素材"');
+    });
+
+    test("uploaded assets are reflected optimistically and a transient refresh failure keeps the last page", () => {
+        const page = readFileSync(resolve(import.meta.dir, "../src/pages/assets/index.tsx"), "utf8");
+        expect(page).toContain("reflectUploadedAssets(uploadedAssets)");
+        expect(page).toContain("void invalidateAssetLibrary()");
+        expect(page).toContain("assetPageQuery.isError && !assetPageQuery.data");
+        expect(page).toContain("当前继续显示上一次成功结果");
     });
 });
 

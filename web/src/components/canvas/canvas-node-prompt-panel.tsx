@@ -1,59 +1,61 @@
-import { App, Select, Button, Image as AntImage, InputNumber, Modal, Popover } from "antd";
-import { modelCompatibilityError, resolveVideoOperation } from "@/lib/model-selection";
-import {
-    defaultModelCapabilityConfig,
-    modelCapabilityConfigFor,
-    normalizeImageValue,
-    normalizeVideoValue,
-    workflowFieldChoiceValues,
-    workflowFieldCurrentValue,
-    workflowFieldKey,
-    workflowFieldNumberBounds,
-    workflowFieldRandomKey,
-    workflowFieldSubmissionValue,
-    workflowFieldValueError,
-    workflowImageCapabilityConfig,
-    workflowOutputSizeValue,
-    workflowParameterFields,
-    workflowVideoCapabilityConfig,
-    workflowVideoFieldsFromJson,
-    type WorkflowVideoFieldLike,
-} from "@/lib/model-capabilities";
-import { CanvasNodeType, type CanvasGenerationMode, type CanvasNodeData, type CanvasNodeMetadata, type CanvasVideoEditOperation, type CanvasWorkspaceMode } from "@/types/canvas";
+import { App, Button, InputNumber, Modal, Popover } from "antd";
 import { Tooltip } from "@/components/ui/base/tooltip";
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { ArrowLeftRight, ArrowUp, AtSign, Boxes, Camera, ChevronDown, FileText, GripVertical, ImageIcon, ImagePlus, Link2, LoaderCircle, Maximize2, Music2, Pencil, SlidersHorizontal, UserRound, Video, WandSparkles, X, Zap } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { AlertTriangle, ArrowLeftRight, ArrowUp, Boxes, Camera, ChevronDown, FileText, ImagePlus, Link2, LoaderCircle, Maximize2, Music2, SlidersHorizontal, Video, WandSparkles, X, Zap } from "lucide-react";
 
 import { ModelPicker } from "@/components/model-picker";
-import { defaultConfig, modelOptionName, resolveModelChannel, resolveModelRequestConfig, selectableModelsByCapability, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
-import { resolveAudioSpeechSettings } from "@/lib/audio-generation";
-import { resolveCanvasGenerationModel } from "@/lib/canvas/canvas-project-generation";
-import { canvasAudioPurposeModel, canvasFeatureModelForMode, classifyAudioModelPurpose, functionOnlyModelValues, hasAudioPurposeModel } from "@/lib/canvas/feature-models";
-import { clampPromptEditorModalSize, PROMPT_EDITOR_VIEWPORT_MARGIN } from "@/lib/canvas/canvas-prompt-editor-size";
+import { modelCapabilityConfigFor, videoReferencesForOperation } from "@/lib/model-capabilities";
+import { modelOptionName, resolveModelChannel, selectableModelsByCapability, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
+import { buildGenerationConfig as buildNodeConfig, buildCanvasGenerationRequirements } from "@/lib/canvas/canvas-generation-config";
+import { PROMPT_EDITOR_VIEWPORT_MARGIN } from "@/lib/canvas/canvas-prompt-editor-size";
 import { canvasThemes } from "@/lib/canvas-theme";
-import { normalizeVideoDuration, normalizeVideoResolution } from "@/lib/video-generation-options";
-import { modelRequestOptions, resolveCompatibleModel, resolveModelGenerationDefaults, defaultImageParamsForModel, type ModelRequirements } from "@/lib/model-selection";
+import { modelRequestOptions, defaultImageParamsForModel, resolveVideoOperation, type ModelRequirements } from "@/lib/model-selection";
 import { navigateToSettings } from "@/lib/settings-navigation";
 import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
+import { useUserStore } from "@/stores/use-user-store";
+import { useCanvasBillingBalance } from "@/hooks/use-canvas-billing";
+import { useCanvasGenerationQuote } from "@/hooks/use-canvas-generation-quote";
+import { buildCanvasGenerationQuoteInput, quoteReferencesFromCanvasReferences } from "@/lib/canvas/canvas-generation-quote-input";
+import { buildGenerationQuotePlan, totalGenerationQuotePoints } from "@/lib/canvas/canvas-generation-quote-plan";
 import { CanvasCameraControlPopover } from "./canvas-camera-control-popover";
 import { CanvasImageSettingsPopover } from "./canvas-image-settings-popover";
 import { CanvasAudioSettingsPopover, type CanvasAudioSettingKey } from "./canvas-audio-settings-popover";
 import { CanvasResourceMentionTextarea } from "./canvas-resource-mention-textarea";
+import { CanvasPromptFontControl } from "./canvas-prompt-font-control";
+import { DEFAULT_PROMPT_FONT_SIZE, useCreationPreferencesStore } from "@/stores/use-creation-preferences-store";
+import { isNodeRegenerateBlocked } from "@/lib/task-outcome";
 import { CanvasVideoSettingsPopover } from "./canvas-video-settings-popover";
-import { MIDJOURNEY_VERSIONS } from "@/lib/canvas/canvas-midjourney";
-import { seedanceSettingsConstraints } from "@/lib/seedance-task-constraints";
+import { videoSettingsConstraints } from "@/lib/video-settings-constraints";
 import { CanvasVideoPromptTools } from "./canvas-video-prompt-tools";
+import { CanvasH3Controls, CanvasH3UnsupportedFrames } from "./canvas-h3-controls";
+import { CanvasH3ReferenceOrder } from "./canvas-h3-reference-order";
+import { h3VideoOperation, isH3MaxModel, isH3Model, isH3ReferenceOrderModel, isH3Style } from "@/lib/h3-video";
 import { CanvasPresetPicker, type CanvasPromptPreset } from "./canvas-preset-picker";
 import { CanvasPortraitTexturePopover } from "./canvas-portrait-texture-popover";
 import { CanvasPromptOptimizerDrawer } from "./canvas-prompt-optimizer-drawer";
-import { autoMentionCanvasResourceReferences, canvasResourceMentionToken, normalizeCanvasNodeMentionTokens, type CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
+import { CanvasNodeType, type CanvasConnection, type CanvasGenerationMode, type CanvasNodeData, type CanvasNodeMetadata, type CanvasWorkspaceMode } from "@/types/canvas";
+import { autoMentionCanvasResourceReferences, canvasResourceMentionToken, type CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
+import { getCanvasNodePromptSelection, insertCanvasResourceMentionAtSelection, setCanvasNodePromptSelection, useCanvasPickConnectStore } from "@/lib/canvas/canvas-text-mention";
+import { resolveVideoReferenceModeState, stripPromptFirstFrameClauses, togglePromptFirstFrameMention, videoReferenceModeWarning } from "@/lib/canvas/video-reference-mode";
 import { promptOptimizerPlugin, PROMPT_OPTIMIZER_PLUGIN_ID } from "@/lib/plugins/builtin/prompt-optimizer";
 import { createPluginHostContext } from "@/services/plugin-host";
 import { usePluginStore } from "@/stores/use-plugin-store";
 import { useResolvedCanvasResourceReferences } from "./use-resolved-canvas-resource-references";
-import { buildBackendGenerationTaskQuoteInput } from "@/services/api/generation-task";
-import { useCanvasBillingBalance } from "@/hooks/use-canvas-billing";
-import { useCanvasGenerationQuote } from "@/hooks/use-canvas-generation-quote";
+import { CanvasReferenceFeedback, useCanvasReferenceCheck } from "./canvas-reference-feedback";
+import type { CanvasReferenceAction } from "@/lib/canvas/canvas-reference-issues";
+import { ConnectedReferenceShelf, ReferenceToolsPopover, VideoReferenceModeSwitch, referenceShelfHeading } from "./canvas-node-reference-shelf";
+import {
+    PROMPT_EDITOR_MODAL_DEFAULT_HEIGHT,
+    PROMPT_EDITOR_MODAL_DEFAULT_WIDTH,
+    PROMPT_EDITOR_MODAL_WIDTH,
+    PROMPT_REFERENCE_SHELF_HEIGHT,
+    PromptModalResizeHandle,
+    PromptResizeHandle,
+    clampExpandedModalSize,
+    clampPromptHeight,
+    estimatePromptContentHeight,
+    promptEditorBounds,
+} from "./canvas-prompt-resize-handles";
 
 export type CanvasNodeGenerationMode = CanvasGenerationMode;
 
@@ -64,53 +66,33 @@ type CanvasNodePromptPanelProps = {
     onPromptChange: (nodeId: string, prompt: string) => void;
     onConfigChange: (nodeId: string, patch: Partial<CanvasNodeMetadata>) => void;
     onGenerate: (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string) => void;
+    onOpenGenerationHistory?: () => void;
+    onCreateGenerationReplacement?: (nodeId: string) => void;
     mentionReferences?: CanvasResourceReference[];
     onAddReference?: (nodeId: string, reference: CanvasResourceReference) => CanvasResourceReference | undefined;
     onRemoveReference?: (nodeId: string, reference: CanvasResourceReference) => void;
     onReorderReferences?: (nodeId: string, orderedNodeIds: string[]) => void;
     onReplaceReference?: (nodeId: string, oldReference: CanvasResourceReference, sourceNodeId: string) => void;
     onReplaceReferenceFiles?: (nodeId: string, oldReference: CanvasResourceReference, files: File[]) => void;
+    referenceNodes?: CanvasNodeData[];
+    referenceConnections?: CanvasConnection[];
+    onLocateReferenceNode?: (nodeId: string) => void;
     onClose?: () => void;
     onNodeMouseDown?: (event: ReactPointerEvent, nodeId: string) => void;
     onImageSettingsOpenChange?: (open: boolean) => void;
     workspaceMode?: CanvasWorkspaceMode;
 };
 
-type CanvasTheme = (typeof canvasThemes)[keyof typeof canvasThemes];
-
-const canvasVideoModeOptions: Array<{ label: string; value: CanvasVideoEditOperation }> = [
-    { label: "文生视频", value: "text_to_video" },
-    { label: "图生视频", value: "image_to_video" },
-    { label: "首尾帧", value: "first_last_frame" },
-    { label: "全能参考", value: "reference_to_video" },
-    { label: "视频续写", value: "extend" },
-    { label: "局部修改", value: "inpaint" },
-    { label: "元素替换", value: "replace_element" },
-    { label: "运镜调整", value: "camera_motion" },
-    { label: "风格迁移", value: "style_transfer" },
-    { label: "音频生视频", value: "audio_to_video" },
-    { label: "版本对比", value: "compare_versions" },
-];
-
-const PROMPT_REFERENCE_SHELF_HEIGHT = 58;
-// Keep the compact editor readable at rest: three 20px lines plus 12px vertical padding.
-const PROMPT_EDITOR_MIN_HEIGHT = 72;
-const PROMPT_EDITOR_EXPANDED_MIN_HEIGHT = 200;
-const PROMPT_EDITOR_LINE_HEIGHT = 20;
-const PROMPT_EDITOR_EXPANDED_LINE_HEIGHT = 24;
-const PROMPT_EDITOR_VERTICAL_PADDING = 12;
-const PROMPT_EDITOR_EXPANDED_VERTICAL_PADDING = 20;
-const PROMPT_EDITOR_MAX_LINES = 8;
-const PROMPT_EDITOR_EXPANDED_MAX_LINES = 14;
-const PROMPT_EDITOR_MODAL_WIDTH = "min(1200px, 92vw)";
-const PROMPT_EDITOR_MODAL_DEFAULT_WIDTH = 1200;
-const PROMPT_EDITOR_MODAL_DEFAULT_HEIGHT = 420;
-
-export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChange, onConfigChange, onGenerate, mentionReferences = [], onAddReference, onRemoveReference, onReorderReferences, onReplaceReference, onReplaceReferenceFiles, onClose, onNodeMouseDown, onImageSettingsOpenChange, workspaceMode = "professional" }: CanvasNodePromptPanelProps) {
+export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChange, onConfigChange, onGenerate, onOpenGenerationHistory, onCreateGenerationReplacement, mentionReferences = [], onAddReference, onRemoveReference, onReorderReferences, onReplaceReference, onReplaceReferenceFiles, referenceNodes = [node], referenceConnections = [], onLocateReferenceNode, onClose, onNodeMouseDown, onImageSettingsOpenChange, workspaceMode = "professional" }: CanvasNodePromptPanelProps) {
     const { message } = App.useApp();
     const globalConfig = useEffectiveConfig();
     const themeName = useActiveTheme();
     const theme = canvasThemes[themeName];
+    const preferredFontSize = useCreationPreferencesStore((state) => state.preferences.promptFontSize);
+    const rememberImageSettings = useCreationPreferencesStore((state) => state.rememberImageSettings);
+    const rememberVideoSettings = useCreationPreferencesStore((state) => state.rememberVideoSettings);
+    const promptFontSize = preferredFontSize ?? DEFAULT_PROMPT_FONT_SIZE;
+    const expandedFontSize = promptFontSize;
     const promptOptimizerInstallation = usePluginStore((state) => state.installations.find((item) => item.manifest.id === PROMPT_OPTIMIZER_PLUGIN_ID));
     const promptOptimizerEnabled = usePluginStore((state) => state.pluginStates[PROMPT_OPTIMIZER_PLUGIN_ID]?.effectiveEnabled ?? Boolean(state.installations.find((item) => item.manifest.id === PROMPT_OPTIMIZER_PLUGIN_ID)?.enabled));
     const simpleMode = workspaceMode === "simple";
@@ -123,6 +105,7 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
     const [presetOpen, setPresetOpen] = useState(false);
     const [expandedPresetOpen, setExpandedPresetOpen] = useState(false);
     const [expandedPromptOpen, setExpandedPromptOpen] = useState(false);
+    const [expandedModalRendered, setExpandedModalRendered] = useState(false);
     const [expandedModalSize, setExpandedModalSize] = useState<{ width: number; height: number } | null>(null);
     const expandedModalRef = useRef<HTMLDivElement>(null);
     const [promptContentHeight, setPromptContentHeight] = useState(() => estimatePromptContentHeight(savedPrompt, false));
@@ -131,110 +114,133 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
     const [paramsExpanded, setParamsExpanded] = useState(false); // #98 决策2：B区参数区折叠状态（手风琴）
     const [promptOptimizerOpen, setPromptOptimizerOpen] = useState(false);
     const [autoLinkEnabled, setAutoLinkEnabled] = useState(true);
+    const pickConnectTargetNodeId = useCanvasPickConnectStore((state) => state.pickConnectTargetNodeId);
+    const togglePickConnectTargetNodeId = useCanvasPickConnectStore((state) => state.togglePickConnectTargetNodeId);
+    const pickConnectActive = pickConnectTargetNodeId === node.id;
     const resolvedMentionReferences = useResolvedCanvasResourceReferences(mentionReferences, { projectId });
-    const normalizedSavedPrompt = useMemo(() => normalizeCanvasNodeMentionTokens(savedPrompt, mentionReferences), [mentionReferences, savedPrompt]);
-    const activeReferences = resolvedMentionReferences.filter((item) => item.active && item.kind !== "skill");
-    const requirements: ModelRequirements = {
-        capability: mode,
-        input: {
-            textCount: (prompt.trim() ? 1 : 0) + activeReferences.filter((item) => item.kind === "text").length,
-            imageCount: activeReferences.filter((item) => item.kind === "image").length,
-            videoCount: activeReferences.filter((item) => item.kind === "video").length,
-            audioCount: activeReferences.filter((item) => item.kind === "audio").length,
-            characterCount: activeReferences.filter((item) => item.kind === "character").length,
-        },
-        videoOperation: node.metadata?.videoEditOperation,
-        videoSeconds: mode === "video" ? node.metadata?.seconds || globalConfig.videoSeconds : undefined,
-        options: modelRequestOptions({
-            ...globalConfig,
-            size: node.metadata?.size || globalConfig.size,
-            quality: node.metadata?.quality || globalConfig.quality,
-            count: String(node.metadata?.count || globalConfig.count),
-            transparentBackground: node.metadata?.transparentBackground || globalConfig.transparentBackground,
-            videoSeconds: node.metadata?.seconds || globalConfig.videoSeconds,
-            vquality: node.metadata?.vquality || globalConfig.vquality,
-            videoGenerateAudio: node.metadata?.generateAudio || globalConfig.videoGenerateAudio,
-            videoWatermark: node.metadata?.watermark || globalConfig.videoWatermark,
-            audioVoice: node.metadata?.audioVoice || globalConfig.audioVoice,
-            audioFormat: node.metadata?.audioFormat || globalConfig.audioFormat,
-            audioSampleRate: node.metadata?.audioSampleRate || globalConfig.audioSampleRate,
-    audioSpeed: node.metadata?.audioSpeed || globalConfig.audioSpeed,
-            audioPitch: node.metadata?.audioPitch || globalConfig.audioPitch,
-            audioVolume: node.metadata?.audioVolume || globalConfig.audioVolume,
-        }, mode),
-    };
+    const referenceCheck = useCanvasReferenceCheck(node.id, prompt, resolvedMentionReferences, referenceNodes, referenceConnections);
+    const [referenceAction, setReferenceAction] = useState<CanvasReferenceAction | null>(null);
+    const [caretRequest, setCaretRequest] = useState<{ offset: number; key: number } | null>(null);
+    const promptSelectionRef = useRef<{ start: number; end: number } | null>(null);
+    const missingSubmissionIdentity = ["submitting", "unknown"].includes(node.metadata?.generationSubmissionState || "") && !node.metadata?.taskId && !node.metadata?.taskClientOperationId?.trim();
+    const needsRecoverySection = missingSubmissionIdentity || (!isRunning && isNodeRegenerateBlocked(node.metadata));
+    const activeReferences = useMemo(() => resolvedMentionReferences.filter((item) => item.active && item.kind !== "skill"), [resolvedMentionReferences]);
+    const requirements = buildCanvasGenerationRequirements(globalConfig, node, mode, {
+        textCount: (prompt.trim() ? 1 : 0) + activeReferences.filter((item) => item.kind === "text").length,
+        imageCount: activeReferences.filter((item) => item.kind === "image").length,
+        videoCount: activeReferences.filter((item) => item.kind === "video").length,
+        audioCount: activeReferences.filter((item) => item.kind === "audio").length,
+        characterCount: activeReferences.filter((item) => item.kind === "character").length,
+    });
     const config = buildNodeConfig(globalConfig, node, mode, requirements);
-    const quoteInput = useMemo(() => {
-        if (mode === "text") return null;
-        try {
-            return buildBackendGenerationTaskQuoteInput({
-                projectId,
-                mode,
-                prompt: "生成",
-                config,
-                quoteReferenceCounts: {
-                    images: requirements.input?.imageCount || 0,
-                    videos: requirements.input?.videoCount || 0,
-                    audios: requirements.input?.audioCount || 0,
-                },
-                metadata: {
-                    sourceNodeId: node.id,
-                    ...(node.metadata?.videoEditOperation ? { videoEditOperation: node.metadata.videoEditOperation } : {}),
-                },
-            });
-        } catch {
-            return null;
-        }
-    }, [config, mode, node.id, node.metadata?.videoEditOperation, projectId, requirements.input?.audioCount, requirements.input?.imageCount, requirements.input?.videoCount]);
-    const billingQuoteQuery = useCanvasGenerationQuote(quoteInput);
-    const billingBalanceQuery = useCanvasBillingBalance();
-    const estimatedPoints = billingQuoteQuery.quote?.enabled ? billingQuoteQuery.quote.points : 0;
-    const availableBalance = billingBalanceQuery.data?.enabled ? billingBalanceQuery.data.balance : billingQuoteQuery.quote?.balance;
-    const insufficientPoints = Boolean(mode !== "text" && billingQuoteQuery.quote?.enabled && estimatedPoints > 0 && typeof availableBalance === "number" && availableBalance < estimatedPoints);
-    const billingPending = Boolean(quoteInput) && (billingQuoteQuery.loading || (billingQuoteQuery.quote === undefined && !billingQuoteQuery.error));
-    const isMidjourneyImage = mode === "image" && resolveModelRequestConfig(config, config.model).interfaceType === "midjourney";
-    const rawMidjourneyVersion = String(node.metadata?.midjourneyVersion || node.metadata?.midjourneyParameters?.version || "").replace(/^v/i, "");
-    const selectedMidjourneyVersion = (MIDJOURNEY_VERSIONS as readonly string[]).includes(rawMidjourneyVersion) ? rawMidjourneyVersion : undefined;
-    const updateMidjourneyParameter = (key: string, value: string | number | boolean | undefined) => {
-        const next = { ...(node.metadata?.midjourneyParameters || {}) };
-        if (value === undefined || value === "") delete next[key];
-        else next[key] = value;
-        onConfigChange(node.id, { midjourneyParameters: Object.keys(next).length ? next : undefined });
-    };
-    const updateMidjourneyVersion = (version: string) => {
-        const next: Record<string, unknown> = { ...(node.metadata?.midjourneyParameters || {}), version };
-        if (version !== "7") delete next.niji;
-        if (version !== "8.1" && version !== "8.2") delete next.hd;
-        onConfigChange(node.id, { midjourneyVersion: version, midjourneyParameters: next });
-    };
     const availableModels = selectableModelsByCapability(config, mode);
-    // 音频节点：模型按「用途」分组，只列当前用途可用的那几档（配音 / 音乐 / 音效）。
-    const audioPurpose = node.metadata?.audioPurpose === "music" ? "music" : node.metadata?.audioPurpose === "sfx" ? "sfx" : "voice";
-    // 平台按功能固定的模型（图改图等）不出现在选择器里，由功能内部直接取用。
-    const hiddenModels = mode === "audio"
-        ? [...functionOnlyModelValues(), ...selectableModelsByCapability(config, "audio").filter((model) => classifyAudioModelPurpose(model) !== audioPurpose)]
-        : functionOnlyModelValues();
-    const audioPurposeOptions = [
-        { value: "voice", label: "配音" },
-        { value: "music", label: "音乐" },
-        ...(hasAudioPurposeModel("sfx") ? [{ value: "sfx", label: "音效" }] : []),
-    ];
     const resolvedRequirements: ModelRequirements = {
         ...requirements,
         options: modelRequestOptions(config, mode),
         videoSeconds: mode === "video" ? config.videoSeconds : undefined,
     };
-    // 用户选了这个模型，就按这个模型的要求把"哪里不满足"直接摆出来，
-    // 而不是把模型灰掉、发送按钮点不动却什么都不说（2026-10-19 线上反馈）。
-    const selectedModelError = modelCompatibilityError(config, config.model, resolvedRequirements);
+    const billingQuoteReferences = useMemo(
+        () => quoteReferencesFromCanvasReferences(activeReferences, referenceNodes),
+        [activeReferences, referenceNodes],
+    );
+    const billingQuotePlan = useMemo(() => buildGenerationQuotePlan(mode, config), [config, mode]);
+    const billingQuoteInput = useMemo(() => {
+        if (mode === "text" || !prompt.trim()) return null;
+        try {
+            return buildCanvasGenerationQuoteInput({
+                projectId,
+                mode,
+                prompt: prompt.trim(),
+                config: billingQuotePlan.quoteConfig,
+                metadata: {
+                    sourceNodeId: node.id,
+                    ...(node.metadata?.videoEditOperation ? { videoEditOperation: node.metadata.videoEditOperation } : {}),
+                },
+            }, billingQuoteReferences);
+        } catch {
+            return null;
+        }
+    }, [billingQuotePlan.quoteConfig, billingQuoteReferences, mode, node.id, node.metadata?.videoEditOperation, projectId, prompt]);
+    const billingQuoteQuery = useCanvasGenerationQuote(billingQuoteInput);
+    const billingBalanceQuery = useCanvasBillingBalance({ enabled: mode !== "text" });
+    const availableBillingBalance = billingBalanceQuery.data?.enabled ? billingBalanceQuery.data.balance : billingQuoteQuery.quote?.balance;
+    const estimatedBillingPoints = billingQuoteQuery.quote?.enabled ? totalGenerationQuotePoints(billingQuoteQuery.quote.points, billingQuotePlan.taskCount) : 0;
+    const billingPending = Boolean(billingQuoteInput) && (billingQuoteQuery.loading || (billingQuoteQuery.quote === undefined && !billingQuoteQuery.error));
+    const insufficientBillingPoints = Boolean(mode !== "text" && billingQuoteQuery.quote?.enabled && estimatedBillingPoints > 0 && typeof availableBillingBalance === "number" && availableBillingBalance < estimatedBillingPoints);
+    const billingQuoteUnavailable = Boolean(mode !== "text" && billingQuoteInput && billingQuoteQuery.error);
+    const billingQuoteErrorMessage = billingQuoteUnavailable
+        ? billingQuoteQuery.error instanceof Error && billingQuoteQuery.error.message.trim()
+            ? billingQuoteQuery.error.message.trim()
+            : "暂时无法读取价格，请稍后重试"
+        : "";
+
     const promptOptimizerProvider = useMemo(() => {
         if (!promptOptimizerEnabled || !promptOptimizerInstallation || !promptOptimizerPlugin.createPromptOptimizer) return null;
         return promptOptimizerPlugin.createPromptOptimizer(createPluginHostContext(promptOptimizerPlugin, promptOptimizerInstallation, globalConfig));
     }, [globalConfig, promptOptimizerEnabled, promptOptimizerInstallation]);
     const priceChannel = resolveModelChannel(config, config.model);
     const activeReferenceCount = activeReferences.length;
-    const videoFrameOptions = resolvedMentionReferences.filter((item) => item.active && item.kind === "image").map((item) => ({ nodeId: item.nodeId, label: item.label, title: item.title, previewUrl: item.previewUrl }));
-    const hasVideoPromptTools = mode === "video" && !simpleMode && videoFrameOptions.length > 0;
+    const videoFrameOptions = useMemo(() => resolvedMentionReferences.filter((item) => item.active && item.kind === "image").map((item) => ({ nodeId: item.nodeId, label: item.label, title: item.title, previewUrl: item.previewUrl })), [resolvedMentionReferences]);
+    const h3Model = isH3Model(config.model);
+    const h3Max = isH3MaxModel(config.model);
+    const effectiveVideoOperation = mode === "video" && requirements.input
+        ? (h3Model ? h3VideoOperation(config.model, requirements.input, node.metadata?.videoEditOperation) : resolveVideoOperation(requirements.input, node.metadata?.videoEditOperation))
+        : undefined;
+    const videoProfile = mode === "video" ? modelCapabilityConfigFor(config, config.model).video : undefined;
+    const endFrameSupported = mode === "video"
+        ? (!isH3Style(config.model) && (h3Model || (videoProfile ? videoReferencesForOperation(videoProfile, "image_to_video").maxImages >= 2 : true)))
+        : false;
+    const referenceVideoSupported = mode === "video"
+        ? (h3Model ? !isH3Style(config.model) : Boolean(videoProfile?.operations.includes("reference_to_video")))
+        : false;
+    const referenceFramesSupported = mode === "video"
+        ? (h3Model ? !isH3Style(config.model) : Boolean(videoProfile?.operations.includes("image_to_video")))
+        : false;
+    const videoModeState = useMemo(() => {
+        if (mode !== "video" || simpleMode || ["extend", "inpaint"].includes(effectiveVideoOperation || "")) return undefined;
+        return resolveVideoReferenceModeState({
+            metadata: node.metadata,
+            references: resolvedMentionReferences,
+            endFrameSupported,
+            referenceVideoSupported,
+            framesSupported: referenceFramesSupported,
+            h3Model,
+            h3Style: isH3Style(config.model),
+            prompt,
+        });
+    }, [config.model, effectiveVideoOperation, endFrameSupported, h3Model, mode, node.metadata, prompt, referenceFramesSupported, referenceVideoSupported, resolvedMentionReferences, simpleMode]);
+    const videoModeWarning = useMemo(() => {
+        if (!videoModeState || !videoProfile) return "";
+        const operation = videoModeState.mode === "all" ? "reference_to_video" : "image_to_video";
+        const limits = videoReferencesForOperation(videoProfile, operation);
+        return videoReferenceModeWarning(videoModeState.mode, resolvedMentionReferences, {
+            minImages: limits.minImages,
+            maxImages: limits.maxImages,
+            maxVideos: limits.maxVideos,
+            maxAudios: limits.maxAudios,
+        });
+    }, [resolvedMentionReferences, videoModeState, videoProfile]);
+    const videoReferenceInputs = useMemo(() => activeReferences.flatMap((reference) => reference.kind === "skill" ? [] : [{ nodeId: reference.nodeId, type: reference.kind, title: reference.title }]), [activeReferences]);
+    const h3SelectedFrames = [node.metadata?.videoStartFrameNodeId, node.metadata?.videoEndFrameNodeId, node.metadata?.videoMiddleFrameNodeId];
+    const hasH3ReferenceOrder = isH3ReferenceOrderModel(config.model) && videoReferenceInputs.some((input) => ["image", "character", "video", "audio"].includes(input.type) && !h3SelectedFrames.includes(input.nodeId));
+    const hasVideoPromptTools = mode === "video" && !simpleMode && ((h3Max && videoFrameOptions.length > 0) || hasH3ReferenceOrder);
+    const renderVideoPromptTools = () => (
+        <>
+            {h3Max && videoFrameOptions.length > 0 ? (
+                <CanvasVideoPromptTools
+                    metadata={node.metadata}
+                    frameOptions={videoFrameOptions}
+                    endFrameSupported
+                    middleFrameSupported
+                    referenceLabel="参考生成"
+                    referenceMode="frames"
+                    referenceSummary={requirements.input}
+                    onMetadataChange={(patch) => onConfigChange(node.id, patch)}
+                />
+            ) : null}
+            <CanvasH3ReferenceOrder model={config.model} inputs={videoReferenceInputs} metadata={node.metadata} onChange={(patch) => onConfigChange(node.id, patch)} />
+        </>
+    );
     const monochromeAccent = theme.node.activeStroke;
     const composerTokens = {
         "--canvas-composer-surface": theme.node.panel,
@@ -250,8 +256,8 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
         boxShadow: theme.node.shadow,
     } as CSSProperties;
     const controlSurface = "var(--canvas-composer-control-surface)";
-    const promptBounds = promptEditorBounds(false, activeReferenceCount > 0);
-    const expandedPromptBounds = promptEditorBounds(true, activeReferenceCount > 0);
+    const promptBounds = promptEditorBounds(false, activeReferenceCount > 0, promptFontSize);
+    const expandedPromptBounds = promptEditorBounds(true, activeReferenceCount > 0, expandedFontSize);
     const composerHeight = clampPromptHeight(manualPromptHeight ?? promptContentHeight + (activeReferenceCount ? PROMPT_REFERENCE_SHELF_HEIGHT : 0), promptBounds);
     const expandedComposerHeight = clampPromptHeight(expandedPromptContentHeight + (activeReferenceCount ? PROMPT_REFERENCE_SHELF_HEIGHT : 0), expandedPromptBounds);
     const measureExpandedModalSize = () => {
@@ -259,7 +265,9 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
         if (!rect?.width || !rect.height) return { width: PROMPT_EDITOR_MODAL_DEFAULT_WIDTH, height: PROMPT_EDITOR_MODAL_DEFAULT_HEIGHT };
         return { width: Math.round(rect.width), height: Math.round(rect.height) };
     };
-    const isSubmitDisabled = !isRunning && (!prompt.trim() || insufficientPoints || billingPending);
+    const isSubmitDisabled = !isRunning && !prompt.trim();
+    const submitDisabled = isRunning || isSubmitDisabled || insufficientBillingPoints || billingQuoteUnavailable || Boolean(videoModeWarning);
+    const submitBlockedReason = !prompt.trim() ? "请先输入提示词" : isRunning ? "当前任务仍在生成中，请等待完成" : videoModeWarning || (insufficientBillingPoints ? `积分不足：本次预计 ${estimatedBillingPoints} 积分，当前 ${availableBillingBalance ?? 0} 积分` : billingQuoteUnavailable ? billingQuoteErrorMessage : "");
     const canExpandPrompt = mode === "image" || mode === "video";
     const canOptimizePrompt = Boolean(promptOptimizerProvider) && canExpandPrompt;
     const isPortraitTexture = mode === "image" && Boolean(node.metadata?.portraitTexture);
@@ -267,17 +275,26 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
     const canAutoMention = autoMentionedPrompt !== prompt;
 
     useEffect(() => {
-        setPrompt(normalizedSavedPrompt);
-        if (normalizedSavedPrompt !== savedPrompt) onPromptChange(node.id, normalizedSavedPrompt);
-    }, [node.id, normalizedSavedPrompt, onPromptChange, savedPrompt]);
+        setPrompt(savedPrompt);
+    }, [node.id, savedPrompt]);
 
     useEffect(() => {
+        setReferenceAction(null);
+        setCaretRequest(null);
+        promptSelectionRef.current = null;
+        setCanvasNodePromptSelection(node.id, null);
         setExpandedPromptOpen(false);
         setExpandedPresetOpen(false);
         setExpandedModalSize(null);
-        setPromptContentHeight(estimatePromptContentHeight(normalizedSavedPrompt, false));
-        setExpandedPromptContentHeight(estimatePromptContentHeight(normalizedSavedPrompt, true));
+        setPromptContentHeight(estimatePromptContentHeight(savedPrompt, false));
+        setExpandedPromptContentHeight(estimatePromptContentHeight(savedPrompt, true));
         setManualPromptHeight(null);
+        return () => {
+            setCanvasNodePromptSelection(node.id, null);
+            if (useCanvasPickConnectStore.getState().pickConnectTargetNodeId === node.id) {
+                useCanvasPickConnectStore.getState().setPickConnectTargetNodeId(null);
+            }
+        };
     }, [node.id]);
 
     useEffect(() => {
@@ -297,6 +314,7 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
     const updatePrompt = (value: string) => {
         setPrompt(value);
         onPromptChange(node.id, value);
+        if (node.metadata?.generationPreflightError) onConfigChange(node.id, { generationPreflightError: undefined });
         if (/(^|\s)\/[\p{L}\p{N}_-]*$/u.test(value)) {
             if (expandedPromptOpen) setExpandedPresetOpen(true);
             else setPresetOpen(true);
@@ -309,22 +327,25 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
     };
 
     const insertPromptReference = (reference: CanvasResourceReference) => {
-        const insertText = `${canvasResourceMentionToken(reference)} `;
-        const pendingMentionMatch = /@[^\s@，。！？、,.!?;:]*\s*$/.exec(prompt);
-        if (pendingMentionMatch) {
-            const prefix = prompt.slice(0, pendingMentionMatch.index).replace(/\s*$/, "");
-            updatePrompt(prefix ? `${prefix} ${insertText}` : insertText);
-            return;
-        }
-        const basePrompt = prompt.replace(/\s*$/, "");
-        updatePrompt(basePrompt ? `${basePrompt} ${insertText}` : insertText);
+        const selection = promptSelectionRef.current ?? getCanvasNodePromptSelection(node.id);
+        const inserted = insertCanvasResourceMentionAtSelection(prompt, reference, selection);
+        const nextSelection = { start: inserted.cursor, end: inserted.cursor };
+        promptSelectionRef.current = nextSelection;
+        setCanvasNodePromptSelection(node.id, nextSelection);
+        updatePrompt(inserted.prompt);
+        setCaretRequest({ offset: inserted.cursor, key: Date.now() });
     };
 
     const submit = () => {
         const text = prompt.trim();
-        // 留痕：线上出现"点发送没反应"时，先确认点击有没有到达这里。
-        console.info("[canvas-generate] submit", { nodeId: node.id, mode, promptChars: text.length, isRunning, disabled: isSubmitDisabled });
-        if (!text || isRunning) return false;
+        if (!text || isRunning || insufficientBillingPoints || billingQuoteUnavailable) {
+            if (submitBlockedReason) message.warning(submitBlockedReason);
+            return false;
+        }
+        if (referenceCheck.issues.length) {
+            setReferenceAction({ type: "locate", token: referenceCheck.issues[0].token, key: Date.now() });
+            return false;
+        }
         onGenerate(node.id, mode, text);
         return true;
     };
@@ -333,6 +354,12 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
         if (submit()) {
             setExpandedPresetOpen(false);
             setExpandedPromptOpen(false);
+        }
+    };
+
+    const handleSelectVideoReferenceMode = (nextMode: "frames" | "all") => {
+        if (nextMode === "frames" && videoModeState?.promptFirstFrameNodeId) {
+            updatePrompt(stripPromptFirstFrameClauses(prompt));
         }
     };
 
@@ -358,9 +385,11 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                     </span>
                     <span className="truncate text-[var(--fs-tiny)] font-medium">{modeDisplayName(mode)}生成</span>
                     {activeReferenceCount > 0 ? <span className="canvas-node-composer-reference-heading">{referenceShelfHeading(activeReferences)}</span> : null}
+                    {expanded && videoModeState ? <VideoReferenceModeSwitch state={videoModeState} theme={theme} onSelectMode={handleSelectVideoReferenceMode} onChange={(patch) => onConfigChange(node.id, patch)} /> : null}
                 </div>
             )}
             <div className="ml-auto flex shrink-0 items-center justify-end gap-1">
+                {expanded ? <CanvasPromptFontControl /> : null}
             {canOptimizePrompt ? (
                 <Tooltip title="用 AI 润色提示词">
                     <button
@@ -404,62 +433,54 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
 
     const renderSubmitButton = (expanded: boolean) => {
         const actionLabel = isRunning ? "生成中" : "生成";
-        // 生成中时按钮不再"静默禁用"：点一下要说明为什么没反应、以及怎么继续
-        // （2026-10-19 线上反馈「提示词填好了点发送没反应」，实际是该节点上一笔任务还在跑）。
-        const button = (
+        return (
             <Button
                 type="text"
                 className="canvas-node-composer-submit canvas-node-composer-submit-canvas"
-                disabled={isSubmitDisabled}
+                disabled={false}
+                aria-disabled={submitDisabled}
                 style={
                     {
-                        color: isSubmitDisabled ? theme.node.faint : theme.node.text,
-                        "--canvas-composer-submit-action": isSubmitDisabled ? theme.toolbar.itemHover : monochromeAccent,
-                        "--canvas-composer-submit-action-fg": isSubmitDisabled ? theme.node.faint : theme.canvas.background,
+                        color: submitDisabled ? theme.node.faint : theme.node.text,
+                        "--canvas-composer-submit-action": submitDisabled ? theme.toolbar.itemHover : monochromeAccent,
+                        "--canvas-composer-submit-action-fg": submitDisabled ? theme.node.faint : theme.canvas.background,
                     } as CSSProperties
                 }
-                onClick={() => {
-                    console.info("[canvas-generate] click", { nodeId: node.id, mode, isRunning, disabled: isSubmitDisabled });
-                    if (isRunning) {
-                        message.info("这个节点还在生成中，完成后才能再次生成；如需中止，请在右侧任务面板停止。");
-                        return;
-                    }
-                    if (expanded) submitExpandedPrompt();
-                    else submit();
-                }}
+                onClick={() => (expanded ? submitExpandedPrompt() : submit())}
                 aria-label={actionLabel}
-                title={isRunning ? "正在生成中：完成后可再次生成，或到任务面板停止" : actionLabel}
+                title={actionLabel}
             >
                 <span className="canvas-node-composer-submit-action" aria-hidden>
                     {isRunning ? <LoaderCircle className="size-3.5 animate-spin motion-reduce:animate-none" /> : <ArrowUp className="size-3.5" strokeWidth={2.4} />}
                 </span>
             </Button>
         );
-        return isRunning
-            ? <span className="inline-flex" title="正在生成中：完成后可再次生成，或到任务面板停止">{button}</span>
-            : button;
     };
 
     const renderBillingCost = () => {
         if (mode === "text") return null;
-        const label = billingPending ? "…" : billingQuoteQuery.error ? "—" : billingQuoteQuery.quote?.enabled ? String(estimatedPoints) : "免费";
-        const detail = billingQuoteQuery.error
-            ? "暂时无法读取价格，请稍后重试"
-            : insufficientPoints
-                ? `积分不足：本次预计 ${estimatedPoints} 积分，当前 ${availableBalance ?? 0} 积分`
-                : billingQuoteQuery.quote?.enabled
-                    ? `预计消耗 ${estimatedPoints} 积分，当前余额 ${availableBalance ?? billingQuoteQuery.quote.balance} 积分`
-                    : "当前模型不扣积分";
+        const hasPrompt = Boolean(prompt.trim());
+        const billingCostUnavailable = !hasPrompt || billingQuoteUnavailable || (billingQuoteQuery.quote !== undefined && !billingQuoteQuery.quote?.enabled);
+        const label = billingPending ? "…" : billingCostUnavailable ? "—" : String(estimatedBillingPoints);
+        const detail = !hasPrompt
+            ? "输入提示词后显示预计消耗"
+            : billingQuoteUnavailable
+                ? billingQuoteErrorMessage
+                : insufficientBillingPoints
+                    ? `积分不足：本次预计 ${estimatedBillingPoints} 积分，当前 ${availableBillingBalance ?? 0} 积分`
+                    : billingQuoteQuery.quote?.enabled
+                        ? `预计消耗 ${estimatedBillingPoints} 积分，当前余额 ${availableBillingBalance ?? billingQuoteQuery.quote.balance ?? "—"} 积分`
+                        : "当前没有可用的计费报价";
         return (
             <Tooltip title={detail}>
                 <span
                     className="inline-flex h-7 shrink-0 items-center gap-1 rounded-lg border px-1.5 text-[var(--fs-tiny)] font-medium tabular-nums"
                     style={{
-                        color: insufficientPoints ? theme.accent.danger : theme.node.muted,
-                        borderColor: insufficientPoints ? `${theme.accent.danger}55` : theme.toolbar.border,
-                        background: insufficientPoints ? `${theme.accent.danger}12` : theme.toolbar.itemHover,
+                        color: insufficientBillingPoints ? theme.accent.danger : theme.node.muted,
+                        borderColor: insufficientBillingPoints ? `${theme.accent.danger}55` : theme.toolbar.border,
+                        background: insufficientBillingPoints ? `${theme.accent.danger}12` : theme.toolbar.itemHover,
                     }}
-                    aria-label={billingQuoteQuery.quote?.enabled ? `预计消耗 ${estimatedPoints} 积分` : detail}
+                    aria-label={!billingCostUnavailable && billingQuoteQuery.quote?.enabled ? `预计消耗 ${estimatedBillingPoints} 积分` : detail}
                 >
                     <Zap className="size-3" strokeWidth={2.2} />
                     <span>{label}</span>
@@ -467,19 +488,27 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
             </Tooltip>
         );
     };
-
-    const renderModelCapabilityWarning = () => {
-        const warnings: string[] = [];
-        if (selectedModelError) warnings.push(`当前模型不支持这组输入：${selectedModelError}。请调整参考素材或参数，或换一个模型后再生成。`);
-        if (insufficientPoints) warnings.push(`积分不足：本次预计 ${estimatedPoints} 积分，当前 ${availableBalance ?? 0} 积分。`);
-        else if (billingQuoteQuery.error) warnings.push(`暂时无法读取积分价格：${billingQuoteQuery.error instanceof Error ? billingQuoteQuery.error.message : "请稍后重试"}`);
-        return warnings.length ? (
-            <div role="alert" className="canvas-node-composer-warning px-2 pb-1 text-[var(--fs-tiny)] leading-snug" style={{ color: "#f87171" }}>
-                {warnings.join(" ")}
-            </div>
-        ) : null;
-    };
-
+    const renderVideoModeWarning = () => videoModeWarning ? (
+        <div
+            role="alert"
+            aria-live="polite"
+            className="mx-2.5 mb-1 flex items-start gap-1.5 rounded-md border px-2 py-1.5 text-[var(--fs-tiny)] leading-relaxed"
+            style={{ color: theme.accent.danger, borderColor: `${theme.accent.danger}55`, background: `${theme.accent.danger}12` }}
+        >
+            <AlertTriangle className="mt-0.5 size-3 shrink-0" />
+            <span>{videoModeWarning}</span>
+        </div>
+    ) : null;
+    const renderBillingQuoteError = () => billingQuoteErrorMessage ? (
+        <div
+            role="alert"
+            aria-live="polite"
+            className="canvas-node-composer-quote-error mx-2.5 mb-1 rounded-md border px-2 py-1.5 text-[var(--fs-tiny)] leading-relaxed"
+            style={{ color: theme.accent.danger, borderColor: `${theme.accent.danger}55`, background: `${theme.accent.danger}12` }}
+        >
+            {billingQuoteErrorMessage}
+        </div>
+    ) : null;
     const renderComposerControls = (expanded: boolean) =>
         simpleMode ? (
             <div className="canvas-node-composer-footer">
@@ -494,6 +523,8 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                     accent={monochromeAccent}
                     compact
                     label={autoLinkLabel}
+                    pickConnectActive={pickConnectActive}
+                    onTogglePickConnect={() => togglePickConnectTargetNodeId(node.id)}
                 />
                 {renderBillingCost()}
                 {renderSubmitButton(expanded)}
@@ -502,84 +533,26 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
             <div className="canvas-node-composer-footer">
                 <div className={expanded ? "min-w-0 flex-1" : "canvas-node-composer-model"}>
                     {availableModels.length ? (
-                        <div className="flex min-w-0 flex-1 items-center gap-1">
-                            <div className="min-w-0 flex-1">
-                                <ModelPicker
-                                    className="!h-7 !w-full !min-w-0 !text-[var(--fs-tiny)] !font-normal [&_img]:!size-3 [&_.lucide]:!size-3"
-                                    fullWidth
-                                    config={config}
-                                    value={config.model}
-                                    onChange={(model) => {
-                                        const patch: Partial<CanvasNodeMetadata> = mode === "image" ? { model, ...defaultImageParamsForModel(config, model) } : { model };
-                                        if (mode === "image" && resolveModelRequestConfig(config, model).interfaceType === "midjourney") {
-                                            const version = selectedMidjourneyVersion || "8.1";
-                                            patch.midjourneyVersion = version;
-                                            patch.midjourneyParameters = { ...(node.metadata?.midjourneyParameters || {}), version };
-                                        }
-                                        onConfigChange(node.id, patch);
-                                    }}
-                                    capability={mode}
-                                    hiddenModels={hiddenModels}
-                                    requirements={resolvedRequirements}
-                                    onMissingConfig={() => navigateToSettings({ section: "channels", continueCreation: true })}
-                                    variant="creation"
-                                    showConfiguredModelName
-                                />
-                            </div>
-                            {isMidjourneyImage ? (
-                                <Select
-                                    aria-label="Midjourney 版本"
-                                    size="small"
-                                    popupMatchSelectWidth={false}
-                                    className="canvas-node-composer-mode-select !h-7 w-[72px] shrink-0 [&_.ant-select-selector]:!h-7 [&_.ant-select-selection-item]:!text-[var(--fs-tiny)] [&_.ant-select-selection-item]:!leading-7"
-                                    value={selectedMidjourneyVersion}
-                                    placeholder="版本"
-                                    options={MIDJOURNEY_VERSIONS.map((version) => ({ value: version, label: `v${version}` }))}
-                                    onChange={updateMidjourneyVersion}
-                                />
-                            ) : null}
-                            {mode === "audio" ? (
-                                <Select
-                                    aria-label="音频用途"
-                                    size="small"
-                                    popupMatchSelectWidth={false}
-                                    className="canvas-node-composer-mode-select !h-7 shrink-0 [&_.ant-select-selector]:!h-7 [&_.ant-select-selection-item]:!text-[var(--fs-tiny)] [&_.ant-select-selection-item]:!leading-7"
-                                    value={audioPurpose}
-                                    options={audioPurposeOptions}
-                                    onChange={(value) => onConfigChange(node.id, { audioPurpose: value, model: canvasAudioPurposeModel(value) })}
-                                />
-                            ) : null}
-                            {mode === "video" ? (() => {
-                                // 与「配置节点」面板同一套可用性规则：按当前连接的参考素材判定模式是否可选。
-                                const modeInput = { textCount: 0, imageCount: requirements.input?.imageCount || 0, videoCount: requirements.input?.videoCount || 0, audioCount: requirements.input?.audioCount || 0, characterCount: 0 };
-                                const totalReferences = modeInput.imageCount + modeInput.characterCount + modeInput.videoCount + modeInput.audioCount;
-                                const declaredOperations = modelCapabilityConfigFor(config, config.model).video?.operations || [];
-                                return (
-                                    <Select
-                                        aria-label="视频生成模式"
-                                        size="small"
-                                        popupMatchSelectWidth={false}
-                                        className="canvas-node-composer-mode-select !h-7 shrink-0 [&_.ant-select-selector]:!h-7 [&_.ant-select-selection-item]:!text-[var(--fs-tiny)] [&_.ant-select-selection-item]:!leading-7"
-                                        value={resolveVideoOperation(modeInput, node.metadata?.videoEditOperation)}
-                                        options={canvasVideoModeOptions
-                                            .filter((option) => declaredOperations.includes(option.value))
-                                            .map((option) => ({
-                                                ...option,
-                                                disabled: option.value === "image_to_video"
-                                                    ? modeInput.imageCount + modeInput.characterCount < 1 || modeInput.imageCount + modeInput.characterCount > 2 || modeInput.videoCount > 0 || modeInput.audioCount > 0
-                                                    : ["inpaint", "extend"].includes(option.value)
-                                                      ? modeInput.videoCount < 1
-                                                      : option.value === "text_to_video"
-                                                        ? totalReferences > 0
-                                                        : option.value === "audio_to_video"
-                                                          ? modeInput.audioCount < 1 || modeInput.imageCount + modeInput.characterCount + modeInput.videoCount > 0
-                                                          : totalReferences < 1,
-                                            }))}
-                                        onChange={(value) => onConfigChange(node.id, { videoEditOperation: value as CanvasVideoEditOperation })}
-                                    />
-                                );
-                            })() : null}
-                        </div>
+                        <ModelPicker
+                            className="!h-7 !w-full !min-w-0 !text-[var(--fs-tiny)] !font-normal [&_img]:!size-3 [&_.lucide]:!size-3"
+                            fullWidth
+                            config={config}
+                            value={config.model}
+                            onChange={(model) => {
+                                const patch = mode === "image" ? { model, ...defaultImageParamsForModel(config, model) } : { model };
+                                if (mode === "image" || mode === "video") {
+                                    const nextConfig = buildNodeConfig(globalConfig, { ...node, metadata: { ...node.metadata, ...patch } }, mode, { ...requirements, options: undefined });
+                                    if (mode === "image") rememberImageSettings({ model: nextConfig.model, ratio: nextConfig.size, quality: nextConfig.quality, count: nextConfig.count, transparentBackground: nextConfig.transparentBackground });
+                                    else rememberVideoSettings({ model: nextConfig.model, ratio: nextConfig.size, seconds: nextConfig.videoSeconds, videoQuality: nextConfig.vquality, generateAudio: nextConfig.videoGenerateAudio, watermark: nextConfig.videoWatermark });
+                                }
+                                onConfigChange(node.id, patch);
+                            }}
+                            capability={mode}
+                            requirements={resolvedRequirements}
+                            onMissingConfig={() => navigateToSettings({ section: "channels", continueCreation: true })}
+                            variant="creation"
+                            showConfiguredModelName
+                        />
                     ) : (
                         <button
                             type="button"
@@ -601,6 +574,8 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                         accent={monochromeAccent}
                         compact={!expanded}
                         label={autoLinkLabel}
+                        pickConnectActive={pickConnectActive}
+                        onTogglePickConnect={() => togglePickConnectTargetNodeId(node.id)}
                     />
                     {mode === "text" ? (
                         <Tooltip title={`文本生成份数（默认 1，可在生成配置中调整）`}>
@@ -625,11 +600,12 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                             />
                             <CanvasImageSettingsPopover
                                 config={config}
-                                midjourneyParameters={isMidjourneyImage ? { ...(node.metadata?.midjourneyParameters || {}), ...(selectedMidjourneyVersion ? { version: selectedMidjourneyVersion } : {}) } : undefined}
-                                onMidjourneyParameterChange={isMidjourneyImage ? updateMidjourneyParameter : undefined}
                                 placement={expanded ? "topRight" : "topLeft"}
                                 buttonClassName="canvas-node-composer-settings-trigger [&>span]:min-w-0 [&_.lucide]:!size-3"
-                                onConfigChange={(key, value) => onConfigChange(node.id, key === "count" ? { count: Number(value) || 1 } : { [key]: value })}
+                                onConfigChange={(key, value) => {
+                                    rememberImageSettings(imagePreferencePatch(key, value));
+                                    onConfigChange(node.id, key === "count" ? { count: Number(value) || 1 } : { [key]: value });
+                                }}
                                 onMissingConfig={() => navigateToSettings({ continueCreation: true })}
                                 onOpenChange={expanded ? undefined : onImageSettingsOpenChange}
                             />
@@ -645,10 +621,45 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                             />
                             <CanvasVideoSettingsPopover
                                 config={config}
-                                taskConstraints={seedanceSettingsConstraints(modelOptionName(config.model), requirements.input?.imageCount || 0, requirements.input?.videoCount || 0, requirements.input?.audioCount || 0, node.metadata?.videoEditOperation, Boolean(node.metadata?.videoStartFrameNodeId || node.metadata?.videoEndFrameNodeId))}
+                                taskConstraints={videoSettingsConstraints(config, {
+                                    imageCount: requirements.input?.imageCount,
+                                    characterCount: requirements.input?.characterCount,
+                                    videoCount: requirements.input?.videoCount,
+                                    audioCount: requirements.input?.audioCount,
+                                }, node.metadata)}
                                 buttonClassName="canvas-node-composer-settings-trigger [&>span]:min-w-0 [&_.lucide]:!size-3"
-                                onConfigChange={(key, value) => onConfigChange(node.id, videoConfigPatch(key, value))}
-                            />
+                                onConfigChange={(key, value) => {
+                                    rememberVideoSettings(videoPreferencePatch(key, value));
+                                    onConfigChange(node.id, videoConfigPatch(key, value));
+                                }}
+                            >
+                                {h3Model ? <><CanvasH3Controls model={config.model} value={node.metadata?.videoH3Options} onChange={(videoH3Options) => onConfigChange(node.id, { videoH3Options })} /><CanvasH3UnsupportedFrames model={config.model} metadata={node.metadata} onChange={(patch) => onConfigChange(node.id, patch)} /></> : (requirements.input?.videoCount || 0) > 0 && (modelCapabilityConfigFor(config, config.model).video?.operations.includes("extend") || modelCapabilityConfigFor(config, config.model).video?.operations.includes("inpaint")) ? (
+                                    <div className="space-y-1.5 border-t pt-2.5" style={{ borderColor: theme.toolbar.border }}>
+                                        <div className="text-[var(--fs-tiny)] font-semibold" style={{ color: theme.node.muted }}>参考视频模式</div>
+                                        <div className="grid grid-cols-3 gap-1.5">
+                                            {([
+                                                { value: undefined, label: "参考生成" },
+                                                { value: "extend", label: "视频续写" },
+                                                { value: "inpaint", label: "视频局部修改" },
+                                            ] as const).map((item) => {
+                                                const active = (node.metadata?.videoEditOperation || undefined) === item.value;
+                                                return (
+                                                    <button
+                                                        key={item.label}
+                                                        type="button"
+                                                        className="h-8 cursor-pointer rounded-md px-1.5 text-[var(--fs-label)] font-medium transition-colors"
+                                                        style={{ background: active ? theme.toolbar.activeBg : theme.toolbar.itemHover, color: theme.node.text }}
+                                                        onMouseDown={(event) => event.stopPropagation()}
+                                                        onClick={() => onConfigChange(node.id, { videoEditOperation: item.value, size: item.value ? "adaptive" : node.metadata?.size })}
+                                                    >
+                                                        {item.label}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                ) : null}
+                            </CanvasVideoSettingsPopover>
                         </>
                     ) : mode === "audio" ? (
                         <CanvasAudioSettingsPopover
@@ -666,6 +677,7 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
     const renderPromptEditor = (expanded: boolean, fill = false) => {
         const bounds = expanded ? expandedPromptBounds : promptBounds;
         const height = expanded ? expandedComposerHeight : composerHeight;
+        const fontSize = expanded ? expandedFontSize : promptFontSize;
         return (
             <>
                 <div className={fill ? "canvas-node-composer-editor flex-1" : "canvas-node-composer-editor"} style={fill ? { minHeight: bounds.min } : { height, ...(expanded ? { flexShrink: 0 } : null) }}>
@@ -673,15 +685,27 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                         targetNodeId={node.id}
                         references={resolvedMentionReferences}
                         theme={theme}
+                        videoModeState={videoModeState}
                         onInsert={insertPromptReference}
                         onRemove={(reference) => onRemoveReference?.(node.id, reference)}
                         onReorder={onReorderReferences ? (orderedNodeIds) => onReorderReferences(node.id, orderedNodeIds) : undefined}
                         onReplaceReference={onReplaceReference ? (oldReference, sourceNodeId) => onReplaceReference(node.id, oldReference, sourceNodeId) : undefined}
                         onReplaceReferenceFiles={onReplaceReferenceFiles ? (oldReference, files) => onReplaceReferenceFiles(node.id, oldReference, files) : undefined}
+                        onVideoMetadataChange={(patch) => onConfigChange(node.id, patch)}
+                        onTogglePromptFirstFrame={h3Max ? undefined : (reference) => updatePrompt(togglePromptFirstFrameMention(prompt, { nodeId: reference.nodeId, token: canvasResourceMentionToken(reference) }, resolvedMentionReferences))}
                     />
                     <CanvasResourceMentionTextarea
                         value={prompt}
                         references={resolvedMentionReferences}
+                        selectedAssetReferences={referenceCheck.selectedReferences}
+                        referenceIssues={referenceCheck.issues}
+                        referenceAction={expanded === expandedPromptOpen ? referenceAction : null}
+                        onReferenceActionHandled={() => setReferenceAction(null)}
+                        caretRequest={expanded === expandedPromptOpen ? caretRequest : null}
+                        onSelectionRangeChange={(range) => {
+                            promptSelectionRef.current = range;
+                            setCanvasNodePromptSelection(node.id, range);
+                        }}
                         onSelectReference={onAddReference ? (reference) => onAddReference(node.id, reference) : undefined}
                         includeAssetLibrary
                         onChange={updatePrompt}
@@ -692,7 +716,7 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                         className={expanded
                             ? "thin-scrollbar h-full w-full resize-none overflow-y-auto border-none bg-transparent px-3 py-2.5 text-[var(--fs-body-lg)] leading-6 !outline-none !ring-0 !shadow-none focus:!outline-none focus:!ring-0 focus:!shadow-none placeholder:text-current placeholder:opacity-35"
                             : "thin-scrollbar h-full w-full resize-none overflow-y-auto border-none bg-transparent px-2.5 py-1.5 text-[var(--fs-body)] leading-5 !outline-none !ring-0 !shadow-none focus:!outline-none focus:!ring-0 focus:!shadow-none placeholder:text-current placeholder:opacity-35"}
-                        style={{ color: theme.node.text, outline: "none", boxShadow: "none" }}
+                        style={{ color: theme.node.text, outline: "none", boxShadow: "none", fontSize, lineHeight: `${Math.round(fontSize * 1.5)}px` }}
                         placeholder={promptPlaceholder(mode, hasImageContent, hasTextContent)}
                         aria-label={`${modeDisplayName(mode)}提示词`}
                     />
@@ -703,6 +727,27 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                     max={bounds.max}
                     onResize={setManualPromptHeight}
                 />}
+                <CanvasReferenceFeedback
+                    {...referenceCheck}
+                    onRetry={referenceCheck.retry}
+                    onLocate={(issue) => setReferenceAction({ type: "locate", token: issue.token, key: Date.now() })}
+                    onReplace={(issue) => setReferenceAction({ type: "replace", token: issue.token, key: Date.now() })}
+                    onLocateNode={onLocateReferenceNode}
+                />
+                {node.metadata?.generationPreflightError ? (
+                    <p role="alert" className="mx-2.5 my-2 whitespace-pre-wrap break-words text-[var(--fs-tiny)]" style={{ color: theme.accent.danger }}>
+                        未开始生成：{node.metadata.generationPreflightError}
+                    </p>
+                ) : null}
+                {needsRecoverySection && (onOpenGenerationHistory || onCreateGenerationReplacement) ? (
+                    <section aria-label="生成恢复" className="mx-2.5 my-2 text-[var(--fs-tiny)]">
+                        <p style={{ color: theme.node.muted }}>可以取回已有结果，或保留原节点、新建节点继续。</p>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                            {onOpenGenerationHistory ? <Button className="min-h-10" onClick={onOpenGenerationHistory}>查看生成历史</Button> : null}
+                            {onCreateGenerationReplacement ? <Button className="min-h-10" onClick={() => onCreateGenerationReplacement(node.id)}>新建节点继续</Button> : null}
+                        </div>
+                    </section>
+                ) : null}
             </>
         );
     };
@@ -719,6 +764,8 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                         accent={monochromeAccent}
                         compact={false}
                         label="参考"
+                        pickConnectActive={pickConnectActive}
+                        onTogglePickConnect={() => togglePickConnectTargetNodeId(node.id)}
                     />
                 </div>
             );
@@ -752,6 +799,31 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
 
             {renderVideoToolStrip()}
 
+            <div className="canvas-node-composer-prompt-tools">
+                {videoModeState ? (
+                    <div className="mr-auto flex min-w-0 items-center">
+                        <VideoReferenceModeSwitch state={videoModeState} theme={theme} onSelectMode={handleSelectVideoReferenceMode} onChange={(patch) => onConfigChange(node.id, patch)} />
+                    </div>
+                ) : null}
+                <CanvasPresetPicker mode={mode} skillReferences={skillReferences} open={presetOpen} onOpenChange={setPresetOpen} onSelect={applyPreset} appearance="quiet" dense />
+                <Tooltip title={pickConnectActive ? "正在点选连线引用（点击画布节点自动连线并插入 @引用，按 Esc 退出）" : "点选连线引用（或按住 Option/Alt 点击画布节点）"}>
+                    <button
+                        type="button"
+                        aria-pressed={pickConnectActive}
+                        aria-label="点选连线引用"
+                        className="canvas-node-composer-header-action inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5"
+                        style={pickConnectActive ? { background: monochromeAccent, color: theme.canvas.background } : undefined}
+                        onClick={() => togglePickConnectTargetNodeId(node.id)}
+                    >
+                        <Link2 className="size-3" />
+                        <span className="text-[var(--fs-tiny)] font-medium">点选连线</span>
+                    </button>
+                </Tooltip>
+                <CanvasPromptFontControl />
+                {canExpandPrompt ? <button type="button" className="canvas-node-composer-header-action grid size-6 place-items-center rounded-md" onClick={() => setExpandedPromptOpen(true)} aria-label="放大编辑提示词" title="放大编辑提示词"><Maximize2 className="size-3" /></button> : null}
+            </div>
+
+            {renderVideoModeWarning()}
             {renderPromptEditor(false)}
 
             {/* B区 参数区（对应 #98 决策2：默认折叠，手风琴展开）*/}
@@ -771,18 +843,19 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                     </button>
                     {paramsExpanded ? (
                         <div className="pt-1">
-                            <CanvasVideoPromptTools model={config.model} durationSeconds={config.videoSeconds} metadata={node.metadata} frameOptions={videoFrameOptions} onMetadataChange={(patch) => onConfigChange(node.id, patch)} />
+                            {renderVideoPromptTools()}
                         </div>
                     ) : null}
                 </div>
             ) : null}
 
-            {renderModelCapabilityWarning()}
+            {renderBillingQuoteError()}
             {renderComposerControls(false)}
 
             <Modal
                 className="canvas-prompt-editor-modal"
                 open={expandedPromptOpen}
+                afterOpenChange={setExpandedModalRendered}
                 title={null}
                 footer={null}
                 centered
@@ -798,78 +871,27 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                     body: { minHeight: 0, padding: 0 },
                 }}
             >
-                <div ref={expandedModalRef} className="relative flex min-h-0 flex-col" style={{ ...composerTokens, color: theme.node.text, maxHeight: `calc(100dvh - ${PROMPT_EDITOR_VIEWPORT_MARGIN}px)`, ...(expandedModalSize ? { height: expandedModalSize.height } : null) }}>
-                    <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto p-3">
-                        <div className="shrink-0 pr-8">{renderComposerHeader(true)}</div>
-                        {renderPromptEditor(true, Boolean(expandedModalSize))}
-                        {hasVideoPromptTools ? (
-                            <div className="canvas-node-composer-parameters shrink-0">
-                                <CanvasVideoPromptTools model={config.model} durationSeconds={config.videoSeconds} metadata={node.metadata} frameOptions={videoFrameOptions} onMetadataChange={(patch) => onConfigChange(node.id, patch)} />
-                            </div>
-                        ) : null}
-                        {renderModelCapabilityWarning()}
-                        <div className="shrink-0">{renderComposerControls(true)}</div>
+                {expandedPromptOpen || expandedModalRendered ? (
+                    <div ref={expandedModalRef} className="relative flex min-h-0 flex-col" style={{ ...composerTokens, color: theme.node.text, maxHeight: `calc(100dvh - ${PROMPT_EDITOR_VIEWPORT_MARGIN}px)`, ...(expandedModalSize ? { height: expandedModalSize.height } : null) }}>
+                        <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto p-3">
+                            <div className="shrink-0 pr-8">{renderComposerHeader(true)}</div>
+                            {renderPromptEditor(true, Boolean(expandedModalSize))}
+                            {hasVideoPromptTools ? (
+                                <div className="canvas-node-composer-parameters shrink-0">
+                                    {renderVideoPromptTools()}
+                                </div>
+                            ) : null}
+                            {renderVideoModeWarning()}
+                            {renderBillingQuoteError()}
+                            <div className="shrink-0">{renderComposerControls(true)}</div>
+                        </div>
+                        <PromptModalResizeHandle size={expandedModalSize} measure={measureExpandedModalSize} onResize={setExpandedModalSize} accent={theme.node.muted} />
                     </div>
-                    <PromptModalResizeHandle size={expandedModalSize} measure={measureExpandedModalSize} onResize={setExpandedModalSize} accent={theme.node.muted} />
-                </div>
+                ) : null}
             </Modal>
 
             </div>
         </CanvasPromptOptimizerDrawer>
-    );
-}
-
-function ReferenceToolsPopover({ canAutoMention, autoLinkEnabled, onAutoMention, onAutoLinkEnabledChange, accent, compact, label = "引用" }: { canAutoMention: boolean; autoLinkEnabled: boolean; onAutoMention: () => void; onAutoLinkEnabledChange: (enabled: boolean) => void; accent: string; compact: boolean; label?: string }) {
-    return (
-        <Popover
-            trigger="click"
-            placement="topRight"
-            rootClassName="canvas-reference-tools-popover"
-            arrow={false}
-            align={{ offset: [0, -8] }}
-            styles={{ root: { width: "min(280px, calc(100vw - 24px))" }, container: { width: "100%" }, content: { width: "100%", padding: 10 } }}
-            content={
-                <div className="space-y-1.5">
-                    <div>
-                        <div className="text-sm font-medium leading-5">智能引用</div>
-                        <div className="mt-0.5 text-xs leading-4 text-black/50 dark:text-white/50">输入素材序号或名称后按 Tab，可快速引用</div>
-                    </div>
-                    <div className="flex min-h-6 items-center justify-between gap-3">
-                        <div className="flex items-center gap-2 text-sm"><Link2 className="size-3.5" />AutoLink</div>
-                        <button
-                            type="button"
-                            role="switch"
-                            aria-checked={autoLinkEnabled}
-                            aria-label={autoLinkEnabled ? "关闭 AutoLink" : "开启 AutoLink"}
-                            className="canvas-reference-autolink-switch relative inline-flex h-5 w-9 items-center rounded-full border transition-colors"
-                            style={{ background: autoLinkEnabled ? `${accent}14` : "transparent", borderColor: autoLinkEnabled ? accent : "color-mix(in srgb, currentColor 22%, transparent)", color: accent }}
-                            onClick={() => onAutoLinkEnabledChange(!autoLinkEnabled)}
-                        >
-                            <span className={`size-3.5 rounded-full shadow-sm transition-transform ${autoLinkEnabled ? "translate-x-[18px]" : "translate-x-0.5"}`} style={{ background: autoLinkEnabled ? accent : "currentColor" }} />
-                        </button>
-                    </div>
-                    <button
-                        type="button"
-                        className="canvas-reference-tools-mention-button flex h-7 w-full items-center justify-center gap-1.5 rounded-md border px-2.5 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-45"
-                        style={{ borderColor: accent, color: accent, background: "transparent" }}
-                        disabled={!canAutoMention}
-                        onClick={onAutoMention}
-                    >
-                        <AtSign className="size-3.5" />一键引用全文
-                    </button>
-                </div>
-            }
-        >
-            <button
-                type="button"
-                className={`canvas-node-composer-settings-trigger canvas-node-composer-reference-tools-trigger inline-flex shrink-0 items-center gap-1 ${compact ? "is-compact" : ""}`}
-                aria-label={label === "引用" ? "打开智能引用" : label}
-                title={label === "引用" ? "智能引用" : label}
-            >
-                <SlidersHorizontal className="size-3.5" />
-                {!compact ? <span>{label}</span> : null}
-            </button>
-        </Popover>
     );
 }
 
@@ -887,460 +909,43 @@ function modeDisplayName(mode: CanvasNodeGenerationMode) {
     return "文本";
 }
 
-function referenceShelfHeading(references: CanvasResourceReference[]) {
-    const label = references.every((reference) => reference.kind === "image" || reference.kind === "character") ? "参考图" : "参考素材";
-    return `${label} · ${references.length}`;
-}
-
-function ConnectedReferenceShelf({
-    targetNodeId,
-    references,
-    theme,
-    onInsert,
-    onRemove,
-    onReorder,
-    onReplaceReference,
-    onReplaceReferenceFiles,
-}: {
-    targetNodeId?: string;
-    references: CanvasResourceReference[];
-    theme: CanvasTheme;
-    onInsert: (reference: CanvasResourceReference) => void;
-    onRemove?: (reference: CanvasResourceReference) => void;
-    onReorder?: (orderedNodeIds: string[]) => void;
-    onReplaceReference?: (oldReference: CanvasResourceReference, sourceNodeId: string) => void;
-    onReplaceReferenceFiles?: (oldReference: CanvasResourceReference, files: File[]) => void;
-}) {
-    const activeReferences = references.filter((item) => item.active && item.kind !== "skill");
-    const [imagePreview, setImagePreview] = useState<CanvasResourceReference | null>(null);
-    const [draggedReferenceId, setDraggedReferenceId] = useState<string | null>(null);
-    const [dropTargetReferenceId, setDropTargetReferenceId] = useState<string | null>(null);
-    if (!activeReferences.length) return null;
-
-    const moveReference = (sourceId: string, targetId: string) => {
-        if (!onReorder || sourceId === targetId) return;
-        const sourceIndex = activeReferences.findIndex((reference) => reference.nodeId === sourceId);
-        const targetIndex = activeReferences.findIndex((reference) => reference.nodeId === targetId);
-        if (sourceIndex < 0 || targetIndex < 0) return;
-        const ordered = [...activeReferences];
-        const [moved] = ordered.splice(sourceIndex, 1);
-        ordered.splice(targetIndex, 0, moved);
-        onReorder(ordered.map((reference) => reference.nodeId));
-    };
-
-    const moveReferenceByOffset = (sourceId: string, offset: -1 | 1) => {
-        const sourceIndex = activeReferences.findIndex((reference) => reference.nodeId === sourceId);
-        const target = activeReferences[sourceIndex + offset];
-        if (!target) return;
-        moveReference(sourceId, target.nodeId);
-    };
-
-    return (
-        <>
-            <div className="canvas-node-composer-references" role="group" aria-label="已连接素材">
-                <div className="canvas-node-composer-references-track thin-scrollbar">
-                    {activeReferences.map((reference, index) => {
-                        const canPreview = Boolean(reference.previewUrl) && (reference.kind === "image" || reference.kind === "character" || reference.kind === "video");
-                        const isDropTarget = dropTargetReferenceId === reference.id;
-                        return (
-                            <span
-                                key={reference.id}
-                                className="canvas-node-reference-chip relative"
-                                data-reference-chip="true"
-                                data-reference-id={reference.id}
-                                data-reference-node-id={reference.nodeId}
-                                data-reference-label={reference.label}
-                                data-reference-title={reference.title || reference.label}
-                                data-target-node-id={targetNodeId}
-                                data-dragging={draggedReferenceId === reference.nodeId || undefined}
-                                data-drop-target={isDropTarget ? "true" : undefined}
-                                style={{
-                                    boxShadow: isDropTarget ? "0 0 0 2px #3b82f6, 0 0 16px rgba(59, 130, 246, 0.45)" : undefined,
-                                }}
-                                onDragOver={(event) => {
-                                    if (draggedReferenceId) {
-                                        if (!onReorder) return;
-                                        event.preventDefault();
-                                        event.dataTransfer.dropEffect = "move";
-                                        return;
-                                    }
-                                    const hasImageNode = event.dataTransfer.types.includes("application/x-canvas-image-node-id");
-                                    const hasFiles = event.dataTransfer.types.includes("Files");
-                                    if (hasImageNode || hasFiles) {
-                                        event.preventDefault();
-                                        event.stopPropagation();
-                                        event.dataTransfer.dropEffect = "copy";
-                                        if (dropTargetReferenceId !== reference.id) {
-                                            setDropTargetReferenceId(reference.id);
-                                        }
-                                    }
-                                }}
-                                onDragLeave={(event) => {
-                                    if (!event.currentTarget.contains(event.relatedTarget as Node)) {
-                                        if (dropTargetReferenceId === reference.id) {
-                                            setDropTargetReferenceId(null);
-                                        }
-                                    }
-                                }}
-                                onDrop={(event) => {
-                                    if (dropTargetReferenceId === reference.id) {
-                                        setDropTargetReferenceId(null);
-                                    }
-                                    if (draggedReferenceId) {
-                                        event.preventDefault();
-                                        const sourceId = draggedReferenceId || event.dataTransfer.getData("text/plain");
-                                        setDraggedReferenceId(null);
-                                        moveReference(sourceId, reference.nodeId);
-                                        return;
-                                    }
-                                    const sourceNodeId = event.dataTransfer.getData("application/x-canvas-image-node-id");
-                                    if (sourceNodeId && sourceNodeId !== reference.nodeId && onReplaceReference) {
-                                        event.preventDefault();
-                                        event.stopPropagation();
-                                        onReplaceReference(reference, sourceNodeId);
-                                        return;
-                                    }
-                                    const files = Array.from(event.dataTransfer.files).filter((f) => f.type.startsWith("image/"));
-                                    if (files.length && onReplaceReferenceFiles) {
-                                        event.preventDefault();
-                                        event.stopPropagation();
-                                        onReplaceReferenceFiles(reference, files);
-                                        return;
-                                    }
-                                }}
-                            >
-                                {onReorder ? (
-                                    <button
-                                        type="button"
-                                        className="canvas-node-reference-drag-handle"
-                                        draggable
-                                        title={`拖动调整 ${reference.label} 的顺序`}
-                                        aria-label={`调整 ${reference.label} 的顺序；使用左右方向键也可移动`}
-                                        onDragStart={(event) => {
-                                            setDraggedReferenceId(reference.nodeId);
-                                            event.dataTransfer.effectAllowed = "move";
-                                            event.dataTransfer.setData("text/plain", reference.nodeId);
-                                        }}
-                                        onDragEnd={() => setDraggedReferenceId(null)}
-                                        onKeyDown={(event) => {
-                                            if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-                                            event.preventDefault();
-                                            moveReferenceByOffset(reference.nodeId, event.key === "ArrowLeft" ? -1 : 1);
-                                        }}
-                                        onPointerDown={(event) => event.stopPropagation()}
-                                    >
-                                        <GripVertical className="size-3" />
-                                    </button>
-                                ) : null}
-                                <span className="canvas-node-reference-order" aria-hidden>{index + 1}</span>
-                                <button
-                                    type="button"
-                                    className="canvas-node-reference-preview"
-                                    style={{ background: theme.toolbar.itemHover, color: theme.node.text, outlineColor: theme.node.activeStroke }}
-                                    title={canPreview ? `预览 ${reference.title}` : `插入 @${reference.label}`}
-                                    aria-label={canPreview ? `预览 ${reference.title}` : `插入 @${reference.label}`}
-                                    onClick={() => (canPreview ? setImagePreview(reference) : onInsert(reference))}
-                                >
-                                    <ReferenceThumbnail reference={reference} />
-                                    {canPreview ? (
-                                        <span className="canvas-node-reference-preview-hint" aria-hidden="true">
-                                            <Maximize2 className="size-3" />
-                                        </span>
-                                    ) : null}
-                                </button>
-                                <button
-                                    type="button"
-                                    className="canvas-node-reference-label"
-                                    title={`插入 @${reference.label}`}
-                                    onPointerDown={(event) => event.stopPropagation()}
-                                    onMouseDown={(event) => event.stopPropagation()}
-                                    onClickCapture={(event) => event.stopPropagation()}
-                                    onClick={() => onInsert(reference)}
-                                >
-                                    <span className="opacity-55">@</span>
-                                    <span className="truncate">{reference.label}</span>
-                                </button>
-                                {onRemove ? (
-                                    <button
-                                        type="button"
-                                        className="canvas-node-reference-remove"
-                                        style={{ background: theme.toolbar.panel, borderColor: theme.node.stroke, color: theme.node.text }}
-                                        title="移除参考并删除连接"
-                                        aria-label={`移除参考 ${reference.label}`}
-                                        onClick={(event) => {
-                                            event.stopPropagation();
-                                            onRemove(reference);
-                                        }}
-                                        onPointerDown={(event) => event.stopPropagation()}
-                                    >
-                                        <X className="size-3" />
-                                    </button>
-                                ) : null}
-                            </span>
-                        );
-                    })}
-                </div>
-            </div>
-            {imagePreview?.previewUrl ? (
-                <AntImage
-                    src={imagePreview.previewUrl}
-                    alt={imagePreview.title || imagePreview.label}
-                    style={{ display: "none" }}
-                    preview={{
-                        open: true,
-                        movable: true,
-                        minScale: 0.5,
-                        maxScale: 12,
-                        scaleStep: 0.25,
-                        onOpenChange: (open) => !open && setImagePreview(null),
-                    }}
-                />
-            ) : null}
-        </>
-    );
-}
-
-function ReferenceThumbnail({ reference }: { reference: CanvasResourceReference }) {
-    if (reference.kind === "image" && reference.previewUrl) return <img src={reference.previewUrl} alt="" className="size-full object-cover" />;
-    if (reference.kind === "video" && reference.previewUrl) return <img src={reference.previewUrl} alt="" className="size-full bg-black object-cover" loading="lazy" decoding="async" />;
-    if (reference.kind === "character" && reference.previewUrl) return <img src={reference.previewUrl} alt="" className="size-full bg-black/5 object-contain" />;
-
-    const Icon = reference.sourceType === CanvasNodeType.Drawing ? Pencil : reference.kind === "character" ? UserRound : reference.kind === "audio" ? Music2 : reference.kind === "video" ? Video : reference.kind === "image" ? ImageIcon : FileText;
-    return (
-        <span className="grid size-full place-items-center bg-black/10 text-current dark:bg-white/10">
-            <Icon className="size-3.5 opacity-75" />
-        </span>
-    );
-}
-
-function PromptResizeHandle({ height, min, max, onResize }: { height: number; min: number; max: number; onResize: (height: number) => void }) {
-    const dragRef = useRef<{ pointerId: number; startY: number; startHeight: number } | null>(null);
-
-    const finishResize = (event: ReactPointerEvent<HTMLButtonElement>) => {
-        if (dragRef.current?.pointerId !== event.pointerId) return;
-        if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-        dragRef.current = null;
-    };
-
-    const handleKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
-        if (event.key === "ArrowUp") {
-            event.preventDefault();
-            onResize(Math.max(min, height - 8));
-        } else if (event.key === "ArrowDown") {
-            event.preventDefault();
-            onResize(Math.min(max, height + 8));
-        } else if (event.key === "Home") {
-            event.preventDefault();
-            onResize(min);
-        } else if (event.key === "End") {
-            event.preventDefault();
-            onResize(max);
-        }
-    };
-
-    return (
-        <button
-            type="button"
-            className="canvas-node-composer-resize-handle"
-            role="separator"
-            aria-label="调整提示词输入高度"
-            aria-orientation="horizontal"
-            aria-valuemin={min}
-            aria-valuemax={max}
-            aria-valuenow={Math.round(height)}
-            onKeyDown={handleKeyDown}
-            onPointerDown={(event) => {
-                if (event.button !== 0) return;
-                event.preventDefault();
-                event.stopPropagation();
-                dragRef.current = { pointerId: event.pointerId, startY: event.clientY, startHeight: height };
-                event.currentTarget.setPointerCapture(event.pointerId);
-            }}
-            onPointerMove={(event) => {
-                const drag = dragRef.current;
-                if (!drag || drag.pointerId !== event.pointerId) return;
-                if (!event.currentTarget.hasPointerCapture(event.pointerId)) {
-                    dragRef.current = null;
-                    return;
-                }
-                if ((event.buttons & 1) === 0) {
-                    finishResize(event);
-                    return;
-                }
-                onResize(Math.min(max, Math.max(min, drag.startHeight + event.clientY - drag.startY)));
-            }}
-            onPointerUp={finishResize}
-            onPointerCancel={finishResize}
-            onLostPointerCapture={(event) => {
-                if (dragRef.current?.pointerId === event.pointerId) dragRef.current = null;
-            }}
-        >
-            <span aria-hidden />
-        </button>
-    );
-}
-
-function clampExpandedModalSize(size: { width: number; height: number }) {
-    return clampPromptEditorModalSize(size, { width: window.innerWidth, height: window.innerHeight });
-}
-
-function PromptModalResizeHandle({ size, measure, onResize, accent }: { size: { width: number; height: number } | null; measure: () => { width: number; height: number }; onResize: (size: { width: number; height: number }) => void; accent: string }) {
-    const dragRef = useRef<{ pointerId: number; startX: number; startY: number; width: number; height: number } | null>(null);
-
-    const finishResize = (event: ReactPointerEvent<HTMLButtonElement>) => {
-        if (dragRef.current?.pointerId !== event.pointerId) return;
-        if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-        dragRef.current = null;
-    };
-
-    const handleKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
-        const step = event.shiftKey ? 40 : 12;
-        const widthDelta = event.key === "ArrowLeft" ? -step : event.key === "ArrowRight" ? step : 0;
-        const heightDelta = event.key === "ArrowUp" ? -step : event.key === "ArrowDown" ? step : 0;
-        if (!widthDelta && !heightDelta) return;
-        event.preventDefault();
-        event.stopPropagation();
-        const base = size ?? measure();
-        onResize(clampExpandedModalSize({ width: base.width + widthDelta, height: base.height + heightDelta }));
-    };
-
-    return (
-        <button
-            type="button"
-            className="absolute bottom-1.5 right-1.5 z-10 grid size-5 cursor-nwse-resize touch-none place-items-center opacity-60 transition-opacity hover:opacity-100 focus-visible:outline focus-visible:outline-2"
-            aria-label="拖动调整窗口大小"
-            title="拖动调整窗口宽高，也可用方向键调整"
-            onKeyDown={handleKeyDown}
-            onPointerDown={(event) => {
-                if (event.button !== 0 || !event.isPrimary) return;
-                event.preventDefault();
-                event.stopPropagation();
-                const base = measure();
-                dragRef.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, ...base };
-                onResize(clampExpandedModalSize(base));
-                event.currentTarget.setPointerCapture(event.pointerId);
-            }}
-            onPointerMove={(event) => {
-                const drag = dragRef.current;
-                if (!drag || drag.pointerId !== event.pointerId) return;
-                if (!event.currentTarget.hasPointerCapture(event.pointerId)) {
-                    dragRef.current = null;
-                    return;
-                }
-                if ((event.buttons & 1) === 0) {
-                    finishResize(event);
-                    return;
-                }
-                event.stopPropagation();
-                // The modal stays centered, so each edge moves by half the size change.
-                onResize(clampExpandedModalSize({ width: drag.width + 2 * (event.clientX - drag.startX), height: drag.height + 2 * (event.clientY - drag.startY) }));
-            }}
-            onPointerUp={finishResize}
-            onPointerCancel={finishResize}
-            onLostPointerCapture={(event) => {
-                if (dragRef.current?.pointerId === event.pointerId) dragRef.current = null;
-            }}
-        >
-            <span aria-hidden className="absolute bottom-1 right-1 size-2 rounded-br border-b-2 border-r-2" style={{ borderColor: accent }} />
-        </button>
-    );
-}
-
-function promptEditorBounds(expanded: boolean, hasReferences: boolean) {
-    const shelfHeight = hasReferences ? PROMPT_REFERENCE_SHELF_HEIGHT : 0;
-    const min = (expanded ? PROMPT_EDITOR_EXPANDED_MIN_HEIGHT : PROMPT_EDITOR_MIN_HEIGHT) + shelfHeight;
-    const max = (expanded ? PROMPT_EDITOR_EXPANDED_LINE_HEIGHT * PROMPT_EDITOR_EXPANDED_MAX_LINES + PROMPT_EDITOR_EXPANDED_VERTICAL_PADDING : PROMPT_EDITOR_LINE_HEIGHT * PROMPT_EDITOR_MAX_LINES + PROMPT_EDITOR_VERTICAL_PADDING) + shelfHeight;
-    return { min, max };
-}
-
-function estimatePromptContentHeight(value: string, expanded: boolean) {
-    if (!value.trim()) return expanded ? PROMPT_EDITOR_EXPANDED_MIN_HEIGHT : PROMPT_EDITOR_MIN_HEIGHT;
-    const charsPerLine = expanded ? 34 : 38;
-    const lineCount = value.split("\n").reduce((total, line) => total + Math.max(1, Math.ceil(Array.from(line).length / charsPerLine)), 0);
-    const lineHeight = expanded ? PROMPT_EDITOR_EXPANDED_LINE_HEIGHT : PROMPT_EDITOR_LINE_HEIGHT;
-    const verticalPadding = expanded ? PROMPT_EDITOR_EXPANDED_VERTICAL_PADDING : PROMPT_EDITOR_VERTICAL_PADDING;
-    return Math.max(expanded ? PROMPT_EDITOR_EXPANDED_MIN_HEIGHT : PROMPT_EDITOR_MIN_HEIGHT, lineCount * lineHeight + verticalPadding);
-}
-
-function clampPromptHeight(height: number, bounds: { min: number; max: number }) {
-    return Math.min(bounds.max, Math.max(bounds.min, height));
-}
-
 function defaultMode(type: CanvasNodeData["type"]): CanvasNodeGenerationMode {
     return type === CanvasNodeType.Text || type === CanvasNodeType.Skill ? "text" : type === CanvasNodeType.Video ? "video" : type === CanvasNodeType.Audio ? "audio" : "image";
 }
 
-export function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: CanvasNodeGenerationMode, requirements: ModelRequirements): AiConfig {
-    const defaultModel = mode === "image" ? globalConfig.imageModel : mode === "video" ? globalConfig.videoModel : mode === "audio" ? globalConfig.audioModel : globalConfig.textModel;
-    const fallbackModel = mode === "image" ? defaultConfig.imageModel : mode === "video" ? defaultConfig.videoModel : mode === "audio" ? defaultConfig.audioModel : defaultConfig.textModel;
-    // 平台内置「功能 → 模型」作为默认值；节点上显式选过的模型优先。
-    const preferredModel = resolveCanvasGenerationModel(globalConfig, node.metadata?.model, mode) || canvasFeatureModelForMode(mode) || resolveCanvasGenerationModel(globalConfig, defaultModel, mode) || fallbackModel;
-    const model = resolveCompatibleModel(globalConfig, preferredModel, mode === "image" ? { ...requirements, imageSize: node.metadata?.size || globalConfig.size || defaultConfig.size } : requirements) || preferredModel;
-    const defaults = resolveModelGenerationDefaults(
-        globalConfig,
-        model,
-        mode === "image" ? "image" : mode === "video" ? "video" : undefined,
-        mode === "image"
-            ? {
-                  size: node.metadata?.size,
-                  quality: node.metadata?.quality,
-                  transparentBackground: node.metadata?.transparentBackground,
-                  videoWatermark: node.metadata?.watermark,
-                  count: String(node.metadata?.count || globalConfig.canvasImageCount || globalConfig.count || defaultConfig.count),
-              }
-            : {
-                  size: node.metadata?.size,
-                  videoSeconds: node.metadata?.seconds,
-                  vquality: node.metadata?.vquality,
-                  videoGenerateAudio: node.metadata?.generateAudio,
-                  videoWatermark: node.metadata?.watermark,
-              },
-        {
-            size: globalConfig.size || defaultConfig.size,
-            quality: globalConfig.quality || defaultConfig.quality,
-            transparentBackground: globalConfig.transparentBackground || defaultConfig.transparentBackground,
-            count: String(globalConfig.canvasImageCount || globalConfig.count || defaultConfig.count),
-            videoSeconds: globalConfig.videoSeconds || defaultConfig.videoSeconds,
-            vquality: globalConfig.vquality || defaultConfig.vquality,
-            videoGenerateAudio: globalConfig.videoGenerateAudio || defaultConfig.videoGenerateAudio,
-            videoWatermark: globalConfig.videoWatermark || defaultConfig.videoWatermark,
-        },
-    );
-    return {
-        ...globalConfig,
-        model,
-        quality: defaults.quality ?? globalConfig.quality ?? defaultConfig.quality,
-        size: defaults.size ?? globalConfig.size ?? defaultConfig.size,
-        transparentBackground: defaults.transparentBackground ?? "false",
-        videoSeconds: defaults.videoSeconds || normalizeVideoDuration(globalConfig.videoSeconds || defaultConfig.videoSeconds),
-        vquality: defaults.vquality ?? normalizeVideoResolution(globalConfig.vquality || defaultConfig.vquality),
-        videoGenerateAudio: defaults.videoGenerateAudio ?? globalConfig.videoGenerateAudio ?? defaultConfig.videoGenerateAudio,
-        videoWatermark: defaults.videoWatermark ?? globalConfig.videoWatermark ?? defaultConfig.videoWatermark,
-        ...resolveAudioSpeechSettings(model, {
-            audioVoice: node.metadata?.audioVoice || globalConfig.audioVoice,
-            audioFormat: node.metadata?.audioFormat || globalConfig.audioFormat,
-            audioSampleRate: node.metadata?.audioSampleRate || globalConfig.audioSampleRate,
-            audioSpeed: node.metadata?.audioSpeed || globalConfig.audioSpeed,
-            audioPitch: node.metadata?.audioPitch || globalConfig.audioPitch,
-            audioVolume: node.metadata?.audioVolume || globalConfig.audioVolume,
-            audioInstructions: node.metadata?.audioInstructions || globalConfig.audioInstructions,
-            audioLyrics: node.metadata?.audioLyrics || globalConfig.audioLyrics,
-        }),
-        count: defaults.count ?? String(node.metadata?.count || (mode === "image" ? globalConfig.canvasImageCount || globalConfig.count : globalConfig.count) || defaultConfig.count),
-    };
-}
+export { buildNodeConfig };
 
 function promptPlaceholder(mode: CanvasNodeGenerationMode, hasImageContent: boolean, hasTextContent: boolean) {
-    if (mode === "video") return "描述你想要生成的画面内容，@引用素材";
+    if (mode === "video") return "描述你想要生成的画面内容，可用 @ 引用图片、视频、音频或角色";
     if (mode === "audio") return "描述你想要的音频效果，可用 @ 引用音频";
     if (mode === "image") return hasImageContent ? "输入新提示词，重新生成当前图片" : "描述要生成的图片内容";
     return hasTextContent ? "请输入你想要将本段文本修改成什么" : "请输入你想要生成的文本内容";
+}
+
+function imagePreferencePatch(key: keyof AiConfig, value: string) {
+    if (key === "size") return { ratio: value };
+    if (key === "quality") return { quality: value };
+    if (key === "count") return { count: String(Number(value) || 1) };
+    if (key === "transparentBackground") return { transparentBackground: value };
+    return {};
+}
+
+function videoPreferencePatch(key: keyof AiConfig, value: string) {
+    if (key === "size") return { ratio: value };
+    if (key === "videoSeconds") return { seconds: value };
+    if (key === "vquality") return { videoQuality: value };
+    if (key === "videoGenerateAudio") return { generateAudio: value };
+    if (key === "videoWatermark") return { watermark: value };
+    if (key === "videoDraft") return { draft: value };
+    return {};
 }
 
 function videoConfigPatch(key: keyof AiConfig, value: string) {
     if (key === "videoSeconds") return { seconds: value };
     if (key === "videoGenerateAudio") return { generateAudio: value };
     if (key === "videoWatermark") return { watermark: value };
+    if (key === "videoDraft") return { draft: value };
+    if (key === "videoReturnLastFrame") return { returnLastFrame: value };
     if (key === "videoArkPrivateAssetUpload") return { arkPrivateAssetUpload: value };
     return { [key]: value };
 }
@@ -1348,10 +953,8 @@ function videoConfigPatch(key: keyof AiConfig, value: string) {
 function audioConfigPatch(key: CanvasAudioSettingKey, value: string) {
     if (key === "audioVoice") return { audioVoice: value };
     if (key === "audioFormat") return { audioFormat: value };
-    if (key === "audioSampleRate") return { audioSampleRate: value };
     if (key === "audioSpeed") return { audioSpeed: value };
     if (key === "audioPitch") return { audioPitch: value };
     if (key === "audioVolume") return { audioVolume: value };
-    if (key === "audioLyrics") return { audioLyrics: value };
     return { audioInstructions: value };
 }

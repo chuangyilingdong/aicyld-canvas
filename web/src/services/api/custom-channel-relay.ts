@@ -1,6 +1,8 @@
 import { isBeefAPIEndpoint } from "@/lib/beefapi-video-contracts";
+import { MANAGED_BEEFAPI_CREDENTIAL_REF } from "@/lib/channel-credential";
+import { isSystemProxyBaseUrl } from "@/lib/channel-url";
 import { apiBaseURL } from "@/services/api/request";
-import { isSystemProxyBaseUrl, MANAGED_BEEFAPI_CREDENTIAL_REF, type AiConfig, type ChannelHeader } from "@/stores/use-config-store";
+import type { AiConfig, ChannelHeader } from "@/stores/use-config-store";
 
 type RelayConfig = Pick<AiConfig, "baseUrl" | "apiKey" | "apiFormat"> & { headers?: ChannelHeader[]; credentialRef?: string };
 

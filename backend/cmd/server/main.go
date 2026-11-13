@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -33,6 +34,10 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	disableWorkers, err := envBool("CANVAS_DISABLE_WORKERS", false)
+	if err != nil {
+		return err
+	}
 	corsMiddleware, err := cors()
 	if err != nil {
 		return err
@@ -41,13 +46,15 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	listenAddr := env("CANVAS_BACKEND_ADDR", bootstrap.DefaultServerListenAddr)
 	runtime, err := bootstrap.Open(ctx, bootstrap.Config{
 		Profile:          bootstrap.ProfileServer,
 		DataDir:          dataDir,
 		DatabaseDriver:   env("CANVAS_DATABASE_DRIVER", "sqlite"),
 		DatabaseURL:      os.Getenv("DATABASE_URL"),
-		ListenAddr:       env("CANVAS_BACKEND_ADDR", ":8080"),
+		ListenAddr:       listenAddr,
 		AutoMigrate:      autoMigrate,
+		DisableWorkers:   disableWorkers,
 		ShutdownTimeout:  workerTimeout,
 		RouterMiddleware: []gin.HandlerFunc{corsMiddleware},
 	})
@@ -58,7 +65,7 @@ func run(ctx context.Context) error {
 		_ = runtime.Close(context.Background())
 		return err
 	}
-	log.Printf("backend listening on %s", env("CANVAS_BACKEND_ADDR", ":8080"))
+	logServerListen(listenAddr)
 
 	var serveFailure error
 	select {
@@ -76,6 +83,23 @@ func run(ctx context.Context) error {
 	}
 	log.Printf("backend stopped gracefully")
 	return nil
+}
+
+func logServerListen(addr string) {
+	if listenAddrBeyondLoopback(addr) {
+		log.Printf("backend listening on %s (reachable beyond loopback; server profile has no launch token)", addr)
+		return
+	}
+	log.Printf("backend listening on %s", addr)
+}
+
+func listenAddrBeyondLoopback(addr string) bool {
+	host, _, err := net.SplitHostPort(strings.TrimSpace(addr))
+	if err != nil || host == "" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip == nil || !ip.IsLoopback()
 }
 
 func env(key string, fallback string) string {
@@ -110,7 +134,7 @@ func envDuration(key string, fallback time.Duration) (time.Duration, error) {
 	return parsed, nil
 }
 
-const corsAllowedHeaders = "Accept, Content-Type, Authorization, X-Requested-With, X-Canvas-Scene, X-Idempotency-Key, X-Canvas-Trace-ID, X-Canvas-Upstream-URL, X-Canvas-Upstream-Format, X-Canvas-Upstream-Base-URL"
+const corsAllowedHeaders = "Accept, Content-Type, Authorization, X-Requested-With, X-Canvas-Scene, X-Idempotency-Key, X-Canvas-Trace-ID, Traceparent, X-Canvas-Upstream-URL, X-Canvas-Upstream-Format, X-Canvas-Upstream-Base-URL"
 
 const corsAllowedMethods = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
 

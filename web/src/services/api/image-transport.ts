@@ -1,7 +1,8 @@
-import { buildApiUrl, isSystemProxyBaseUrl, resolveBackendApiUrl, type AiConfig } from "@/stores/use-config-store";
+import { buildApiUrl, isSystemProxyBaseUrl, resolveBackendApiUrl } from "@/lib/channel-url";
 import { createClientId } from "@/lib/client-id";
 import { createChannelTransport } from "@/services/api/channel-transport";
 import type { GeminiPayload, ImageApiResponse, RequestOptions } from "@/services/api/image-contracts";
+import type { AiConfig } from "@/stores/use-config-store";
 
 export function aiApiUrl(config: Pick<AiConfig, "baseUrl">, path: string) {
     return buildApiUrl(config.baseUrl, path);

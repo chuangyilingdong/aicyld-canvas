@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { AlertCircle, ImageUp, FileText, Film, Music2 } from "lucide-react";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 import { uploadVeilOpacity } from "@/lib/canvas/canvas-file-upload";
@@ -7,8 +7,18 @@ import { useCanvasNodeActions } from "./canvas-node-action-context";
 
 export function CanvasFileUploadContent({ node, theme, reduceMotion = false }: { node: CanvasNodeData; theme: CanvasTheme; reduceMotion?: boolean }) {
     const { upload } = useCanvasNodeActions();
-    const failed = node.metadata?.fileUpload === "error";
+    const [stalled, setStalled] = useState(false);
     const percent = node.metadata?.fileUploadProgress;
+    const canStillSave = Boolean(node.metadata?.content || node.metadata?.storageKey);
+    useEffect(() => {
+        if (node.metadata?.fileUpload !== "uploading" || percent !== 100 || canStillSave) {
+            setStalled(false);
+            return;
+        }
+        const timer = window.setTimeout(() => setStalled(true), 30_000);
+        return () => window.clearTimeout(timer);
+    }, [canStillSave, node.metadata?.fileUpload, percent]);
+    const failed = node.metadata?.fileUpload === "error" || stalled;
     const label = node.type === CanvasNodeType.Image ? "图片" : node.type === CanvasNodeType.Video ? "视频" : node.type === CanvasNodeType.Audio ? "音频" : "文本";
     const Icon = failed ? AlertCircle : node.type === CanvasNodeType.Video ? Film : node.type === CanvasNodeType.Audio ? Music2 : node.type === CanvasNodeType.Text ? FileText : ImageUp;
     return (
@@ -18,7 +28,7 @@ export function CanvasFileUploadContent({ node, theme, reduceMotion = false }: {
             <div className="canvas-file-upload-copy" role="status" aria-live="polite" aria-busy={!failed}>
                 <Icon className="size-5" aria-hidden="true" />
                 <span className="canvas-file-upload-label">{failed ? `${label}上传未完成` : `正在上传${label}`}</span>
-                <span className="canvas-file-upload-detail">{failed ? node.metadata?.errorDetails || "请重新选择文件上传" : percent === 100 ? "文件已传输，正在保存与处理" : percent !== undefined ? `已上传 ${percent}%` : "正在准备文件"}</span>
+                <span className="canvas-file-upload-detail">{failed ? node.metadata?.errorDetails || (stalled ? "保存超时，请重新选择文件" : "请重新选择文件上传") : percent === 100 ? "文件已传输，正在保存与处理" : percent !== undefined ? `已上传 ${percent}%` : "正在准备文件"}</span>
                 {!failed && <span role="progressbar" aria-label={`${label}上传进度`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent} className="sr-only" />}
                 {failed && upload ? <button type="button" data-canvas-no-zoom className="canvas-file-upload-retry" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); upload(node); }}>重新选择文件</button> : null}
             </div>

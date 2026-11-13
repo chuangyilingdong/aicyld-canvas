@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily AICYLD Canvas OSS backup retention
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+RandomizedDelaySec=10min
+Persistent=true
+Unit=aicyld-canvas-oss-retention.service
+
+[Install]
+WantedBy=timers.target
+

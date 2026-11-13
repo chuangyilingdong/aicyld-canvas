@@ -27,29 +27,48 @@ export type DesktopUpdateState = {
 };
 
 export type DesktopRuntimeBinding = {
+    ConsumeSkillLink?: () => Promise<string>;
+    OpenSkillMarketURL?: (url: string) => Promise<void>;
+	DepthComponentStatus?: (refresh: boolean) => Promise<DepthComponentState>;
+	DownloadDepthComponents?: () => Promise<DepthComponentState>;
+	PauseDepthComponentDownload?: () => Promise<DepthComponentState>;
 	ReferenceStorageSettings?: () => Promise<ReferenceStorageConfig>;
 	SaveReferenceStorage?: (config: ReferenceStorageConfig & { secretAccessKey: string }) => Promise<ReferenceStorageConfig>;
 	UploadReferenceMedia?: (ids: string[]) => Promise<Record<string,string>>;
+	ReferenceUploadStatus?: () => Promise<{ label: string; phase: "preparing" | "transferring" | "processing"; loadedBytes: number; totalBytes: number; bytesPerSecond: number; startedAt: number; updatedAt: number }>;
+	TestReferenceStorage?: () => Promise<void>;
 	StorageSettings?: () => Promise<DesktopStorageUsage>;
 	ChooseStorageDirectory?: () => Promise<string>;
 	MigrateStorage?: (target: string) => Promise<DesktopStorageUsage>;
+	StorageMigrationStatus?: () => Promise<DesktopMigrationProgress>;
 	CleanupPreviousStorage?: () => Promise<DesktopStorageUsage>;
     RuntimeConfig: () => Promise<DesktopRuntimeConfig>;
     SaveOwnedMedia?: (fileName: string, resourceID: string) => Promise<boolean>;
     SaveOwnedArtifact?: (fileName: string, data: string) => Promise<boolean>;
+    SaveOwnedArchive?: (fileName: string, entries: Array<{ name: string; resourceId?: string; data?: string }>) => Promise<boolean>;
     UpdateStatus?: () => Promise<DesktopUpdateState>;
+	OpenUpdateLogDirectory?: () => Promise<void>;
     CheckForUpdate?: () => Promise<DesktopUpdateState>;
     DownloadUpdate?: () => Promise<DesktopUpdateState>;
     InstallUpdate?: () => Promise<void>;
-    OpenUpdateLogDirectory?: () => Promise<void>;
     ConfirmUpdateStartup?: () => Promise<void>;
     OpenBeefTVX?: () => Promise<void>;
-    OpenSkillMarketURL?: (url: string) => Promise<void>;
     OpenBeefTVWebsite?: () => Promise<void>;
     OpenBeefTVGitHub?: () => Promise<void>;
 };
 
 export type DesktopStorageUsage = { dataDir: string; usedBytes: number; freeBytes: number; previousDir?: string; previousBytes?: number };
+export type DesktopMigrationProgress = { phase: "preparing" | "transferring" | "processing" | "done"; detail: string; loadedBytes: number; totalBytes: number; completedFiles: number; totalFiles: number };
+export type DepthComponentState = {
+    status: "not_installed" | "downloading" | "installing" | "ready" | "paused" | "error" | "unsupported";
+    variant: string;
+    dataDir: string;
+    downloadBytes: number;
+    requiredBytes: number;
+    freeBytes: number;
+    downloadedBytes: number;
+    error?: string;
+};
 export type ReferenceStorageConfig = { enabled: boolean; endpoint: string; bucket: string; region: string; accessKeyId: string; publicBaseURL: string; hasSecret: boolean };
 
 declare global {

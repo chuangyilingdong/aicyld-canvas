@@ -5,17 +5,16 @@ import { useEffect, useState } from "react";
 import { aceternityMotion } from "@/lib/aceternity-motion";
 import { formatTaskKind, generationTaskShowsProgress, generationTaskStageLabel, generationTaskStatusLabel } from "@/lib/generation-task-display";
 import { canvasThemes } from "@/lib/canvas-theme";
-import type { BillingGenerationTask } from "@/services/api/task-billing";
+import type { GenerationTask } from "@/services/api/task-center";
 import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
 
 // 顶栏是绝对定位浮层，面板必须按调用方传入的 topInset 避让；专注模式隐藏顶栏时传小间距。
-export function CanvasActiveTaskPanel({ tasks, align = "right", topInset = "var(--canvas-topbar-offset)", onCancelTask }: { tasks: BillingGenerationTask[]; align?: "left" | "right"; topInset?: string; onCancelTask?: (task: BillingGenerationTask) => void }) {
+export function CanvasActiveTaskPanel({ tasks, align = "right", topInset = "var(--canvas-topbar-offset)", onCancelTask }: { tasks: GenerationTask[]; align?: "left" | "right"; topInset?: string; onCancelTask?: (task: GenerationTask) => void }) {
     const theme = canvasThemes[useActiveTheme()];
     const reducedMotion = useReducedMotion();
     const [now, setNow] = useState(() => Date.now());
     const [open, setOpen] = useState(false);
     const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
-    const activeCount = tasks.filter((task) => task.status === "queued" || task.status === "running").length;
 
     useEffect(() => {
         if (!tasks.length) return;
@@ -65,12 +64,12 @@ export function CanvasActiveTaskPanel({ tasks, align = "right", topInset = "var(
                                 <span className="min-w-0">
                                     <span className="block text-sm font-semibold leading-5">生成任务</span>
                                     <span className="block truncate text-[var(--fs-label)]" style={{ color: theme.node.muted }} aria-live="polite">
-                                        {activeCount > 0 ? `当前画布 · ${activeCount} 个进行中` : `当前画布 · ${tasks.length} 个最近任务`}
+                                        当前画布 · {tasks.length} 个进行中
                                     </span>
                                 </span>
                             </span>
                             <span className="flex shrink-0 items-center gap-2" style={{ color: theme.accent.primary }}>
-                                {activeCount > 0 ? <LoaderCircle className="size-4 animate-spin opacity-70 motion-reduce:animate-none" /> : <Clock3 className="size-4 opacity-70" />}
+                                <LoaderCircle className="size-4 animate-spin opacity-70 motion-reduce:animate-none" />
                                 {open ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
                             </span>
                         </motion.button>
@@ -117,12 +116,12 @@ function ActiveTaskCard({
     onCancelTask,
     reducedMotion,
 }: {
-    task: BillingGenerationTask;
+    task: GenerationTask;
     now: number;
     theme: (typeof canvasThemes)[keyof typeof canvasThemes];
     expanded: boolean;
     onToggle: () => void;
-    onCancelTask?: (task: BillingGenerationTask) => void;
+    onCancelTask?: (task: GenerationTask) => void;
     reducedMotion: boolean;
 }) {
     const showsProgress = generationTaskShowsProgress(task);
@@ -131,6 +130,19 @@ function ActiveTaskCard({
     const elapsedMs = Math.max(0, now - parseTime(startedAt));
     const durationLabel = `${task.status === "queued" ? "已等待" : "已运行"} ${formatDuration(elapsedMs)}`;
     const statusTone = task.status === "running" ? theme.accent.primary : theme.node.muted;
+    const billingLabel = !task.billingStatus
+        ? ""
+        : task.billingStatus === "reserved"
+            ? `已预扣${typeof task.billingPoints === "number" && task.billingPoints > 0 ? ` ${task.billingPoints}` : ""} 积分`
+            : task.billingStatus === "settled"
+                ? `已结算${typeof task.billingPoints === "number" ? ` ${task.billingPoints}` : ""} 积分`
+                : task.billingStatus === "refunded"
+                    ? "积分已退回"
+                    : task.billingStatus === "refund_pending"
+                        ? "退款处理中"
+                        : task.billingStatus === "pending_reconcile"
+                            ? "积分待对账"
+                            : "计费状态处理中";
     const transition = reducedMotion ? { duration: 0 } : aceternityMotion.spring.panel;
 
     return (
@@ -212,11 +224,11 @@ function ActiveTaskCard({
                                 {generationTaskStageLabel(task)}
                             </span>
                         </div>
-                        {task.billingPoints ? (
+                        {billingLabel ? (
                             <div className="mt-2 flex items-center justify-between gap-2">
                                 <span>积分</span>
-                                <span className="text-right" style={{ color: task.billingStatus === "refunded" ? theme.accent.danger : theme.node.text }}>
-                                    {taskBillingStatusLabel(task.billingStatus)} {task.billingPoints} 积分
+                                <span className="text-right tabular-nums" style={{ color: task.billingStatus === "pending_reconcile" || task.billingStatus === "refund_pending" ? theme.accent.danger : theme.node.text }}>
+                                    {billingLabel}
                                 </span>
                             </div>
                         ) : null}
@@ -246,14 +258,6 @@ function parseTime(value?: string) {
     if (!value) return Date.now();
     const time = new Date(value).getTime();
     return Number.isFinite(time) ? time : Date.now();
-}
-
-function taskBillingStatusLabel(status?: string) {
-    if (status === "refunded") return "已退回";
-    if (status === "settled") return "已结算";
-    if (status === "refund_pending") return "退款处理中";
-    if (status === "pending_reconcile") return "待对账";
-    return "已预扣";
 }
 
 function formatDuration(value: number) {

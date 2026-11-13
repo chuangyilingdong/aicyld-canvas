@@ -10,8 +10,11 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
+	"net/url"
 	"strings"
 	"time"
+
+	"infinite-canvas/backend/internal/outbound"
 )
 
 // Client executes RunningHub workflow create/poll/download through typed ports.
@@ -308,12 +311,12 @@ func (c *Client) PollVideo(ctx context.Context, config Config, root string, task
 		return nil, errors.New("工作流缺少视频轮询端口")
 	}
 	return c.Poller.Poll(ctx, taskID, policy, func(ctx context.Context) (PollOutcome, error) {
-		outputs, stage, err := c.queryVideoOutputs(ctx, config, root, taskID)
+		urls, stage, err := c.queryVideoOutputs(ctx, config, root, taskID)
 		if err != nil {
 			return PollOutcome{}, err
 		}
 		if stage == "succeeded" {
-			result, err := c.downloadOutputs(ctx, outputs, taskID, &policy, &config, root)
+			result, err := c.downloadOutputs(ctx, urls, taskID, &policy, &config, root)
 			if err != nil {
 				return PollOutcome{}, err
 			}
@@ -328,6 +331,22 @@ func (c *Client) PollVideo(ctx context.Context, config Config, root string, task
 		c.updateReceipt(ctx, taskID, stage, &next)
 		return PollOutcome{}, nil
 	})
+}
+
+// QueryVideo checks an existing workflow once, then retrieves its result. It
+// never enters the workflow/app creation or schema discovery paths.
+func (c *Client) QueryVideo(ctx context.Context, config Config, root, taskID string) (map[string]interface{}, string, error) {
+	c = c.prepared()
+	if err := c.requireActor(ctx, config.InterfaceType); err != nil {
+		return nil, "", err
+	}
+	urls, stage, err := c.queryVideoOutputs(ctx, config, root, taskID)
+	if err != nil || stage != "succeeded" {
+		return nil, stage, err
+	}
+	policy := defaultVideoPolicy()
+	result, err := c.downloadOutputs(ctx, urls, taskID, &policy, &config, root)
+	return result, stage, err
 }
 
 func (c *Client) queryVideoOutputs(ctx context.Context, config Config, root, taskID string) ([]runningHubOutput, string, error) {
@@ -371,10 +390,10 @@ func (c *Client) queryVideoOutputs(ctx context.Context, config Config, root, tas
 	if code == 813 {
 		return nil, "queued", nil
 	}
-	if code != 804 {
-		return nil, "pending", nil
+	if code == 804 {
+		return nil, "running", nil
 	}
-	return nil, "running", nil
+	return nil, "pending", nil
 }
 
 func (c *Client) pollLegacy(ctx context.Context, config Config, root string, taskID string) (map[string]interface{}, error) {
@@ -440,38 +459,35 @@ func (c *Client) downloadOutputs(ctx context.Context, outputs []runningHubOutput
 		var data []byte
 		var mimeType string
 		var err error
-		firstAttempt := true
-		download := func(ctx context.Context) ([]byte, string, error) {
-			target := rawURL
-			if !firstAttempt && config != nil && strings.TrimSpace(root) != "" && strings.TrimSpace(taskID) != "" {
-				fresh, stage, queryErr := c.queryVideoOutputs(ctx, *config, root, taskID)
-				if queryErr != nil {
-					return nil, "", queryErr
-				}
-				if stage != "succeeded" {
-					return nil, "", StatusError{StatusCode: http.StatusServiceUnavailable, Body: `{"error":{"code":"video_delivery_pending"}}`}
-				}
-				matched, matchErr := matchRunningHubOutput(output, fresh)
-				if matchErr != nil {
-					return nil, "", matchErr
-				}
-				target = matched.URL
-			}
-			firstAttempt = false
-			return c.readBinaryURL(ctx, target)
-		}
+		source := c.videoSource(config, root, rawURL)
 		if policy == nil {
-			data, mimeType, err = download(ctx)
+			data, mimeType, err = source.Read(ctx)
 		} else {
 			if c.Poller == nil {
 				return nil, errors.New("工作流缺少视频轮询端口")
 			}
-			data, mimeType, err = c.Poller.Download(ctx, taskID, *policy, download)
+			var renew func(context.Context) (BinarySource, error)
+			if config != nil && taskID != "" {
+				renew = func(ctx context.Context) (BinarySource, error) {
+					fresh, stage, err := c.queryVideoOutputs(ctx, *config, root, taskID)
+					if err != nil {
+						return BinarySource{}, err
+					}
+					if stage != "succeeded" {
+						return BinarySource{}, StatusError{StatusCode: http.StatusServiceUnavailable, Body: `{"error":{"code":"video_delivery_pending"}}`}
+					}
+					matched, err := matchRunningHubOutput(output, fresh)
+					if err != nil {
+						return BinarySource{}, err
+					}
+					return c.videoSource(config, root, matched.URL), nil
+				}
+			}
+			data, mimeType, err = c.Poller.Download(ctx, taskID, *policy, source, renew)
 		}
 		if err != nil {
 			return nil, fmt.Errorf("下载 RunningHub 产物失败：%w", err)
 		}
-		mimeType = runningHubOutputMimeType(rawURL, mimeType)
 		item := workflowOutputValue(mimeType, data)
 		if item == nil {
 			continue
@@ -504,15 +520,43 @@ func (c *Client) downloadOutputs(ctx context.Context, outputs []runningHubOutput
 	return result, nil
 }
 
-func (c *Client) readBinaryURL(ctx context.Context, rawURL string) ([]byte, string, error) {
-	data, mimeType, err := c.execute(ctx, Request{Kind: "download", Method: http.MethodGet, URL: rawURL})
-	if err != nil {
-		return nil, "", err
+func (c *Client) videoSource(config *Config, root, rawURL string) BinarySource {
+	var values []string
+	if config != nil {
+		values = append(values, runningHubAPIKey(*config))
+		for _, header := range config.Headers {
+			values = append(values, header.Value)
+			if strings.EqualFold(header.Name, "Cookie") {
+				req := &http.Request{Header: http.Header{"Cookie": []string{header.Value}}}
+				for _, cookie := range req.Cookies() {
+					values = append(values, cookie.Value)
+				}
+			}
+			if strings.EqualFold(header.Name, "Authorization") && strings.HasPrefix(strings.ToLower(header.Value), "bearer ") {
+				values = append(values, strings.TrimSpace(header.Value[len("Bearer "):]))
+			}
+		}
 	}
-	if detected := http.DetectContentType(data); strings.HasPrefix(detected, "image/") || strings.HasPrefix(detected, "video/") || strings.HasPrefix(detected, "audio/") {
-		mimeType = detected
-	}
-	return data, runningHubOutputMimeType(rawURL, mimeType), nil
+	return BinarySource{ProviderURL: root, URL: rawURL, CredentialValues: values, Read: func(ctx context.Context) ([]byte, string, error) {
+		if strings.HasPrefix(rawURL, "data:") {
+			mimeType, data, err := decodeDataURL(rawURL)
+			return data, mimeType, err
+		}
+		var headers []outbound.OutboundHeader
+		provider, providerErr := url.Parse(root)
+		media, mediaErr := url.Parse(rawURL)
+		if config != nil && providerErr == nil && mediaErr == nil && strings.EqualFold(provider.Scheme, media.Scheme) && strings.EqualFold(provider.Host, media.Host) {
+			headers = config.Headers
+		}
+		data, mimeType, err := c.execute(ctx, Request{Kind: "download", Method: http.MethodGet, URL: rawURL, Headers: headers})
+		if err != nil {
+			return nil, "", err
+		}
+		if detected := http.DetectContentType(data); strings.HasPrefix(detected, "image/") || strings.HasPrefix(detected, "video/") || strings.HasPrefix(detected, "audio/") {
+			mimeType = detected
+		}
+		return data, runningHubOutputMimeType(rawURL, mimeType), nil
+	}}
 }
 
 func (c *Client) execute(ctx context.Context, req Request) ([]byte, string, error) {

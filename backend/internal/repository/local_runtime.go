@@ -327,11 +327,22 @@ func (r *Repository) CreateTaskWithActiveLimit(task *model.Task, limit int) erro
 			}
 			return err
 		}
+		if err := updateTaskBillingTx(tx, task); err != nil {
+			return err
+		}
 		return nil
 	})
 }
 
 func (r *Repository) RetryTask(userID string, prepared *model.Task, limit int) (*model.Task, error) {
+	return r.retryTask(userID, prepared, limit, nil)
+}
+
+func (r *Repository) RetryTaskWithExpectedInput(userID string, prepared *model.Task, limit int, expectedInputJSON string) (*model.Task, error) {
+	return r.retryTask(userID, prepared, limit, &expectedInputJSON)
+}
+
+func (r *Repository) retryTask(userID string, prepared *model.Task, limit int, expectedInputJSON *string) (*model.Task, error) {
 	var task model.Task
 	err := withImmediateTransaction(r.db, func(tx *gorm.DB) error {
 		if err := RequireTaskScopeActiveTx(tx, userID, prepared.ProjectID); err != nil {
@@ -348,19 +359,27 @@ func (r *Repository) RetryTask(userID string, prepared *model.Task, limit int) (
 			return err
 		}
 		updates := map[string]any{
-			"status": model.TaskStatusQueued, "stage": "等待队列调度", "progress": 5, "error": "", "failure_diagnostics": nil, "result_json": "", "text_draft": "", "started_at": nil, "completed_at": nil,
+			"status": model.TaskStatusQueued, "stage": "等待队列调度", "progress": 5, "error": "", "failure_diagnostics": nil, "recovery_outcome": nil, "beef_usage_state": nil, "beef_billing_state": nil, "beef_reconcile_deadline": nil, "image_job_id": "", "result_json": "", "text_draft": "", "started_at": nil, "completed_at": nil,
 			"provider_request_id": "", "poll_stage": "", "next_poll_at": nil, "provider_cancel_status": "", "provider_cancel_error": "", "provider_cancel_attempts": 0,
 			"provider_cancel_requested_at": nil, "provider_cancelled_at": nil, "provider_cancel_next_check_at": nil, "route_run": gorm.Expr("route_run + ?", 1),
 			"logical_model_revision_id": prepared.LogicalModelRevisionID, "route_id": prepared.RouteID, "channel_model_id": prepared.ChannelModelID, "input_json": prepared.InputJSON,
 			"model": prepared.Model, "provider": prepared.Provider, "lease_owner": "", "lease_expires_at": nil, "updated_at": time.Now(),
-			"billing_hold_id": prepared.BillingHoldID, "billing_status": prepared.BillingStatus, "billing_points": prepared.BillingPoints,
 		}
-		updated := tx.Model(&model.Task{}).Where("id = ? AND user_id = ? AND status IN ?", prepared.ID, userID, []model.TaskStatus{model.TaskStatusFailed, model.TaskStatusCancelled}).Updates(updates)
+		query := tx.Model(&model.Task{}).Where("id = ? AND user_id = ? AND status IN ?", prepared.ID, userID, []model.TaskStatus{model.TaskStatusFailed, model.TaskStatusCancelled})
+		if expectedInputJSON != nil {
+			query = query.Where("input_json = ? AND provider_request_id = ? AND poll_stage = ? AND next_poll_at IS NULL", *expectedInputJSON, "", "")
+		}
+		updated := query.Updates(updates)
 		if updated.Error != nil {
 			return updated.Error
 		}
 		if updated.RowsAffected != 1 {
 			return ErrTaskNotRetryable
+		}
+		if tx.Migrator().HasColumn("tasks", "billing_hold_id") {
+			if err := tx.Exec("UPDATE tasks SET billing_hold_id = ?, billing_status = ?, billing_points = ? WHERE id = ? AND user_id = ?", prepared.BillingHoldID, prepared.BillingStatus, prepared.BillingPoints, prepared.ID, userID).Error; err != nil {
+				return err
+			}
 		}
 		if err := tx.Delete(&model.TaskTextDelta{}, "user_id = ? AND task_id = ?", userID, prepared.ID).Error; err != nil {
 			return err
@@ -368,17 +387,6 @@ func (r *Repository) RetryTask(userID string, prepared *model.Task, limit int) (
 		return tx.First(&task, "id = ? AND user_id = ?", prepared.ID, userID).Error
 	})
 	return &task, err
-}
-
-func (r *Repository) UpdateTaskBilling(userID, taskID, holdID, status string, points int) error {
-	if userID == "" || taskID == "" {
-		return nil
-	}
-	updates := map[string]any{"billing_status": status, "billing_points": points, "updated_at": time.Now()}
-	if holdID != "" {
-		updates["billing_hold_id"] = holdID
-	}
-	return r.db.Model(&model.Task{}).Where("id = ? AND user_id = ?", taskID, userID).Updates(updates).Error
 }
 
 func taskInputResourceIDs(inputJSON string) ([]string, error) {
@@ -415,6 +423,12 @@ func isUniqueConstraint(err error) bool {
 		return true
 	}
 	return strings.Contains(strings.ToUpper(err.Error()), "UNIQUE CONSTRAINT FAILED")
+}
+
+// IsUniqueConstraint lets domain services recover idempotently when two asset
+// writers race on the same media identity.
+func IsUniqueConstraint(err error) bool {
+	return isUniqueConstraint(err)
 }
 
 func newRepositoryID() string {

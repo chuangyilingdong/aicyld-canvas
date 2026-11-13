@@ -2,9 +2,11 @@ package operations
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 
 	"infinite-canvas/backend/internal/canvas"
+	"infinite-canvas/backend/internal/kernel"
 	"infinite-canvas/backend/internal/model"
 	localtask "infinite-canvas/backend/internal/task"
 	"infinite-canvas/backend/internal/taskbinding"
@@ -12,28 +14,85 @@ import (
 
 func opCanvasTaskBind(ctx *Context, params json.RawMessage) (any, error) {
 	var args struct {
-		CanvasID    string `json:"canvasId"`
-		TaskID      string `json:"taskId"`
-		NodeID      string `json:"nodeId"`
-		OutputIndex int    `json:"outputIndex"`
+		CanvasID           string `json:"canvasId"`
+		TaskID             string `json:"taskId"`
+		NodeID             string `json:"nodeId"`
+		OutputIndex        int    `json:"outputIndex"`
+		AllowDifferentNode bool   `json:"allowDifferentNode"`
 	}
 	if err := decodeParams(params, &args); err != nil {
 		return nil, err
 	}
 	receipt, err := taskbinding.Bind(&bindPorts{ctx: ctx}, ctx.UserID, taskbinding.Request{
-		CanvasID:    args.CanvasID,
-		TaskID:      args.TaskID,
-		NodeID:      args.NodeID,
-		OutputIndex: args.OutputIndex,
+		CanvasID:           args.CanvasID,
+		TaskID:             args.TaskID,
+		NodeID:             args.NodeID,
+		OutputIndex:        args.OutputIndex,
+		AllowDifferentNode: args.AllowDifferentNode,
 	})
 	if err != nil {
-		return nil, mapDomainError(err)
+		mapped := mapDomainError(err)
+		if failure, ok := mapped.(*Error); ok {
+			switch failure.Reason {
+			case "node_task_mismatch":
+				failure.Details = canvasBindConflictEvidence(ctx, args.CanvasID, args.NodeID, args.OutputIndex)
+				setCanvasBindRefusalRevision(failure, err)
+			case "node_deleted":
+				failure.Details = map[string]any{"canvasBinding": map[string]any{
+					"source": "server", "nodeId": args.NodeID, "nodePresent": false, "outputIndex": args.OutputIndex,
+				}}
+				setCanvasBindRefusalRevision(failure, err)
+			}
+		}
+		return nil, mapped
 	}
 	projected, err := projectCanvasTaskBindOutcome(ctx, args.CanvasID, args.NodeID, receiptMap(receipt))
 	if err != nil {
 		return nil, err
 	}
 	return sanitizeForClient(projected), nil
+}
+
+// The failed transaction still sees the node that refused this bind. Return
+// only identities and flags so client diagnostics can retain that exact state.
+func canvasBindConflictEvidence(ctx *Context, canvasID, nodeID string, outputIndex int) map[string]any {
+	raw, err := ctx.Domain.UserCanvasProject(ctx.UserID, canvasID)
+	if err != nil {
+		return nil
+	}
+	var doc map[string]any
+	if json.Unmarshal(raw, &doc) != nil {
+		return nil
+	}
+	node := findDocNode(doc, nodeID)
+	metadata, _ := node["metadata"].(map[string]any)
+	text := func(fields map[string]any, key string) string { value, _ := fields[key].(string); return value }
+	hasMedia := canvas.NodeHasMedia(node)
+	return map[string]any{"canvasBinding": map[string]any{
+		"source": "server", "nodeId": nodeID, "nodePresent": node != nil, "nodeType": text(node, "type"),
+		"nodeTaskId": text(metadata, "taskId"), "nodeClientOperationId": text(metadata, "taskClientOperationId"),
+		"nodeStatus": text(metadata, "status"), "nodeHasMedia": hasMedia,
+		"revision": canvasRevision(doc), "outputIndex": outputIndex,
+	}}
+}
+
+// setCanvasBindRefusalRevision copies the revision read by the refusing bind
+// attempt. It is the same read that decided the refusal, so a scanner can skip
+// the target until any later canvas write.
+func setCanvasBindRefusalRevision(failure *Error, cause error) {
+	var appErr *kernel.AppError
+	if !errors.As(cause, &appErr) || appErr.Details == nil {
+		return
+	}
+	revision, ok := appErr.Details["revision"].(int64)
+	if !ok || revision <= 0 {
+		return
+	}
+	binding, _ := failure.Details["canvasBinding"].(map[string]any)
+	if binding == nil {
+		return
+	}
+	binding["revision"] = revision
 }
 
 func projectCanvasTaskBindReplay(ctx *Context, params json.RawMessage, stored any) (any, error) {
@@ -66,6 +125,9 @@ func projectCanvasTaskBindOutcome(ctx *Context, canvasID, nodeID string, stored 
 		"alreadyBound":  stored["alreadyBound"],
 		"historical":    historical,
 		"bindingStatus": "deleted",
+	}
+	if changed, ok := stored["alsoChanged"].([]any); ok && len(changed) > 0 {
+		projected["alsoChanged"] = changed
 	}
 	if ctx == nil || ctx.Domain == nil {
 		return projected, nil
@@ -189,27 +251,28 @@ func (p *bindPorts) OwnedAsset(userID, assetID string) (*model.Asset, error) {
 
 func (p *bindPorts) BindExistingNode(userID string, patch taskbinding.NodePatch) (taskbinding.NodeBindResult, error) {
 	result, err := p.ctx.Domain.BindExistingCanvasNode(userID, canvas.TaskOutputBind{
-		CanvasID:    patch.CanvasID,
-		NodeID:      patch.NodeID,
-		TaskID:      patch.TaskID,
-		OutputIndex: patch.OutputIndex,
-		EffectKey:   patch.EffectKey,
-		MediaType:   patch.MediaType,
-		AssetID:     patch.AssetID,
-		ResourceID:  patch.ResourceID,
-		StorageKey:  patch.StorageKey,
-		Content:     patch.Content,
-		MimeType:    patch.MimeType,
-		Bytes:       patch.Bytes,
-		Width:       patch.Width,
-		Height:      patch.Height,
-		DurationMs:  patch.DurationMs,
-		Storyboard:  patch.Storyboard,
+		CanvasID:           patch.CanvasID,
+		NodeID:             patch.NodeID,
+		TaskID:             patch.TaskID,
+		OutputIndex:        patch.OutputIndex,
+		EffectKey:          patch.EffectKey,
+		AllowDifferentNode: patch.AllowDifferentNode,
+		MediaType:          patch.MediaType,
+		AssetID:            patch.AssetID,
+		ResourceID:         patch.ResourceID,
+		StorageKey:         patch.StorageKey,
+		Content:            patch.Content,
+		MimeType:           patch.MimeType,
+		Bytes:              patch.Bytes,
+		Width:              patch.Width,
+		Height:             patch.Height,
+		DurationMs:         patch.DurationMs,
+		Storyboard:         patch.Storyboard,
 	})
 	if err != nil {
 		return taskbinding.NodeBindResult{}, err
 	}
-	return taskbinding.NodeBindResult{Revision: result.Revision, Node: result.Node}, nil
+	return taskbinding.NodeBindResult{Revision: result.Revision, Node: result.Node, AlsoChanged: result.AlsoChanged}, nil
 }
 
 func bindEffectKey(params json.RawMessage) string {

@@ -1,10 +1,11 @@
 import { generationErrorMessage } from "@/lib/generation-error";
 import { GENERATION_RESULT_FETCH_STAGE } from "@/lib/generation-delivery-progress";
-import { assertUserScope, captureUserScope, isUserScopeAbandonedError, type CapturedUserScope } from "@/lib/user-scope-guard";
-import { http, apiBaseURL, type BackendEnvelope, type HttpRequestConfig } from "@/services/api/request";
+import { ApiError, http, apiBaseURL, type BackendEnvelope, type HttpRequestConfig } from "@/services/api/request";
 import { consumeTaskTextStream, createTaskTextStreamParser, type TaskTextStreamEvent } from "@/services/api/task-text-stream";
-import { recordDiagnosticEvent } from "@/services/diagnostics/client-diagnostics";
+import { getDiagnosticTraceId, recordDiagnosticEvent } from "@/services/diagnostics/client-diagnostics";
 import { publishGenerationDeliveryProgress } from "@/stores/use-generation-delivery-progress";
+import { beginTaskReferenceObservation, publishTaskReferenceProgress } from "@/services/task-reference-progress";
+import { normalizeTaskOutcome, taskOutcomeCopy, type TaskOutcome } from "@/lib/task-outcome";
 
 export type { BackendEnvelope } from "@/services/api/request";
 
@@ -25,11 +26,13 @@ export type GenerationTaskDeliveryProgress = {
     /** -1 when the remote size is unknown. */
     totalBytes: number;
     bytesPerSecond: number;
+    updatedAt?: number;
     state: "downloading" | "retrying" | "waiting";
 };
 
 export type GenerationTask = {
     failureDiagnostics?: import("@/lib/generation-error").GenerationFailureDiagnostics;
+    outcome?: import("@/lib/task-outcome").TaskOutcome;
     id: string;
     traceId?: string;
     clientOperationId?: string;
@@ -44,6 +47,8 @@ export type GenerationTask = {
     operation?: string;
     provider?: string;
     model?: string;
+    billingStatus?: "reserved" | "settled" | "refunded" | "refund_pending" | "pending_reconcile" | string;
+    billingPoints?: number;
     providerRequestId?: string;
     providerCancelStatus?: ProviderCancelStatus;
     providerCancelError?: string;
@@ -62,6 +67,7 @@ export type GenerationTask = {
     outputs?: GenerationTaskOutput[];
     /** Present only while the backend is fetching a result to local storage. */
     delivery?: { outputs: GenerationTaskDeliveryProgress[] };
+    referenceProgress?: { label: string; phase: "preparing" | "transferring" | "processing"; loadedBytes: number; totalBytes: number; bytesPerSecond: number; startedAt: number; updatedAt: number };
     textDraft?: string;
     error?: string;
     attempts: number;
@@ -86,14 +92,6 @@ export type GenerationTask = {
 	};
     created_at?: string;
     updated_at?: string;
-};
-
-export type ProviderTaskQueryResult = {
-    task: GenerationTask;
-    providerStatus: string;
-    recovered: boolean;
-    // 上游已明确给出结论（例如版权审核未通过）时的可读原因。
-    message?: string;
 };
 
 export type TaskTextDelta = {
@@ -139,10 +137,9 @@ export type CreateTaskInput = {
 	logicalModelId?: string;
     input?: Record<string, unknown>;
 };
-
 export function createGenerationTask(input: CreateTaskInput, config?: HttpRequestConfig) {
     return http.post<GenerationTask>("/tasks", input, config).then((task) => {
-        recordDiagnosticEvent({ level: "info", category: "task", message: "任务已创建", taskId: task.id, projectId: task.projectId });
+        recordDiagnosticEvent({ level: "info", category: "task", code: "task_created", message: "任务已创建", taskId: task.id, projectId: task.projectId, canvasId: task.projectId, nodeId: task.clientContext?.nodeId, clientOperationId: task.clientOperationId, traceId: task.traceId || getDiagnosticTraceId(task.id) });
         notifyCanvasTaskCreated(task);
         return task;
     });
@@ -154,6 +151,17 @@ export type GenerationTaskPageRequest = {
     activeOnly: boolean;
     cursor?: string;
 };
+
+/** A missing receipt never authorizes another paid generation. */
+export async function findGenerationTaskByOperation(operationId: string, projectId: string, signal?: AbortSignal): Promise<GenerationTask | undefined> {
+    if (typeof operationId !== "string" || !operationId.trim()) throw new Error("缺少提交标识，无法查询原任务");
+    try {
+        return await http.get<GenerationTask>(`/tasks/by-operation/${encodeURIComponent(operationId)}`, { params: { projectId }, signal });
+    } catch (error) {
+        if (error instanceof ApiError && error.status === 404) return undefined;
+        throw error;
+    }
+}
 
 type GenerationTaskPage<T> = { tasks: T[]; nextCursor?: string };
 type GenerationTaskListOptions = { projectId?: string; activeOnly?: boolean };
@@ -172,6 +180,7 @@ const defaultGenerationTaskListDependencies: GenerationTaskListDependencies = {
 };
 
 export async function listGenerationTasks(limit = 30, options?: { projectId?: string; activeOnly?: boolean }, dependencies: GenerationTaskListDependencies = defaultGenerationTaskListDependencies, signal?: AbortSignal) {
+    const observationRequest = beginTaskReferenceObservation();
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
     const boundedLimit = Number.isFinite(limit) ? Math.max(1, Math.min(10_000, Math.trunc(limit))) : 30;
     const baseRequest = {
@@ -194,6 +203,7 @@ export async function listGenerationTasks(limit = 30, options?: { projectId?: st
         }));
     const backendTasks = await collectGenerationTaskPages(backendPageReader, baseRequest, boundedLimit, signal);
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+    backendTasks.forEach(task => publishTaskReferenceProgress(task, observationRequest));
     return backendTasks
         .filter((task) => !options?.projectId || task.projectId === options.projectId)
         .filter((task) => !options?.activeOnly || task.status === "queued" || task.status === "running")
@@ -217,8 +227,13 @@ async function collectGenerationTaskPages<T>(readPage: (request: GenerationTaskP
     return items.slice(0, limit);
 }
 
-export function queryGenerationTask(id: string, options?: { signal?: AbortSignal; expectedScope?: CapturedUserScope }) {
-    return http.get<GenerationTask>(`/tasks/${encodeURIComponent(id)}`, { signal: options?.signal, expectedScope: options?.expectedScope });
+export function queryGenerationTask(id: string, options?: { signal?: AbortSignal }) {
+    const observationRequest = beginTaskReferenceObservation();
+    return http.get<GenerationTask>(`/tasks/${encodeURIComponent(id)}`, { signal: options?.signal }).then(task => {
+        if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+        publishTaskReferenceProgress(task, observationRequest);
+        return task;
+    });
 }
 
 type GenerationTaskSubscriptionDependencies = {
@@ -314,38 +329,19 @@ export function queryTaskTextReplay(id: string, after = 0) {
     return http.get<TaskTextReplay>(`/tasks/${encodeURIComponent(id)}/text-deltas`, { params: { after } });
 }
 
-export function retryGenerationTask(id: string) {
-    return http.post<GenerationTask>(`/tasks/${encodeURIComponent(id)}/retry`);
+export function retryGenerationTask(id: string, options?: { signal?: AbortSignal }) {
+    return http.post<GenerationTask>(`/tasks/${encodeURIComponent(id)}/retry`, undefined, options);
 }
 
-export type MidjourneyModalInput = {
-    prompt: string;
-    maskResourceId: string;
-};
+export function recoverTask(id: string, options?: { signal?: AbortSignal }) {
+    return http.post<GenerationTask>(`/tasks/${encodeURIComponent(id)}/recover`, undefined, options);
+}
 
-export function submitMidjourneyModal(taskId: string, input: MidjourneyModalInput) {
-    return http.post<GenerationTask>(`/tasks/${encodeURIComponent(taskId)}/midjourney/modal`, input);
-}
-export type MidjourneyButtonSnapshot = {
-    buttons: Array<{ customId: string; label?: string; emoji?: string }>;
-    providerStatus: string;
-};
-export function refreshMidjourneyButtons(taskId: string) {
-    return http.post<MidjourneyButtonSnapshot>(`/tasks/${encodeURIComponent(taskId)}/midjourney/buttons`);
-}
-export function cancelGenerationTask(id: string, expectedScope = captureUserScope()) {
-    return http.post<GenerationTask>(`/tasks/${encodeURIComponent(id)}/cancel`, undefined, { expectedScope }).then((task) => {
+export function cancelGenerationTask(id: string) {
+    return http.post<GenerationTask>(`/tasks/${encodeURIComponent(id)}/cancel`).then((task) => {
         window.dispatchEvent(new CustomEvent("canvas:task-cancelled", { detail: { task } }));
         return task;
     });
-}
-
-export function queryFailedVideoProviderTask(id: string) {
-    return http.post<ProviderTaskQueryResult>(`/tasks/${encodeURIComponent(id)}/query-provider`);
-}
-
-export function canRetrieveVideoResult(task: GenerationTask) {
-    return task.status === "failed" && (task.type.startsWith("canvas_video") || task.type.startsWith("video_")) && Boolean(task.providerRequestId);
 }
 
 export function refreshGenerationTaskStatus(id: string, options?: { signal?: AbortSignal }) {
@@ -408,7 +404,6 @@ export type WaitForGenerationTaskOptions = {
     onTaskUpdate?: (task: GenerationTask) => void;
     onTextDelta?: (text: string) => void;
     useTextEvents?: boolean;
-    expectedScope?: CapturedUserScope;
 };
 
 export function shouldUseTaskTextEvents(options?: Pick<WaitForGenerationTaskOptions, "onTextDelta" | "useTextEvents">) {
@@ -419,6 +414,7 @@ export async function waitForGenerationTask(id: string, options?: WaitForGenerat
     if (shouldUseTaskTextEvents(options)) return waitForGenerationTaskTextEvents(id, options || {});
     const startedAt = Date.now();
     const intervalMs = options?.intervalMs || 2000;
+    const timeoutMs = explicitObservationTimeoutMs(options?.timeoutMs);
     let lastTask = options?.initialTask;
     let lastQueryError: unknown;
     let consecutiveFailures = 0;
@@ -426,18 +422,16 @@ export async function waitForGenerationTask(id: string, options?: WaitForGenerat
     // waiter for the same task keeps its own view.
     let publishedDelivery = false;
     try {
-        while (Date.now() - startedAt < (options?.timeoutMs || taskWaitTimeoutMs(lastTask))) {
+        while (Date.now() - startedAt < timeoutMs) {
             if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
             let task: GenerationTask;
             try {
-                task = await queryGenerationTask(id, { signal: options?.signal, expectedScope: options?.expectedScope });
-                if (options?.expectedScope) assertUserScope(options.expectedScope);
+                task = await queryGenerationTask(id, { signal: options?.signal });
                 lastTask = task;
                 lastQueryError = undefined;
                 consecutiveFailures = 0;
                 options?.onTaskUpdate?.(task);
             } catch (error) {
-                if (isUserScopeAbandonedError(error)) throw error;
                 lastQueryError = error;
                 consecutiveFailures += 1;
                 // 连续失败说明查询通道已不可用，继续轮询只会空转到整体超时；
@@ -448,23 +442,27 @@ export async function waitForGenerationTask(id: string, options?: WaitForGenerat
                 await delay(intervalMs, options?.signal);
                 continue;
             }
-            if (task.status === "queued" || task.status === "running") {
-                const progress = task.delivery?.outputs[0];
-                if (progress) {
-                    publishGenerationDeliveryProgress(id, progress);
-                    publishedDelivery = true;
-                } else if (publishedDelivery) {
-                    publishGenerationDeliveryProgress(id, undefined);
-                    publishedDelivery = false;
-                }
+            const settled = settleGenerationTaskWait(task);
+            if (settled.kind === "ready") {
+                return settled.task;
             }
-            if (task.status === "succeeded") {
-                return task;
+            if (settled.kind === "failed") {
+                const error = new Error(generationTaskWaitFailureMessage(task, settled.outcome)) as Error & { code?: string; taskOutcome?: TaskOutcome; failureDiagnostics?: import("@/lib/generation-error").GenerationFailureDiagnostics };
+                if (task.errorCode) error.code = task.errorCode;
+                const taskOutcome = settled.outcome ?? task.outcome;
+                if (taskOutcome) error.taskOutcome = taskOutcome;
+                if (task.failureDiagnostics) error.failureDiagnostics = task.failureDiagnostics;
+                throw error;
             }
-            if (task.status === "failed" || task.status === "cancelled") {
-                throw new Error(task.error ? generationErrorMessage(task.error) : `任务${task.status === "cancelled" ? "已取消" : "失败"}`);
+            const progress = task.delivery?.outputs[0];
+            if (progress) {
+                publishGenerationDeliveryProgress(id, progress);
+                publishedDelivery = true;
+            } else if (publishedDelivery) {
+                publishGenerationDeliveryProgress(id, undefined);
+                publishedDelivery = false;
             }
-            const retrieving = Boolean(task.delivery) || task.stage === GENERATION_RESULT_FETCH_STAGE;
+            const retrieving = Boolean(task.delivery) || task.stage === GENERATION_RESULT_FETCH_STAGE || settled.outcome?.phase === "fetching" || settled.outcome?.phase === "retrievable";
             await delay(retrieving ? Math.min(intervalMs, 500) : intervalMs, options?.signal);
         }
     } catch (error) {
@@ -482,20 +480,20 @@ export async function waitForGenerationTask(id: string, options?: WaitForGenerat
 async function waitForGenerationTaskTextEvents(id: string, options: WaitForGenerationTaskOptions) {
     const startedAt = Date.now();
     const intervalMs = options.intervalMs || 1000;
+    const timeoutMs = explicitObservationTimeoutMs(options.timeoutMs);
     let lastTask = options.initialTask;
     let lastEventId = 0;
     // 已有草稿先落到文本里，重开对话时同一批增量不会被当成新内容重复拼接。
     let fullText = lastTask?.textDraft || "";
     let lastStreamError: unknown;
     if (!lastTask) {
-        lastTask = await queryGenerationTask(id, { signal: options.signal, expectedScope: options.expectedScope });
-        if (options.expectedScope) assertUserScope(options.expectedScope);
+        lastTask = await queryGenerationTask(id, { signal: options.signal });
         options.onTaskUpdate?.(lastTask);
     }
-    const timeoutMs = options.timeoutMs || taskWaitTimeoutMs(lastTask);
+    const initialSettled = settleTerminalTextEventTask(lastTask);
+    if (initialSettled) return initialSettled;
     while (Date.now() - startedAt < timeoutMs) {
         if (options.signal?.aborted) throw new DOMException("Aborted", "AbortError");
-        if (options.expectedScope) assertUserScope(options.expectedScope);
         let terminalReceived = false;
         try {
             const base = String(apiBaseURL).replace(/\/+$/, "");
@@ -515,7 +513,6 @@ async function waitForGenerationTaskTextEvents(id: string, options: WaitForGener
             const decoder = new TextDecoder();
             const parser = createTaskTextStreamParser();
             const onEvent = (event: TaskTextStreamEvent) => {
-                if (options.expectedScope) assertUserScope(options.expectedScope);
                 const payload = asTaskTextStreamRecord(event.data);
                 if (event.event === "delta") {
                     const sequence = numberValue(payload.sequence) || event.id || 0;
@@ -555,7 +552,6 @@ async function waitForGenerationTaskTextEvents(id: string, options: WaitForGener
             try {
                 for (;;) {
                     const { done, value } = await reader.read();
-                    if (options.expectedScope) assertUserScope(options.expectedScope);
                     if (done) break;
                     consumeTaskTextStream(parser, decoder.decode(value, { stream: true }), onEvent);
                 }
@@ -565,19 +561,24 @@ async function waitForGenerationTaskTextEvents(id: string, options: WaitForGener
                 reader.releaseLock();
             }
             if (terminalReceived) {
-                const completed = await queryGenerationTask(id, { signal: options.signal, expectedScope: options.expectedScope });
-                if (options.expectedScope) assertUserScope(options.expectedScope);
+                const completed = await queryGenerationTask(id, { signal: options.signal });
                 options.onTaskUpdate?.(completed);
-                if (completed.status === "succeeded") return completed;
-                if (completed.status === "failed" || completed.status === "cancelled") {
-                    throw new TaskTextStreamFatalError(completed.error ? generationErrorMessage(completed.error) : `任务${completed.status === "cancelled" ? "已取消" : "失败"}`);
-                }
+                const settled = settleTerminalTextEventTask(completed);
+                if (settled) return settled;
             }
             lastStreamError = new Error("任务文本流连接提前结束");
         } catch (error) {
             if (options.signal?.aborted) throw new DOMException("Aborted", "AbortError");
-            if (isUserScopeAbandonedError(error)) throw error;
             if (error instanceof TaskTextStreamFatalError) throw error;
+            try {
+                const latest = await queryGenerationTask(id, { signal: options.signal });
+                options.onTaskUpdate?.(latest);
+                const settled = settleTerminalTextEventTask(latest);
+                if (settled) return settled;
+            } catch (queryError) {
+                if (options.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+                if (queryError instanceof TaskTextStreamFatalError) throw queryError;
+            }
             lastStreamError = error;
         }
         await delay(intervalMs, options.signal);
@@ -598,9 +599,15 @@ function isTaskStatus(value: unknown): value is TaskStatus {
 }
 
 class TaskTextStreamFatalError extends Error {
-    constructor(message: string) {
+    code?: string;
+    taskOutcome?: TaskOutcome;
+    failureDiagnostics?: import("@/lib/generation-error").GenerationFailureDiagnostics;
+    constructor(message: string, code?: string, taskOutcome?: TaskOutcome, failureDiagnostics?: import("@/lib/generation-error").GenerationFailureDiagnostics) {
         super(message);
         this.name = "TaskTextStreamFatalError";
+        if (code) this.code = code;
+        if (taskOutcome) this.taskOutcome = taskOutcome;
+        if (failureDiagnostics) this.failureDiagnostics = failureDiagnostics;
     }
 }
 
@@ -614,14 +621,52 @@ async function taskTextStreamHTTPError(response: Response) {
     return `任务文本流请求失败（HTTP ${response.status}）`;
 }
 
-function taskWaitTimeoutMs(task?: GenerationTask) {
-    const type = task?.type || "";
-    if (type === "depth_capture") return 122 * 60 * 1000;
-    if (type.includes("storyboard")) return 13 * 60 * 1000;
-    if (type.includes("video")) return 32 * 60 * 1000;
-    if (type.includes("image")) return 10 * 60 * 1000;
-    if (type.includes("text") || type.includes("audio")) return 12 * 60 * 1000;
-    return 10 * 60 * 1000;
+function isPausedGenerationDelivery(task: Pick<GenerationTask, "stage" | "outputs">) {
+    if (task.stage === "delivery_paused" || task.stage === "delivery_timed_out") return true;
+    return (task.outputs ?? []).some(item => item?.materializationErrorCode === "delivery_paused" || item?.materializationErrorCode === "delivery_timed_out");
+}
+
+function settleGenerationTaskWait(task: GenerationTask):
+    | { kind: "ready"; task: GenerationTask }
+    | { kind: "failed"; outcome?: TaskOutcome }
+    | { kind: "waiting"; outcome?: TaskOutcome } {
+    const explicitOutcome = normalizeTaskOutcome(task.outcome);
+    if (explicitOutcome) {
+        if (explicitOutcome.phase === "ready") return { kind: "ready", task };
+        if (explicitOutcome.phase === "failed") return { kind: "failed", outcome: explicitOutcome };
+        if (explicitOutcome.phase === "retrievable" && task.status === "succeeded" && isPausedGenerationDelivery(task)) {
+            return { kind: "ready", task };
+        }
+        return { kind: "waiting", outcome: explicitOutcome };
+    }
+    if (task.status === "succeeded") return { kind: "ready", task };
+    if (task.status === "failed" || task.status === "cancelled") return { kind: "failed" };
+    return { kind: "waiting" };
+}
+
+function generationTaskWaitFailureMessage(task: GenerationTask, outcome?: TaskOutcome) {
+    if (task.error) return generationErrorMessage(task.errorCode ? { code: task.errorCode, message: task.error } : task.error);
+    if (task.status === "cancelled") return "任务已取消";
+    if (outcome?.phase === "failed") return taskOutcomeCopy(outcome).message;
+    return "任务失败";
+}
+
+function settleTerminalTextEventTask(task: GenerationTask): GenerationTask | undefined {
+    const settled = settleGenerationTaskWait(task);
+    if (settled.kind === "ready") return settled.task;
+    if (settled.kind === "failed") {
+        throw new TaskTextStreamFatalError(
+            generationTaskWaitFailureMessage(task, settled.outcome),
+            task.errorCode,
+            settled.outcome ?? task.outcome,
+            task.failureDiagnostics,
+        );
+    }
+    return undefined;
+}
+
+function explicitObservationTimeoutMs(timeoutMs?: number) {
+    return typeof timeoutMs === "number" && Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : Number.POSITIVE_INFINITY;
 }
 
 function delay(ms: number, signal?: AbortSignal) {

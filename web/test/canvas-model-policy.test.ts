@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
 import { canvasConnectionError } from "../src/lib/canvas/canvas-connection-policy";
-import { assertCanvasImageReferenceLimit, buildGenerationConfig, canvasImageReferenceLimitError, resolveCanvasGenerationModel } from "../src/lib/canvas/canvas-project-generation";
+import { buildGenerationConfig, resolveCanvasGenerationModel } from "../src/lib/canvas/canvas-project-generation";
 import { defaultModelCapabilityConfig } from "../src/lib/model-capabilities";
-import { groupModelsByDisplayName, inferVideoOperation, modelCompatibilityError, modelGroupReferenceLimits, modelPromptLengthError, resolveCompatibleModel, resolveModelGenerationDefaults, resolveModelVideoBooleanOptions } from "../src/lib/model-selection";
+import { groupModelsByDisplayName, inferVideoOperation, modelCompatibilityError, modelGroupReferenceLimits, resolveCompatibleModel, resolveModelGenerationDefaults, resolveModelVideoBooleanOptions } from "../src/lib/model-selection";
 import { defaultConfig, normalizeModelOptionValue, type AiConfig, type ModelChannel } from "../src/stores/use-config-store";
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData } from "../src/types/canvas";
 
@@ -33,6 +33,7 @@ function policyConfig(): AiConfig {
                 billingMode: "per_second" as const,
                 unitPriceMicrocredits: 1,
                 capabilityConfig,
+                capabilitySource: "user" as const,
             };
         }),
     };
@@ -53,18 +54,6 @@ function node(id: string, type: CanvasNodeType, generationMode?: "image" | "vide
 }
 
 describe("逻辑模型选择", () => {
-    test("技能上下文展开后按最终视频模型字符上限拒绝提交", () => {
-        const config = policyConfig();
-        const model = config.videoModels[0]!;
-        config.channels[0]!.modelProfiles![0]!.capabilityConfig!.video!.references.promptMaxChars = 10_000;
-
-        const error = modelPromptLengthError(config, model, "video", "镜".repeat(23_142));
-
-        expect(error).toContain("最多 10000 个字符");
-        expect(error).toContain("完整提示词为 23142 个字符");
-        expect(error).toContain("不会自动截断");
-    });
-
     test("图片逻辑模型忽略全局视频时长，不应显示为不支持当前时长", () => {
         const model = "platform::gpt-image-2";
         const channel: ModelChannel = {
@@ -257,15 +246,15 @@ describe("逻辑模型选择", () => {
         expect(groups[0]?.models).toHaveLength(3);
     });
 
-    test("根据参考图自动切换到图生视频细分模型", () => {
+    test("未显式选择视频模式时按参考图匹配细分模型", () => {
         const config = policyConfig();
-        const resolved = resolveCompatibleModel(config, "relay::cinema-text", {
-            capability: "video",
+        const requirements = {
+            capability: "video" as const,
             input: { textCount: 1, imageCount: 1, videoCount: 0, audioCount: 0, characterCount: 0 },
-            videoOperation: "text_to_video",
             videoSeconds: "6",
-        });
-        expect(resolved).toBe("relay::cinema-image");
+        };
+        expect(resolveCompatibleModel(config, "relay::cinema-text", requirements)).toBe("relay::cinema-image");
+        expect(resolveCompatibleModel(config, "relay::cinema-text", { ...requirements, videoOperation: "text_to_video" })).toBe("");
     });
 
     test("音频输入只匹配支持音频的细分模型", () => {
@@ -387,22 +376,5 @@ describe("画布连线能力", () => {
         const character = { ...node("character", CanvasNodeType.Image), metadata: { workflowKind: "character" as const, characterAssetId: "character-asset" } };
         const nodes = [character, node("target", CanvasNodeType.Audio)];
         expect(canvasConnectionError(config, nodes, [], { fromNodeId: "character", toNodeId: "target" })).toBe("");
-    });
-});
-
-describe("图片参考图上限", () => {
-    test("超出当前模型上限时保留全部输入并返回明确错误", () => {
-        const config = policyConfig();
-        const modelProfile = config.channels[0]?.modelProfiles?.[0];
-        if (!modelProfile?.capabilityConfig?.image) throw new Error("缺少图片能力配置");
-        modelProfile.capabilityConfig.image.references.maxImages = 1;
-        const references = [
-            { id: "image-a", name: "image-a.png", type: "image/png", dataUrl: "data:image/png;base64,YQ==" },
-            { id: "image-b", name: "image-b.png", type: "image/png", dataUrl: "data:image/png;base64,Yg==" },
-        ];
-
-        expect(canvasImageReferenceLimitError(config, references)).toContain("最多支持 1 张参考图，当前已连接 2 张");
-        expect(() => assertCanvasImageReferenceLimit(config, references)).toThrow("请移除多余连线后重试");
-        expect(references).toHaveLength(2);
     });
 });

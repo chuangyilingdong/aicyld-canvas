@@ -17,7 +17,7 @@ func TestRejectedModelSubmissionSurvivesPersistenceWithoutRetryLock(t *testing.T
 		StatusCode: http.StatusServiceUnavailable,
 		Body:       `{"error":{"code":"model_not_found","message":"分组 企业 下模型 grok-imagine-video-1.5 无可用渠道（distributor）"}}`,
 	})
-	_ = s.terminalCoordinator().handleExecutionFailure(&task, cause, false, false)
+	_ = s.terminalCoordinator().HandleExecutionFailure(&task, cause, false, false)
 	stored, err := s.repo.Task(task.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -36,7 +36,7 @@ func TestUnsentVideoFailureSurvivesPersistenceWithoutRetryLock(t *testing.T) {
 		Operation: "submit", Method: "POST", Outcome: "not_dispatched", TransportPhase: "tls", TransportRoute: "direct",
 	}}}
 	cause := generation.UncertainVideoSubmission(context.Background(), generation.RequestNotSentError{Cause: context.DeadlineExceeded})
-	if err := s.terminalCoordinator().handleExecutionFailure(&task, cause, false, false); !errors.Is(err, context.DeadlineExceeded) {
+	if err := s.terminalCoordinator().HandleExecutionFailure(&task, cause, false, false); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatal(err)
 	}
 	stored, err := s.repo.Task(task.ID)
@@ -73,5 +73,27 @@ func TestWorkflowPreservesConfirmedUnsentCreate(t *testing.T) {
 	var unknown generation.SubmissionUnknownError
 	if errors.As(err, &unknown) || failure.Category != generation.CategoryRequestNotSent || failure.BlocksAutomaticRetry() {
 		t.Fatalf("workflow lost unsent evidence: err=%v failure=%+v", err, failure)
+	}
+}
+
+func TestDirectAttemptResubmitRequiresProvenNoJob(t *testing.T) {
+	tests := []struct {
+		name    string
+		attempt *model.RouteAttempt
+		want    bool
+	}{
+		{name: "missing", attempt: nil, want: false},
+		{name: "provider accepted", attempt: &model.RouteAttempt{DispatchState: "accepted", ProviderRequestID: "job-1"}, want: false},
+		{name: "not sent", attempt: &model.RouteAttempt{DispatchState: "not_sent"}, want: true},
+		{name: "request not sent rejection", attempt: &model.RouteAttempt{DispatchState: "rejected_no_job", FailureCode: "request_not_sent"}, want: true},
+		{name: "other rejection", attempt: &model.RouteAttempt{DispatchState: "rejected_no_job", FailureCode: "upstream_400"}, want: false},
+		{name: "submission unknown", attempt: &model.RouteAttempt{DispatchState: "submission_unknown"}, want: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := generation.DirectAttemptSafeToResubmit(tc.attempt); got != tc.want {
+				t.Fatalf("safe = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }

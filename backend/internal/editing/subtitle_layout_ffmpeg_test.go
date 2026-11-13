@@ -14,7 +14,7 @@ func TestPortraitSubtitleStaysInsideFrame(t *testing.T) {
 	if err != nil {
 		t.Skip("ffmpeg required")
 	}
-	for _, text := range []string{"Fresh bread starts the day.", "Fresh bread\nstarts the day."} {
+	for _, text := range []string{"新的一天，从一口热面包开始。", "新的一天，\n从一口热面包开始。"} {
 		t.Run(text, func(t *testing.T) {
 			dir := t.TempDir()
 			plan := Plan{
@@ -40,14 +40,12 @@ func TestPortraitSubtitleStaysInsideFrame(t *testing.T) {
 				t.Fatal(err)
 			}
 			minX, maxX, minY, maxY, pixels := 720, 0, 1280, 0, 0
-			for y := picture.Bounds().Min.Y; y < picture.Bounds().Max.Y; y++ {
-				for x := picture.Bounds().Min.X; x < picture.Bounds().Max.X; x++ {
+			for y := 0; y < 1280; y++ {
+				for x := 0; x < 720; x++ {
 					r, g, b, _ := picture.At(x, y).RGBA()
-					if r > 0x9000 && g > 0x9000 && b > 0x9000 {
-						minX = min(minX, x)
-						maxX = max(maxX, x)
-						minY = min(minY, y)
-						maxY = max(maxY, y)
+					if r > 180*257 && g > 180*257 && b > 180*257 {
+						minX, maxX = min(minX, x), max(maxX, x)
+						minY, maxY = min(minY, y), max(maxY, y)
 						pixels++
 					}
 				}

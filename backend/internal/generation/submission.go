@@ -11,6 +11,12 @@ import (
 
 type SubmissionUnknownError struct{ Cause error }
 
+// SubmissionRejectedError proves a structured gateway rejection without a job.
+type SubmissionRejectedError struct{ Cause error }
+
+func (e SubmissionRejectedError) Error() string { return e.Cause.Error() }
+func (e SubmissionRejectedError) Unwrap() error { return e.Cause }
+
 // RequestNotSentError is created only from transport evidence: no HTTP
 // connection was acquired during this request, including any redirects.
 type RequestNotSentError struct{ Cause error }
@@ -27,6 +33,22 @@ func (e RequestPreparationError) Error() string {
 }
 func (e RequestPreparationError) Unwrap() error { return e.Cause }
 
+// ProtocolPreparationError is emitted only by local interface validation before
+// a new create request; provider messages cannot attest this failure phase.
+type ProtocolPreparationError struct{ Cause error }
+
+func (e ProtocolPreparationError) Error() string { return e.Cause.Error() }
+func (e ProtocolPreparationError) Unwrap() error { return RequestPreparationError{Cause: e.Cause} }
+
+// ReferenceStoragePreparationError is local object-storage work that failed
+// before model dispatch, even if that work acquired its own HTTP connection.
+type ReferenceStoragePreparationError struct{ Cause error }
+
+func (e ReferenceStoragePreparationError) Error() string {
+	return fmt.Sprintf("参考素材对象存储准备失败：%v", e.Cause)
+}
+func (e ReferenceStoragePreparationError) Unwrap() error { return e.Cause }
+
 func (e SubmissionUnknownError) Error() string {
 	return fmt.Sprintf("提交结果尚未确认：%v", e.Cause)
 }
@@ -41,6 +63,14 @@ func SafeRouteRejection(err error) bool {
 	if errors.As(err, &unknown) {
 		return false
 	}
+	var rejected SubmissionRejectedError
+	if errors.As(err, &rejected) {
+		return true
+	}
+	var preparation RequestPreparationError
+	if errors.As(err, &preparation) {
+		return true
+	}
 	if code, _ := platform.ChannelSlotFailureDetails(err); code != "" {
 		return true
 	}
@@ -50,20 +80,11 @@ func SafeRouteRejection(err error) bool {
 		// created, even when the gateway reports it as HTTP 503. Generic 5xx
 		// responses and transport failures still cannot prove non-submission.
 		fields := extractProviderFields(upstream.Body)
-		if _, echoed := persistedReferencePreparationFailure(upstream.Body); echoed {
-			return false
-		}
-		if _, echoed := persistedReferencePreparationFailure(fields.Message); echoed {
-			return false
-		}
 		if upstream.StatusCode >= 400 && fields.Code == "model_not_found" && fields.TaskID == "" {
 			return true
 		}
 		switch upstream.StatusCode {
-		// 参数校验类 4xx 是上游明确拒绝（没有创建任务），重试安全，不能当成「提交结果未知」。
-		case http.StatusBadRequest, http.StatusUnauthorized, http.StatusPaymentRequired, http.StatusForbidden,
-			http.StatusNotFound, http.StatusMethodNotAllowed, http.StatusRequestEntityTooLarge,
-			http.StatusUnprocessableEntity, http.StatusTooManyRequests:
+		case http.StatusUnauthorized, http.StatusPaymentRequired, http.StatusForbidden, http.StatusNotFound, http.StatusMethodNotAllowed, http.StatusTooManyRequests, http.StatusNotImplemented:
 			return true
 		}
 	}
@@ -90,7 +111,5 @@ func UncertainVideoSubmission(ctx context.Context, err error) error {
 	if retry, _ := RetryableVideoPollError(context.Background(), err); retry {
 		return SubmissionUnknownError{Cause: err}
 	}
-	// Once the create request has been attempted, only typed/safe route
-	// rejections above can prove that no upstream task was created.
-	return SubmissionUnknownError{Cause: err}
+	return err
 }

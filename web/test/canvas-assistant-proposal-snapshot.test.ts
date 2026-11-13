@@ -30,6 +30,23 @@ test("normal freshly loaded React nodes pass against raw server nodes", async ()
     expect(result.nodes[0].metadata?.prompt).toBe("original");
 });
 
+test("production proposal executes its captured plan after global settings drift", async () => {
+    const persisted = fixture();
+    const live = fixture();
+    live.modelConfigRevision = 3;
+    live.modelConfigHasUnconfirmedEdits = true;
+    live.config.canvasImageCount = "4";
+    const confirmed = await prepareAssistantProposalSnapshot(proposal, () => live, async () => persisted, { checkSettings: false, sleep: async () => {} });
+    expect(confirmed.nodes[0].metadata?.prompt).toBe("original");
+    expect(confirmed.config.canvasImageCount).toBe("4");
+});
+
+test("production proposal still rejects canvas drift when settings are ignored", async () => {
+    const live = fixture();
+    live.canvasRevision++;
+    expect(await blockedReason(prepareAssistantProposalSnapshot(proposal, () => live, async () => fixture(), { checkSettings: false, sleep: async () => {} }))).toBe("canvas_changed");
+});
+
 const noWait = { sleep: async () => {} };
 
 const mutations: [string, (state: ProposalSourceState) => void][] = [
@@ -201,6 +218,53 @@ test("a pending canvas save gives up after the wait budget with canvas_saving", 
     expect(persistedReads).toBe(0);
 });
 
+test("a clean stale local model revision accepts an identical authoritative config", async () => {
+    const live = fixture();
+    live.modelConfigRevision = 1;
+    const confirmed = await prepareAssistantProposalSnapshot(proposal, () => live, async () => fixture());
+    expect(confirmed.config).toEqual(live.config);
+});
+
+test("a stale local model revision cannot generate using stale settings", async () => {
+    const live = fixture();
+    live.modelConfigRevision = 1;
+    const saved = fixture();
+    saved.config.canvasImageCount = "4";
+    expect(await blockedReason(prepareAssistantProposalSnapshot(proposal, () => live, async () => saved))).toBe("settings_changed");
+});
+
+test("an unrelated asset finishing during confirmation does not invalidate the proposal", async () => {
+    const live = fixture();
+    const result = await prepareAssistantProposalSnapshot(proposal, () => live, async () => {
+        live.assets.push({ id: "unrelated", kind: "text", title: "Other result", coverUrl: "", tags: [], createdAt: "", updatedAt: "", data: { content: "elsewhere" } });
+        return fixture();
+    });
+    expect(result.assets).toHaveLength(1);
+    live.assets[0].title = "later";
+    expect(result.assets[0].title).toBe("Other result");
+});
+
+test("a referenced asset changing during confirmation still blocks generation", async () => {
+    const live = fixture();
+    live.nodes[0].metadata!.prompt = "使用 @[asset:script]";
+    live.assets.push({ id: "script", kind: "text", title: "剧本", coverUrl: "", tags: [], createdAt: "", updatedAt: "", data: { content: "原剧情" } });
+    const saved = structuredClone(live);
+    expect(await blockedReason(prepareAssistantProposalSnapshot(proposal, () => live, async () => {
+        const asset = live.assets[0];
+        if (asset.kind === "text") asset.data.content = "已改剧情";
+        return saved;
+    }))).toBe("content_mismatch");
+});
+
+test("a paused conflict reports recovery instead of waiting for a nonexistent save", async () => {
+    const live = { ...fixture(), canvasHasUnconfirmedEdits: true, canvasUnconfirmedReason: "blocked" };
+    let slept = 0;
+    expect(await blockedReason(prepareAssistantProposalSnapshot(proposal, () => live, async () => fixture(), {
+        sleep: async (ms) => { slept += ms; },
+    }))).toBe("canvas_conflict");
+    expect(slept).toBe(0);
+});
+
 test("unsaved generation settings fail at once without waiting", async () => {
     const live = fixture();
     live.modelConfigHasUnconfirmedEdits = true;
@@ -210,4 +274,43 @@ test("unsaved generation settings fail at once without waiting", async () => {
         sleep: async (ms) => { slept += ms; },
     }))).toBe("settings_unsaved");
     expect(slept).toBe(0);
+});
+
+test("managed beefapi catalog ordering and profile synthesis differences do not false-positive settings_changed", async () => {
+    const live = fixture();
+    const persisted = fixture();
+    live.config.channels = [{
+        id: "beefapi",
+        name: "BeefAPI",
+        pinned: true,
+        apiFormat: "openai",
+        baseUrl: "https://enterprise.beefapi.com",
+        apiKey: "",
+        models: ["doubao-seed-2-0-lite", "minimax-h3-max-turbo", "gpt-5.4"],
+        modelProfiles: [
+            { model: "minimax-h3-max-turbo", capability: "video", protocol: "newapi", videoPricing: { currency: "CNY", mode: "seconds", rates: { "1080p": { output: 0.43, reference_video: 0 } } } },
+            { model: "gpt-5.4", capability: "text", protocol: "chat-completion" },
+        ],
+    }];
+    live.config.models = ["beefapi::doubao-seed-2-0-lite", "beefapi::minimax-h3-max-turbo", "beefapi::gpt-5.4"];
+    live.config.videoModels = ["beefapi::minimax-h3-max-turbo"];
+
+    persisted.config.channels = [{
+        id: "beefapi",
+        name: "BeefAPI",
+        pinned: true,
+        apiFormat: "openai",
+        baseUrl: "https://beefapi.com",
+        apiKey: "",
+        credentialRef: "beefapi-enterprise",
+        hasApiKey: true,
+        models: ["gpt-5.4", "minimax-h3-max-turbo", "doubao-seed-2-0-lite"],
+        modelProfiles: [
+            { model: "minimax-h3-max-turbo", capability: "video", protocol: "newapi", videoPricing: { currency: "CNY", mode: "seconds", rates: { "1080p": { output: 0.43, reference_video: 0 } } } },
+        ],
+    }];
+    persisted.config.models = ["beefapi::gpt-5.4", "beefapi::minimax-h3-max-turbo", "beefapi::doubao-seed-2-0-lite"];
+    persisted.config.videoModels = ["beefapi::minimax-h3-max-turbo"];
+
+    expect(await blockedReason(prepareAssistantProposalSnapshot(proposal, () => live, async () => persisted, noWait))).toBe("passed");
 });

@@ -73,7 +73,7 @@ export function repairOverlappingImageBatches(nodes: CanvasNodeData[]): CanvasNo
         if (!root.metadata?.isBatchRoot) continue;
         const children = (root.metadata.batchChildIds || []).map(id => nodeById.get(id)).filter((node): node is CanvasNodeData => Boolean(node && node.metadata?.batchRootId === root.id));
         const group = [root, ...children];
-        if (!children.length || group.some(node => node.metadata?.locked)) continue;
+        if (!children.length || group.some(node => node.metadata?.locked || node.metadata?.workflowSlot)) continue;
         const overlaps = group.some((node, i) => group.slice(i + 1).some(other => (
             node.position.x < other.position.x + other.width - 1 && node.position.x + node.width > other.position.x + 1
             && node.position.y < other.position.y + other.height - 1 && node.position.y + node.height > other.position.y + 1

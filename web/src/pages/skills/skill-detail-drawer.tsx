@@ -1,21 +1,23 @@
-import { Button, Input, Skeleton, Tree } from "antd";
+import { App, Button, Dropdown, Input, Skeleton, Tree } from "antd";
 import { AppModal } from "@/components/ui/product/app-modal";
 import { Tooltip } from "@/components/ui/base/tooltip";
 
 import { SegmentedControl } from "@/components/ui/base/segmented-control";
 import type { DataNode } from "antd/es/tree";
-import { Check, ChevronRight, Code2, ExternalLink, File, FileArchive, FileCode2, FileImage, FileText, Folder, FolderOpen, Heart, Pencil, Plus, RefreshCw, Users } from "lucide-react";
-import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
+import { Check, ChevronRight, Code2, ExternalLink, File, FileArchive, FileCode2, FileImage, FileText, Folder, FolderOpen, Heart, History, Pencil, Plus, Power, RefreshCw, Send, UploadCloud, Users } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type MouseEvent, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { formatSkillCount, formatSkillDate, skillCategoryLabel } from "@/pages/skills/skill-catalog";
 import { isLocalRuntimeMode } from "@/lib/runtime-mode";
-import { getSkillFile, listSkillFiles, skillFileRawURL, type Skill, type SkillCategory, type SkillPackageFile, type SkillPackageFileContent } from "@/services/api/skills";
+import { createSkillRewrite, getSkill, getSkillFile, listSkillFiles, listSkillVersions, replaceSkillPackage, rollbackSkillVersion, setSkillEnabled, skillFileRawURL, type Skill, type SkillCategory, type SkillPackageFile, type SkillPackageFileContent, type SkillVersion } from "@/services/api/skills";
+import { ReviewSummary } from "@/pages/skills/skill-publishing-panel";
 
 type PreviewMode = "preview" | "source";
 
-export function SkillDetailModal({ skill, loading, mutating, categories, onClose, onAdd, onLike, onEdit, onSync, fileOnly = false }: { skill: Skill | null; loading: boolean; mutating: boolean; categories: SkillCategory[]; onClose: () => void; onAdd: (skill: Skill) => void; onLike: (skill: Skill) => void; onEdit: (skill: Skill) => void; onSync: (skill: Skill) => void; onChanged?: (skill: Skill) => void; fileOnly?: boolean }) {
+export function SkillDetailModal({ skill, loading, mutating, categories, onClose, onAdd, onLike, onEdit, onPublish, onSync, onChanged = () => {}, fileOnly = false }: { skill: Skill | null; loading: boolean; mutating: boolean; categories: SkillCategory[]; onClose: () => void; onAdd: (skill: Skill) => void; onLike: (skill: Skill) => void; onEdit: (skill: Skill) => void; onPublish?: (skill: Skill) => void; onSync: (skill: Skill) => void; onChanged?: (skill: Skill) => void; fileOnly?: boolean }) {
+    const { message } = App.useApp();
     const [files, setFiles] = useState<SkillPackageFile[]>([]);
     const [filesLoading, setFilesLoading] = useState(false);
     const [filesError, setFilesError] = useState("");
@@ -25,6 +27,9 @@ export function SkillDetailModal({ skill, loading, mutating, categories, onClose
     const [contentError, setContentError] = useState("");
     const [previewMode, setPreviewMode] = useState<PreviewMode>("preview");
     const [pathFilter, setPathFilter] = useState("");
+    const [versions, setVersions] = useState<SkillVersion[]>([]);
+    const [replacingPackage, setReplacingPackage] = useState(false);
+    const packageInputRef = useRef<HTMLInputElement>(null);
     const localRuntime = isLocalRuntimeMode();
 
     useEffect(() => {
@@ -52,6 +57,11 @@ export function SkillDetailModal({ skill, loading, mutating, categories, onClose
             .finally(() => {
                 if (!cancelled) setFilesLoading(false);
             });
+        if (skill.isAdded && !skill.isOwner) {
+            void listSkillVersions(skill.skillId).then((result) => { if (!cancelled) setVersions(result.versions); }).catch(() => { if (!cancelled) setVersions([]); });
+        } else {
+            setVersions([]);
+        }
         return () => { cancelled = true; };
     }, [skill?.skillId, skill?.versionId]);
 
@@ -87,6 +97,28 @@ export function SkillDetailModal({ skill, loading, mutating, categories, onClose
     const selectedFile = files.find((file) => file.path === activePath);
     const canPreviewMarkdown = selectedFile?.kind === "markdown" && !content?.binary;
 
+    const replacePackage = async (event: ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        event.target.value = "";
+        if (!skill || !file) return;
+        setReplacingPackage(true);
+        try {
+            const result = await replaceSkillPackage(skill.skillId, {
+                file,
+                sourceType: "zip",
+                name: skill.skillName,
+                description: skill.description,
+                tag: skill.tag,
+            });
+            onChanged(result.skill);
+            message.success("技能包已更新为新版本");
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "技能包替换失败");
+        } finally {
+            setReplacingPackage(false);
+        }
+    };
+
     return (
         <AppModal
             className="skill-package-modal"
@@ -102,18 +134,26 @@ export function SkillDetailModal({ skill, loading, mutating, categories, onClose
                     <header className="skill-package-header">
                         <div className="min-w-0 flex-1">
                             <div className="flex flex-wrap items-center gap-2 text-[var(--fs-label)] text-foreground/45">
-                                <span>{skillCategoryLabel(skill.tag, categories)}</span><span aria-hidden="true">/</span><span>{sourceLabel(skill.sourceType)}</span><span aria-hidden="true">/</span><span>v{skill.version || "1"}</span><span aria-hidden="true">/</span><span>更新于 {formatSkillDate(skill.updatedAt)}</span>
+                                <span>{skillCategoryLabel(skill.tag, categories)}</span><span aria-hidden="true">/</span><span>{sourceLabel(skill.sourceType)}</span><span aria-hidden="true">/</span><span>v{skill.version || "1"}</span>{skill.effectiveUser?.name ? <><span aria-hidden="true">/</span><span>作者：{skill.effectiveUser.name}</span></> : null}<span aria-hidden="true">/</span><span>更新于 {formatSkillDate(skill.updatedAt)}</span>
                             </div>
                             <h1 className="mt-1 truncate text-[var(--fs-heading-lg)] font-semibold text-foreground">{skill.skillName}</h1>
                             <p className="mt-1 line-clamp-2 max-w-4xl text-sm leading-5 text-foreground/58">{skill.description}</p>
                         </div>
                         {!fileOnly ? <div className="skill-package-actions">
+                            {skill.isAdded && !skill.isOwner ? <Button icon={<Pencil className="size-4" />} onClick={() => void createSkillRewrite(skill.skillId).then(({ skill: next }) => { onChanged(next); message.success("已创建私人改写"); }).catch((error) => message.error(error instanceof Error ? error.message : "私人改写失败"))}>私人改写</Button> : null}
+                            {skill.isAdded && !skill.isOwner ? <Button loading={mutating} icon={<Power className="size-4" />} onClick={() => void setSkillEnabled(skill.skillId, !skill.isEnabled).then(({ skill: next }) => { onChanged(next); message.success(next.isEnabled ? "技能已启用" : "技能已停用"); }).catch((error) => message.error(error instanceof Error ? error.message : "启停失败"))}>{skill.isEnabled ? "停用" : "启用"}</Button> : null}
+                            {skill.isAdded && !skill.isOwner && versions.length > 1 ? <Dropdown trigger={["click"]} menu={{ items: versions.map((version) => ({ key: version.id, label: `${version.versionLabel}${version.id === skill.installedVersionId ? "（当前）" : ""}`, disabled: version.id === skill.installedVersionId, onClick: () => void rollbackSkillVersion(skill.skillId, version.id).then(({ skill: next }) => { onChanged(next); message.success(`已切换到 ${version.versionLabel}`); }).catch((error) => message.error(error instanceof Error ? error.message : "版本切换失败")) })) }}><Button icon={<History className="size-4" />}>版本</Button></Dropdown> : null}
                             {!localRuntime && skill.sourceType === "github" && skill.isOwner ? <Tooltip title={skill.syncError || "从 GitHub 检查并同步最新提交"}><Button loading={mutating} icon={<RefreshCw className="size-4" />} onClick={() => onSync(skill)}>同步</Button></Tooltip> : null}
-                            {skill.isOwner ? <Button icon={<Pencil className="size-4" />} onClick={() => onEdit(skill)}>编辑</Button> : null}
+                            {skill.sourceType === "zip" && skill.isOwner ? <><input ref={packageInputRef} type="file" accept=".zip,application/zip" hidden onChange={(event) => void replacePackage(event)} /><Button loading={replacingPackage} disabled={skill.reviewStatus === "in_review"} icon={<UploadCloud className="size-4" />} onClick={() => packageInputRef.current?.click()}>替换包</Button></> : null}
+                            {skill.isOwner && !["local", "plugin"].includes(skill.sourceType) && onPublish ? <Button icon={<Send className="size-4" />} onClick={() => onPublish(skill)}>投稿</Button> : null}
+                            {skill.sourceType === "zip" && skill.isOwner ? <><input ref={packageInputRef} type="file" accept=".zip,application/zip" hidden onChange={(event) => void replacePackage(event)} /><Button loading={replacingPackage} disabled={skill.reviewStatus === "in_review"} icon={<UploadCloud className="size-4" />} onClick={() => packageInputRef.current?.click()}>替换包</Button></> : null}
+                            {skill.isOwner && !["local", "plugin"].includes(skill.sourceType) ? <Button icon={<Pencil className="size-4" />} onClick={() => onEdit(skill)}>编辑</Button> : null}
                             <Button loading={mutating} icon={<Heart className={`size-4 ${skill.isLike ? "fill-current text-rose-500" : ""}`} />} onClick={() => onLike(skill)}>{skill.isLike ? "已收藏" : "收藏"}</Button>
                             <Button type={skill.isAdded ? "default" : "primary"} loading={mutating} disabled={skill.isOwner} icon={skill.isAdded ? <Check className="size-4" /> : <Plus className="size-4" />} onClick={() => onAdd(skill)}>{skill.isOwner ? "我的技能" : skill.isAdded ? "已加入" : "加入技能"}</Button>
                         </div> : null}
                     </header>
+
+                    {skill.reviewSummary ? <div className="skill-package-review"><ReviewSummary summary={skill.reviewSummary} /></div> : null}
 
                     <div className="skill-package-workspace">
                         <aside className="skill-package-sidebar" aria-label="技能文件">
@@ -139,7 +179,7 @@ export function SkillDetailModal({ skill, loading, mutating, categories, onClose
                             </div>
                             <div className="skill-package-sidebar-footer">
                                 <span className="inline-flex items-center gap-1"><Users className="size-3.5" />{formatSkillCount(skill.addedCount)} 人加入</span>
-                                <span>{skill.isPrivate ? "仅自己可见" : "公开"}</span>
+                                <span>{reviewStatusLabel(skill.reviewStatus || "", skill.isPrivate)}</span>
                             </div>
                         </aside>
 
@@ -270,8 +310,18 @@ function isExternalURL(value?: string) {
 function sourceLabel(source: string) {
     if (source === "github") return "GitHub";
     if (source === "zip") return "ZIP 技能包";
-    if (source === "builtin") return "内置技能";
+    if (source === "builtin") return "平台技能";
+    if (source === "local") return "本机技能";
+    if (source === "plugin") return "插件";
     return "Markdown";
+}
+
+function reviewStatusLabel(status: string, isPrivate: boolean) {
+    if (status === "published") return "已审核公开";
+    if (status === "in_review") return "审核中";
+    if (status === "rejected") return "审核退回";
+    if (status === "pending") return "新版本待投稿";
+    return isPrivate ? "仅自己可见" : "未审核";
 }
 
 function formatBytes(value: number) {

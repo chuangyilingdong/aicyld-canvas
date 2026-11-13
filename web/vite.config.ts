@@ -1,13 +1,23 @@
 import { dirname, resolve } from "node:path";
 import { readFileSync, readdirSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { execFileSync } from "node:child_process";
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 
 import { resolveHeavyMediaEnabled } from "./media-build-mode";
+import { distributionNotices } from "../scripts/distribution-notices.mjs";
 
 const webDir = dirname(fileURLToPath(import.meta.url));
 const appVersion = process.env.CANVAS_BUILD_VERSION?.trim() || readFileSync(resolve(webDir, "../VERSION"), "utf8").trim();
+const buildTime = new Date().toISOString();
+const buildCommit = (() => {
+    const configured = process.env.VITE_BUILD_COMMIT?.trim();
+    if (configured && /^[a-f0-9]{7,40}$/i.test(configured)) return configured;
+    try { return execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: webDir, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); }
+    catch { return "unknown"; }
+})();
+const appBuildId = `${appVersion}:${buildCommit}:${buildTime}`;
 const apiProxyTarget = process.env.VITE_API_PROXY_TARGET?.trim() || "http://127.0.0.1:8080";
 const desktopLaunchToken = process.env.VITE_DESKTOP_LAUNCH_TOKEN?.trim();
 const heavyMediaEnabled = resolveHeavyMediaEnabled(process.env.BEEFTV_FULL_MEDIA_RESOURCES);
@@ -32,14 +42,57 @@ function pruneOptionalMediaPlugin() {
     };
 }
 
+function licenseNoticesPlugin(): Plugin {
+    const notices = () => distributionNotices({ version: appVersion, heavyMedia: heavyMediaEnabled, platform: process.env.BEEFTV_DIST_PLATFORM || "web" });
+    return {
+        name: "beeftv-license-notices",
+        configureServer(server) {
+            server.middlewares.use((request, response, next) => {
+                const name = request.url?.split("?")[0]?.replace(/^\/licenses\//, "");
+                if (!request.url?.startsWith("/licenses/") || !name) return next();
+                const bytes = notices().get(name);
+                if (!bytes) {
+                    response.statusCode = 404;
+                    response.end("Not found");
+                    return;
+                }
+                response.setHeader("Content-Type", name.endsWith(".html") ? "text/html; charset=utf-8" : "text/plain; charset=utf-8");
+                response.end(bytes);
+            });
+        },
+        generateBundle() {
+            for (const [name, source] of notices()) {
+                this.emitFile({ type: "asset", fileName: `licenses/${name}`, source });
+            }
+        },
+    };
+}
+
+function releaseManifestPlugin(): Plugin {
+    return {
+        name: "beeftv-release-manifest",
+        generateBundle(_options, bundle) {
+            const files = Object.keys(bundle)
+                .map((name) => name.replaceAll("\\", "/"))
+                .filter((name) => !name.endsWith(".map"))
+                .sort();
+            this.emitFile({
+                type: "asset",
+                fileName: "version.json",
+                source: `${JSON.stringify({ version: appVersion, commit: buildCommit, buildTime, buildId: appBuildId, files }, null, 2)}\n`,
+            });
+        },
+    };
+}
+
 export default defineConfig({
-    plugins: [react(), pruneOptionalMediaPlugin()],
+    plugins: [react(), pruneOptionalMediaPlugin(), licenseNoticesPlugin(), releaseManifestPlugin()],
     define: {
         __APP_VERSION__: JSON.stringify(appVersion),
         __BEEFTV_HEAVY_MEDIA_ENABLED__: JSON.stringify(heavyMediaEnabled),
         "import.meta.env.VITE_APP_VERSION": JSON.stringify(appVersion),
-        // 构建戳：打进产物，前端会在画布列表请求里带上它（排障时能一眼看出「用户跑的是哪个构建」）。
-        "import.meta.env.VITE_CANVAS_BUILD_STAMP": JSON.stringify(process.env.CANVAS_BUILD_STAMP?.trim() || new Date().toISOString()),
+        "import.meta.env.VITE_BUILD_COMMIT": JSON.stringify(buildCommit),
+        "import.meta.env.VITE_APP_BUILD_ID": JSON.stringify(appBuildId),
     },
     server: {
         proxy: {

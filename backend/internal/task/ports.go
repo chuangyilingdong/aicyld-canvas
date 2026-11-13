@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"infinite-canvas/backend/internal/billing"
 	"infinite-canvas/backend/internal/generation"
 	"infinite-canvas/backend/internal/model"
 )
@@ -41,6 +42,7 @@ type Catalog interface {
 
 type SelectRequest struct {
 	Input          map[string]any
+	Model          string
 	LogicalModelID string
 	Type           string
 	Operation      string
@@ -130,13 +132,14 @@ type ProviderControl interface {
 	RequestCancel(ctx context.Context, task *model.Task) error
 }
 
-// Billing is the main-site points ledger boundary. Quote is used by the
-// pre-submit price panel; Reserve/Settle/Release are idempotent by task id.
-type Billing interface {
-	Quote(ctx context.Context, userID string, task *model.Task) (*model.BillingQuote, error)
-	Reserve(ctx context.Context, userID string, task *model.Task) (*model.BillingReservation, error)
-	Settle(ctx context.Context, task *model.Task, outcome string, reason string) (*model.BillingSettlement, error)
-	Release(ctx context.Context, task *model.Task, reason string) (*model.BillingSettlement, error)
+// Recovery performs free result recovery (delivery resume, accepted image replay,
+// or upstream video/upscale status query) without ever creating a new task or
+// issuing a paid retry.
+type Recovery interface {
+	ResetBackoff(userID, taskID string) error
+	ResumeDelivery(ctx context.Context, userID, taskID string) (*model.Task, error)
+	RecoverImage(ctx context.Context, userID, taskID string) (*model.Task, error)
+	RecoverVideoOrUpscale(ctx context.Context, userID, taskID string) (*model.Task, error)
 }
 
 // Presenter projects durable rows onto the public read model.
@@ -156,6 +159,16 @@ type Activity interface {
 	Record(userID, kind string, n int)
 }
 
+// Billing is the AICYLD points-ledger port. It stays disabled in local builds
+// without a billing secret.
+type Billing interface {
+	Enabled() bool
+	Quote(context.Context, string, *model.Task) (*billing.BillingQuote, error)
+	Reserve(context.Context, string, *model.Task) (*billing.BillingReservation, error)
+	Settle(context.Context, *model.Task, string, string) (*billing.BillingSettlement, error)
+	Release(context.Context, *model.Task, string) (*billing.BillingSettlement, error)
+}
+
 // Dependencies are the explicit collaborators of the task domain.
 // NewService does not require every port so reads can omit provider-side
 // collaborators. Operations fail closed when a port needed on that path is
@@ -166,6 +179,7 @@ type Activity interface {
 //	admit specialized: Store, Projects, Policy, Runtime, Persist, Present
 //	  transcription also needs OwnedMedia and Features; depth also needs OwnedMedia
 //	retry: Store, Runtime, Images, Failures, Secrets, Catalog, Policy, Projects, Present
+//	recover: Store, Runtime, Recovery, Present
 //	cancel: Store, Runtime, Present; Provider and TextReplay are optional
 //	reads: Store, Present
 //
@@ -174,6 +188,7 @@ type Activity interface {
 // require Catalog, Secrets, Media, or TextReplay.
 type Dependencies struct {
 	BindTranscriptionModel func(string) (string, error)
+	Billing                Billing
 	Catalog                Catalog
 	Secrets                Secrets
 	Media                  Media
@@ -185,7 +200,7 @@ type Dependencies struct {
 	Failures               Failures
 	TextReplay             TextReplay
 	Provider               ProviderControl
-	Billing                Billing
+	Recovery               Recovery
 	Present                Presenter
 	Logs                   Logger
 	Activity               Activity

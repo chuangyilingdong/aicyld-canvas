@@ -57,7 +57,7 @@ func TestFailedVideoManualRecoveryResumesProviderDownloadCache(t *testing.T) {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		if r.URL.Path != "/v1/videos/original" {
+		if r.URL.Path != "/v1/videos/original" && r.URL.Path != "/v1/video/generations/original" {
 			t.Errorf("unexpected recovery route: %s", r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
 			return
@@ -69,7 +69,7 @@ func TestFailedVideoManualRecoveryResumesProviderDownloadCache(t *testing.T) {
 	svc, db := openDBRuntimeMatrix(t, t.TempDir())
 	defer closeDBRuntimeMatrix(t, svc, db)
 	inputJSON, err := json.Marshal(canvasGenerationInput{Mode: "video", Config: providerConfig{
-		BaseURL: gateway.URL, APIKey: "test-key", Model: "seedance-2.0-mini", InterfaceType: "newapi",
+		BaseURL: gateway.URL, APIKey: "test-key", Model: "unlisted-future-video", InterfaceType: "newapi",
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -93,6 +93,8 @@ func TestFailedVideoManualRecoveryResumesProviderDownloadCache(t *testing.T) {
 	if info, err := os.Stat(partial); err != nil || info.Size() != 1024 {
 		t.Fatalf("missing provider partial: info=%v err=%v", info, err)
 	}
+	// The public manual-recovery entry point binds its own runtime and cache.
+	// Only the original task identity connects it to the interrupted download.
 	recovered, err := svc.QueryFailedVideoTask(ctx, task.UserID, task.ID)
 	if err != nil {
 		t.Fatal(err)

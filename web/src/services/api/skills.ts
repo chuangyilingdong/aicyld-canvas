@@ -1,8 +1,5 @@
 import { ApiError, http, apiBaseURL, compactApiParams, serializeApiParams, type ApiParams } from "@/services/api/request";
 import { getActiveUserScope } from "@/lib/user-scope";
-import type { MarketRelease } from "./skill-market";
-
-
 let addedSkillsRequest: { scope: string; promise: Promise<{ skills: Skill[] }> } | null = null;
 let addedSkillsCache: { scope: string; value: { skills: Skill[] }; expiresAt: number } | null = null;
 
@@ -26,7 +23,7 @@ export type Skill = {
     contentHash: string;
     fileCount: number;
     totalBytes: number;
-    sourceType: "builtin" | "markdown" | "zip" | "github" | string;
+    sourceType: "builtin" | "markdown" | "zip" | "github" | "plugin" | "local" | string;
     sourceUrl: string;
     sourceRef: string;
     sourceSubdir: string;
@@ -50,7 +47,6 @@ export type Skill = {
     ownerUid: string;
     effectiveUser: { name: string; avatarUrl: string; uid: string };
     originalSkillId: string | null;
-    marketRelease?: MarketRelease;
     showcaseMedia: SkillShowcaseMedia[];
     addedCount: number;
     isTest: boolean;
@@ -61,6 +57,8 @@ export type Skill = {
     isOwner: boolean;
     reviewSummary?: SkillReviewSummary;
 };
+
+export type LocalSkillSource = { enabled: boolean; directory: string; available: boolean; reason?: string };
 
 export type SkillReviewTrial = {
     scenario: string;
@@ -94,7 +92,7 @@ export type SkillSubmission = {
     versionId: string;
     authorId: string;
     revision: number;
-    status: "draft" | "in_review" | "rejected" | "published" | "withdrawn" | string;
+    status: "draft" | "in_review" | "rejected" | "published" | "withdrawn" | "unpublished" | string;
     contentHash: string;
     metadata: SkillSubmissionMetadata;
     reviewReason?: string;
@@ -273,6 +271,18 @@ export function searchSkillFiles(id: string, query: string) {
     return http.get<{ results: SkillFileSearchResult[] }>(`/skills/${encodeURIComponent(id)}/search`, { params: { q: query } });
 }
 
+export function getLocalSkillSource() {
+    return http.get<LocalSkillSource>("/skills/local-source");
+}
+
+export function setLocalSkillSource(enabled: boolean) {
+    return http.put<LocalSkillSource>("/skills/local-source", { enabled }).finally(invalidateAddedSkillsCache);
+}
+
+export function syncLocalSkills() {
+    return http.post<{ synced: boolean }>("/skills/local-source/sync").finally(invalidateAddedSkillsCache);
+}
+
 export function syncSkill(id: string) {
     return http.post<{ skill: Skill }>(`/skills/${encodeURIComponent(id)}/sync`).finally(invalidateAddedSkillsCache);
 }
@@ -338,7 +348,7 @@ export function withdrawSkillSubmission(submissionId: string) {
     return http.delete<{ submission: SkillSubmission }>(`/skills/submissions/${encodeURIComponent(submissionId)}`);
 }
 
-export function listSkillReviewQueue(status: "in_review" | "rejected" | "published" = "in_review") {
+export function listSkillReviewQueue(status: "in_review" | "rejected" | "published" | "unpublished" = "in_review") {
     return http.get<{ items: SkillSubmission[] }>("/skills/review/submissions", { params: { status } });
 }
 
@@ -352,4 +362,8 @@ export function getSkillReviewFile(submissionId: string, path: string) {
 
 export function reviewSkillSubmission(submissionId: string, input: { decision: "approve" | "reject"; reason?: string; summary?: { trials: SkillReviewTrial[] } }) {
     return http.post<{ submission: SkillSubmission }>(`/skills/review/submissions/${encodeURIComponent(submissionId)}/review`, input);
+}
+
+export function unpublishSkill(skillId: string, reason: string) {
+    return http.post<{ submission: SkillSubmission }>(`/skills/${encodeURIComponent(skillId)}/unpublish`, { reason });
 }

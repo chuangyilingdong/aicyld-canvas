@@ -3,8 +3,7 @@ import { ApiError, getTransportFailureKind, http, type HttpRequestConfig } from 
 import type { GenerationTask } from "@/services/api/task-center";
 import type { TimelineProject } from "@/types/timeline";
 import type { ChannelModelCatalogItem } from "@/lib/channel-model-catalog";
-import { getBeefAPIConnectionEpoch } from "@/services/api/beefapi-connection";
-import { UserScopeAbandonedError } from "@/lib/user-scope-guard";
+import { BeefAPIConnectionChangedError, getBeefAPIConnectionEpoch } from "@/services/api/beefapi-connection";
 
 // The local backend may spend 30 seconds fetching the managed catalog before
 // admitting a cloud task. Keep a response margin without retrying submissions.
@@ -25,7 +24,7 @@ export async function getTranscriptionModels(config?: HttpRequestConfig) {
     const connectionEpoch = getBeefAPIConnectionEpoch();
     try {
         const result = await http.post<{ models: ChannelModelCatalogItem[] }>("/beefapi/connection/models", {}, { timeout: TRANSCRIPTION_ADMISSION_TIMEOUT_MS, ...config });
-        if (connectionEpoch !== getBeefAPIConnectionEpoch()) throw new UserScopeAbandonedError();
+        if (connectionEpoch !== getBeefAPIConnectionEpoch()) throw new BeefAPIConnectionChangedError();
         return result.models.filter(item => item.supportedEndpointTypes?.includes("audio.transcriptions"));
     } catch (error) { throw transcriptionTransportError(error, false); }
 }
@@ -70,6 +69,11 @@ export type TimelineRenderCreateRequest = {
     projectId: string;
     timeline: TimelineProject;
     options?: CanonicalPlanOptions;
+    /**
+     * 产物登记元数据。短剧成片用它把结果写回对应工作流阶段（workflowStepId / unitId /
+     * artifactType），由后端 RegisterTaskOutputFromTask 读取。时间线编辑器不传该字段。
+     */
+    metadata?: Record<string, unknown>;
     clientOperationId?: string;
 };
 

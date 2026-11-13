@@ -95,7 +95,7 @@
   "id": "agnes-video-25",
   "name": "Agnes Video 2.5 / 2.5 Flash",
   "version": "2.0.0",
-  "author": "灵动TV Contributors",
+  "author": "BeefTV Contributors",
   "description": "Agnes Video 2.5 / 2.5 Flash 独立请求协议插件。",
   "documentation": "<当前插件的完整 documentation，由 README.md 与 docs/interface.md 拼接而成；为避免 JSON 递归，此处不重复展开正文。>",
   "permissions": [
@@ -129,6 +129,11 @@
         ],
         "baseUrl": "https://apihub.agnes-ai.com/v1",
         "requiresPublicMediaUrls": true,
+        "mediaTransport": {
+          "image": "inline",
+          "video": "url",
+          "audio": "url"
+        },
         "auth": {
           "type": "bearer",
           "field": "apiKey"
@@ -226,29 +231,6 @@
               ]
             },
             "message": "Agnes 2.5 插件仅支持 agnes-video-2.5 与 agnes-video-2.5-flash"
-          },
-          {
-            "assert": {
-              "$and": [
-                {
-                  "$gte": [
-                    {
-                      "$ref": "request.duration"
-                    },
-                    4
-                  ]
-                },
-                {
-                  "$lte": [
-                    {
-                      "$ref": "request.duration"
-                    },
-                    12
-                  ]
-                }
-              ]
-            },
-            "message": "Agnes Video 2.5 时长必须在 4–12 秒之间"
           },
           {
             "assert": {

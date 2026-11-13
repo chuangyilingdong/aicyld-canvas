@@ -12,6 +12,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createSimGo } from './sim-go.mjs';
 import { SCENARIOS, resolveScenarioList, createFakeModelServer } from './scenarios.mjs';
+import { isTransientStudioTailMessage } from '../studio-digest.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_ENTRY = path.resolve(__dirname, '../server.mjs');
@@ -183,6 +184,342 @@ export function redactSecrets(input, extraSecrets = []) {
   return result;
 }
 
+// 从上游 SSE 流或 JSON 响应中提取真实 usage（含 cached_tokens / prompt_cache_hit_tokens）
+export function extractUpstreamUsage(respText) {
+  let usage = null;
+  const trimmed = String(respText || '').trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      usage = parsed?.usage || parsed?.choices?.[0]?.usage || null;
+    } catch {
+      // ignore
+    }
+  }
+  for (const line of trimmed.split(/\r?\n/)) {
+    const s = line.trim();
+    if (!s.startsWith('data:')) continue;
+    const payload = s.slice(5).trim();
+    if (!payload || payload === '[DONE]') continue;
+    try {
+      const chunk = JSON.parse(payload);
+      const u = chunk?.usage || chunk?.choices?.[0]?.usage;
+      if (u && typeof u === 'object') {
+        usage = u;
+      }
+    } catch {
+      // ignore
+    }
+  }
+  if (!usage) return null;
+  const promptTokens = Number(usage.prompt_tokens ?? usage.input_tokens ?? 0);
+  const completionTokens = Number(usage.completion_tokens ?? usage.output_tokens ?? 0);
+  const cachedTokens = Number(
+    usage.prompt_tokens_details?.cached_tokens ??
+      usage.prompt_cache_hit_tokens ??
+      usage.cached_tokens ??
+      usage.input_tokens_details?.cached_tokens ??
+      0,
+  );
+  return {
+    promptTokens: Number.isFinite(promptTokens) ? promptTokens : 0,
+    completionTokens: Number.isFinite(completionTokens) ? completionTokens : 0,
+    cachedTokens: Number.isFinite(cachedTokens) ? cachedTokens : 0,
+    raw: usage,
+  };
+}
+
+const WRITE_TOOL_NAMES = new Set([
+  'canvas_nodes_create',
+  'canvas_node_update',
+  'canvas_node_configure',
+  'canvas_node_move',
+  'canvas_node_delete',
+  'canvas_node_bind_asset',
+  'canvas_edge_create',
+  'canvas_edge_delete',
+  'canvas_script_rows_append',
+  'canvas_script_row_update',
+  'canvas_script_row_remove',
+  'canvas_script_prepare',
+  'canvas_timeline_update',
+  'canvas_timeline_render',
+  'canvas_timeline_deliver',
+  'canvas_document_commit',
+]);
+
+function extractMsgText(msg) {
+  if (!msg) return '';
+  if (typeof msg.content === 'string') return msg.content;
+  if (Array.isArray(msg.content)) {
+    return msg.content
+      .map((p) => (typeof p === 'string' ? p : typeof p?.text === 'string' ? p.text : ''))
+      .join('\n');
+  }
+  return '';
+}
+
+function summarizeToolArgs(name, rawArgs) {
+  let args = {};
+  if (rawArgs && typeof rawArgs === 'object') {
+    args = rawArgs;
+  } else if (typeof rawArgs === 'string' && rawArgs.trim()) {
+    try {
+      args = JSON.parse(rawArgs);
+    } catch {
+      args = {};
+    }
+  }
+  switch (name) {
+    case 'canvas_nodes_create': {
+      const nodes = Array.isArray(args.nodes) ? args.nodes : [];
+      return `nodes=${nodes.length}[${nodes.map((n) => `${n?.type || '?'}:${n?.title || ''}`).join(',')}]`;
+    }
+    case 'canvas_node_update':
+    case 'canvas_node_configure':
+      return `nodeId=${args.nodeId || '?'} keys=[${Object.keys(args.patch || {}).join(',')}]`;
+    case 'canvas_script_rows_append':
+      return `nodeId=${args.nodeId || '?'} rows=${Array.isArray(args.rows) ? args.rows.length : 0}`;
+    case 'canvas_script_row_update':
+      return `nodeId=${args.nodeId || '?'} patches=${Array.isArray(args.patches) ? args.patches.length : 0}`;
+    case 'canvas_script_prepare':
+      return args.script
+        ? `newScript(${args.script.title || ''}, rows=${Array.isArray(args.script.rows) ? args.script.rows.length : 0})`
+        : `nodeId=${args.nodeId || '?'} rows=${Array.isArray(args.rowIds) ? args.rowIds.length : 'all'}`;
+    case 'canvas_edge_create':
+      return `${args.fromNodeId || '?'}->${args.toNodeId || '?'}`;
+    case 'canvas_generation_propose':
+      return `kind=${args.kind || '?'} nodeIds=[${(args.nodeIds || []).join(',')}]`;
+    case 'plan_update': {
+      const steps = Array.isArray(args.items) ? args.items : Array.isArray(args.steps) ? args.steps : [];
+      return `steps=${steps.length}[${steps.map((s) => s?.status || '?').join(',')}]`;
+    }
+    case 'skill_load':
+      return `skillId=${args.id || args.skillId || args.name || '?'}`;
+    case 'model_catalog':
+      return `caps=[${(args.capabilities || []).join(',')}]`;
+    case 'media_inspect':
+    case 'media_overview':
+    case 'media_check':
+      return `nodeId=${args.nodeId || args.assetId || '?'}`;
+    default:
+      return '';
+  }
+}
+
+// 从单次模型请求体与响应流中提取：触发原因、上步工具结果、本次工具调用序列及是否可省往返
+export function extractModelRequestTrace(reqBody = {}, respText = '', priorTurnRequests = []) {
+  const messages = Array.isArray(reqBody?.messages) ? reqBody.messages : [];
+  const lastRawMsg = messages[messages.length - 1];
+  const lastRawText = extractMsgText(lastRawMsg);
+  const hasStudioDigest = lastRawText.includes('<beeftv_studio>');
+  const studioIsEmpty = lastRawText.includes('概况：画布是空的。');
+
+  const stableMessages = messages.filter((m) => !isTransientStudioTailMessage(m));
+  const lastStable = stableMessages[stableMessages.length - 1];
+
+  let trigger = 'user_message';
+  const prevTools = [];
+
+  const collectTrailingToolsAt = (startIdx) => {
+    let idx = startIdx;
+    const trailingToolMsgs = [];
+    while (idx >= 0 && stableMessages[idx]?.role === 'tool') {
+      trailingToolMsgs.unshift(stableMessages[idx]);
+      idx -= 1;
+    }
+    const prevAssistant = idx >= 0 && stableMessages[idx]?.role === 'assistant' ? stableMessages[idx] : null;
+    const callById = new Map();
+    for (const tc of prevAssistant?.tool_calls || []) {
+      if (tc?.id) callById.set(tc.id, { name: tc.function?.name || 'unknown_tool', args: tc.function?.arguments || '' });
+    }
+    for (const tm of trailingToolMsgs) {
+      const call = callById.get(tm.tool_call_id) || { name: tm.name || 'unknown_tool', args: '' };
+      const toolName = call.name;
+      const raw = extractMsgText(tm).trim();
+      let parsed = null;
+      try {
+        parsed = JSON.parse(raw.split('\n')[0]);
+      } catch {
+        parsed = null;
+      }
+      const isError = Boolean(
+        parsed?.isError === true ||
+          parsed?.error ||
+          (typeof parsed?.code === 'number' && parsed.code >= 400) ||
+          /unsupported_operation|revision_conflict|invalid_params|invalid_argument|not_found|permission_denied|模拟器未实现操作|未知操作|画布已变化|必填|Validation failed for tool|: missing/.test(
+            raw,
+          ),
+      );
+      const errorReason = isError
+        ? parsed?.reason ||
+          parsed?.error?.code ||
+          (/Validation failed for tool/.test(raw)
+            ? 'tool_arguments_invalid'
+            : raw.includes('模拟器未实现操作')
+              ? 'unsupported_operation'
+              : raw.includes('画布已变化')
+                ? 'revision_conflict'
+                : 'tool_error')
+        : null;
+      // 报错时保留原始参数，评测才能判断是否用同一组错误参数反复重试。
+      prevTools.push({ name: toolName, isError, errorReason, ...(isError && call.args ? { args: call.args } : {}) });
+    }
+  };
+
+  if (lastStable) {
+    if (lastStable.role === 'user') {
+      const txt = extractMsgText(lastStable).trim();
+      if (txt.startsWith('计划还没做完。继续做「') || txt.startsWith('Plans Still Pending:')) {
+        trigger = 'plan_continue';
+      } else if (txt.startsWith('<canvas_event') || txt.startsWith('[事件 ')) {
+        trigger = 'auto_wake';
+      } else if (txt.includes('[BEEFTV_INPUT:') || txt.includes('BEEFTV_SUPPLEMENT:')) {
+        trigger = 'user_steer';
+      } else if (txt.startsWith('以下是前述工具返回的素材内容')) {
+        trigger = 'media_attachment_followup';
+      } else {
+        trigger = 'user_message';
+      }
+      if (
+        (trigger === 'user_steer' || trigger === 'media_attachment_followup' || trigger === 'plan_continue') &&
+        stableMessages[stableMessages.length - 2]?.role === 'tool'
+      ) {
+        collectTrailingToolsAt(stableMessages.length - 2);
+      }
+    } else if (lastStable.role === 'tool') {
+      collectTrailingToolsAt(stableMessages.length - 1);
+      trigger = prevTools.some((t) => t.isError) ? 'tool_error_result' : 'tool_result';
+    }
+  }
+
+  const toolCallsByIndex = new Map();
+  let replyText = '';
+  const trimmed = String(respText || '').trim();
+  if (trimmed.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      const msg = parsed?.choices?.[0]?.message;
+      if (typeof msg?.content === 'string') replyText += msg.content;
+      for (const [i, tc] of (msg?.tool_calls || []).entries()) {
+        toolCallsByIndex.set(i, {
+          name: tc?.function?.name || '',
+          args: tc?.function?.arguments || '',
+        });
+      }
+    } catch {
+      // ignore
+    }
+  } else {
+    for (const line of trimmed.split(/\r?\n/)) {
+      const s = line.trim();
+      if (!s.startsWith('data:')) continue;
+      const payload = s.slice(5).trim();
+      if (!payload || payload === '[DONE]') continue;
+      try {
+        const chunk = JSON.parse(payload);
+        const delta = chunk?.choices?.[0]?.delta;
+        if (typeof delta?.content === 'string') {
+          replyText += delta.content;
+        }
+        if (Array.isArray(delta?.tool_calls)) {
+          for (const tc of delta.tool_calls) {
+            const k = Number.isInteger(tc?.index) ? tc.index : 0;
+            const slot = toolCallsByIndex.get(k) || { name: '', args: '' };
+            if (tc?.function?.name) slot.name += tc.function.name;
+            if (tc?.function?.arguments) slot.args += tc.function.arguments;
+            toolCallsByIndex.set(k, slot);
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  const orderedCalls = [...toolCallsByIndex.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([, v]) => v)
+    .filter((v) => v.name);
+  const responseTools = orderedCalls.map((v) => v.name);
+  const responseToolDetails = orderedCalls.map((v) => ({
+    name: v.name,
+    summary: summarizeToolArgs(v.name, v.args),
+  }));
+  const hasTextReply = replyText.trim().length > 0;
+
+  let eliminable = false;
+  let eliminableReason = null;
+
+  const priorToolsFlat = priorTurnRequests.flatMap((r) => r.responseTools || []);
+  const priorWriteRequests = priorTurnRequests.filter((r) =>
+    (r.responseTools || []).some((t) => WRITE_TOOL_NAMES.has(t)),
+  );
+  const thisHasWrite = responseTools.some((t) => WRITE_TOOL_NAMES.has(t));
+
+  if (trigger === 'tool_error_result') {
+    const failedDesc = prevTools
+      .filter((t) => t.isError)
+      .map((t) => `${t.name}:${t.errorReason || 'error'}`)
+      .join(', ');
+    eliminable = true;
+    eliminableReason = `工具报错回退重试 (${failedDesc})`;
+  } else if (trigger === 'plan_continue') {
+    eliminable = true;
+    eliminableReason = '计划未标完成触发自动续跑 (planContinuation)';
+  } else if (responseTools.length > 0 && responseTools.every((t) => t === 'plan_update')) {
+    eliminable = true;
+    eliminableReason = '单独调用 plan_update 占一整轮请求';
+  } else if (
+    hasStudioDigest &&
+    responseTools.length > 0 &&
+    responseTools.every((t) => t === 'canvas_get' || t === 'plan_update') &&
+    responseTools.includes('canvas_get') &&
+    (studioIsEmpty || priorToolsFlat.some((t) => t.startsWith('canvas_')))
+  ) {
+    eliminable = true;
+    eliminableReason = studioIsEmpty
+      ? '空画布已有 <beeftv_studio> 现场摘要仍调用 canvas_get'
+      : '同轮已读写画布且有最新 <beeftv_studio> 仍重复调用 canvas_get';
+  } else if (
+    thisHasWrite &&
+    priorWriteRequests.length >= 1 &&
+    trigger !== 'user_steer' &&
+    !prevTools.some((t) => t.name === 'media_inspect' || t.name === 'media_overview' || t.name === 'media_check')
+  ) {
+    eliminable = true;
+    eliminableReason = `串行分步改画布（同轮第 ${priorWriteRequests.length + 1} 次写请求，可合并为复合或同次批量调用）`;
+  } else if (
+    responseTools.length > 0 &&
+    responseTools.every((t) => t === 'canvas_generation_propose' || t === 'plan_update') &&
+    responseTools.includes('canvas_generation_propose') &&
+    priorWriteRequests.length >= 1 &&
+    !priorToolsFlat.includes('canvas_nodes_create')
+  ) {
+    eliminable = true;
+    eliminableReason = '已知节点 ID 时改节点与 generation_propose 分两次往返（可同次发出）';
+  } else if (
+    trigger === 'tool_result' &&
+    responseTools.length === 0 &&
+    prevTools.some((t) => t.name === 'canvas_generation_propose' && !t.isError) &&
+    prevTools.every((t) => t.name === 'canvas_generation_propose' || t.name === 'plan_update')
+  ) {
+    eliminable = true;
+    eliminableReason = 'plan_update 与 generation_propose 同批调用导致 terminate 未生效，多一次总结请求';
+  }
+
+  return {
+    trigger,
+    prevTools,
+    responseTools,
+    responseToolDetails,
+    hasTextReply,
+    eliminable,
+    eliminableReason,
+  };
+}
+
 // 预算计量与请求账本器（包裹 Fake 模型或作为 Real 模型的本地计量代理）
 export function createCostMeter({
   mode = 'fake',
@@ -194,6 +531,7 @@ export function createCostMeter({
 } = {}) {
   const entries = [];
   let totalInputTokens = 0;
+  let totalCachedTokens = 0;
   let totalOutputTokens = 0;
   let totalCostCny = 0;
   let abortedBudget = false;
@@ -201,6 +539,10 @@ export function createCostMeter({
 
   function setContext(ctx) {
     currentContext = { ...currentContext, ...ctx };
+  }
+
+  function getContext() {
+    return { ...currentContext };
   }
 
   function checkBudgetBeforeDispatch() {
@@ -215,19 +557,27 @@ export function createCostMeter({
   function recordRequest({
     model = 'fake-eval-model',
     inputTokens = 0,
+    cachedTokens = 0,
     outputTokens = 0,
     durationMs = 0,
     scenarioId = currentContext.scenarioId,
     turnId = currentContext.turnId,
     runIndex = currentContext.runIndex,
+    seq = null,
+    sessionKey = '',
+    attribution = 'unknown',
+    late = false,
+    trace = null,
   }) {
     const inTok = Math.max(0, Number(inputTokens || 0));
+    const cachedTok = Math.max(0, Math.min(inTok, Number(cachedTokens || 0)));
     const outTok = Math.max(0, Number(outputTokens || 0));
     const costCny =
       (inTok / 1_000_000) * Number(priceInPerMillion || 0) +
       (outTok / 1_000_000) * Number(priceOutPerMillion || 0);
 
     totalInputTokens += inTok;
+    totalCachedTokens += cachedTok;
     totalOutputTokens += outTok;
     totalCostCny = Number((totalCostCny + costCny).toFixed(8));
 
@@ -235,15 +585,35 @@ export function createCostMeter({
       abortedBudget = true;
     }
 
+    const turnEntriesBefore = entries.filter(
+      (e) => e.runIndex === runIndex && e.scenarioId === scenarioId && e.turnId === turnId,
+    );
+    const turnRequestIndex = turnEntriesBefore.length + 1;
+
     const entry = redactSecrets(
       {
         index: entries.length + 1,
+        seq,
+        turnRequestIndex,
         runIndex,
         scenarioId,
         turnId,
+        sessionKey,
+        attribution,
+        late,
         mode,
         model,
+        trigger: trace?.trigger || 'user_message',
+        prevTools: trace?.prevTools || [],
+        responseTools: trace?.responseTools || [],
+        responseToolDetails: trace?.responseToolDetails || [],
+        hasTextReply: Boolean(trace?.hasTextReply),
+        eliminable: Boolean(trace?.eliminable),
+        eliminableReason: trace?.eliminableReason || null,
         inputTokens: inTok,
+        cachedTokens: cachedTok,
+        uncachedInputTokens: Math.max(0, inTok - cachedTok),
+        cachedTokenRatio: inTok > 0 ? Number((cachedTok / inTok).toFixed(4)) : 0,
         outputTokens: outTok,
         totalTokens: inTok + outTok,
         costCny: Number(costCny.toFixed(8)),
@@ -278,6 +648,9 @@ export function createCostMeter({
       priceOutPerMillion,
       totalRequests: entries.length,
       totalInputTokens,
+      totalCachedTokens,
+      totalCachedTokenRatio:
+        totalInputTokens > 0 ? Number((totalCachedTokens / totalInputTokens).toFixed(4)) : 0,
       totalOutputTokens,
       totalTokens: totalInputTokens + totalOutputTokens,
       totalCostCny,
@@ -288,6 +661,7 @@ export function createCostMeter({
 
   return {
     setContext,
+    getContext,
     checkBudgetBeforeDispatch,
     recordRequest,
     getState,
@@ -320,8 +694,13 @@ export function computeScenarioMetrics({
   const structuralCompletenessRate = totalChecks > 0 ? Number((passedChecks / totalChecks).toFixed(4)) : 1;
 
   const inputTokens = requestEntries.reduce((sum, r) => sum + Number(r.inputTokens || 0), 0);
+  const cachedTokens = requestEntries.reduce((sum, r) => sum + Number(r.cachedTokens || 0), 0);
+  const cachedTokenRatio = inputTokens > 0 ? Number((cachedTokens / inputTokens).toFixed(4)) : 0;
   const outputTokens = requestEntries.reduce((sum, r) => sum + Number(r.outputTokens || 0), 0);
   const costCny = Number(requestEntries.reduce((sum, r) => sum + Number(r.costCny || 0), 0).toFixed(8));
+  const eliminableRequests = requestEntries.filter((r) => r.eliminable).length;
+  const avgRequestsPerTurn =
+    turnRecords.length > 0 ? Number((requestEntries.length / turnRecords.length).toFixed(2)) : 0;
 
   const unrecoveredConflicts = turnRecords.filter((t) => String(t.error || '').includes('conflict')).length;
   const conflictRecoveryRate =
@@ -340,10 +719,15 @@ export function computeScenarioMetrics({
     totalChecks,
     turnCount: turnRecords.length,
     modelRequests: requestEntries.length,
+    avgRequestsPerTurn,
+    eliminableRequests,
+    targetRequestsAfterOptimization: Math.max(turnRecords.length, requestEntries.length - eliminableRequests),
     toolCalls: writeOps + readOps,
     writeOps,
     readOps,
     inputTokens,
+    cachedTokens,
+    cachedTokenRatio,
     outputTokens,
     totalTokens: inputTokens + outputTokens,
     costCny,
@@ -364,7 +748,10 @@ export function buildEvalSummary(scenarioRuns, config, meterState) {
   const totalRuns = scenarioRuns.length;
   const passedRuns = scenarioRuns.filter((r) => r.metrics.status === 'passed').length;
   const baselineGapRuns = scenarioRuns.filter((r) => r.metrics.status === 'baseline_gap').length;
-  const failedRuns = scenarioRuns.filter((r) => r.metrics.status === 'failed').length;
+  const unexpectedGapRuns = scenarioRuns.filter(
+    (r) => r.metrics.status === 'baseline_gap' && r.expectedBaselinePass,
+  ).length;
+  const failedRuns = scenarioRuns.filter((r) => r.metrics.status === 'failed').length + unexpectedGapRuns;
   const abortedRuns = scenarioRuns.filter((r) => r.metrics.status === 'aborted_budget').length;
 
   const avgStructuralRate =
@@ -377,6 +764,11 @@ export function buildEvalSummary(scenarioRuns, config, meterState) {
   const totalDuplicateProposals = scenarioRuns.reduce((s, r) => s + r.metrics.duplicateProposalCount, 0);
   const totalRevisionConflicts = scenarioRuns.reduce((s, r) => s + r.metrics.revisionConflicts, 0);
   const totalUnrecoveredConflicts = scenarioRuns.reduce((s, r) => s + r.metrics.unrecoveredConflicts, 0);
+  const totalTurns = scenarioRuns.reduce((s, r) => s + r.metrics.turnCount, 0);
+  const totalEliminableRequests = scenarioRuns.reduce((s, r) => s + (r.metrics.eliminableRequests || 0), 0);
+  const totalDurationMs = scenarioRuns.reduce((s, r) => s + (r.metrics.durationMs || 0), 0);
+  const avgRequestsPerTurn =
+    totalTurns > 0 ? Number((meterState.totalRequests / totalTurns).toFixed(2)) : 0;
 
   const s6Runs = scenarioRuns.filter((r) => r.scenarioId === 'skill-across-turns');
   const skillRetentionRate =
@@ -415,8 +807,15 @@ export function buildEvalSummary(scenarioRuns, config, meterState) {
       totalRevisionConflicts,
       totalUnrecoveredConflicts,
       skillRetentionRate,
+      totalTurns,
       totalRequests: meterState.totalRequests,
+      avgRequestsPerTurn,
+      totalEliminableRequests,
+      totalTargetRequests: Math.max(totalTurns, meterState.totalRequests - totalEliminableRequests),
+      totalDurationMs,
       totalInputTokens: meterState.totalInputTokens,
+      totalCachedTokens: meterState.totalCachedTokens,
+      totalCachedTokenRatio: meterState.totalCachedTokenRatio,
       totalOutputTokens: meterState.totalOutputTokens,
       totalTokens: meterState.totalTokens,
       totalCostCny: meterState.totalCostCny,
@@ -428,13 +827,17 @@ export function buildEvalSummary(scenarioRuns, config, meterState) {
 
 export function renderMarkdownReport(report) {
   const s = report.summary;
+  const cachedSummary =
+    typeof s.totalCachedTokens === 'number'
+      ? ` (缓存命中 \`${s.totalCachedTokens}\` tok / \`${((s.totalCachedTokenRatio || 0) * 100).toFixed(1)}%\`)`
+      : '';
   const lines = [
     '# BeefTV 内置创作助手评测报告 (Eval Harness)',
     '',
     `- **生成时间**: \`${report.generatedAt}\``,
     `- **整体状态**: **${report.status.toUpperCase()}**`,
     `- **模型模式**: \`${report.config.modelMode}\` | **每场景轮数**: \`${report.config.runs}\` | **单轮请求上限**: \`${report.config.maxRequests}\` | **总预算上限**: \`¥${report.config.budgetCny}\``,
-    `- **累计消耗**: 请求 \`${s.totalRequests}\` 次 | 输入 \`${s.totalInputTokens}\` tok | 输出 \`${s.totalOutputTokens}\` tok | 费用 \`¥${s.totalCostCny.toFixed(4)}\``,
+    `- **累计消耗**: 共 \`${s.totalTurns || 0}\` 句话 / 请求 \`${s.totalRequests}\` 次 (平均 \`${s.avgRequestsPerTurn || 0}\` 次/句，可省 \`${s.totalEliminableRequests || 0}\` 次 -> 目标 \`<=${s.totalTargetRequests || 0}\` 次) | 输入 \`${s.totalInputTokens}\` tok${cachedSummary} | 输出 \`${s.totalOutputTokens}\` tok | 耗时 \`${s.totalDurationMs || 0} ms\` | 费用 \`¥${s.totalCostCny.toFixed(4)}\``,
     '',
     '## 1. 核心守护指标总览',
     '',
@@ -449,8 +852,8 @@ export function renderMarkdownReport(report) {
     '',
     '## 2. 分场景明细',
     '',
-    '| 场景 | 状态 | 检查项 | 回合/请求 | 读/写操作 | Token (入/出) | 费用 (¥) | 耗时 (ms) | 备注 / 能力缺口 |',
-    '| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |',
+    '| 场景 | 状态 | 检查项 | 句数/请求 (可省) | 读/写操作 | 输入 Token (缓存命中%) | 输出 Token | 费用 (¥) | 耗时 (ms) | 备注 / 能力缺口 |',
+    '| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |',
   ];
 
   for (const item of report.scenarios) {
@@ -459,7 +862,9 @@ export function renderMarkdownReport(report) {
       m.status === 'passed'
         ? 'PASS'
         : m.status === 'baseline_gap'
-          ? 'GAP (expected)'
+          ? item.expectedBaselinePass
+            ? 'FAIL (unexpected gap)'
+            : 'GAP (expected)'
           : m.status === 'aborted_budget'
             ? 'ABORTED_BUDGET'
             : 'FAIL';
@@ -467,11 +872,57 @@ export function renderMarkdownReport(report) {
       ? `capability gap: \`${m.capabilityGap}\``
       : item.checks.filter((c) => !c.passed).map((c) => `${c.name}: ${c.detail}`).join('; ') || '全部检查通过';
     lines.push(
-      `| **${m.scenarioCode}** \`${m.scenarioId}\` (run #${item.runIndex}) | ${badge} | ${m.passedChecks}/${m.totalChecks} | ${m.turnCount}/${m.modelRequests} | ${m.readOps}/${m.writeOps} | ${m.inputTokens}/${m.outputTokens} | ${m.costCny.toFixed(4)} | ${m.durationMs} | ${note} |`,
+      `| **${m.scenarioCode}** \`${m.scenarioId}\` (run #${item.runIndex}) | ${badge} | ${m.passedChecks}/${m.totalChecks} | ${m.turnCount}/${m.modelRequests} (-${m.eliminableRequests || 0}) | ${m.readOps}/${m.writeOps} | ${m.inputTokens} (${((m.cachedTokenRatio || 0) * 100).toFixed(1)}%) | ${m.outputTokens} | ${m.costCny.toFixed(4)} | ${m.durationMs} | ${note} |`,
     );
   }
 
-  lines.push('', '## 3. 检查项逐条断言', '');
+  lines.push(
+    '',
+    '## 3. 每句话请求次数、工具调用序列与可省往返明细 (Stage 1 Baseline)',
+    '',
+    '| 场景 / 回合 | 用户指令摘要 | 请求数 (可省) | 耗时 (ms) | 输入 Token (缓存命中%) | 输出 Token | 工具调用序列 (按请求) |',
+    '| :--- | :--- | :--- | :--- | :--- | :--- | :--- |',
+  );
+
+  for (const item of report.scenarios) {
+    for (const td of item.turnDiagnostics || []) {
+      const seqStr = (td.toolSequence || []).join(' → ') || '—';
+      const msgPreview = String(td.userMessage || '').replace(/\s+/g, ' ').slice(0, 38);
+      lines.push(
+        `| **${item.metrics.scenarioCode}** \`${td.turnId}\` | ${msgPreview}… | ${td.requestCount || 0} (-${td.eliminableRequestCount || 0}) | ${td.durationMs || 0} | ${td.inputTokens || 0} (${(((td.cachedTokenRatio || 0) * 100)).toFixed(1)}%) | ${td.outputTokens || 0} | ${seqStr} |`,
+      );
+    }
+  }
+
+  lines.push('', '### 每次模型请求逐笔明细与可省往返标注', '');
+  lines.push(
+    '| 全局# | 场景/回合# | 触发原因 (上步结果) | 本次响应动作 / 工具调用 | 输入 Token | 缓存命中 (占比) | 输出 Token | 耗时 (ms) | 可省往返标注 |',
+    '| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |',
+  );
+  for (const item of report.scenarios) {
+    for (const td of item.turnDiagnostics || []) {
+      for (const req of td.requests || []) {
+        const prevDesc =
+          req.prevTools && req.prevTools.length > 0
+            ? `${req.trigger} (${req.prevTools.map((p) => `${p.name}${p.isError ? ':ERR' : ''}`).join(',')})`
+            : req.trigger;
+        const respDesc =
+          req.responseToolDetails && req.responseToolDetails.length > 0
+            ? req.responseToolDetails
+                .map((d) => (d.summary ? `\`${d.name}\`(${d.summary})` : `\`${d.name}\``))
+                .join(' + ')
+            : req.hasTextReply
+              ? '`<final_reply>`'
+              : '`<empty>`';
+        const elimBadge = req.eliminable ? `**可省**: ${req.eliminableReason}` : '保留';
+        lines.push(
+          `| #${req.index} | **${item.metrics.scenarioCode}** \`${td.turnId}\` R${req.turnRequestIndex} | ${prevDesc} | ${respDesc} | ${req.inputTokens} | ${req.cachedTokens} (${((req.cachedTokenRatio || 0) * 100).toFixed(1)}%) | ${req.outputTokens} | ${req.durationMs} | ${elimBadge} |`,
+        );
+      }
+    }
+  }
+
+  lines.push('', '## 4. 检查项逐条断言', '');
   for (const item of report.scenarios) {
     lines.push(`### ${item.metrics.scenarioCode} \`${item.scenarioId}\` (Run #${item.runIndex} — ${item.metrics.status})`);
     for (const c of item.checks) {
@@ -633,6 +1084,83 @@ async function sendChatTurn({
   };
 }
 
+// 宿主把会话 ID 作为缓存亲和键发给上游：OpenAI 兼容是 prompt_cache_key，Anthropic 是 metadata.user_id。
+export function requestSessionKey(body) {
+  return String(body?.prompt_cache_key || body?.metadata?.user_id || '');
+}
+
+// 落盘的请求原文去掉内联图片的 base64，只留类型和长度。
+export function elideDataUrls(value) {
+  return JSON.parse(JSON.stringify(value, (_key, item) =>
+    typeof item === 'string' && item.startsWith('data:') && item.length > 256
+      ? `${item.slice(0, item.indexOf(',') + 1)}<${item.length} chars elided>`
+      : item));
+}
+
+// 模型请求登记：发出时编号、按会话归属、原文落盘，并计在途数。
+// 会话键已登记到别的场景的请求是迟到请求，归回原场景；键缺失或未登记的归属记为 unknown。
+export function createRequestTracker({ requestsDir, getContext, secrets = [] }) {
+  const owners = new Map();
+  const dispatches = new WeakMap();
+  const ended = new WeakSet();
+  let seq = 0;
+  let inflight = 0;
+  return {
+    get inflight() { return inflight; },
+    register(sessionKey, owner) { if (sessionKey) owners.set(sessionKey, { ...owner }); },
+    // 先落盘再计数：落盘失败时这次请求不算发出，不会留下在途计数。
+    begin(body) {
+      const sessionKey = requestSessionKey(body);
+      const current = getContext();
+      const owner = sessionKey ? owners.get(sessionKey) : undefined;
+      const late = Boolean(owner) && (owner.scenarioId !== current.scenarioId || owner.runIndex !== current.runIndex);
+      const dispatch = { ...(late ? owner : current), seq: seq + 1, sessionKey, attribution: owner ? 'session' : 'unknown', late };
+      const dump = redactSecrets({ ...dispatch, at: new Date().toISOString(), body: elideDataUrls(body) }, secrets);
+      fs.writeFileSync(path.join(requestsDir, `${String(dispatch.seq).padStart(4, '0')}.json`), JSON.stringify(dump, null, 1));
+      seq = dispatch.seq;
+      inflight += 1;
+      dispatches.set(body, dispatch);
+      return dispatch;
+    },
+    // 每次 begin 恰好扣减一次；重复调用或传空都不影响计数。
+    end(dispatch) {
+      if (!dispatch || ended.has(dispatch)) return;
+      ended.add(dispatch);
+      inflight -= 1;
+    },
+    dispatchOf(body) { return dispatches.get(body); },
+  };
+}
+
+// 只有属于当前场景的请求才交给观察回调和改向钩子；迟到请求只记账，
+// 不能被算作本场景证据，也不能提前消费下一场景的改向钩子。
+export async function runOwnRequestHooks(body, dispatch, reqIndex, { observe, takeSteerHook }) {
+  if (dispatch.late) return;
+  observe(body, dispatch);
+  const hook = takeSteerHook();
+  if (hook) await hook({ reqIndex, body });
+}
+
+// 等画布上的助手真正停下：宿主没有进行中的回合（含生成完成后的自动唤醒），
+// 也没有在途模型请求，并且连续两次轮询都如此。until 可要求先看到某个结果再算停下。
+// 每次查询都受剩余时间约束，宿主不回应也不会越过上限。
+export async function waitForCanvasIdle({ hostBaseUrl, hostToken, canvasId, timeoutMs, isQuiet = () => true, until = () => true }) {
+  const startedAt = Date.now();
+  let quietPolls = 0;
+  while (Date.now() - startedAt < timeoutMs) {
+    const signal = AbortSignal.timeout(Math.max(1, Math.min(5000, timeoutMs - (Date.now() - startedAt))));
+    const res = await fetch(`${hostBaseUrl}/history?canvasId=${encodeURIComponent(canvasId)}`, {
+      headers: { 'X-Beeftv-Agent-Token': hostToken },
+      signal,
+    }).catch(() => null);
+    const history = res?.ok ? await res.json().catch(() => null) : null;
+    quietPolls = history && !history.active && isQuiet() && until() ? quietPolls + 1 : 0;
+    if (quietPolls >= 2) return { idle: true, waitedMs: Date.now() - startedAt };
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  return { idle: false, waitedMs: Date.now() - startedAt };
+}
+
 // 执行完整评测套件
 export async function runEval(rawOptions = {}) {
   const config = validateEvalConfig(rawOptions, rawOptions.env || process.env);
@@ -669,23 +1197,48 @@ export async function runEval(rawOptions = {}) {
   let activeTurnSteerHook = null;
   let observeModelRequest = null;
 
+  // 账本用请求发出时的归属而不是完成时刻的上下文：上一个场景迟到的请求
+  // （例如生成完成后的自动唤醒）归回它自己的场景，不算进当前场景。
+  const requestsDir = path.join(outDir, 'requests');
+  fs.rmSync(requestsDir, { recursive: true, force: true });
+  fs.mkdirSync(requestsDir, { recursive: true });
+  const tracker = createRequestTracker({ requestsDir, getContext: meter.getContext, secrets: [hostToken, config.realApiKey] });
+  const ownHooks = {
+    observe: (body, dispatch) => observeModelRequest?.(body, dispatch),
+    takeSteerHook: () => { const hook = activeTurnSteerHook; activeTurnSteerHook = null; return hook; },
+  };
+  function sameTurnEntries(dispatch) {
+    return meter.getState().entries.filter((e) =>
+      e.runIndex === dispatch.runIndex && e.scenarioId === dispatch.scenarioId && e.turnId === dispatch.turnId);
+  }
+
   if (config.modelMode === 'fake') {
     fakeModel = createFakeModelServer({
       onRequest: async ({ reqIndex, body }) => {
         meter.checkBudgetBeforeDispatch();
-        observeModelRequest?.(body);
-        if (activeTurnSteerHook) {
-          const hook = activeTurnSteerHook;
-          activeTurnSteerHook = null;
-          await hook({ reqIndex, body });
+        const dispatch = tracker.begin(body);
+        try {
+          await runOwnRequestHooks(body, dispatch, reqIndex, ownHooks);
+        } catch (error) {
+          // 抛错时假模型不会再回调 onResponse，在这里扣掉在途计数。
+          tracker.end(dispatch);
+          throw error;
         }
+      },
+      onResponse: ({ body, respText }) => {
+        const tracked = tracker.dispatchOf(body);
+        tracker.end(tracked);
+        const dispatch = tracked || meter.getContext();
+        const trace = extractModelRequestTrace(body, respText, sameTurnEntries(dispatch));
         const inTok = Math.max(120, Math.ceil(JSON.stringify(body.messages || []).length / 4));
         const outTok = 85;
         meter.recordRequest({
+          ...dispatch,
           model: body.model || 'fake-eval-model',
           inputTokens: inTok,
           outputTokens: outTok,
           durationMs: 5,
+          trace,
         });
       },
     });
@@ -698,22 +1251,24 @@ export async function runEval(rawOptions = {}) {
     apiKey = config.realApiKey;
     const upstreamBase = config.realBaseUrl.replace(/\/+$/, '');
     realProxyServer = http.createServer(async (req, res) => {
-      const started = Date.now();
+      let dispatch = null;
       try {
         meter.checkBudgetBeforeDispatch();
-        let rawBody = '';
-        for await (const chunk of req) rawBody += chunk;
-        observeModelRequest?.(rawBody ? JSON.parse(rawBody) : {});
-        if (activeTurnSteerHook) {
-          const hook = activeTurnSteerHook;
-          activeTurnSteerHook = null;
-          await hook({ reqIndex: 1, body: rawBody ? JSON.parse(rawBody) : {} });
-        }
+        const reqChunks = [];
+        for await (const chunk of req) reqChunks.push(Buffer.from(chunk));
+        const rawBody = Buffer.concat(reqChunks).toString('utf8');
+        const parsedReqBody = rawBody ? JSON.parse(rawBody) : {};
+        dispatch = tracker.begin(parsedReqBody);
+        await runOwnRequestHooks(parsedReqBody, dispatch, 1, ownHooks);
         const targetUrl = `${upstreamBase}${req.url.replace(/^\/v1/, '')}`;
         let lastStatus = 502;
         let lastContentType = 'text/event-stream';
         let finalBuffer = Buffer.alloc(0);
         let finalText = '';
+        let reqInputTokens = 0;
+        let reqCachedTokens = 0;
+        let reqOutputTokens = 0;
+        let reqDurationMs = 0;
         let requestBodyToSend = rawBody;
         if (requestBodyToSend.includes('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAE')) {
           try {
@@ -752,16 +1307,28 @@ export async function runEval(rawOptions = {}) {
             chunks.push(Buffer.from(chunk));
             respText += dec.decode(chunk, { stream: true });
           }
-          const inTok = Math.max(100, Math.ceil(requestBodyToSend.length / 4));
-          const outTok = Math.max(50, Math.ceil(respText.length / 8));
-          meter.recordRequest({
-            model: modelId,
-            inputTokens: inTok,
-            outputTokens: outTok,
-            durationMs: Date.now() - attemptStart,
-          });
+          const attemptDurationMs = Date.now() - attemptStart;
+          const parsedUsage = extractUpstreamUsage(respText);
+          const attemptInTok =
+            parsedUsage?.promptTokens > 0
+              ? parsedUsage.promptTokens
+              : Math.max(100, Math.ceil(requestBodyToSend.length / 4));
+          const attemptCachedTok = parsedUsage ? parsedUsage.cachedTokens : 0;
+          const attemptOutTok =
+            parsedUsage?.completionTokens > 0
+              ? parsedUsage.completionTokens
+              : Math.max(50, Math.ceil(respText.length / 8));
+          reqInputTokens += attemptInTok;
+          reqCachedTokens += attemptCachedTok;
+          reqOutputTokens += attemptOutTok;
+          reqDurationMs += attemptDurationMs;
           finalBuffer = Buffer.concat(chunks);
           finalText = respText;
+          const pendingCostCny =
+            (reqInputTokens * config.priceInPerMillion + reqOutputTokens * config.priceOutPerMillion) / 1_000_000;
+          if (config.budgetCny > 0 && meter.getState().totalCostCny + pendingCostCny >= config.budgetCny) {
+            break;
+          }
           const isTransientUpstreamError =
             respText.includes('upstream stream ended before first response') ||
             respText.includes('upstream error:') ||
@@ -772,6 +1339,16 @@ export async function runEval(rawOptions = {}) {
           if (!isTransientUpstreamError || attempt === 4) break;
           await new Promise((r) => setTimeout(r, 1500 * attempt));
         }
+        const trace = extractModelRequestTrace(parsedReqBody, finalText, sameTurnEntries(dispatch));
+        meter.recordRequest({
+          ...dispatch,
+          model: modelId,
+          inputTokens: reqInputTokens,
+          cachedTokens: reqCachedTokens,
+          outputTokens: reqOutputTokens,
+          durationMs: reqDurationMs,
+          trace,
+        });
         res.writeHead(lastStatus, {
           'Content-Type': lastContentType,
         });
@@ -779,6 +1356,8 @@ export async function runEval(rawOptions = {}) {
       } catch (err) {
         res.writeHead(err.reason === 'aborted_budget' ? 429 : 500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: { message: String(err.message || err), code: err.reason || 'proxy_error' } }));
+      } finally {
+        tracker.end(dispatch);
       }
     });
     await new Promise((resolve) => realProxyServer.listen(0, '127.0.0.1', resolve));
@@ -812,10 +1391,11 @@ export async function runEval(rawOptions = {}) {
         const turnRecords = [];
         const steerResults = [];
         const requestEvidence = [];
+        // 工具报错证据：模型侧参数校验失败不会进模拟器操作日志，单独从请求体里收集。
+        const toolErrorEvidence = [];
         let wakeResult = { autoWoken: false };
         let sessionId = '';
         let abortedThisScenario = false;
-        const reqCountBefore = meter.getState().entries.length;
 
         for (const turnSpec of scenario.turns) {
           if (meter.getState().abortedBudget) {
@@ -837,13 +1417,43 @@ export async function runEval(rawOptions = {}) {
           if (turnSpec.useActiveSkillPins && setupState?.skillPin) {
             skillsPayload = [setupState.skillPin];
           }
-          observeModelRequest = (body) => {
+          observeModelRequest = (body, dispatch) => {
+            rawOptions.onModelRequest?.({
+              runIndex: runIdx,
+              scenarioId: scenario.id,
+              scenarioCode: scenario.code,
+              turnId,
+              canvasId,
+              sessionId,
+              body,
+            });
+            // 每一次调用前的请求体里，紧邻末尾的工具结果就是上一次工具调用的真实结果。
+            const trace = extractModelRequestTrace(body, '', []);
+            for (const tool of trace.prevTools) {
+              if (!tool.isError) continue;
+              toolErrorEvidence.push({
+                turnId,
+                tool: tool.name,
+                reason: tool.errorReason,
+                args: tool.args || '',
+                attribution: dispatch.attribution,
+              });
+            }
             if (!setupState?.skillPin) return;
             const pin = setupState.skillPin;
-            const systemText = JSON.stringify(body.system || (body.messages || []).filter((m) => m.role === 'system' || m.role === 'developer'));
-            const activeSkillPresent = systemText.includes('当前任务技能') &&
-              ['skillId', 'versionId', 'contentHash'].every((key) => systemText.includes(`${key}=\\"${pin[key]}\\"`));
-            requestEvidence.push({ turnId, activeSkillPresent });
+            const nonSystemMessages = (body.messages || []).filter(
+              (m) => m.role !== 'system' && m.role !== 'developer',
+            );
+            const nonSystemText = JSON.stringify(nonSystemMessages);
+            const systemText = JSON.stringify(
+              body.system || (body.messages || []).filter((m) => m.role === 'system' || m.role === 'developer'),
+            );
+            const activeSkillPresent =
+              !systemText.includes('beeftv_active_skills') &&
+              ['skillId', 'versionId', 'contentHash'].every((key) =>
+                nonSystemText.includes(`${key}=\\"${pin[key]}\\"`),
+              );
+            requestEvidence.push({ seq: dispatch.seq, turnId, attribution: dispatch.attribution, activeSkillPresent });
           };
 
           let sessionPromiseResolve;
@@ -873,6 +1483,7 @@ export async function runEval(rawOptions = {}) {
             activeTurnSteerHook = null;
           }
 
+          const turnStartMs = Date.now();
           try {
             const chatRes = await sendChatTurn({
               hostBaseUrl: agentHost.baseUrl,
@@ -885,13 +1496,27 @@ export async function runEval(rawOptions = {}) {
               skills: skillsPayload,
               onSessionLine: (ev) => {
                 sessionId = ev.sessionId;
+                tracker.register(sessionId, { runIndex: runIdx, scenarioId: scenario.id, turnId });
                 sessionPromiseResolve(ev);
               },
             });
             sessionId = chatRes.sessionId || sessionId;
-            turnRecords.push(chatRes.turnEnd);
+            tracker.register(sessionId, { runIndex: runIdx, scenarioId: scenario.id, turnId });
+            turnRecords.push({
+              ...chatRes.turnEnd,
+              turnId,
+              userMessage: turnSpec.message,
+              durationMs: Date.now() - turnStartMs,
+            });
           } catch (err) {
-            turnRecords.push({ type: 'turn_end', reply: '', error: String(err?.message || err) });
+            turnRecords.push({
+              type: 'turn_end',
+              turnId,
+              userMessage: turnSpec.message,
+              durationMs: Date.now() - turnStartMs,
+              reply: '',
+              error: String(err?.message || err),
+            });
           } finally {
             activeTurnSteerHook = null;
           }
@@ -909,7 +1534,6 @@ export async function runEval(rawOptions = {}) {
               await simGo.confirmProposals(p.proposalId, { delayMs: 10 });
             }
             if (turnSpec.awaitAutoWakeMs) {
-              const inspectsBefore = simGo.counts.mediaInspections;
               const eventRes = await fetch(`${agentHost.baseUrl}/events`, {
                 method: 'POST',
                 headers: {
@@ -926,21 +1550,45 @@ export async function runEval(rawOptions = {}) {
                   data: { proposalIds: unconfirmedForCanvas.map((p) => p.proposalId) },
                 }),
               }).catch(() => null);
+              const eventBody = eventRes?.ok ? await eventRes.json().catch(() => null) : null;
               // Accepted events are only evidence of delivery. Observe the host
-              // without creating a new user turn on its behalf.
-              await new Promise((r) => setTimeout(r, turnSpec.awaitAutoWakeMs));
-              const inspectsAfter = simGo.counts.mediaInspections;
+              // without creating a new user turn on its behalf: wait, up to the cap, until
+              // the woken turn has inspected this canvas's result and the host stopped.
+              const wakeTurnId = eventBody?.woken ? eventBody.turnId : '';
+              const wakeInspected = () => Boolean(wakeTurnId) && simGo.opLog.some((op) =>
+                op.turnId === wakeTurnId && op.status === 'ok' && op.params?.canvasId === canvasId &&
+                ['media.inspect', 'media.overview'].includes(op.op));
+              if (wakeTurnId) {
+                await waitForCanvasIdle({
+                  hostBaseUrl: agentHost.baseUrl,
+                  hostToken,
+                  canvasId,
+                  timeoutMs: turnSpec.awaitAutoWakeMs,
+                  isQuiet: () => tracker.inflight === 0,
+                  until: wakeInspected,
+                });
+              }
               wakeResult = {
-                autoWoken: inspectsAfter > inspectsBefore,
+                autoWoken: wakeInspected(),
                 eventAccepted: Boolean(eventRes && eventRes.status === 202),
               };
             }
           }
         }
+        // 场景收尾前等助手真正停下，迟到的动作算进本场景，也不会漏进下一个场景。
+        const settle = meter.getState().abortedBudget
+          ? { idle: false, waitedMs: 0 }
+          : await waitForCanvasIdle({
+            hostBaseUrl: agentHost.baseUrl,
+            hostToken,
+            canvasId,
+            timeoutMs: config.modelMode === 'fake' ? 10_000 : 120_000,
+            isQuiet: () => tracker.inflight === 0,
+          });
         observeModelRequest = null;
 
         const afterSnap = simGo.snapshot();
-        const requestEntries = meter.getState().entries.slice(reqCountBefore);
+        const requestEntries = meter.getState().entries.filter((e) => e.runIndex === runIdx && e.scenarioId === scenario.id);
         const durationMs = Date.now() - scenarioStart;
 
         let evalResult;
@@ -965,7 +1613,21 @@ export async function runEval(rawOptions = {}) {
             steerResults,
             wakeResult,
             requestEvidence,
+            toolErrorEvidence,
           });
+        }
+        if (!settle.idle && !meter.getState().abortedBudget) {
+          // 助手还没停下就打分，请求与画布结果都不完整，本场景不能算通过。
+          evalResult = {
+            ...evalResult,
+            passed: false,
+            status: 'failed',
+            checks: [...evalResult.checks, {
+              name: 'assistant_settled_before_scoring',
+              passed: false,
+              detail: `收尾等待 ${Math.round(settle.waitedMs / 1000)} 秒后助手仍在运行，本场景的请求与画布结果不完整`,
+            }],
+          };
         }
 
         const metrics = computeScenarioMetrics({
@@ -986,21 +1648,54 @@ export async function runEval(rawOptions = {}) {
           expectedBaselinePass: scenario.expectedBaselinePass,
           capabilities: scenario.capabilities,
           requestEvidence,
+          settle,
+          scoredRequestSeqs: requestEntries.map((e) => e.seq),
           wakeResult: scenario.capabilities.includes('wake-on-generation') ? wakeResult : undefined,
           metrics,
           checks: evalResult.checks,
-          turnDiagnostics: (turnRecords || []).map((t) => ({
-            turnId: t.turnId,
-            error: t.error || null,
-            reason: t.reason || null,
-            replyPreview: String(t.reply || '').slice(0, 200),
-            tools: (t.tools || []).map((tl) => ({
-              tool: tl.tool,
-              isError: Boolean(tl.isError),
-              error: tl.error || null,
-              rebasedFrom: tl.rebasedFrom,
-            })),
-          })),
+          turnDiagnostics: (turnRecords || []).map((t) => {
+            const turnReqs = requestEntries.filter((r) => r.turnId === t.turnId);
+            const tInTok = turnReqs.reduce((s, r) => s + Number(r.inputTokens || 0), 0);
+            const tCachedTok = turnReqs.reduce((s, r) => s + Number(r.cachedTokens || 0), 0);
+            const tOutTok = turnReqs.reduce((s, r) => s + Number(r.outputTokens || 0), 0);
+            const tCost = Number(turnReqs.reduce((s, r) => s + Number(r.costCny || 0), 0).toFixed(8));
+            const tEliminable = turnReqs.filter((r) => r.eliminable).length;
+            const toolSequence = turnReqs.map((r) => {
+              const tools =
+                r.responseTools && r.responseTools.length > 0
+                  ? r.responseTools.join('+')
+                  : r.hasTextReply
+                    ? '<reply>'
+                    : '<empty>';
+              const elimTag = r.eliminable ? '[可省]' : '';
+              return `R${r.turnRequestIndex}:${tools}${elimTag}`;
+            });
+            const rawToolCalls = t.toolCalls || t.tools || [];
+            return {
+              turnId: t.turnId,
+              userMessage: t.userMessage || '',
+              requestCount: turnReqs.length,
+              eliminableRequestCount: tEliminable,
+              durationMs: t.durationMs || turnReqs.reduce((s, r) => s + Number(r.durationMs || 0), 0),
+              inputTokens: tInTok,
+              cachedTokens: tCachedTok,
+              uncachedInputTokens: Math.max(0, tInTok - tCachedTok),
+              cachedTokenRatio: tInTok > 0 ? Number((tCachedTok / tInTok).toFixed(4)) : 0,
+              outputTokens: tOutTok,
+              costCny: tCost,
+              toolSequence,
+              requests: turnReqs,
+              error: t.error || null,
+              reason: t.reason || null,
+              replyPreview: String(t.reply || '').slice(0, 200),
+              tools: rawToolCalls.map((tl) => ({
+                tool: tl.tool || tl.name || '',
+                isError: Boolean(tl.isError),
+                error: tl.error || null,
+                rebasedFrom: tl.rebasedFrom,
+              })),
+            };
+          }),
         });
 
         if (meter.getState().abortedBudget) {
@@ -1019,6 +1714,12 @@ export async function runEval(rawOptions = {}) {
     fs.rmSync(tempDataDir, { recursive: true, force: true });
   }
 
+  // 打分之后才完成的请求（收尾超时的场景）在账本里归回原场景，报告单列数量，两边对得上。
+  for (const run of scenarioRuns) {
+    const scored = new Set(run.scoredRequestSeqs);
+    run.lateAfterScoring = meter.getState().entries.filter((e) =>
+      e.runIndex === run.runIndex && e.scenarioId === run.scenarioId && !scored.has(e.seq)).length;
+  }
   const rawReport = buildEvalSummary(scenarioRuns, config, meter.getState());
   const report = redactSecrets(rawReport, [hostToken, config.realApiKey]);
   const markdown = redactSecrets(renderMarkdownReport(report), [hostToken, config.realApiKey]);
@@ -1049,7 +1750,7 @@ if (isMain) {
       console.log(
         [
           '用法: bun eval/run-eval.mjs [选项]',
-          '  --scenario <id|all>      指定场景 ID（如 S1..S7 或 shortdrama-2shot）或 all（默认 all）',
+          '  --scenario <id|all>      指定场景 ID（如 S1..S11 或 shortdrama-2shot）或 all（默认 all）',
           '  --model <fake|real>      模型模式：fake（默认零成本本地桩）或 real（真实模型，需显式配置单价）',
           '  --runs <N>               每个场景重复运行次数（默认 1）',
           '  --max-requests <N>       单回合最大模型请求数（默认 25）',

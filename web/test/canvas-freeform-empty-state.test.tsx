@@ -65,15 +65,12 @@ describe("BeefTV freeform canvas empty state", () => {
                 onChooseStyle: noop, onOpenDirector: noop, onUpload: noop, onOpenMyAssets: noop, onOpenProjectCharacters: noop,
             },
         };
-        const labels = resolveAddNodeMenuCommands(context).filter((command) => command.section === "node").slice(0, 9).map((command) => command.label);
-        expect(labels).toEqual(["文本", "图片", "视频", "AI 超分", "音频", "导演台", "智能剪辑", "逐帧拉片", "脚本"]);
+        const labels = resolveAddNodeMenuCommands(context).filter((command) => command.section === "node").slice(0, 8).map((command) => command.label);
+        expect(labels).toEqual(["文本", "图片", "视频", "AI超分", "音频", "导演台", "智能剪辑", "逐帧拉片"]);
         const commandsByLabel = new Map(resolveAddNodeMenuCommands(context).map((command) => [command.label, command]));
         for (const label of ["智能剪辑", "逐帧拉片", "脚本"]) {
             expect(commandsByLabel.get(label)?.disabledReason).toBe("正在开发");
         }
-        let addedType = "";
-        commandsByLabel.get("AI 超分")?.run({ ...context, handlers: { ...context.handlers, onAddExtensionNode: (type) => { addedType = type; } } });
-        expect(addedType).toBe(CanvasNodeType.Upscale);
     });
 
     test("opens the existing director templates from the professional add-node menu", () => {

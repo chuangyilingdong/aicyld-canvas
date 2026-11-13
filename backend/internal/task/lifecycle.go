@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"infinite-canvas/backend/internal/generation"
@@ -15,6 +14,17 @@ import (
 )
 
 func (s *Service) Retry(userID, id string) (*model.Task, error) {
+	return s.retry(userID, id, nil)
+}
+
+// RetryWithCredentialRefresh is an in-process retry command. It can update
+// only connection credentials of an unaccepted task; request content and the
+// original admission identity are immutable. HTTP callers cannot set it.
+func (s *Service) RetryWithCredentialRefresh(userID, id, expectedInputJSON, inputJSON string) (*model.Task, error) {
+	return s.retry(userID, id, &retryCredentialRefresh{expectedInputJSON, inputJSON})
+}
+
+func (s *Service) retry(userID, id string, refresh *retryCredentialRefresh) (*model.Task, error) {
 	if s.deps.Runtime == nil || s.deps.Images == nil || s.deps.Failures == nil || s.deps.Secrets == nil || s.deps.Catalog == nil || s.deps.Media == nil || s.deps.Policy == nil || s.deps.Projects == nil || s.deps.Present == nil {
 		return nil, unavailable()
 	}
@@ -46,15 +56,27 @@ func (s *Service) Retry(userID, id string) (*model.Task, error) {
 	if s.deps.Failures.IsModeration(task.Error) {
 		return nil, kernel.BadAuthRequest(ContentModerationRetryMessage)
 	}
-	if s.deps.Failures.BlocksRetry(task.Error, task.Stage) {
-		category := s.deps.Failures.Category(task.Error, task.Stage)
-		if task.Stage == "submission_unknown" || category == generation.CategorySubmissionUncertain {
+	if refresh != nil {
+		if err := s.validateRetryCredentialRefresh(task, *refresh); err != nil {
+			return nil, err
+		}
+	}
+	effectiveStage := task.Stage
+	if task.RecoveryOutcome != nil && *task.RecoveryOutcome == RecoveryNoResult && effectiveStage == "submission_unknown" {
+		effectiveStage = ""
+	}
+	if s.deps.Failures.BlocksRetry(task.Error, effectiveStage) && !(refresh != nil && s.deps.Failures.Category(task.Error, effectiveStage) == generation.CategoryAuth) {
+		category := s.deps.Failures.Category(task.Error, effectiveStage)
+		if effectiveStage == "submission_unknown" || category == generation.CategorySubmissionUncertain {
 			return nil, kernel.BadAuthRequest(SubmissionUncertainRetryMessage)
 		}
 		if category == generation.CategoryDownloadFailed {
 			return nil, kernel.BadAuthRequest(DownloadFailureRetryMessage)
 		}
 		return nil, kernel.BadAuthRequest(s.deps.Failures.UserMessage(task.Error))
+	}
+	if refresh != nil {
+		task.InputJSON = refresh.inputJSON
 	}
 	decryptedInput, err := s.deps.Secrets.DecryptInputJSON(task.InputJSON)
 	if err != nil {
@@ -84,45 +106,48 @@ func (s *Service) Retry(userID, id string) (*model.Task, error) {
 	if err := s.deps.Projects.EnsureActive(userID, task.ProjectID); err != nil {
 		return nil, err
 	}
+	if refresh != nil {
+		if err := s.deps.Secrets.Protect(taskInput); err != nil {
+			return nil, err
+		}
+		encoded, err := json.Marshal(taskInput)
+		if err != nil {
+			return nil, err
+		}
+		task.InputJSON = string(encoded)
+	}
 	nextAttempt := *task
 	nextAttempt.RouteRun = task.RouteRun + 1
-	// A retry is a new billing attempt. Do not carry a prior settled/refunded hold
-	// into a free or locally executed retry.
 	nextAttempt.BillingHoldID = ""
 	nextAttempt.BillingStatus = ""
 	nextAttempt.BillingPoints = 0
-	var billingReserved bool
-	if s.deps.Billing != nil {
-		reservation, reserveErr := s.deps.Billing.Reserve(context.Background(), userID, &nextAttempt)
-		if reserveErr != nil {
-			return nil, reserveErr
-		}
-		if reservation != nil && reservation.Enabled {
-			nextAttempt.BillingHoldID = reservation.HoldID
-			nextAttempt.BillingStatus = reservation.Status
-			nextAttempt.BillingPoints = reservation.Points
-			billingReserved = true
-		}
+	billingReserved, reserveErr := s.reserveBilling(userID, &nextAttempt)
+	if reserveErr != nil {
+		return nil, reserveErr
 	}
-	retriedTask, err := s.store.Retry(userID, &nextAttempt, limit)
+	if refresh != nil {
+		store, ok := s.store.(credentialRetryStore)
+		if !ok {
+			if billingReserved {
+				s.releaseBilling(&nextAttempt, "任务重试未进入队列，释放预扣")
+			}
+			return nil, unavailable()
+		}
+		task, err = store.RetryWithExpectedInput(userID, &nextAttempt, limit, refresh.expectedInputJSON)
+	} else {
+		task, err = s.store.Retry(userID, &nextAttempt, limit)
+	}
 	if err != nil && billingReserved {
-		// Concurrent retries share the task:routeRun idempotency hold. If another
-		// request won the state transition, this losing request must not release
-		// the hold now owned by the queued/running attempt.
 		retryOwned := false
-		latest, lookupErr := s.store.TaskForUser(userID, task.ID)
+		latest, lookupErr := s.store.TaskForUser(userID, nextAttempt.ID)
 		if lookupErr != nil {
-			// Unknown task state is safer as a manual reconciliation item than a
-			// free generation caused by refunding a hold that another request owns.
 			retryOwned = true
-			s.log(userID, task.ID, "error", "重试失败后无法确认任务状态，保留预扣待对账", lookupErr.Error())
+			s.log(userID, nextAttempt.ID, "error", "重试失败后无法确认任务状态，保留预扣待对账", lookupErr.Error())
 		} else if latest != nil {
 			retryOwned = latest.Status == model.TaskStatusQueued || latest.Status == model.TaskStatusRunning || latest.Status == model.TaskStatusSucceeded
 		}
 		if !retryOwned {
-			if _, releaseErr := s.deps.Billing.Release(context.Background(), &nextAttempt, "任务重试未进入队列，释放预扣"); releaseErr != nil {
-				s.log(userID, task.ID, "error", "任务重试失败后释放预扣失败", releaseErr.Error())
-			}
+			s.releaseBilling(&nextAttempt, "任务重试未进入队列，释放预扣")
 		}
 	}
 	if errors.Is(err, repository.ErrActiveTaskLimit) {
@@ -140,7 +165,6 @@ func (s *Service) Retry(userID, id string) (*model.Task, error) {
 	if err != nil {
 		return nil, err
 	}
-	task = retriedTask
 	s.log(userID, task.ID, "info", "任务已重新入队", "")
 	return presentTask(s.deps.Present, *task)
 }
@@ -186,32 +210,7 @@ func (s *Service) Cancel(ctx context.Context, userID, id string) (*model.Task, e
 	task.Error = "任务已取消"
 	task.CompletedAt = &now
 	s.deps.Runtime.StopLocalWait(task.ID)
-
-	if s.deps.Billing != nil && strings.TrimSpace(task.BillingHoldID) != "" {
-		settlement, billingErr := s.deps.Billing.Release(context.Background(), task, "用户取消任务，释放预扣")
-		if billingErr != nil {
-			task.BillingStatus = "refund_pending"
-			s.log(task.UserID, task.ID, "error", "取消任务后退还积分失败", billingErr.Error())
-		} else if settlement == nil {
-			task.BillingStatus = "refund_pending"
-			s.log(task.UserID, task.ID, "error", "取消任务后退还积分缺少响应", "")
-		} else {
-			switch settlementStatus := strings.TrimSpace(settlement.Status); settlementStatus {
-			case "settled":
-				task.BillingStatus = "settled"
-				task.BillingPoints = settlement.ChargedPoints
-			case "pending_reconcile":
-				task.BillingStatus = "pending_reconcile"
-			default:
-				task.BillingStatus = "refunded"
-			}
-		}
-		if updater, ok := s.store.(interface {
-			UpdateTaskBilling(userID, taskID, holdID, status string, points int) error
-		}); ok {
-			_ = updater.UpdateTaskBilling(task.UserID, task.ID, task.BillingHoldID, task.BillingStatus, task.BillingPoints)
-		}
-	}
+	s.releaseBilling(task, "用户取消任务，释放预扣")
 
 	if s.deps.TextReplay != nil {
 		if err := s.deps.TextReplay.Finalize(task.ID, model.TaskStatusCancelled); err != nil {

@@ -8,26 +8,44 @@ import (
 )
 
 func (s *Service) protocolRegistry() *protocol.Registry {
-	if registry := s.pluginDomain().Registry(); registry != nil {
-		ensureHostBuiltinProtocol(registry, "midjourney")
-		return registry
+	registry := s.pluginDomain().Registry()
+	if registry == nil {
+		registry = loadOfficialFallbackRegistry()
 	}
-	return loadOfficialFallbackRegistry()
+	return registryWithHostBuiltins(registry)
 }
 
-// Host-backed protocols are normally mirrored by the shipped plugin catalog.
-// Midjourney is currently built into the host runtime, so make it visible to
-// model-admin validation without replacing the installed plugin registry.
-func ensureHostBuiltinProtocol(registry *protocol.Registry, id string) {
-	if registry == nil {
-		return
+// registryWithHostBuiltins keeps host-backed protocols available when the
+// installer registry is populated only from declarative packages. Package
+// adapters win; builtins fill protocols that have no packaged replacement.
+func registryWithHostBuiltins(base *protocol.Registry) *protocol.Registry {
+	if base == nil {
+		return protocol.Builtins()
 	}
-	if _, ok := registry.Resolve(id); ok {
-		return
+	adapters := make([]protocol.Adapter, 0)
+	for _, metadata := range base.List("", "", true) {
+		if adapter, ok := base.Get(metadata.ID); ok {
+			adapters = append(adapters, adapter)
+		}
 	}
-	if adapter, ok := protocol.Builtins().Get(id); ok {
-		_ = registry.Register(adapter)
+	missing := false
+	for _, metadata := range protocol.Builtins().List("", "", true) {
+		if _, exists := base.Resolve(metadata.ID); exists {
+			continue
+		}
+		if adapter, ok := protocol.Builtins().Get(metadata.ID); ok {
+			adapters = append(adapters, adapter)
+			missing = true
+		}
 	}
+	if !missing {
+		return base
+	}
+	merged, err := protocol.NewRegistry(adapters...)
+	if err != nil {
+		return base
+	}
+	return merged
 }
 
 func (s *Service) protocolMetadata(id string) (protocol.Metadata, bool) {
@@ -71,10 +89,6 @@ func (s *Service) InstallPluginForAdmin(actor *model.User, data []byte, fileName
 		return PluginView{}, err
 	}
 	return plugin, nil
-}
-
-func (s *Service) PluginPackage(id string) ([]byte, string, error) {
-	return s.pluginDomain().Package(id)
 }
 
 func (s *Service) SetPluginEnabled(id string, enabled bool) (PluginView, error) {

@@ -48,10 +48,13 @@ func EnsureOfficialProtocolAdapter(ctx context.Context, interfaceType string) co
 	}
 	registry := LoadOfficialFallbackRegistry()
 	adapter, ok := registry.Resolve(interfaceType)
-	if !ok || adapter.Metadata().Execution != "declarative" {
-		return ctx
+	if ok && adapter.Metadata().Execution == "declarative" {
+		return WithProtocolRegistry(ctx, registry)
 	}
-	return WithProtocolRegistry(ctx, registry)
+	if builtin, builtinOK := protocol.Builtins().Resolve(interfaceType); builtinOK && builtin.Metadata().Execution == "declarative" {
+		return WithProtocolRegistry(ctx, protocol.Builtins())
+	}
+	return ctx
 }
 
 func OfficialDeclarativeVideoInterface(interfaceType string) (string, bool) {
@@ -66,6 +69,8 @@ func OfficialDeclarativeVideoInterface(interfaceType string) (string, bool) {
 		return "Novita", true
 	case string(model.ChannelInterfaceNewAPIChannel2):
 		return "NewAPI Video Generations", true
+	case "video-generations-json":
+		return "视频生成 JSON", true
 	case string(model.ChannelInterfaceNewAPIChannel1):
 		return "NewAPI 媒体任务", true
 	case string(model.ChannelInterfaceXAIVideo):
@@ -83,6 +88,8 @@ func OfficialDeclarativeVideoInterface(interfaceType string) (string, bool) {
 
 func OfficialDeclarativeImageInterface(interfaceType string) (string, bool) {
 	switch strings.TrimSpace(interfaceType) {
+	case string(model.ChannelInterfaceMidjourney):
+		return "Midjourney", true
 	case string(model.ChannelInterfaceGeminiImage):
 		return "Gemini Images", true
 	case string(model.ChannelInterfaceOpenAIImage):
@@ -95,8 +102,6 @@ func OfficialDeclarativeImageInterface(interfaceType string) (string, bool) {
 		return "火山方舟 Agent Plan 图片", true
 	case string(model.ChannelInterfaceVolcengineJiMengImage):
 		return "即梦图片", true
-	case string(model.ChannelInterfaceMidjourney):
-		return "Midjourney", true
 	default:
 		return "", false
 	}
@@ -145,15 +150,6 @@ func LoadOfficialFallbackRegistry() *protocol.Registry {
 		return officialFallbackRegistry
 	}
 	load := func() {
-		// Keep host-backed Midjourney available even when no plugin package directory
-		// exists (for example in focused tests or a minimal deployment).
-		if hostOnly, err := protocol.NewRegistry(); err == nil {
-			if hostAdapter, ok := protocol.Builtins().Get("midjourney"); ok {
-				_ = hostOnly.Register(hostAdapter)
-			}
-			officialFallbackRegistry = hostOnly
-			officialFallbackRegistryLoaded = true
-		}
 		directory, err := OfficialPluginPackageDir()
 		if err != nil {
 			return
@@ -183,13 +179,6 @@ func LoadOfficialFallbackRegistry() *protocol.Registry {
 		}
 		registry, err := protocol.NewRegistry(adapters...)
 		if err == nil {
-			// Midjourney is host-backed rather than a shipped plugin package, but it still
-			// participates in the same declarative image dispatch fallback.
-			if _, exists := registry.Resolve("midjourney"); !exists {
-				if hostAdapter, ok := protocol.Builtins().Get("midjourney"); ok {
-					_ = registry.Register(hostAdapter)
-				}
-			}
 			officialFallbackRegistry = registry
 			officialFallbackRegistryLoaded = true
 		}

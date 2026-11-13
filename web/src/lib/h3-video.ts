@@ -15,36 +15,42 @@ export const H3_STYLES = {
 } as const;
 
 export function isH3Style(model: string): boolean {
-    return Object.hasOwn(H3_STYLES, modelName(model));
-}
-
-function modelName(model: string): string {
-    return (model.split("::").at(-1) || "").trim().toLowerCase();
+    return Object.hasOwn(H3_STYLES, model.split("::").at(-1) || "");
 }
 
 export function h3VideoOperation(model: string, input: { imageCount: number; characterCount?: number; videoCount: number; audioCount: number }, stored?: string) {
     const images = input.imageCount + (input.characterCount || 0);
     if (isH3Style(model)) return images ? "image_to_video" : "text_to_video";
-    if ((stored === "reference_to_video" && images + input.videoCount + input.audioCount > 0) || input.videoCount > 0 || input.audioCount > 1 || images > 2) return "reference_to_video";
+    if (stored) return stored;
+    if (input.videoCount > 0 || input.audioCount > 1 || images > 2) return "reference_to_video";
     if (images) return "image_to_video";
     if (input.audioCount) return "audio_to_video";
     return "text_to_video";
 }
 
+export function isH3MaxModel(model: string): boolean {
+    return (model.split("::").at(-1) || "") === "minimax-h3-max";
+}
+
+export function isH3ReferenceOrderModel(model: string): boolean {
+    const name = model.split("::").at(-1) || "";
+    return isH3MaxModel(model) || name === "minimax-h3-max-turbo";
+}
+
 export function isH3Model(model: string): boolean {
-    return isH3Style(model) || ["minimax-h3", "minimax-h3-max", "minimax-h3-max-turbo"].includes(modelName(model));
+    return isH3Style(model) || isH3ReferenceOrderModel(model) || (model.split("::").at(-1) || "") === "minimax-h3";
 }
 
 export function h3GenerationControls(model: string, options?: H3VideoOptions): H3VideoOptions {
     if (isH3Style(model)) {
         if (options?.seed !== undefined && !Number.isSafeInteger(options.seed)) throw new Error("随机种子须为整数");
-        const vhs = modelName(model) === "minimax-h3-max-style-vhs";
+        const vhs = model.split("::").at(-1) === "minimax-h3-max-style-vhs";
         if (options?.damage_level && (!vhs || !["light", "medium", "heavy"].includes(options.damage_level))) throw new Error("所选风格不支持该磁带磨损设置");
         return { ...(options?.seed !== undefined ? { seed: options.seed } : {}), ...(vhs ? { damage_level: options?.damage_level || "medium" } : {}) };
     }
     const value = { prompt_expansion_mode: "balanced" as const, ...options, enable_safety_checker: true, sync_mode: false };
     if (value.seed !== undefined && !Number.isSafeInteger(value.seed)) throw new Error("随机种子须为整数");
-    if (value.prompt_expansion_mode === "fast" && modelName(model) !== "minimax-h3") throw new Error("当前模型不支持快速提示词增强，请选择均衡或高质量");
+    if (value.prompt_expansion_mode === "fast" && model.split("::").at(-1) !== "minimax-h3") throw new Error("当前模型不支持快速提示词增强，请选择均衡或高质量");
     if (!value.prompt_expansion_mode || !["disabled", "fast", "balanced", "quality"].includes(value.prompt_expansion_mode)) throw new Error("提示词增强设置无效");
     for (const key of ["enable_safety_checker", "sync_mode"] as const) if (value[key] !== undefined && typeof value[key] !== "boolean") throw new Error("H3 开关设置无效");
     delete value.damage_level;
@@ -52,12 +58,10 @@ export function h3GenerationControls(model: string, options?: H3VideoOptions): H
 }
 
 export function h3Duration(model: string, value: string): string {
-    const name = modelName(model);
+    const name = model.split("::").at(-1);
     const seconds = value.trim() === "" ? 5 : Number(value);
-    const base = name === "minimax-h3";
-    const styled = isH3Style(model);
-    const minimum = base ? 4 : 5;
-    if (!Number.isFinite(seconds) || seconds < minimum || seconds > 15 || !Number.isInteger(seconds)) throw new Error(`${base ? "H3" : styled ? "H3 Styles" : "H3 Max / Turbo"} 时长须为 ${minimum}–15 秒整数`);
+    const base = name === "minimax-h3" || isH3Style(model);
+    if (!Number.isFinite(seconds) || seconds < (base ? 5 : 0.92) || seconds > 15 || (base && !Number.isInteger(seconds))) throw new Error(base ? "H3 时长须为 5–15 秒整数" : "H3 Max / Turbo 时长须在 0.92–15 秒之间");
     return String(seconds);
 }
 
@@ -77,15 +81,17 @@ export function h3ResolvedReferenceOrder(order: string[] | undefined, media: Arr
 type H3FrameOptions = { videoEditOperation?: string; videoStartFrameNodeId?: string; videoEndFrameNodeId?: string; videoMiddleFrameNodeId?: string; videoMiddleFrameTime?: number; videoReferenceOrder?: string[] };
 
 export function h3ReferenceMode(model: string, input: { imageCount: number; videoCount: number; audioCount: number }, options: H3FrameOptions = {}): boolean {
-    const base = modelName(model) === "minimax-h3";
+    const base = model.split("::").at(-1) === "minimax-h3";
     const hasFrame = Boolean(options.videoStartFrameNodeId || options.videoEndFrameNodeId || options.videoMiddleFrameNodeId);
-    return !isH3Style(model) && (options.videoEditOperation === "reference_to_video" || Boolean(options.videoMiddleFrameNodeId) || input.videoCount > 0 || input.audioCount > 1 || (base && input.imageCount > 0 && !hasFrame && options.videoEditOperation !== "image_to_video"));
+    if (options.videoEditOperation === "reference_to_video") return !isH3Style(model);
+    if (options.videoEditOperation === "image_to_video" || options.videoEditOperation === "text_to_video" || options.videoEditOperation === "audio_to_video") return false;
+    return !isH3Style(model) && (Boolean(options.videoMiddleFrameNodeId) || input.videoCount > 0 || input.audioCount > 1 || (base && input.imageCount > 0 && !hasFrame));
 }
 
 export function h3MediaPayload(model: string, media: H3Media[], options: H3FrameOptions = {}, seconds = 5, resolution = "768p") {
-    const name = modelName(model),
+    const name = model.split("::").at(-1),
         base = name === "minimax-h3",
-        max = name === "minimax-h3-max",
+        max = isH3MaxModel(model),
         style = isH3Style(model);
     const selected = [options.videoStartFrameNodeId, options.videoEndFrameNodeId, options.videoMiddleFrameNodeId].filter(Boolean);
     const images = media.filter((m) => m.type === "image"),

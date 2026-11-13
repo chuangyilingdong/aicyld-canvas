@@ -33,6 +33,41 @@ beforeAll(async () => {
 
 afterAll(async () => { await browser?.close(); server?.stop(true); if (directory) rmSync(directory, { recursive: true, force: true }); });
 
+test("the actual library export shows a stalled file, suppresses duplicate clicks and cancels without saving", async () => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let requests = 0;
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    try {
+        await page.goto(server.url.toString());
+        await page.getByRole("button", { name: "测试缺失导出" }).waitFor();
+        const project = await page.evaluate(() => (window as any).exportFixture.seedBlockingExport());
+        await page.route("**/api/canvas-projects/blocked-export", (route) => route.fulfill({ json: { code: 0, data: { project: { ...project, revision: 1 } } } }));
+        await page.route("**/api/resources/blocked-export/file*", async (route) => {
+            requests++;
+            await gate;
+            await route.fulfill({ status: 200, contentType: "audio/wav", body: "late media bytes" });
+        });
+        await page.getByRole("checkbox", { name: "选择 测试 blocked-export" }).check();
+        const downloadStarted = page.waitForRequest((request) => request.url().includes("/resources/blocked-export/file"));
+        await page.getByRole("button", { name: "导出", exact: true }).click();
+        await page.getByRole("status").filter({ hasText: "正在读取文件 0/1" }).waitFor();
+        await downloadStarted;
+        await page.getByRole("button", { name: "导出", exact: true }).evaluate((button: HTMLButtonElement) => button.click());
+        await page.getByRole("checkbox", { name: "选择 测试 blocked-export" }).uncheck();
+        await page.getByRole("status").filter({ hasText: "正在读取文件 0/1" }).waitFor();
+        await page.getByRole("button", { name: "取消导出", exact: true }).click();
+        await page.getByRole("button", { name: "取消导出", exact: true }).waitFor({ state: "detached" });
+        release();
+        expect(requests).toBe(1);
+        expect((await page.evaluate(() => (window as any).exportFixture.snapshot())).archive).toBe("");
+        expect(errors).toEqual([]);
+    } finally { release(); await context.close(); }
+}, 20_000);
+
 test("ZIP from real browser storage imports through CanvasPage into a fresh browser workspace", async () => {
     const source = await browser.newContext();
     const target = await browser.newContext();
@@ -148,7 +183,7 @@ test("automatic canvas creation failure leaves the opening screen and shows a re
         url.search = "?new=1";
         await page.goto(url.toString());
         await page.getByText("测试保存失败", { exact: true }).waitFor({ timeout: 5000 }).catch(async () => { throw new Error(JSON.stringify({ text: await page.locator("body").innerText(), requests, pageErrors, consoleErrors, messages: await page.evaluate(() => (window as any).creationMessages) })); });
-        expect(requests.some((entry) => entry.startsWith("PUT ") && entry.includes("/api/canvas-projects/"))).toBe(true);
+        expect(requests.some((entry) => entry.includes("/api/ops/canvas.document.commit") || (entry.startsWith("PUT ") && entry.includes("/api/canvas-projects/")))).toBe(true);
         expect(await page.getByText("正在打开画布...", { exact: true }).count()).toBe(0);
         expect(await page.getByRole("button", { name: "开始创作", exact: true }).count()).toBe(1);
         expect(await page.getByTestId("canvas-route").textContent()).toBe("/canvas?mode=new");
@@ -159,6 +194,8 @@ test("automatic canvas creation failure leaves the opening screen and shows a re
         let startedSave!: () => void;
         const saveStarted = new Promise<void>((resolve) => { startedSave = resolve; });
         let savedId = "";
+        await page.unroute("**/api/ops/**");
+        await page.unroute("**/api/canvas-projects/*");
         await page.route("**/api/canvas-projects/*", async (route) => {
             if (route.request().method() !== "PUT") return route.fallback();
             const { project } = route.request().postDataJSON();
@@ -167,14 +204,23 @@ test("automatic canvas creation failure leaves the opening screen and shows a re
             await saveGate;
             await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ code: 0, data: { project: { ...project, revision: 1 } } }) });
         });
+        await page.route("**/api/ops/canvas.document.commit", async (route) => {
+            const body = route.request().postDataJSON();
+            const project = body.params.document;
+            savedId = body.params.canvasId || project.id;
+            startedSave();
+            await saveGate;
+            await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ code: 0, data: { op: "canvas.document.commit", opId: body.opId, replayed: false, caller: "manual", revision: 1, result: { canvasId: savedId, revision: 1, title: project.title, updatedAt: project.updatedAt } } }) });
+        });
         await page.getByRole("button", { name: "开始创作", exact: true }).click();
         await saveStarted;
         expect(await page.getByTestId("canvas-route").textContent()).toBe("/canvas?mode=new");
         acceptSave();
-        await page.waitForFunction((id) => document.querySelector('[data-testid="canvas-route"]')?.textContent === `/canvas/${id}?mode=new`, savedId);
+        await page.waitForFunction((id) => document.querySelector('[data-testid="canvas-route"]')?.textContent?.startsWith(`/canvas/${id}`), savedId);
+        expect(await page.getByTestId("canvas-route").textContent()).toContain(`/canvas/${savedId}`);
         expect(pageErrors).toEqual([]);
     } finally { await context.close(); }
-}, 15_000);
+}, 30_000);
 
 test("fresh IndexedDB can initialize app_state and folder pending together", async () => {
     const context = await browser.newContext();

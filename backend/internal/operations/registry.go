@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"sort"
 	"strings"
+
+	"gorm.io/gorm"
 )
 
 // Scope 声明操作触及的数据范围：读范围不等于写范围，默认不放大到全工作区批量写。
@@ -43,6 +45,7 @@ type Op struct {
 	ProjectReplay     ReplayProjection
 	AssistantCanvas   bool
 	AssistantProposal bool
+	ExternalOnly      bool
 	ReplaySafe        bool
 	ReplayUnsafe      bool // A read can still incur an external model charge.
 }
@@ -121,6 +124,9 @@ func (op *Op) Descriptor() Descriptor {
 }
 
 func (op *Op) assistantModes() []string {
+	if op.ExternalOnly {
+		return []string{}
+	}
 	modes := []string{}
 	if op.Scope != ScopeConversation {
 		modes = append(modes, "full-access")
@@ -193,6 +199,9 @@ func (r *Registry) Execute(req Request) (Result, error) {
 	if caller.assistantWithoutScope() {
 		return Result{}, PermissionDenied("missing_assistant_scope", "内置助手缺少可信范围，不能执行操作")
 	}
+	if op.ExternalOnly && caller.Kind == CallerAssistant {
+		return Result{}, PermissionDenied("scope_denied", "本轮助手权限不允许该操作")
+	}
 	if caller.ReadOnly && !op.ReadOnly {
 		return Result{}, newError(CodeReadOnly, "read_only_client", "该客户端为只读模式，不能执行写操作: "+op.ID, nil)
 	}
@@ -242,6 +251,21 @@ func (r *Registry) Execute(req Request) (Result, error) {
 		if err := caller.Scope.Allows(op, params); err != nil {
 			return Result{}, err
 		}
+		if op.ID == "canvas.node.bind_asset" {
+			// Binding also reads an asset. Authorize before opening the write
+			// transaction: project membership uses the shared SQLite connection.
+			var asset struct {
+				AssetID string `json:"assetId"`
+			}
+			if err := json.Unmarshal(params, &asset); err != nil {
+				return Result{}, InvalidArg("invalid_params", "参数必须是 JSON 对象")
+			}
+			readParams, _ := json.Marshal(map[string]string{"assetId": asset.AssetID})
+			read := assetGetOperation()
+			if err := caller.Scope.Allows(&read, readParams); err != nil {
+				return Result{}, err
+			}
+		}
 	}
 	if op.ReadOnly {
 		opID = ""
@@ -257,19 +281,70 @@ func (r *Registry) Execute(req Request) (Result, error) {
 		alternateHash = rawHash
 	}
 	var target struct {
-		CanvasID string `json:"canvasId"`
+		CanvasID         string `json:"canvasId"`
+		ExpectedRevision *int64 `json:"expectedRevision"`
 	}
-	if !op.ReadOnly && strings.TrimSpace(req.TurnID) != "" {
-		if err := json.Unmarshal(params, &target); err != nil || strings.TrimSpace(target.CanvasID) == "" {
+	if !op.ReadOnly {
+		_ = json.Unmarshal(params, &target)
+		if strings.TrimSpace(req.TurnID) != "" && strings.TrimSpace(target.CanvasID) == "" {
 			return Result{}, InvalidArg("missing_turn_canvas", "助手写入必须指定当前画布")
 		}
 	}
-	outcome, err := r.store.RunDomain(runCtx, RunRequest{UserID: req.UserID, OpID: opID, Op: op.ID,
-		PayloadHash: canonicalHash, AlternatePayloadHash: alternateHash, TurnID: req.TurnID, CanvasID: target.CanvasID}, r.binder, func(domain Domain) ([]byte, error) {
+	var beforeCanvasRaw []byte
+	var pendingWrite *ExternalCanvasWrite
+	var activeDomain Domain
+	runReq := RunRequest{
+		UserID:               req.UserID,
+		OpID:                 opID,
+		Op:                   op.ID,
+		PayloadHash:          canonicalHash,
+		AlternatePayloadHash: alternateHash,
+		TurnID:               req.TurnID,
+		CanvasID:             target.CanvasID,
+		CallerKind:           string(caller.Kind),
+		ClientID:             strings.TrimSpace(caller.ClientID),
+		ClientLabel:          caller.EffectiveClientLabel(),
+		AfterCommitInTx: func(tx *gorm.DB) error {
+			if pendingWrite == nil {
+				return nil
+			}
+			return UpsertCanvasWriteInTx(tx, req.UserID, *pendingWrite)
+		},
+		OnErrorInTx: func(tx *gorm.DB, err error) error {
+			opErr := AsError(err)
+			if strings.TrimSpace(target.CanvasID) != "" {
+				EnrichCanvasConflictErrorInTx(tx, activeDomain, req.UserID, target.CanvasID, target.ExpectedRevision, beforeCanvasRaw, opErr)
+			}
+			return opErr
+		},
+	}
+	outcome, err := r.store.RunDomain(runCtx, runReq, r.binder, func(domain Domain) ([]byte, error) {
+		activeDomain = domain
+		trackCanvasWrite := !op.ReadOnly && op.ID != "skill.script.run" && strings.TrimSpace(target.CanvasID) != ""
+		if trackCanvasWrite {
+			beforeCanvasRaw, _ = domain.UserCanvasProject(req.UserID, target.CanvasID)
+		}
 		execCtx := &Context{Context: runCtx, UserID: req.UserID, Caller: caller, Domain: domain, OperationID: opID, TurnID: req.TurnID}
 		value, runErr := op.Handler(execCtx, params)
 		if runErr != nil {
 			return nil, AsError(runErr)
+		}
+		if op.ID == "canvas.create" {
+			if resMap, ok := value.(map[string]any); ok {
+				if createdID, _ := resMap["canvasId"].(string); strings.TrimSpace(createdID) != "" {
+					if afterCanvasRaw, afterErr := domain.UserCanvasProject(req.UserID, createdID); afterErr == nil {
+						if write, changed := BuildCanvasCreateWriteRecord(opID, createdID, req.TurnID, caller, afterCanvasRaw); changed {
+							pendingWrite = write
+						}
+					}
+				}
+			}
+		} else if trackCanvasWrite && len(beforeCanvasRaw) > 0 {
+			if afterCanvasRaw, afterErr := domain.UserCanvasProject(req.UserID, target.CanvasID); afterErr == nil {
+				if write, changed := BuildCanvasWriteRecord(opID, op.ID, target.CanvasID, req.TurnID, caller, beforeCanvasRaw, afterCanvasRaw); changed {
+					pendingWrite = write
+				}
+			}
 		}
 		encoded, encErr := json.Marshal(value)
 		if encErr != nil {

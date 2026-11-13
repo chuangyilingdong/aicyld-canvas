@@ -1,8 +1,10 @@
 // 助手面板里所有用户可见文案的唯一来源：机器可读原因、操作名和改动摘要都在这里
 // 翻译成用户语。组件只负责排版，不自己拼文案，避免同一种状态在两处写出两句话。
-import type { AgentLifecycleEvent, AgentToolCall, AssistantGenerationProposal, AssistantSkillSelection, AssistantTurnChange, AssistantUndoFailure } from "@/services/api/agent-assistant";
-import { seedancePortraitLabel } from "@/lib/seedance-portrait";
+import type { AgentLifecycleEvent, AgentToolCall, AssistantGenerationProposal, AssistantScriptProposal, AssistantSkillSelection, AssistantTurnChange, AssistantUndoFailure } from "@/services/api/agent-assistant";
+import { estimateVideoTargetPrice, seedancePortraitLabel, type VideoTargetPriceEstimate } from "@/lib/seedance-portrait";
+import { modelOptionName, resolveModelChannel, type AiConfig } from "@/stores/use-config-store";
 import type { CanvasNodeData } from "@/types/canvas";
+import { authoritativeNodeOutcome } from "@/lib/canvas/canvas-node-failure-state";
 
 export type AssistantStatusAction = "model-settings" | "retry";
 
@@ -23,7 +25,7 @@ export function assistantStatusNotice(reason: string | undefined): AssistantStat
         case "model_protocol_unsupported":
             return { text: "还没有可用的助手模型", actionLabel: "去模型配置", action: "model-settings" };
         case "credential_missing":
-            return { text: "BeefTV 还没连接好", actionLabel: "去连接", action: "model-settings" };
+            return { text: "灵动TV 还没连接好", actionLabel: "去连接", action: "model-settings" };
         case "host_starting":
             return { text: "助手正在启动…", starting: true };
         case "host_start_failed":
@@ -65,6 +67,9 @@ export function assistantActionLabel(tool: string | undefined): string {
             return "生成素材";
         case "canvas.project.export":
             return "导出工程";
+        case "skill.script.run":
+        case "skill_script_run":
+            return "运行技能脚本";
         default:
             return "改动画布";
     }
@@ -123,21 +128,131 @@ export function assistantUndoFailureText(failure: AssistantUndoFailure): string 
     }
 }
 
+function resolveModelVideoPricing(config: AiConfig | undefined, modelKey: string) {
+    if (!config || !modelKey) return undefined;
+    const channel = resolveModelChannel(config, modelKey);
+    return channel.modelProfiles?.find((item) => item.model === modelOptionName(modelKey))?.videoPricing;
+}
+
+function formatProductionPriceSummary(
+    images: number,
+    videos: number,
+    audio: number,
+    estimates: Array<VideoTargetPriceEstimate | null>,
+): string {
+    const pricedVideos = estimates.filter((item): item is VideoTargetPriceEstimate & { amount: number } => item !== null && item.amount !== null);
+    const quotedVideos = estimates.filter((item): item is VideoTargetPriceEstimate => item !== null);
+    if (pricedVideos.length > 0) {
+        const totalAmount = Number(pricedVideos.reduce((sum, item) => sum + item.amount, 0).toFixed(4));
+        const totalSeconds = Number(pricedVideos.reduce((sum, item) => sum + item.seconds, 0).toFixed(2));
+        const unpricedVideos = videos - pricedVideos.length;
+        const otherParts = [
+            ...(unpricedVideos > 0 ? [`${unpricedVideos} 段视频`] : []),
+            ...(images > 0 ? [`${images} 张图片`] : []),
+            ...(audio > 0 ? [`${audio} 段配音`] : []),
+        ];
+        const videoPart = `视频 ${pricedVideos.length} 段${totalSeconds > 0 ? `（共 ${totalSeconds} 秒）` : ""}约 ¥${totalAmount}`;
+        return otherParts.length
+            ? `预计费用：${videoPart}；${otherParts.join("、")}按所选渠道单价结算`
+            : `预计费用：${videoPart}`;
+    }
+    if (quotedVideos.length > 0) {
+        return "预计费用：视频按所选模型单价或账单结算（详见各镜头说明），其余素材按所选渠道单价结算";
+    }
+    return "预计费用：当前渠道未返回目录单价，按所选渠道实际标准计费";
+}
+
+export type AssistantProductionProposalParts = {
+    header: string;
+    targetLines: string[];
+    footer: string;
+};
+
+const PROPOSAL_PARAMETER_LABELS: Record<string, string> = {
+    size: "画幅",
+    quality: "质量",
+    vquality: "分辨率",
+    seconds: "时长（秒）",
+    generateAudio: "生成声音",
+    audioVoice: "音色",
+    audioSpeed: "语速",
+    audioFormat: "音频格式",
+    audioInstructions: "朗读指令",
+    transparentBackground: "透明背景",
+    watermark: "水印",
+    seedreamOutputFormat: "图片格式",
+    seedreamOptimize: "提示词优化",
+    seedreamWatermark: "图片水印",
+};
+
+/** 拆出普通生成单的逐项明细（提示词、模型、参数、参考与报价状态），供卡片折叠展开。 */
+export function assistantOrderTargetLines(proposal: AssistantGenerationProposal): string[] {
+    if (proposal.production) return [];
+    const targets = proposal.targets?.length ? proposal.targets : proposal.order?.targetViews || [];
+    if (!targets.length) return [];
+    return targets.map((t) => {
+        const params = Object.entries(t.parameters || {}).filter(([key]) => PROPOSAL_PARAMETER_LABELS[key]).map(([key, value]) => {
+            const display = key === "seedreamOptimize" ? (value === "standard" ? "标准" : value === "fast" ? "快速" : value)
+                : key === "seedreamWatermark" ? (value === "true" ? "开启" : "关闭")
+                : key === "seedreamOutputFormat" ? value.toUpperCase() : value;
+            return `${PROPOSAL_PARAMETER_LABELS[key]}：${display}`;
+        }).join(" · ");
+        const refs = (t.referenceNodeIds || []).map((id) => targets.find((item) => item.nodeId === id)?.title || "已有参考素材");
+        const pricingLine = t.pricing && t.pricing !== "unknown" ? "报价：按目录单价结算" : "报价：未知（按所选渠道实际标准计费）";
+        const modelLabel = t.model || t.modelKey?.split("::").pop() || proposal.model;
+        return [
+            `${t.title || t.nodeId} · ${modelLabel} · ${t.parameters?.count || "1"} 个`,
+            ...(params ? [params] : []),
+            ...(refs.length ? [`参考：${refs.join("、")}`] : []),
+            pricingLine,
+            `${t.kind === "audio" ? "台词" : "提示词"}：${t.prompt}`,
+        ].join("\n");
+    });
+}
+
+/** 拆出整片方案的概览、逐项明细与确认提示，供卡片默认收起明细、按需展开。 */
+export function assistantProductionProposalParts(
+    proposal: AssistantGenerationProposal,
+    awaitingConfirmation = true,
+    config?: AiConfig,
+): AssistantProductionProposalParts | null {
+    if (!proposal.production) return null;
+    const targets = proposal.production.targets;
+    const images = targets.filter(t => t.kind === "image").length;
+    const videos = targets.filter(t => t.kind === "video");
+    const audio = targets.filter(t => t.kind === "audio");
+    const labels = PROPOSAL_PARAMETER_LABELS;
+    const videoEstimates = targets.map(t => t.kind === "video"
+        ? estimateVideoTargetPrice(resolveModelVideoPricing(config, t.modelKey), t.parameters, t.referenceNodeIds.length)
+        : null);
+    const priceSummary = formatProductionPriceSummary(images, videos.length, audio.length, videoEstimates);
+    const header = `整片制作方案：${images} 张图片、${videos.length} 段视频、${audio.length} 段配音${awaitingConfirmation ? `\n${priceSummary}` : ""}`;
+    const targetLines = targets.map((t, index) => {
+        const params = Object.entries(t.parameters).filter(([key]) => labels[key]).map(([key,value]) => {
+            const display = key === "seedreamOptimize" ? (value === "standard" ? "标准" : value === "fast" ? "快速" : value)
+                : key === "seedreamWatermark" ? (value === "true" ? "开启" : "关闭")
+                : key === "seedreamOutputFormat" ? value.toUpperCase() : value;
+            return `${labels[key]}：${display}`;
+        }).join(" · ");
+        const refs = t.referenceNodeIds.map(id => targets.find(item => item.nodeId === id)?.title || "已有参考素材");
+        const estimate = awaitingConfirmation ? videoEstimates[index] : null;
+        return `${t.title} · ${t.modelKey.split("::").pop()} · ${t.parameters.count || "1"} 个\n${params}${refs.length ? `\n参考：${refs.join("、")}` : ""}${estimate ? `\n${estimate.text}` : ""}\n${t.kind === "audio" ? "台词" : "提示词"}：${t.prompt}`;
+    });
+    const footer = awaitingConfirmation ? "确认后按此方案生成素材，并自动完成声音、字幕和剪辑（可点击下方按钮或直接发送「确认」开始）。素材按所选渠道计费；失败后确认新方案重新生成也会重新计费，新增或修改生成内容时会重新确认。" : "";
+    return { header, targetLines, footer };
+}
+
 /** 提议可能来自自建渠道，不能把所有费用都归到 BeefAPI。 */
-export function assistantProposalText(proposal: AssistantGenerationProposal, priceLines: string[] = [], awaitingConfirmation = true): string {
+export function assistantProposalText(
+    proposal: AssistantGenerationProposal,
+    priceLines: string[] = [],
+    awaitingConfirmation = true,
+    config?: AiConfig,
+): string {
     const count = proposal.nodeIds?.length ?? 0;
-    if (proposal.production) {
-        const targets = proposal.production.targets;
-        const images = targets.filter(t => t.kind === "image").length;
-        const videos = targets.filter(t => t.kind === "video");
-        const audio = targets.filter(t => t.kind === "audio");
-        const labels: Record<string,string> = {size:"画幅",quality:"质量",vquality:"分辨率",seconds:"时长（秒）",generateAudio:"生成声音",audioVoice:"音色",audioSpeed:"语速",audioFormat:"音频格式",audioInstructions:"朗读指令",transparentBackground:"透明背景",watermark:"水印"};
-        const lines = [`整片制作方案：${images} 张图片、${videos.length} 段视频、${audio.length} 段配音`, ...targets.map(t => {
-            const params = Object.entries(t.parameters).filter(([key]) => labels[key]).map(([key,value]) => `${labels[key]}：${value}`).join(" · ");
-            const refs = t.referenceNodeIds.map(id => targets.find(item => item.nodeId === id)?.title || "已有参考素材");
-            return `${t.title} · ${t.modelKey.split("::").pop()} · ${t.parameters.count || "1"} 个\n${params}${refs.length ? `\n参考：${refs.join("、")}` : ""}\n${t.kind === "audio" ? "台词" : "提示词"}：${t.prompt}`;
-        })];
-        return lines.join("\n\n") + (awaitingConfirmation ? "\n\n确认后按此方案生成素材，并自动完成声音、字幕和剪辑。素材按所选渠道计费；失败后确认新方案重新生成也会重新计费，新增或修改生成内容时会重新确认。" : "");
+    const productionParts = assistantProductionProposalParts(proposal, awaitingConfirmation, config);
+    if (productionParts) {
+        return [productionParts.header, ...productionParts.targetLines, ...(productionParts.footer ? [productionParts.footer] : [])].join("\n\n");
     }
     const target = proposal.kind === "video" ? "视频" : proposal.kind === "audio" ? "音频" : "图片";
     const title = `为 ${count} 个节点生成${target} · ${seedancePortraitLabel(proposal.model) || proposal.model}`;
@@ -157,7 +272,7 @@ export function assistantProposalProgress(proposal: AssistantGenerationProposal,
         };
         const matched = nodes.filter(matches);
         if (!matched.length) { if (proposal.production) planned++; else unknown = true; continue; }
-        const roots = new Set(matched.flatMap(node => node.metadata?.isBatchRoot ? [node.id] : node.metadata?.batchRootId ? [node.metadata.batchRootId] : []));
+        const roots = new Set(matched.flatMap(node => (node.metadata?.isBatchRoot || node.metadata?.generationOutputNodeIds?.includes(node.id)) ? [node.id] : node.metadata?.batchRootId ? [node.metadata.batchRootId] : []));
         if (roots.size) {
             for (const rootId of roots) {
                 const root = byId.get(rootId);
@@ -182,12 +297,25 @@ export function assistantProposalProgress(proposal: AssistantGenerationProposal,
     let complete = 0, failed = 0, pending = planned, retrieving = 0;
     for (const node of outputs.values()) {
         const meta = node.metadata || {};
-        if (meta.taskStatus === "failed" || meta.taskStatus === "cancelled") failed++;
-        else if (meta.taskStatus === "succeeded") {
-            if (meta.status === "success" && (meta.content || meta.storageKey) && !meta.resourceReloadAvailable) complete++;
+        const phase = authoritativeNodeOutcome(meta)?.phase;
+        const bound = meta.status === "success" && Boolean(meta.content || meta.storageKey);
+        if (phase === "running" || phase === "fetching" || phase === "retrievable") {
+            pending++;
+        } else if (phase === "ready") {
+            if (bound) complete++;
+            else pending++;
+        } else if (phase === "failed") {
+            failed++;
+        } else if (meta.taskStatus === "failed" || meta.taskStatus === "cancelled" || meta.status === "error") {
+            failed++;
+        } else if (meta.taskStatus === "succeeded") {
+            if (bound) complete++;
             else retrieving++;
-        } else if (meta.taskStatus === "queued" || meta.taskStatus === "running" || meta.generationSubmissionState === "submitting") pending++;
-        else unknown = true;
+        } else if (meta.taskStatus === "queued" || meta.taskStatus === "running" || meta.generationSubmissionState === "submitting") {
+            pending++;
+        } else {
+            unknown = true;
+        }
     }
     const ready = !unknown && outputs.size > 0 && pending === 0 && retrieving === 0;
     const visibleResults = failed ? `${complete} 个结果已就绪，${failed} 个结果因任务失败或取消而未生成。` : `${complete}/${outputs.size} 个可见结果已就绪。`;
@@ -229,12 +357,31 @@ const ASSISTANT_TOOL_ACTIVITY: Record<string, [string, string]> = {
     canvas_timeline_render: ["正在提交成片合成。", "已提交成片合成"],
     canvas_timeline_deliver: ["正在合成视频并保存可编辑工程。", "已完成交付操作"],
     canvas_generation_propose: ["正在准备生成方案。", "已准备生成方案"],
+    skill_script_run: ["正在准备技能脚本。", "已完成技能脚本操作"],
 };
 
 /** 只显示官方活动和已核对的操作回执，不把工具完成等同于创作质量验收。 */
-export function assistantLifecycleText(event: Pick<AgentLifecycleEvent, "phase" | "toolName" | "success"> | string | null | undefined): string | null {
+export function assistantLifecycleText(event: Pick<AgentLifecycleEvent, "phase" | "toolName" | "success" | "stage" | "saved" | "total"> | string | null | undefined): string | null {
     const phase = typeof event === "string" ? event : event?.phase;
     switch (phase) {
+        case "business": {
+            if (!event || typeof event === "string") return null;
+            const count = Number.isSafeInteger(event.total) && event.total! > 0 && event.total! <= 1000 &&
+                Number.isSafeInteger(event.saved) && event.saved! >= 0 && event.saved! <= event.total!
+                ? ` ${event.saved}/${event.total} 个任务的结果已保存。` : "";
+            switch (event.stage) {
+                case "processing": return `正在生成素材。${count}`;
+                case "downloading": return `正在取回生成结果。${count}`;
+                case "saving": return `生成已有结果，正在保存文件。${count}`;
+                case "saved": return "文件已保存，正在继续处理。";
+                case "binding": return "文件已保存，正在更新画布。";
+                case "rendering": return "正在合成视频。";
+                case "exporting": return "视频已可用，正在导出可编辑工程。";
+                case "checking": return "正在检查时间线。";
+                case "observation_unavailable": return "原任务已保留，进度暂时无法读取。";
+                default: return null;
+            }
+        }
         case "tool": case "tool_end": {
             const tool = typeof event === "string" ? "" : event?.toolName?.replaceAll(".", "_") || "";
             const activity = ASSISTANT_TOOL_ACTIVITY[tool];
@@ -258,6 +405,7 @@ export function assistantTurnCanContinue(reason: string | null | undefined): boo
 }
 
 export const ASSISTANT_CONTINUE_PROMPT = "继续完成上一条要求。先检查当前画布和已经完成的操作，保留已有结果；不要重复创建节点或重新提交已开始的生成任务。";
+export const ASSISTANT_REPROPOSE_PROMPT = "生成设置在提出方案后改过。请基于当前画布和当前生成设置重新提出生成方案；不要重复创建节点，也不要提交已开始的生成任务。";
 export const ASSISTANT_UNDONE_INCOMPLETE_TEXT = "这一轮未完成，已经产生的画布改动已撤销。";
 
 const REASONING_TAG_PREFIXES = ["</thinking>", "<thinking>", "</think>", "<think>"];
@@ -354,7 +502,9 @@ export function assistantUnresolvedFailures(calls: AgentToolCall[] | undefined):
             return [...keys].every(key => JSON.stringify(before[key]) === JSON.stringify(after[key]));
         });
         if (resolved) return;
-        const label = call.tool.replace("_", ".") === "media.inspect"
+        const label = call.tool === "canvas.generation.propose" && /^production_seedream_multiple_outputs(?::|$)/.test(call.error || "")
+            ? "整片制作暂不支持 Seedream 图层拆分或组图。请先在画布生成图片，再用已有图片继续制作。"
+            : call.tool.replace("_", ".") === "media.inspect"
             ? call.args?.mode === "audio" ? "有音频片段听取未完成"
                 : call.args?.mode === "video" ? "有视频片段查看未完成"
                     : !call.args?.mode || call.args.mode === "frames" ? "有素材的画面查看未完成" : `${assistantActionLabel(call.tool)}没有成功`
@@ -370,4 +520,53 @@ export function assistantSkillLabel(skill: Pick<AssistantSkillSelection, "skillN
     if (!name) return "技能：已移除的技能";
     const version = skill.version?.trim();
     return version ? `技能：${name} · ${version}` : `技能：${name}`;
+}
+
+export function assistantScriptInterpreterLabel(interpreter: AssistantScriptProposal["interpreter"]): string {
+    switch (interpreter) {
+        case "python3":
+            return "Python 3";
+        case "bash":
+            return "Bash";
+        case "node":
+            return "内置 Node.js";
+        default:
+            return String(interpreter || "");
+    }
+}
+
+export function assistantScriptProposalLines(proposal: AssistantScriptProposal, awaitingConfirmation = true): string[] {
+    const skillTitle = proposal.version ? `${proposal.skillName}（${proposal.version}）` : proposal.skillName;
+    const lines = [
+        `运行技能脚本 · ${skillTitle}`,
+        `脚本路径：${proposal.scriptPath}`,
+        `运行方式：${assistantScriptInterpreterLabel(proposal.interpreter)}`,
+        `启动参数：${proposal.args?.length ? proposal.args.join(" ") : "无"}`,
+    ];
+    if (proposal.hasStdin && proposal.stdinPreview) {
+        lines.push(`标准输入：${proposal.stdinPreview}`);
+    }
+    if (proposal.note?.trim()) {
+        lines.push(`说明：${proposal.note.trim()}`);
+    }
+    if (awaitingConfirmation) {
+        lines.push(`在独立临时目录中运行，限时 ${proposal.timeoutSec || 120} 秒，不会修改已安装的技能文件，也不会读取你的模型密钥。`);
+    }
+    return lines;
+}
+
+export function assistantScriptResultStatusText(proposal: AssistantScriptProposal): string {
+    const result = proposal.result;
+    if (!result) {
+        if (proposal.status === "running") return "正在运行脚本…";
+        if (proposal.status === "cancelled") return "已停止运行";
+        if (proposal.status === "failed") return "运行未成功";
+        if (proposal.status === "completed") return "已完成";
+        return "待确认";
+    }
+    const seconds = Math.max(0.1, Math.round((result.durationMs || 0) / 100) / 10);
+    if (result.cancelled || proposal.status === "cancelled") return `已停止运行（耗时 ${seconds} 秒）`;
+    if (result.timedOut) return `运行超时（限时 ${proposal.timeoutSec || 120} 秒）`;
+    if (result.exitCode === 0 && proposal.status === "completed") return `已完成（耗时 ${seconds} 秒）`;
+    return `运行未成功（退出码 ${result.exitCode}，耗时 ${seconds} 秒）`;
 }

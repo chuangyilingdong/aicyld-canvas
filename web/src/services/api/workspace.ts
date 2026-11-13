@@ -1,7 +1,26 @@
+import type { ModelCapabilityConfig } from "@/lib/model-capabilities";
+import type { ModelProtocol } from "@/lib/model-protocols";
 import { http } from "@/services/api/request";
 import type { WorkspaceCapabilityContract } from "@/services/workspace-mode";
 import type { AiConfig } from "@/stores/use-config-store";
 import type { FeatureAvailability, LocalUser, RuntimeLimits } from "@/stores/use-user-store";
+
+export type ModelCapabilityDraftInput = {
+    capability?: string;
+    category?: string;
+    type?: string;
+    protocol?: ModelProtocol | string;
+    interfaceType?: ModelProtocol | string;
+    model: string;
+    baseUrl?: string;
+    channelId?: string;
+    videoCapabilitiesVersion?: string;
+    capabilityConfig?: ModelCapabilityConfig;
+};
+
+export function normalizeModelCapabilityDraft(draft: ModelCapabilityDraftInput) {
+    return http.post<ModelCapabilityConfig & { capabilityConfig?: ModelCapabilityConfig }>("/workspace/model-config/capability", draft);
+}
 
 export type LocalWorkspace = {
     id: string;
@@ -34,7 +53,6 @@ export type LocalModelConfigPayload = {
 	revision: number;
 	health: "ready" | "default" | "migrated" | "recovered";
 	source: "builtin+local";
-	/** 平台内置「功能 → 模型」映射：功能键 → `channelId::model`（托管形态由平台下发）。 */
 	featureModels?: Record<string, string>;
 };
 

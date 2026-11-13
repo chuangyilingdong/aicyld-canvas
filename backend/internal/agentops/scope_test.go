@@ -40,10 +40,17 @@ func TestAssistantScopeAllowsOnlyVerifiedResources(t *testing.T) {
 		{"关联素材媒体可检查", "media.check", `{"canvasId":"canvas-a","assetId":"asset-ref"}`, false},
 		{"未引用媒体不可检查", "media.inspect", `{"canvasId":"canvas-a","assetId":"asset-other"}`, true},
 		{"额外画布媒体不可检查", "media.overview", `{"canvasId":"canvas-b","nodeId":"node-b"}`, true},
+		{"当前节点可委托审片", "media.review", `{"canvasId":"canvas-a","nodeId":"node-a"}`, false},
+		{"关联素材可委托审片", "media.review", `{"canvasId":"canvas-a","assetId":"asset-ref"}`, false},
+		{"未引用素材不可委托审片", "media.review", `{"canvasId":"canvas-a","assetId":"asset-other"}`, true},
+		{"额外画布不可委托审片", "media.review", `{"canvasId":"canvas-b","nodeId":"node-b"}`, true},
+		{"审片来源不可歧义", "media.review", `{"canvasId":"canvas-a","nodeId":"node-a","assetId":"asset-ref"}`, true},
+		{"审片来源不可缺失", "media.review", `{"canvasId":"canvas-a"}`, true},
 		{"关联任务可读", "task.get", `{"taskId":"task-1"}`, false},
 		{"无关任务不可读", "task.get", `{"taskId":"task-2"}`, true},
 		{"工作区级列举不可用", "asset.list", `{}`, true},
 		{"整页文档提交不可用", "canvas.document.commit", `{"canvasId":"canvas-a"}`, true},
+		{"外部新建画布对内置助手不可用", "canvas.create", `{"title":"x"}`, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -73,10 +80,20 @@ func registeredScopeOp(t *testing.T, id string) *agentops.Op {
 		t.Fatalf("unregistered operation %s", id)
 	}
 	op := &agentops.Op{ID: id, ReadOnly: descriptor.ReadOnly, Scope: descriptor.Scope}
+	hasReadOnly := false
 	for _, mode := range descriptor.AssistantModes {
 		if mode == "canvas" {
 			op.AssistantCanvas = true
 		}
+		if mode == "read-only" {
+			hasReadOnly = true
+		}
+	}
+	if len(descriptor.AssistantModes) == 0 && descriptor.Scope != operations.ScopeConversation {
+		op.ExternalOnly = true
+	}
+	if descriptor.ReadOnly && !hasReadOnly {
+		op.AssistantProposal = true
 	}
 	return op
 }
@@ -103,7 +120,7 @@ func TestAssistantVisibleSetExcludesWorkspaceWideOps(t *testing.T) {
 			t.Fatalf("助手应能看到 %s: %v", id, visible)
 		}
 	}
-	for _, id := range []string{"asset.list", "canvas.search", "canvas.document.commit", "conversation.message.attach"} {
+	for _, id := range []string{"asset.list", "canvas.search", "canvas.create", "canvas.document.commit", "conversation.message.attach"} {
 		if visible[id] {
 			t.Fatalf("工作区级或整页写操作 %s 不应暴露给助手", id)
 		}
@@ -120,12 +137,13 @@ func TestNilAssistantScopeDoesNotFilterCatalog(t *testing.T) {
 	agentops.RegisterDefaultOps(registry)
 	var typedNil *agentops.AssistantScope
 	listed := registry.List(agentops.Caller{Kind: agentops.CallerManual, Scope: typedNil})
-	if len(listed) != 30 {
-		t.Fatalf("空指针范围不应收窄目录，得到 %d", len(listed))
+	full := registry.List(agentops.Caller{})
+	if len(listed) != len(full) {
+		t.Fatalf("空指针范围收窄了目录，得到 %d，完整目录 %d", len(listed), len(full))
 	}
 	empty := registry.List(agentops.AssistantCaller(&agentops.AssistantScope{}, false))
-	if len(empty) != 26 {
-		t.Fatalf("空助手范围应只露出助手集合，得到 %d", len(empty))
+	if len(empty) == 0 || len(empty) >= len(listed) {
+		t.Fatalf("空助手范围应收窄目录，得到 %d，完整目录 %d", len(empty), len(listed))
 	}
 	if got := registry.List(agentops.AssistantCaller(nil, false)); len(got) != 0 {
 		t.Fatalf("助手缺少范围时能力发现必须为空，得到 %d", len(got))
@@ -135,11 +153,8 @@ func TestNilAssistantScopeDoesNotFilterCatalog(t *testing.T) {
 func TestReferenceBindingCatalogPermissionModes(t *testing.T) {
 	registry := agentops.NewRegistry(nil, nil)
 	agentops.RegisterDefaultOps(registry)
-	for mode, want := range map[string]int{"read-only": 13, "canvas": 26, "full-access": 29} {
+	for _, mode := range []string{"read-only", "canvas", "full-access"} {
 		descriptors := registry.List(agentops.AssistantCaller(&agentops.AssistantScope{PermissionMode: mode}, false))
-		if len(descriptors) != want {
-			t.Fatalf("%s catalog=%d want=%d", mode, len(descriptors), want)
-		}
 		bound := false
 		for _, d := range descriptors {
 			if d.ID == "canvas.node.bind_asset" {

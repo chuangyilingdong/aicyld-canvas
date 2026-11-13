@@ -183,12 +183,8 @@ func (s *Service) Begin(userID, canvasID, turnID string, input Input) (int64, er
 	return rec.RevisionBefore, nil
 }
 
-// ScopeForHost returns the verified range for an open, non-undone round
-// owned by userID. ok is false when the round is missing, foreign, settled,
-// or already undone.
-// OwnerForHost 按 turnId 解析回合归属的工作区：内置助手宿主（画布后端拉起的
-// 子进程）没有主站会话，它的用户身份只能来自后端自己登记的回合记录，调用方无法自报。
-// 只接受仍在进行、未撤销的回合；其余情况返回 false。
+// OwnerForHost 按 turnId 解析回合归属工作区。内置助手宿主没有主站会话，
+// 用户身份只能来自后端登记且仍处于进行中的回合记录。
 func (s *Service) OwnerForHost(turnID string) (string, bool, error) {
 	rec, err := s.load(nil, turnID)
 	if err != nil {
@@ -211,6 +207,9 @@ func (s *Service) OwnerForHost(turnID string) (string, bool, error) {
 	return owner, true, nil
 }
 
+// ScopeForHost returns the verified range for an open, non-undone round
+// owned by userID. ok is false when the round is missing, foreign, settled,
+// or already undone.
 func (s *Service) ScopeForHost(userID, turnID string) (Scope, bool, error) {
 	if strings.TrimSpace(userID) == "" {
 		return Scope{}, false, nil
@@ -232,18 +231,22 @@ func (s *Service) ScopeForHost(userID, turnID string) (Scope, bool, error) {
 	if rec.UserID != userID || rec.Undone || rec.effectiveState() != StateOpen {
 		return Scope{}, false, nil
 	}
+	if err := s.continuationTurnAllowed(s.store.DB(), turnID); err != nil {
+		return Scope{}, false, err
+	}
 	taskIDs := append([]string{}, rec.AssociatedTaskIDs...)
 	receipts, err := s.store.SucceededByTurn(nil, rec.UserID, rec.TurnID)
 	if err != nil {
 		return Scope{}, false, err
 	}
 	for _, receipt := range receipts {
-		if receipt.Op != "canvas.timeline.render" {
+		if receipt.Op != "canvas.timeline.render" && receipt.Op != "canvas.generation.submit" {
 			continue
 		}
 		var result struct {
-			CanvasID string `json:"canvasId"`
-			TaskID   string `json:"taskId"`
+			CanvasID string   `json:"canvasId"`
+			TaskID   string   `json:"taskId"`
+			TaskIDs  []string `json:"taskIds"`
 		}
 		if json.Unmarshal([]byte(receipt.ResultJSON), &result) != nil {
 			return Scope{}, false, errors.New("本地渲染回执损坏")
@@ -251,15 +254,73 @@ func (s *Service) ScopeForHost(userID, turnID string) (Scope, bool, error) {
 		if (result.CanvasID == rec.CanvasID || Mode(rec.PermissionMode) == PermissionFullAccess) && strings.TrimSpace(result.TaskID) != "" {
 			taskIDs = append(taskIDs, result.TaskID)
 		}
+		if result.CanvasID == rec.CanvasID {
+			taskIDs = append(taskIDs, result.TaskIDs...)
+		}
+	}
+	sessionPins, err := s.sessionSkillPins(rec)
+	if err != nil {
+		return Scope{}, false, err
+	}
+	// Active pins authorize exact resources on a continued round without
+	// confusing the historical transcript union with the current selection.
+	activePins := []skills.Pin{}
+	if rec.DurableSessionID != "" {
+		var contextRow model.AssistantSkillContext
+		queryErr := s.store.DB().Where(&model.AssistantSkillContext{UserID: userID, CanvasID: rec.CanvasID, DurableSessionID: rec.DurableSessionID}).First(&contextRow).Error
+		if queryErr == nil {
+			current, decodeErr := contextProjection(contextRow)
+			if decodeErr != nil {
+				return Scope{}, false, decodeErr
+			}
+			if current.Lifecycle != "active" {
+				return Scope{}, false, contextError("skill_scope_reset_pending", "独立任务正在准备")
+			}
+			activePins = current.ActivePins
+		} else if !errors.Is(queryErr, gorm.ErrRecordNotFound) {
+			return Scope{}, false, queryErr
+		}
 	}
 	return Scope{
-		PermissionMode: Mode(rec.PermissionMode),
-		CanvasID:       rec.CanvasID,
-		AssetIDs:       uniqueSorted(append(append([]string{}, rec.ReferencedAssetIDs...), rec.AssociatedAssetIDs...)),
-		CanvasIDs:      uniqueSorted(rec.ReferencedCanvasIDs),
-		TaskIDs:        uniqueSorted(taskIDs),
-		SkillPins:      SortedSkillPins(rec.SkillPins),
+		PermissionMode:   Mode(rec.PermissionMode),
+		CanvasID:         rec.CanvasID,
+		AssetIDs:         uniqueSorted(append(append([]string{}, rec.ReferencedAssetIDs...), rec.AssociatedAssetIDs...)),
+		CanvasIDs:        uniqueSorted(rec.ReferencedCanvasIDs),
+		TaskIDs:          uniqueSorted(taskIDs),
+		SkillPins:        SortedSkillPins(rec.SkillPins),
+		ActiveSkillPins:  activePins,
+		SessionSkillPins: sessionPins,
 	}, true, nil
+}
+
+// sessionSkillPins returns the exact pins of other rounds bound to the same
+// Durable conversation and owner. Undone rounds still count: their skill text
+// remains in the conversation transcript.
+func (s *Service) sessionSkillPins(rec Record) ([]skills.Pin, error) {
+	if strings.TrimSpace(rec.DurableSessionID) == "" || s.store.DB() == nil {
+		return nil, nil
+	}
+	var rows []model.AssistantTurn
+	if err := s.store.DB().Select("turn_id", "skill_pins_json").
+		Where("user_id = ? AND durable_session_id = ? AND turn_id <> ? AND skill_pins_json <> ''", rec.UserID, rec.DurableSessionID, rec.TurnID).
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	seen := map[skills.Pin]bool{}
+	pins := []skills.Pin{}
+	for _, row := range rows {
+		var stored []skills.Pin
+		if json.Unmarshal([]byte(row.SkillPinsJSON), &stored) != nil {
+			return nil, errCorruptStored()
+		}
+		for _, pin := range stored {
+			if identity := pin.Identity(); !seen[identity] {
+				seen[identity] = true
+				pins = append(pins, pin)
+			}
+		}
+	}
+	return SortedSkillPins(pins), nil
 }
 
 // Finalize settles an open round from this round's succeeded receipts.
@@ -320,7 +381,10 @@ func (s *Service) Finalize(turnID string) error {
 			rec.Document = nil
 			rec.CanvasSnapshots = nil
 		}
-		return s.persist(tx, rec)
+		if err := s.persist(tx, rec); err != nil {
+			return err
+		}
+		return tx.Model(&model.AssistantContinuation{}).Where("turn_id = ? AND state IN ?", rec.TurnID, []string{"claimed", "running"}).Update("state", "done").Error
 	})
 }
 
@@ -361,12 +425,13 @@ func (s *Service) History(userID, canvasID, turnID string) (*HistoryState, error
 			return nil, err
 		}
 	}
-	return &HistoryState{Change: change, Undone: rec.Undone, PermissionMode: Mode(rec.PermissionMode)}, nil
+	return &HistoryState{Change: change, Undone: rec.Undone, ContinuationInvalidated: rec.ContinuationInvalidated, PermissionMode: Mode(rec.PermissionMode), SkillPins: SortedSkillPins(rec.SkillPins)}, nil
 }
 
 // CheckProposalRunnable is the server gate before a generation the round
 // suggested is started. Undo and a changed intent both invalidate unstarted
-// proposals, even when automatic continuation is disabled.
+// proposals, even when automatic continuation is disabled. Missing or foreign
+// rounds read as not found.
 func (s *Service) CheckProposalRunnable(userID, canvasID, turnID string) error {
 	if err := requireActor(userID, canvasID); err != nil {
 		return err

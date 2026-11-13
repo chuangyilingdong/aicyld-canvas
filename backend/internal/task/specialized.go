@@ -27,6 +27,8 @@ func localExecutorSchema(taskType string) (localExecutorKind, error) {
 		return localExecutorKind{}, kernel.BadAuthRequest(err.Error())
 	}
 	switch taskType {
+	case model.TaskTypeCanvasMediaTransform:
+		return localExecutorKind{Type: taskType, Prompt: "画布媒体处理", Provider: "local", Model: "ffmpeg", Stage: LocalExecutorQueuedStage, Log: "画布媒体处理已进入队列"}, nil
 	case model.TaskTypeTimelineRender:
 		return localExecutorKind{
 			Type:     model.TaskTypeTimelineRender,
@@ -90,6 +92,7 @@ func (s *Service) CreateTimelineRenderTask(userID string, req TimelineRenderCrea
 		ProjectID: strings.TrimSpace(req.ProjectID),
 		Timeline:  req.Timeline,
 		Options:   req.Options,
+		Metadata:  req.Metadata,
 	})
 	if err != nil {
 		return nil, err

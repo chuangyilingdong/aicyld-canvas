@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-func TestResumableTransferTimeoutClassification(t *testing.T) {
+func TestResumableTimeoutIsNotUserCancellation(t *testing.T) {
 	allowLoopback(t)
 	for _, phase := range []string{"headers", "body", "user-cancel"} {
 		t.Run(phase, func(t *testing.T) {

@@ -6,30 +6,7 @@ import (
 	"testing"
 
 	"infinite-canvas/backend/internal/model"
-	localtask "infinite-canvas/backend/internal/task"
 )
-
-func TestMidjourneyFourOutputsBindIndependently(t *testing.T) {
-	outputs := localtask.CanonicalOutputs(`{"images":[{"url":"https://cdn.example/a.png"},{"url":"https://cdn.example/b.png"},{"url":"https://cdn.example/c.png"},{"url":"https://cdn.example/d.png"}]}`, "canvas_image")
-	if len(outputs) != 4 {
-		t.Fatalf("Midjourney outputs = %d, want 4", len(outputs))
-	}
-	for index := range outputs {
-		outputs[index] = localtask.BindOutput(outputs[index], "mj-task", localtask.TargetBinding{NodeID: "node-" + string(rune('a'+index))})
-	}
-	intents := localtask.CanvasBindingIntents("mj-task", outputs)
-	if len(intents) != 4 {
-		t.Fatalf("binding intents = %d, want 4", len(intents))
-	}
-	for index, intent := range intents {
-		if intent.OutputIndex != index || intent.TargetBinding == nil || intent.TargetBinding.NodeID != "node-"+string(rune('a'+index)) {
-			t.Fatalf("intent %d = %#v", index, intent)
-		}
-		if intent.MaterializeEffectKey == "" || intent.AttachNodeEffectKey == "" {
-			t.Fatalf("intent %d is missing an independent effect key: %#v", index, intent)
-		}
-	}
-}
 
 func TestTaskForOutputRedactsRoutingAndSecrets(t *testing.T) {
 	task := model.Task{
@@ -184,5 +161,40 @@ func TestTaskOutputResourceReadsPersistedMedia(t *testing.T) {
 	id, mediaType := taskOutputResource(`{"mode":"video","video":{"resourceId":"resource-1","storageKey":"resource:resource-1"}}`, "canvas_video")
 	if id != "resource-1" || mediaType != "video" {
 		t.Fatalf("unexpected task output resource: id=%q mediaType=%q", id, mediaType)
+	}
+}
+
+func TestHistoricalVODParameterFailureProjection(t *testing.T) {
+	original := model.Task{Type: "canvas_image", Status: model.TaskStatusFailed, Stage: "submission_unknown", Error: "图片结果尚未确认", FailureDiagnostics: &model.TaskFailureDiagnostics{ProviderCode: "vod_image_invalid_params", HTTPStatus: 400, Requests: []model.TaskRequestEvidence{{Dispatched: true, Outcome: "http_error", HTTPStatus: 400, ProviderCode: "vod_image_invalid_params"}}}}
+	got := taskForOutput(original)
+	if got.ErrorCode != "invalid_params" || got.Stage == "submission_unknown" {
+		t.Fatalf("not corrected: %+v", got)
+	}
+	if taskSummaryForOutput(original).ErrorCode != "invalid_params" {
+		t.Fatal("list differs from detail")
+	}
+	if original.Stage != "submission_unknown" || original.FailureDiagnostics.Summary != "" {
+		t.Fatal("history mutated")
+	}
+	original.FailureDiagnostics.Requests = append(original.FailureDiagnostics.Requests, model.TaskRequestEvidence{Outcome: "transport_error"})
+	if taskForOutput(original).Stage != "submission_unknown" {
+		t.Fatal("earlier unknown submission discarded")
+	}
+}
+
+func TestTaskForOutputProjectsLegacyContentSecurityDiagnostics(t *testing.T) {
+	original := model.Task{
+		Type: "canvas_video", Status: model.TaskStatusFailed, ProviderRequestID: "task_content_security",
+		Error: "生成失败。请查看详情后再决定是否重试。",
+		FailureDiagnostics: &model.TaskFailureDiagnostics{
+			Source: "upstream_response", Summary: "Content security audit did not pass | 内容安全审查未通过",
+		},
+	}
+	got := taskForOutput(original)
+	if got.ErrorCode != "moderation_output" || !strings.Contains(got.Error, "内容安全审核") || got.FailureDiagnostics == nil || got.FailureDiagnostics.ProviderCode != "moderation_output" {
+		t.Fatalf("projected task=%+v diagnostics=%+v", got, got.FailureDiagnostics)
+	}
+	if original.Error != "生成失败。请查看详情后再决定是否重试。" || original.FailureDiagnostics.ProviderCode != "" {
+		t.Fatal("history was mutated")
 	}
 }

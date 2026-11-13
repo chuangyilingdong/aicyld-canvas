@@ -13,19 +13,7 @@ import (
 
 func RegisterTaskRoutes(r *gin.RouterGroup, svc *app.Service, hostedProfile ...bool) {
 	registerMediaUpscaleRoutes(r, svc)
-	r.GET("/billing/balance", func(c *gin.Context) {
-		user, err := currentUser(c, svc)
-		if err != nil {
-			failService(c, err)
-			return
-		}
-		balance, err := svc.BillingBalance(c.Request.Context(), user.ID)
-		if err != nil {
-			failService(c, err)
-			return
-		}
-		ok(c, balance)
-	})
+	registerVideoSubtitleEraseRoutes(r, svc)
 	r.POST("/tasks", func(c *gin.Context) {
 		if !requireTrustedDesktopWritePrincipal(c, "任务只能由当前桌面界面创建") {
 			return
@@ -55,7 +43,7 @@ func RegisterTaskRoutes(r *gin.RouterGroup, svc *app.Service, hostedProfile ...b
 		ok(c, task)
 	})
 	r.POST("/tasks/quote", func(c *gin.Context) {
-		if !requireTrustedDesktopWritePrincipal(c, "任务报价只能由当前桌面界面发起") {
+		if !requireTrustedDesktopWritePrincipal(c, "任务报价只能由当前界面发起") {
 			return
 		}
 		user, err := currentUser(c, svc)
@@ -73,18 +61,25 @@ func RegisterTaskRoutes(r *gin.RouterGroup, svc *app.Service, hostedProfile ...b
 			fail(c, http.StatusBadRequest, err)
 			return
 		}
-		req.TraceID = TraceID(c)
-		req.RequestID = RequestID(c)
-		quote, err := svc.QuoteTask(user.ID, app.CreateTaskRequest{
-			ProjectID: req.ProjectID, Type: req.Type, Operation: req.Operation, Prompt: req.Prompt,
-			Provider: req.Provider, Model: req.Model, LogicalModelID: req.LogicalModelID, Input: req.Input,
-			TraceID: req.TraceID, RequestID: req.RequestID,
-		})
+		quote, err := svc.QuoteLocalTask(user.ID, req)
 		if err != nil {
 			failService(c, err)
 			return
 		}
 		ok(c, quote)
+	})
+	r.GET("/billing/balance", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		balance, err := svc.BillingBalance(c.Request.Context(), user.ID)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, balance)
 	})
 	r.POST("/timeline/transcriptions", func(c *gin.Context) {
 		if !requireTrustedDesktopWritePrincipal(c, "字幕转写只能由当前桌面界面创建") {
@@ -215,6 +210,19 @@ func RegisterTaskRoutes(r *gin.RouterGroup, svc *app.Service, hostedProfile ...b
 		}
 		ok(c, tasks)
 	})
+	r.GET("/tasks/by-operation/:operationId", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		task, err := svc.TaskByClientOperation(user.ID, c.Query("projectId"), c.Param("operationId"))
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, task)
+	})
 	r.GET("/tasks/:id", func(c *gin.Context) {
 		user, err := currentUser(c, svc)
 		if err != nil {
@@ -228,7 +236,7 @@ func RegisterTaskRoutes(r *gin.RouterGroup, svc *app.Service, hostedProfile ...b
 		}
 		ok(c, task)
 	})
-	registerTaskTextReplayRoutes(r, svc)
+	registerTaskTextReplayRoutes(r, svc, svc.TextReplay())
 	r.POST("/tasks/:id/retry", func(c *gin.Context) {
 		if !requireTrustedDesktopWritePrincipal(c, "任务只能由当前桌面界面重试") {
 			return
@@ -250,21 +258,14 @@ func RegisterTaskRoutes(r *gin.RouterGroup, svc *app.Service, hostedProfile ...b
 		}
 		ok(c, task)
 	})
-	r.POST("/tasks/:id/midjourney/modal", func(c *gin.Context) {
-		if !requireTrustedDesktopWritePrincipal(c, "任务只能由当前桌面界面继续提交") {
-			return
-		}
+	r.POST("/tasks/:id/recover", func(c *gin.Context) {
 		user, err := currentUser(c, svc)
 		if err != nil {
 			failService(c, err)
 			return
 		}
-		var request app.MidjourneyModalRequest
-		if err := c.ShouldBindJSON(&request); err != nil {
-			fail(c, http.StatusBadRequest, err)
-			return
-		}
-		task, err := svc.SubmitMidjourneyModal(c.Request.Context(), user.ID, c.Param("id"), request)
+		// 用户点「继续取回」：只有这个入口允许把 BeefAPI 没收到的托管原请求按原编号补交一次。
+		task, err := requestTaskPort(c, svc).RecoverTask(localtask.WithManualRecovery(c.Request.Context()), user.ID, c.Param("id"))
 		if err != nil {
 			failService(c, err)
 			return
@@ -278,19 +279,6 @@ func RegisterTaskRoutes(r *gin.RouterGroup, svc *app.Service, hostedProfile ...b
 			return
 		}
 		result, err := svc.QueryFailedVideoTask(c.Request.Context(), user.ID, c.Param("id"))
-		if err != nil {
-			failService(c, err)
-			return
-		}
-		ok(c, result)
-	})
-	r.POST("/tasks/:id/midjourney/buttons", func(c *gin.Context) {
-		user, err := currentUser(c, svc)
-		if err != nil {
-			failService(c, err)
-			return
-		}
-		result, err := svc.RefreshMidjourneyButtons(c.Request.Context(), user.ID, c.Param("id"))
 		if err != nil {
 			failService(c, err)
 			return

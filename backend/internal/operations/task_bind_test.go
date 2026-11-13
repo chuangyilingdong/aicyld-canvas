@@ -19,6 +19,9 @@ import (
 func TestCanvasTaskBindAppliesReceiptInSameTransaction(t *testing.T) {
 	h := newHarness(t)
 	task := h.seedReadyCanvasImageTask(t, "task-bind-ok", "node-bind", "镜头原名", 11, 22)
+	pending := h.node(t, "node-bind")
+	nodeMeta(pending)["taskStage"] = "delivery_timed_out"
+	h.replaceNode(t, "node-bind", pending)
 	beforeAssets := h.count(t, &model.Asset{})
 	if beforeAssets != 1 {
 		t.Fatalf("delivery should persist the asset before bind, got %d", beforeAssets)
@@ -46,6 +49,9 @@ func TestCanvasTaskBindAppliesReceiptInSameTransaction(t *testing.T) {
 		t.Fatalf("position overwritten: %#v", position)
 	}
 	meta := nodeMeta(node)
+	if meta["taskStage"] != nil {
+		t.Fatalf("completed bind kept stale stage: %#v", meta["taskStage"])
+	}
 	if meta["status"] != "success" || meta["assetId"] != localtask.MaterializedAssetID(task.ID, 0) {
 		t.Fatalf("bound metadata = %#v", meta)
 	}
@@ -303,6 +309,34 @@ func TestCanvasTaskBindConcurrentConsumersDoNotDuplicate(t *testing.T) {
 	}
 }
 
+func TestCanvasTaskBindCreatesNewFallbackNodeOnlyWhenExplicitlyAllowed(t *testing.T) {
+	h := newHarness(t)
+	task := h.seedReadyCanvasImageTask(t, "task-fallback", "node-primary", "原节点", 2, 3)
+	h.addNode(t, "node-fallback", "image", "回退节点", map[string]any{"taskId": task.ID, "status": "loading"})
+
+	_, err := h.bindTask(t, task.ID, "node-fallback", 0)
+	if got := opErr(t, err); got.Reason != "node_mismatch" {
+		t.Fatalf("implicit fallback bind = %v", err)
+	}
+
+	result, err := h.execute(t, operations.ManualCaller(false), "canvas.task.bind", localtask.AttachNodeEffectKey(task.ID, "node-fallback", 0), map[string]any{
+		"canvasId": h.canvasID, "taskId": task.ID, "nodeId": "node-fallback", "outputIndex": 0, "allowDifferentNode": true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := result.Result.(map[string]any)
+	if status, _ := payload["bindingStatus"].(string); status != "bound" {
+		t.Fatalf("fallback bindingStatus = %#v", payload["bindingStatus"])
+	}
+	if got := h.nodeMetaString(t, "node-fallback", "taskId"); got != task.ID {
+		t.Fatalf("fallback node taskId = %q", got)
+	}
+	if got := h.nodeMetaString(t, "node-fallback", "status"); got != "success" {
+		t.Fatalf("fallback node status = %q", got)
+	}
+}
+
 func TestCanvasTaskBindRejectsDeletedWrongOwnerAndNewerTaskNode(t *testing.T) {
 	h := newHarness(t)
 	deleted := h.seedReadyCanvasImageTask(t, "task-deleted", "node-deleted", "将被删除", 1, 1)
@@ -335,8 +369,24 @@ func TestCanvasTaskBindRejectsDeletedWrongOwnerAndNewerTaskNode(t *testing.T) {
 	if got := opErr(t, err); got.Reason != "node_task_mismatch" {
 		t.Fatalf("newer task node = %v", err)
 	}
+	evidence, ok := opErr(t, err).Details["canvasBinding"].(map[string]any)
+	if !ok || evidence["nodeTaskId"] != "task-newer" || evidence["nodeId"] != "node-stale" || evidence["source"] != "server" {
+		t.Fatalf("binding refusal lost the actual server node: %+v", evidence)
+	}
+	if evidence["revision"] != h.revisionNow(t) {
+		t.Fatalf("binding refusal revision = %#v want %d", evidence["revision"], h.revisionNow(t))
+	}
 	if h.nodeMetaString(t, "node-stale", "taskId") != "task-newer" {
 		t.Fatal("stale bind overwrote the newer task node")
+	}
+	h.deleteNode(t, "node-stale")
+	_, err = h.bindTask(t, stale.ID, "node-stale", 0)
+	if got := opErr(t, err); got.Reason != "node_deleted" {
+		t.Fatalf("deleted node = %v", err)
+	}
+	deletedEvidence, ok := opErr(t, err).Details["canvasBinding"].(map[string]any)
+	if !ok || deletedEvidence["nodePresent"] != false || deletedEvidence["revision"] != h.revisionNow(t) {
+		t.Fatalf("deleted-node refusal lost its revision: %+v", deletedEvidence)
 	}
 }
 

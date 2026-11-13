@@ -7,40 +7,45 @@ import (
 	"strconv"
 	"strings"
 
-	"infinite-canvas/backend/internal/app"
+	"infinite-canvas/backend/internal/kernel"
 	"infinite-canvas/backend/internal/model"
+	"infinite-canvas/backend/internal/skills"
 
 	"github.com/gin-gonic/gin"
 )
 
-func RegisterSkillRoutes(r *gin.RouterGroup, svc *app.Service) {
-	registerSkillMarketRoutes(r, svc)
-	registerSkillRoutes(r, svc, true)
+// skillSyncs is the one skill action that still checks the workspace profile
+// before reaching the domain service.
+type skillSyncs interface {
+	SyncGitHubSkill(userID string, skillID string) (*skills.SkillItem, error)
+}
+
+func RegisterSkillRoutes(r *gin.RouterGroup, owners workspaceOwners, domain *skills.Service, syncs skillSyncs) {
+	registerSkillRoutes(r, owners, domain, syncs, true)
 }
 
 // RegisterDesktopSkillRoutes keeps local skill files available while removing
 // GitHub-backed installation and synchronization from the desktop API.
-func RegisterDesktopSkillRoutes(r *gin.RouterGroup, svc *app.Service) {
-	registerSkillMarketRoutes(r, svc)
-	registerSkillRoutes(r, svc, false)
+func RegisterDesktopSkillRoutes(r *gin.RouterGroup, owners workspaceOwners, domain *skills.Service) {
+	registerSkillRoutes(r, owners, domain, nil, false)
 }
 
-func registerSkillRoutes(r *gin.RouterGroup, svc *app.Service, includeRemote bool) {
+func registerSkillRoutes(r *gin.RouterGroup, owners workspaceOwners, skillsDomain *skills.Service, syncs skillSyncs, includeRemote bool) {
 	r.POST("/skills/install", func(c *gin.Context) {
-		user, err := currentUser(c, svc)
+		user, err := currentUser(c, owners)
 		if err != nil {
 			failService(c, err)
 			return
 		}
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, app.SkillPackageUploadMaxBytes)
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, skills.SkillPackageUploadMaxBytes)
 		file, err := c.FormFile("file")
 		if err != nil {
-			failService(c, app.BadAuthRequest("请选择 Markdown 或 ZIP 技能文件"))
+			failService(c, kernel.BadAuthRequest("请选择 Markdown 或 ZIP 技能文件"))
 			return
 		}
 		isPrivate, err := parseOptionalBool(c.PostForm("isPrivate"))
 		if err != nil {
-			failService(c, app.BadAuthRequest("isPrivate 必须是布尔值"))
+			failService(c, kernel.BadAuthRequest("isPrivate 必须是布尔值"))
 			return
 		}
 		sourceType := strings.ToLower(strings.TrimSpace(c.PostForm("sourceType")))
@@ -52,7 +57,7 @@ func registerSkillRoutes(r *gin.RouterGroup, svc *app.Service, includeRemote boo
 				sourceType = "zip"
 			}
 		}
-		skill, err := svc.InstallSkillUpload(user.ID, sourceType, file, app.SkillInstallRequest{
+		skill, err := skillsDomain.InstallSkillUpload(user.ID, sourceType, file, skills.SkillInstallRequest{
 			Name: c.PostForm("name"), Description: c.PostForm("description"), Tag: c.PostForm("tag"), IsPrivate: isPrivate,
 		})
 		if err != nil {
@@ -64,18 +69,18 @@ func registerSkillRoutes(r *gin.RouterGroup, svc *app.Service, includeRemote boo
 
 	if includeRemote {
 		r.POST("/skills/install/github", func(c *gin.Context) {
-			user, err := currentUser(c, svc)
+			user, err := currentUser(c, owners)
 			if err != nil {
 				failService(c, err)
 				return
 			}
 			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 32<<10)
-			var req app.SkillGitHubInstallRequest
+			var req skills.SkillGitHubInstallRequest
 			if err := c.ShouldBindJSON(&req); err != nil {
-				failService(c, app.BadAuthRequest("GitHub 技能数据格式无效"))
+				failService(c, kernel.BadAuthRequest("GitHub 技能数据格式无效"))
 				return
 			}
-			skill, err := svc.InstallGitHubSkill(user.ID, req)
+			skill, err := skillsDomain.InstallGitHubSkill(user.ID, req)
 			if err != nil {
 				failService(c, err)
 				return
@@ -84,8 +89,50 @@ func registerSkillRoutes(r *gin.RouterGroup, svc *app.Service, includeRemote boo
 		})
 	}
 
+	r.GET("/skills/local-source", func(c *gin.Context) {
+		if _, err := currentUser(c, owners); err != nil {
+			failService(c, err)
+			return
+		}
+		source, err := skillsDomain.LocalSkillSource()
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, source)
+	})
+	r.PUT("/skills/local-source", func(c *gin.Context) {
+		if _, err := currentUser(c, owners); err != nil {
+			failService(c, err)
+			return
+		}
+		var req struct {
+			Enabled bool `json:"enabled"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			fail(c, http.StatusBadRequest, err)
+			return
+		}
+		source, err := skillsDomain.SetLocalSkillSource(req.Enabled)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, source)
+	})
+	r.POST("/skills/local-source/sync", func(c *gin.Context) {
+		if _, err := currentUser(c, owners); err != nil {
+			failService(c, err)
+			return
+		}
+		if err := skillsDomain.SyncLocalSkills(); err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"synced": true})
+	})
 	r.GET("/skills", func(c *gin.Context) {
-		user, err := currentUser(c, svc)
+		user, err := currentUser(c, owners)
 		if err != nil {
 			failService(c, err)
 			return
@@ -95,7 +142,7 @@ func registerSkillRoutes(r *gin.RouterGroup, svc *app.Service, includeRemote boo
 			fail(c, http.StatusBadRequest, err)
 			return
 		}
-		result, err := svc.Skills(user.ID, app.SkillListRequest{
+		result, err := skillsDomain.Skills(user.ID, skills.SkillListRequest{
 			Page: page, PageSize: pageSize, Scope: c.DefaultQuery("scope", "public"),
 			Search: c.Query("search"), Tag: c.Query("tag"), Sort: c.DefaultQuery("sort", "popular"),
 		})
@@ -107,12 +154,12 @@ func registerSkillRoutes(r *gin.RouterGroup, svc *app.Service, includeRemote boo
 	})
 
 	r.GET("/skills/added", func(c *gin.Context) {
-		user, err := currentUser(c, svc)
+		user, err := currentUser(c, owners)
 		if err != nil {
 			failService(c, err)
 			return
 		}
-		skills, err := svc.AddedSkills(user.ID)
+		skills, err := skillsDomain.AddedSkills(user.ID)
 		if err != nil {
 			failService(c, err)
 			return
@@ -121,12 +168,12 @@ func registerSkillRoutes(r *gin.RouterGroup, svc *app.Service, includeRemote boo
 	})
 
 	r.GET("/skills/review/submissions", func(c *gin.Context) {
-		user, err := currentUser(c, svc)
+		user, err := currentUser(c, owners)
 		if err != nil {
 			failService(c, err)
 			return
 		}
-		items, err := svc.SkillSubmissionReviewQueue(user.ID, user.Role == model.UserRoleAdmin, c.Query("status"))
+		items, err := skillsDomain.SkillSubmissionReviewQueue(user.ID, user.Role == model.UserRoleAdmin, c.Query("status"))
 		if err != nil {
 			failService(c, err)
 			return
@@ -135,12 +182,12 @@ func registerSkillRoutes(r *gin.RouterGroup, svc *app.Service, includeRemote boo
 	})
 
 	r.GET("/skills/review/submissions/:submissionId/files", func(c *gin.Context) {
-		user, err := currentUser(c, svc)
+		user, err := currentUser(c, owners)
 		if err != nil {
 			failService(c, err)
 			return
 		}
-		files, err := svc.SkillSubmissionFiles(user.ID, user.Role == model.UserRoleAdmin, c.Param("submissionId"))
+		files, err := skillsDomain.SkillSubmissionFiles(user.ID, user.Role == model.UserRoleAdmin, c.Param("submissionId"))
 		if err != nil {
 			failService(c, err)
 			return
@@ -149,12 +196,12 @@ func registerSkillRoutes(r *gin.RouterGroup, svc *app.Service, includeRemote boo
 	})
 
 	r.GET("/skills/review/submissions/:submissionId/file", func(c *gin.Context) {
-		user, err := currentUser(c, svc)
+		user, err := currentUser(c, owners)
 		if err != nil {
 			failService(c, err)
 			return
 		}
-		file, err := svc.SkillSubmissionFile(user.ID, user.Role == model.UserRoleAdmin, c.Param("submissionId"), c.Query("path"))
+		file, err := skillsDomain.SkillSubmissionFile(user.ID, user.Role == model.UserRoleAdmin, c.Param("submissionId"), c.Query("path"))
 		if err != nil {
 			failService(c, err)
 			return
@@ -163,18 +210,40 @@ func registerSkillRoutes(r *gin.RouterGroup, svc *app.Service, includeRemote boo
 	})
 
 	r.POST("/skills/review/submissions/:submissionId/review", func(c *gin.Context) {
-		user, err := currentUser(c, svc)
+		user, err := currentUser(c, owners)
 		if err != nil {
 			failService(c, err)
 			return
 		}
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 64<<10)
-		var req app.SkillReviewRequest
+		var req skills.SkillReviewRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
-			failService(c, app.BadAuthRequest("审核数据格式无效"))
+			failService(c, kernel.BadAuthRequest("审核数据格式无效"))
 			return
 		}
-		item, err := svc.ReviewSkillSubmission(user.ID, user.Role == model.UserRoleAdmin, c.Param("submissionId"), req)
+		item, err := skillsDomain.ReviewSkillSubmission(user.ID, user.Role == model.UserRoleAdmin, c.Param("submissionId"), req)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"submission": item})
+	})
+
+	r.POST("/skills/:id/unpublish", func(c *gin.Context) {
+		user, err := currentUser(c, owners)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 8<<10)
+		var body struct {
+			Reason string `json:"reason"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			fail(c, http.StatusBadRequest, kernel.BadAuthRequest("下架数据格式无效"))
+			return
+		}
+		item, err := skillsDomain.UnpublishSkill(user.ID, user.Role == model.UserRoleAdmin, c.Param("id"), body.Reason)
 		if err != nil {
 			failService(c, err)
 			return
@@ -183,12 +252,12 @@ func registerSkillRoutes(r *gin.RouterGroup, svc *app.Service, includeRemote boo
 	})
 
 	r.GET("/skills/:id/submissions", func(c *gin.Context) {
-		user, err := currentUser(c, svc)
+		user, err := currentUser(c, owners)
 		if err != nil {
 			failService(c, err)
 			return
 		}
-		items, err := svc.SkillSubmissionHistory(user.ID, c.Param("id"))
+		items, err := skillsDomain.SkillSubmissionHistory(user.ID, c.Param("id"))
 		if err != nil {
 			failService(c, err)
 			return
@@ -197,18 +266,18 @@ func registerSkillRoutes(r *gin.RouterGroup, svc *app.Service, includeRemote boo
 	})
 
 	r.POST("/skills/:id/submissions", func(c *gin.Context) {
-		user, err := currentUser(c, svc)
+		user, err := currentUser(c, owners)
 		if err != nil {
 			failService(c, err)
 			return
 		}
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 4<<10)
-		var req app.SkillSubmissionRequest
+		var req skills.SkillSubmissionRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
-			failService(c, app.BadAuthRequest("投稿数据格式无效"))
+			failService(c, kernel.BadAuthRequest("投稿数据格式无效"))
 			return
 		}
-		item, err := svc.PrepareSkillSubmission(user.ID, c.Param("id"), req)
+		item, err := skillsDomain.PrepareSkillSubmission(user.ID, c.Param("id"), req)
 		if err != nil {
 			failService(c, err)
 			return
@@ -217,18 +286,18 @@ func registerSkillRoutes(r *gin.RouterGroup, svc *app.Service, includeRemote boo
 	})
 
 	r.POST("/skills/submissions/:submissionId/submit", func(c *gin.Context) {
-		user, err := currentUser(c, svc)
+		user, err := currentUser(c, owners)
 		if err != nil {
 			failService(c, err)
 			return
 		}
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 4<<10)
-		var req app.SkillSubmissionRequest
+		var req skills.SkillSubmissionRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
-			failService(c, app.BadAuthRequest("投稿数据格式无效"))
+			failService(c, kernel.BadAuthRequest("投稿数据格式无效"))
 			return
 		}
-		item, err := svc.SubmitSkillSubmission(user.ID, c.Param("submissionId"), req)
+		item, err := skillsDomain.SubmitSkillSubmission(user.ID, c.Param("submissionId"), req)
 		if err != nil {
 			failService(c, err)
 			return
@@ -237,12 +306,12 @@ func registerSkillRoutes(r *gin.RouterGroup, svc *app.Service, includeRemote boo
 	})
 
 	r.DELETE("/skills/submissions/:submissionId", func(c *gin.Context) {
-		user, err := currentUser(c, svc)
+		user, err := currentUser(c, owners)
 		if err != nil {
 			failService(c, err)
 			return
 		}
-		item, err := svc.WithdrawSkillSubmission(user.ID, c.Param("submissionId"))
+		item, err := skillsDomain.WithdrawSkillSubmission(user.ID, c.Param("submissionId"))
 		if err != nil {
 			failService(c, err)
 			return
@@ -251,12 +320,12 @@ func registerSkillRoutes(r *gin.RouterGroup, svc *app.Service, includeRemote boo
 	})
 
 	r.GET("/skills/:id", func(c *gin.Context) {
-		user, err := currentUser(c, svc)
+		user, err := currentUser(c, owners)
 		if err != nil {
 			failService(c, err)
 			return
 		}
-		skill, err := svc.SkillDetail(user.ID, c.Param("id"))
+		skill, err := skillsDomain.SkillDetail(user.ID, c.Param("id"))
 		if err != nil {
 			failService(c, err)
 			return
@@ -265,12 +334,12 @@ func registerSkillRoutes(r *gin.RouterGroup, svc *app.Service, includeRemote boo
 	})
 
 	r.GET("/skills/:id/files", func(c *gin.Context) {
-		user, err := currentUser(c, svc)
+		user, err := currentUser(c, owners)
 		if err != nil {
 			failService(c, err)
 			return
 		}
-		files, err := svc.SkillPackageFiles(user.ID, c.Param("id"))
+		files, err := skillsDomain.SkillPackageFiles(user.ID, c.Param("id"))
 		if err != nil {
 			failService(c, err)
 			return
@@ -279,12 +348,12 @@ func registerSkillRoutes(r *gin.RouterGroup, svc *app.Service, includeRemote boo
 	})
 
 	r.GET("/skills/:id/file", func(c *gin.Context) {
-		user, err := currentUser(c, svc)
+		user, err := currentUser(c, owners)
 		if err != nil {
 			failService(c, err)
 			return
 		}
-		file, err := svc.SkillPackageFile(user.ID, c.Param("id"), c.Query("path"))
+		file, err := skillsDomain.SkillPackageFile(user.ID, c.Param("id"), c.Query("path"))
 		if err != nil {
 			failService(c, err)
 			return
@@ -293,12 +362,12 @@ func registerSkillRoutes(r *gin.RouterGroup, svc *app.Service, includeRemote boo
 	})
 
 	r.GET("/skills/:id/file/raw", func(c *gin.Context) {
-		user, err := currentUser(c, svc)
+		user, err := currentUser(c, owners)
 		if err != nil {
 			failService(c, err)
 			return
 		}
-		data, mimeType, fileName, err := svc.SkillPackageRawFile(user.ID, c.Param("id"), c.Query("path"))
+		data, mimeType, fileName, err := skillsDomain.SkillPackageRawFile(user.ID, c.Param("id"), c.Query("path"))
 		if err != nil {
 			failService(c, err)
 			return
@@ -311,12 +380,12 @@ func registerSkillRoutes(r *gin.RouterGroup, svc *app.Service, includeRemote boo
 	})
 
 	r.GET("/skills/:id/bundle", func(c *gin.Context) {
-		user, err := currentUser(c, svc)
+		user, err := currentUser(c, owners)
 		if err != nil {
 			failService(c, err)
 			return
 		}
-		bundle, err := svc.SkillPackageBundle(user.ID, c.Param("id"))
+		bundle, err := skillsDomain.SkillPackageBundle(user.ID, c.Param("id"))
 		if err != nil {
 			failService(c, err)
 			return
@@ -326,12 +395,12 @@ func registerSkillRoutes(r *gin.RouterGroup, svc *app.Service, includeRemote boo
 	})
 
 	r.GET("/skills/:id/search", func(c *gin.Context) {
-		user, err := currentUser(c, svc)
+		user, err := currentUser(c, owners)
 		if err != nil {
 			failService(c, err)
 			return
 		}
-		results, err := svc.SearchSkillPackage(user.ID, c.Param("id"), c.Query("q"))
+		results, err := skillsDomain.SearchSkillPackage(user.ID, c.Param("id"), c.Query("q"))
 		if err != nil {
 			failService(c, err)
 			return
@@ -341,12 +410,12 @@ func registerSkillRoutes(r *gin.RouterGroup, svc *app.Service, includeRemote boo
 
 	if includeRemote {
 		r.POST("/skills/:id/sync", func(c *gin.Context) {
-			user, err := currentUser(c, svc)
+			user, err := currentUser(c, owners)
 			if err != nil {
 				failService(c, err)
 				return
 			}
-			skill, err := svc.SyncGitHubSkill(user.ID, c.Param("id"))
+			skill, err := syncs.SyncGitHubSkill(user.ID, c.Param("id"))
 			if err != nil {
 				failService(c, err)
 				return
@@ -356,17 +425,17 @@ func registerSkillRoutes(r *gin.RouterGroup, svc *app.Service, includeRemote boo
 	}
 
 	r.POST("/skills", func(c *gin.Context) {
-		user, err := currentUser(c, svc)
+		user, err := currentUser(c, owners)
 		if err != nil {
 			failService(c, err)
 			return
 		}
-		var req app.SkillMutationRequest
+		var req skills.SkillMutationRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
-			failService(c, app.BadAuthRequest("技能数据格式无效"))
+			failService(c, kernel.BadAuthRequest("技能数据格式无效"))
 			return
 		}
-		skill, err := svc.CreateSkill(user.ID, req)
+		skill, err := skillsDomain.CreateSkill(user.ID, req)
 		if err != nil {
 			failService(c, err)
 			return
@@ -375,18 +444,18 @@ func registerSkillRoutes(r *gin.RouterGroup, svc *app.Service, includeRemote boo
 	})
 
 	r.POST("/skills/:id/package", func(c *gin.Context) {
-		user, err := currentUser(c, svc)
+		user, err := currentUser(c, owners)
 		if err != nil {
 			failService(c, err)
 			return
 		}
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, app.SkillPackageUploadMaxBytes)
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, skills.SkillPackageUploadMaxBytes)
 		file, err := c.FormFile("file")
 		if err != nil {
-			failService(c, app.BadAuthRequest("请选择 Markdown 或 ZIP 技能文件"))
+			failService(c, kernel.BadAuthRequest("请选择 Markdown 或 ZIP 技能文件"))
 			return
 		}
-		skill, err := svc.ReplaceSkillPackage(user.ID, c.Param("id"), c.PostForm("sourceType"), file, app.SkillInstallRequest{
+		skill, err := skillsDomain.ReplaceSkillPackage(user.ID, c.Param("id"), c.PostForm("sourceType"), file, skills.SkillInstallRequest{
 			Name: c.PostForm("name"), Description: c.PostForm("description"), Tag: c.PostForm("tag"),
 		})
 		if err != nil {
@@ -397,17 +466,17 @@ func registerSkillRoutes(r *gin.RouterGroup, svc *app.Service, includeRemote boo
 	})
 
 	r.PUT("/skills/:id", func(c *gin.Context) {
-		user, err := currentUser(c, svc)
+		user, err := currentUser(c, owners)
 		if err != nil {
 			failService(c, err)
 			return
 		}
-		var req app.SkillMutationRequest
+		var req skills.SkillMutationRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
-			failService(c, app.BadAuthRequest("技能数据格式无效"))
+			failService(c, kernel.BadAuthRequest("技能数据格式无效"))
 			return
 		}
-		skill, err := svc.UpdateSkill(user.ID, c.Param("id"), req)
+		skill, err := skillsDomain.UpdateSkill(user.ID, c.Param("id"), req)
 		if err != nil {
 			failService(c, err)
 			return
@@ -416,27 +485,27 @@ func registerSkillRoutes(r *gin.RouterGroup, svc *app.Service, includeRemote boo
 	})
 
 	r.DELETE("/skills/:id", func(c *gin.Context) {
-		user, err := currentUser(c, svc)
+		user, err := currentUser(c, owners)
 		if err != nil {
 			failService(c, err)
 			return
 		}
-		if err := svc.DeleteSkill(user.ID, c.Param("id")); err != nil {
+		if err := skillsDomain.DeleteSkill(user.ID, c.Param("id")); err != nil {
 			failService(c, err)
 			return
 		}
 		ok(c, gin.H{"deleted": true})
 	})
 
-	r.POST("/skills/:id/add", setSkillAdded(svc, true))
-	r.DELETE("/skills/:id/add", setSkillAdded(svc, false))
+	r.POST("/skills/:id/add", setSkillAdded(owners, skillsDomain, true))
+	r.DELETE("/skills/:id/add", setSkillAdded(owners, skillsDomain, false))
 	r.GET("/skills/:id/versions", func(c *gin.Context) {
-		user, err := currentUser(c, svc)
+		user, err := currentUser(c, owners)
 		if err != nil {
 			failService(c, err)
 			return
 		}
-		versions, err := svc.SkillVersions(user.ID, c.Param("id"))
+		versions, err := skillsDomain.SkillVersions(user.ID, c.Param("id"))
 		if err != nil {
 			failService(c, err)
 			return
@@ -444,7 +513,7 @@ func registerSkillRoutes(r *gin.RouterGroup, svc *app.Service, includeRemote boo
 		ok(c, gin.H{"versions": versions})
 	})
 	r.PATCH("/skills/:id/enabled", func(c *gin.Context) {
-		user, err := currentUser(c, svc)
+		user, err := currentUser(c, owners)
 		if err != nil {
 			failService(c, err)
 			return
@@ -453,10 +522,10 @@ func registerSkillRoutes(r *gin.RouterGroup, svc *app.Service, includeRemote boo
 			Enabled *bool `json:"enabled"`
 		}
 		if err := c.ShouldBindJSON(&body); err != nil || body.Enabled == nil {
-			fail(c, 400, err)
+			fail(c, http.StatusBadRequest, kernel.BadAuthRequest("enabled 必须是布尔值"))
 			return
 		}
-		skill, err := svc.SetSkillEnabled(user.ID, c.Param("id"), *body.Enabled)
+		skill, err := skillsDomain.SetSkillEnabled(user.ID, c.Param("id"), *body.Enabled)
 		if err != nil {
 			failService(c, err)
 			return
@@ -464,7 +533,7 @@ func registerSkillRoutes(r *gin.RouterGroup, svc *app.Service, includeRemote boo
 		ok(c, gin.H{"skill": skill})
 	})
 	r.POST("/skills/:id/rollback", func(c *gin.Context) {
-		user, err := currentUser(c, svc)
+		user, err := currentUser(c, owners)
 		if err != nil {
 			failService(c, err)
 			return
@@ -472,11 +541,11 @@ func registerSkillRoutes(r *gin.RouterGroup, svc *app.Service, includeRemote boo
 		var body struct {
 			VersionID string `json:"versionId"`
 		}
-		if err := c.ShouldBindJSON(&body); err != nil || body.VersionID == "" {
-			fail(c, 400, err)
+		if err := c.ShouldBindJSON(&body); err != nil || strings.TrimSpace(body.VersionID) == "" {
+			fail(c, http.StatusBadRequest, kernel.BadAuthRequest("versionId 不能为空"))
 			return
 		}
-		skill, err := svc.RollbackSkillVersion(user.ID, c.Param("id"), body.VersionID)
+		skill, err := skillsDomain.RollbackSkillVersion(user.ID, c.Param("id"), body.VersionID)
 		if err != nil {
 			failService(c, err)
 			return
@@ -484,20 +553,20 @@ func registerSkillRoutes(r *gin.RouterGroup, svc *app.Service, includeRemote boo
 		ok(c, gin.H{"skill": skill})
 	})
 	r.POST("/skills/:id/rewrite", func(c *gin.Context) {
-		user, err := currentUser(c, svc)
+		user, err := currentUser(c, owners)
 		if err != nil {
 			failService(c, err)
 			return
 		}
-		skill, err := svc.CreatePrivateSkillRewrite(user.ID, c.Param("id"))
+		skill, err := skillsDomain.CreatePrivateRewrite(user.ID, c.Param("id"))
 		if err != nil {
 			failService(c, err)
 			return
 		}
 		ok(c, gin.H{"skill": skill})
 	})
-	r.POST("/skills/:id/like", setSkillLiked(svc, true))
-	r.DELETE("/skills/:id/like", setSkillLiked(svc, false))
+	r.POST("/skills/:id/like", setSkillLiked(owners, skillsDomain, true))
+	r.DELETE("/skills/:id/like", setSkillLiked(owners, skillsDomain, false))
 }
 
 func parseOptionalBool(value string) (bool, error) {
@@ -508,14 +577,14 @@ func parseOptionalBool(value string) (bool, error) {
 	return strconv.ParseBool(value)
 }
 
-func setSkillAdded(svc *app.Service, added bool) gin.HandlerFunc {
+func setSkillAdded(owners workspaceOwners, skillsDomain *skills.Service, added bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		user, err := currentUser(c, svc)
+		user, err := currentUser(c, owners)
 		if err != nil {
 			failService(c, err)
 			return
 		}
-		skill, err := svc.SetSkillAdded(user.ID, c.Param("id"), added)
+		skill, err := skillsDomain.SetSkillAdded(user.ID, c.Param("id"), added)
 		if err != nil {
 			failService(c, err)
 			return
@@ -524,14 +593,14 @@ func setSkillAdded(svc *app.Service, added bool) gin.HandlerFunc {
 	}
 }
 
-func setSkillLiked(svc *app.Service, liked bool) gin.HandlerFunc {
+func setSkillLiked(owners workspaceOwners, skillsDomain *skills.Service, liked bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		user, err := currentUser(c, svc)
+		user, err := currentUser(c, owners)
 		if err != nil {
 			failService(c, err)
 			return
 		}
-		skill, err := svc.SetSkillLiked(user.ID, c.Param("id"), liked)
+		skill, err := skillsDomain.SetSkillLiked(user.ID, c.Param("id"), liked)
 		if err != nil {
 			failService(c, err)
 			return

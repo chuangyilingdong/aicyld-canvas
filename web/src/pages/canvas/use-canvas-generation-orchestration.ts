@@ -1,8 +1,11 @@
+import { hydrateBackendGeneratedOutputs } from "@/services/project-asset-sync";
 import { useCallback, useEffect, useRef, type Dispatch, type SetStateAction } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { App } from "antd";
 import { nanoid } from "nanoid";
-import { captureUserScope, userScopeMatches } from "@/lib/user-scope-guard";
+import { buildGenerationConfig } from "@/lib/canvas/canvas-project-generation";
+import { modelCapabilityConfigFor } from "@/lib/model-capabilities";
+import { modelCompatibilityError } from "@/lib/model-selection";
 
 import { promoteLegacyBatchTableSize } from "@/lib/canvas/canvas-batch-table";
 import { persistCanvasDocument } from "@/services/local-workspace-repository";
@@ -12,7 +15,7 @@ import { ensureCanvasNodeAsset } from "@/services/project-asset-sync";
 import type { Skill } from "@/services/api/skills";
 import { useAssetStore, type Asset } from "@/stores/use-asset-store";
 import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
-import { useEffectiveConfig } from "@/stores/use-config-store";
+import { selectableModelsByCapability, useEffectiveConfig } from "@/stores/use-config-store";
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData, type Position } from "@/types/canvas";
 
 import {
@@ -30,11 +33,11 @@ import { useCanvasGeneration } from "./use-canvas-generation";
 import { useCanvasGenerationBatches } from "./use-canvas-generation-batches";
 import { useCanvasGenerationExecutor } from "./use-canvas-generation-executor";
 import { useCanvasGenerationRetry } from "./use-canvas-generation-retry";
-import { runMidjourneyCanvasAction } from "./canvas-midjourney-executor";
-import type { MidjourneyActionSubmission } from "@/lib/canvas/canvas-midjourney";
 import { useCanvasStoryboard } from "./use-canvas-storyboard";
+import type { CanvasPageUiStoreHook } from "@/stores/canvas/use-canvas-page-ui-store";
 
 type UseCanvasGenerationOrchestrationOptions = {
+    pageUi: CanvasPageUiStoreHook;
     projectId: string;
     /** 生成任务查询与 live 绑定：短剧关闭时为空。 */
     linkedProjectId?: string;
@@ -50,14 +53,12 @@ type UseCanvasGenerationOrchestrationOptions = {
     connectionsRef: { current: CanvasConnection[] };
     setNodes: Dispatch<SetStateAction<CanvasNodeData[]>>;
     setConnections: Dispatch<SetStateAction<CanvasConnection[]>>;
-    setSelectedNodeIds: Dispatch<SetStateAction<Set<string>>>;
-    setSelectedConnectionId: Dispatch<SetStateAction<string | null>>;
-    setDialogNodeId: Dispatch<SetStateAction<string | null>>;
     setGenerationHistoryOpen: Dispatch<SetStateAction<boolean>>;
     getCanvasCenter: () => Position;
 };
 
 export function useCanvasGenerationOrchestration({
+    pageUi,
     projectId,
     linkedProjectId,
     domainProjectId,
@@ -71,9 +72,6 @@ export function useCanvasGenerationOrchestration({
     connectionsRef,
     setNodes,
     setConnections,
-    setSelectedNodeIds,
-    setSelectedConnectionId,
-    setDialogNodeId,
     setGenerationHistoryOpen,
     getCanvasCenter,
 }: UseCanvasGenerationOrchestrationOptions) {
@@ -110,6 +108,7 @@ export function useCanvasGenerationOrchestration({
     });
 
     const handleGenerateNode = useCanvasGenerationExecutor({
+        pageUi,
         projectId,
         domainProjectId,
         addedSkills,
@@ -118,9 +117,6 @@ export function useCanvasGenerationOrchestration({
         connectionsRef,
         setNodes,
         setConnections,
-        setSelectedNodeIds,
-        setSelectedConnectionId,
-        setDialogNodeId,
         setRunningNodeId,
         startGenerationRequest,
         finishGenerationRequest,
@@ -150,11 +146,12 @@ export function useCanvasGenerationOrchestration({
         syncRowsFromConnections,
         updateRow: updateBatchRow,
     } = useCanvasBatchTable({
+        pageUi,
+        projectId,
         nodesRef,
         connectionsRef,
         setNodes,
         setConnections,
-        setSelectedNodeIds,
         enqueueGenerationBatch,
     });
 
@@ -188,14 +185,16 @@ export function useCanvasGenerationOrchestration({
         updateScriptRow,
         updateScriptRows,
     } = useCanvasStoryboard({
+        pageUi,
         projectId,
         addedSkills,
         nodesRef,
         connectionsRef,
         setNodes,
         setConnections,
-        setSelectedNodeIds,
         enqueueGenerationBatch,
+        startGenerationRequest,
+        finishGenerationRequest,
     });
 
     const handleRetryNode = useCanvasGenerationRetry({
@@ -211,14 +210,14 @@ export function useCanvasGenerationOrchestration({
         finishGenerationRequest,
         bindGenerationTask,
         applyGenerationTaskResult,
+        regenerateImageBatch: async (nodeId, prompt) => { await handleGenerateNode(nodeId, "image", prompt); },
     });
 
     const cancelCanvasTask = useCallback(
         (task: GenerationTask) => {
             const deliveryOnly = task.status === "succeeded";
             const owner = lifetime.capture(projectId);
-            const userScope = captureUserScope();
-            const isCurrent = () => lifetime.matches(owner, projectIdRef.current) && userScopeMatches(userScope);
+            const isCurrent = () => lifetime.matches(owner, projectIdRef.current);
             modal.confirm({
                 ...canvasTaskConfirmation,
                 title: deliveryOnly ? "停止取回结果？" : "取消生成任务？",
@@ -228,7 +227,7 @@ export function useCanvasGenerationOrchestration({
                 onOk: async () => {
                     if (!isCurrent()) return;
                     try {
-                        const next = await cancelGenerationTask(task.id, userScope);
+                        const next = await cancelGenerationTask(task.id);
                         if (!isCurrent()) return;
                         const node = nodesRef.current.find((item) => item.metadata?.taskId === task.id);
                         if (node) bindGenerationTask(node.id, next);
@@ -251,6 +250,7 @@ export function useCanvasGenerationOrchestration({
             if (!insertingHistory.current.tryEnter()) return;
             const owner = lifetime.capture(projectId);
             try {
+                await hydrateBackendGeneratedOutputs(task);
                 await runOwnedCanvasHistoryInsert({
                     owner,
                     getLiveCanvasId: () => projectIdRef.current,
@@ -270,9 +270,9 @@ export function useCanvasGenerationOrchestration({
                     }),
                     persist: (persisted) => persistCanvasDocument(owner.canvasId, { nodes: persisted }),
                     ensureAsset: (item) => ensureCanvasNodeAsset({ canvasId: owner.canvasId, domainProjectId, node: item, source: "canvas-generation", taskId: task.id }),
-                    onCommit: (node) => {
-                        setNodes((current) => rebaseInsertedCanvasNode(current, node));
-                        setSelectedNodeIds(new Set([node.id]));
+                    onCommit: (node, insertedNodes) => {
+                        setNodes((current) => insertedNodes.reduce((nodes, inserted) => rebaseInsertedCanvasNode(nodes, inserted), current));
+                        pageUi.getState().setSelectedNodeIds(new Set([node.id]));
                         setGenerationHistoryOpen(false);
                         message.success("已从生成历史插入到画布");
                     },
@@ -283,7 +283,7 @@ export function useCanvasGenerationOrchestration({
                 insertingHistory.current.exit();
             }
         },
-        [domainProjectId, getCanvasCenter, lifetime, message, nodesRef, projectId, setGenerationHistoryOpen, setNodes, setSelectedNodeIds],
+        [pageUi, domainProjectId, getCanvasCenter, lifetime, message, nodesRef, projectId, setGenerationHistoryOpen, setNodes],
     );
 
     const reconcileImageBatchRootNode = useCallback(
@@ -298,6 +298,24 @@ export function useCanvasGenerationOrchestration({
             const { retryable, blocked } = selectRetryableImageBatchChildren(children);
             if (blocked) message.warning("部分图片需要先处理失败原因，请打开对应节点查看");
             if (!retryable.length) return;
+            const root = nodesRef.current.find((node) => node.id === rootId);
+            if (root) {
+                const config = buildGenerationConfig(effectiveConfig, root, "image");
+                if (modelCapabilityConfigFor(config, config.model).image?.fixedOutputs) {
+                    if ((root.metadata?.batchChildIds?.length || 0) > (modelCapabilityConfigFor(config, config.model).image?.fixedOutputs || 0)) {
+                        const tasks = new Set<string>();
+                        void (async () => {
+                            for (const child of retryable) {
+                                const taskId = child.metadata?.taskId || child.id;
+                                if (tasks.has(taskId)) continue;
+                                tasks.add(taskId);
+                                await handleRetryNode(child);
+                            }
+                        })();
+                    } else void handleRetryNode(root);
+                    return;
+                }
+            }
             void runImageBatchChildRetry({
                 rootId,
                 children: retryable,
@@ -306,35 +324,9 @@ export function useCanvasGenerationOrchestration({
                 reconcile: reconcileImageBatchRootNode,
             });
         },
-        [handleRetryNode, message, reconcileImageBatchRootNode, setNodes],
+        [effectiveConfig, handleRetryNode, message, nodesRef, reconcileImageBatchRootNode, setNodes],
     );
 
-    const runMidjourneyAction = useCallback(
-        async (parentNodeId: string, payload: MidjourneyActionSubmission, onInpaintTaskCreated?: (nodeId: string) => void) => {
-            await runMidjourneyCanvasAction({
-                projectId,
-                parentNodeId,
-                payload,
-                config: effectiveConfig,
-                nodesRef,
-                connectionsRef,
-                setNodes,
-                setConnections,
-                setSelectedNodeIds,
-                setSelectedConnectionId,
-                setDialogNodeId,
-                setRunningNodeId,
-                startGenerationRequest,
-                finishGenerationRequest,
-                bindGenerationTask,
-                applyGenerationTaskResult,
-                notify: (content) => message.success(content),
-                notifyError: (content) => message.error(content),
-                onInpaintTaskCreated,
-            });
-        },
-        [applyGenerationTaskResult, bindGenerationTask, connectionsRef, effectiveConfig, finishGenerationRequest, message, nodesRef, projectId, setConnections, setDialogNodeId, setNodes, setRunningNodeId, setSelectedConnectionId, setSelectedNodeIds, startGenerationRequest],
-    );
     const generateImageFromTextNode = useCallback(
         (node: CanvasNodeData) => {
             const created = createImageNodeFromTextSource({
@@ -353,11 +345,127 @@ export function useCanvasGenerationOrchestration({
             connectionsRef.current = created.nextConnections;
             setNodes(created.nextNodes);
             setConnections(created.nextConnections);
-            setSelectedNodeIds(new Set([created.imageNode.id]));
-            setSelectedConnectionId(null);
-            setDialogNodeId(created.imageNode.id);
+            pageUi.getState().setSelectedNodeIds(new Set([created.imageNode.id]));
+            pageUi.getState().setSelectedConnectionId(null);
+            pageUi.getState().setDialogNodeId(created.imageNode.id);
         },
-        [connectionsRef, effectiveConfig, message, nodesRef, setConnections, setDialogNodeId, setNodes, setSelectedConnectionId, setSelectedNodeIds],
+        [pageUi, connectionsRef, effectiveConfig, message, nodesRef, projectId, setConnections, setNodes],
+    );
+
+    const generateFinalVideoFromDraftNode = useCallback(
+        (node: CanvasNodeData, resolution: "720p" | "1080p") => {
+            const draftTaskId = node.metadata?.taskProviderRequestId?.trim();
+            if (!draftTaskId) {
+                message.warning("该样片缺少上游任务 ID，无法直接转高清成片");
+                return;
+            }
+            const promptText = node.metadata?.prompt || "";
+            const childNode: CanvasNodeData = {
+                id: nanoid(),
+                type: CanvasNodeType.Video,
+                title: `${node.title || "样片"} (${resolution.toUpperCase()} 成片)`.slice(0, 36),
+                position: { x: node.position.x + node.width + 96, y: node.position.y },
+                width: node.width,
+                height: node.height,
+                metadata: {
+                    status: "idle",
+                    prompt: promptText,
+                    composerContent: promptText,
+                    model: node.metadata?.model,
+                    size: node.metadata?.size,
+                    seconds: node.metadata?.seconds,
+                    vquality: resolution,
+                    generateAudio: node.metadata?.generateAudio ?? "true",
+                    watermark: node.metadata?.watermark ?? "false",
+                    draft: "false",
+                    videoEditOperation: "draft_to_final",
+                    videoDraftTaskId: draftTaskId,
+                    generatedFromNodeId: node.id,
+                    generationResultPlacement: "replace-node",
+                },
+            };
+            const nextNodes = [...nodesRef.current, childNode];
+            const nextConnections = [...connectionsRef.current, { id: nanoid(), fromNodeId: node.id, toNodeId: childNode.id }];
+            nodesRef.current = nextNodes;
+            connectionsRef.current = nextConnections;
+            setNodes(nextNodes);
+            setConnections(nextConnections);
+            pageUi.getState().setSelectedNodeIds(new Set([childNode.id]));
+            pageUi.getState().setSelectedConnectionId(null);
+            pageUi.getState().setDialogNodeId(null);
+            void handleGenerateNode(childNode.id, "video", promptText, {
+                confirmedInputs: {
+                    nodes: nextNodes,
+                    connections: nextConnections,
+                    config: effectiveConfig,
+                    assets,
+                    skills: addedSkills,
+                },
+                skipDuplicateConfirmation: true,
+            });
+        },
+        [addedSkills, assets, connectionsRef, effectiveConfig, handleGenerateNode, message, nodesRef, pageUi, setConnections, setNodes],
+    );
+
+    const createVideoEditNodeFromVideo = useCallback(
+        (node: CanvasNodeData, operation: "extend" | "inpaint") => {
+            if (!node.metadata?.content && !node.metadata?.storageKey) {
+                message.warning("视频节点为空，无法发起视频二创");
+                return;
+            }
+            const label = operation === "extend" ? "视频续写" : "视频局部修改";
+            const defaultPrompt = operation === "extend"
+                ? `基于 @视频1 自然顺延后续动作、镜头运动与环境氛围，保持人物与画风一致`
+                : `基于 @视频1 进行画面修改：保持原有构图与节奏，将主体调整为 `;
+            const editSeconds = node.metadata?.seconds || effectiveConfig.videoSeconds;
+            const editQuality = node.metadata?.vquality || "720p";
+            const editRequirements = {
+                capability: "video" as const,
+                videoOperation: operation,
+                videoSeconds: editSeconds,
+                options: { vquality: editQuality },
+                input: { textCount: 1, imageCount: 0, videoCount: 1, audioCount: 0, characterCount: 0 },
+            };
+            const candidateModels = [node.metadata?.model, effectiveConfig.videoModel, ...selectableModelsByCapability(effectiveConfig, "video")].filter((item): item is string => Boolean(item));
+            const targetModel =
+                candidateModels.find((item) => modelCapabilityConfigFor(effectiveConfig, item).video?.operations?.includes(operation) && !modelCompatibilityError(effectiveConfig, item, editRequirements)) ||
+                candidateModels.find((item) => !modelCompatibilityError(effectiveConfig, item, editRequirements)) ||
+                node.metadata?.model;
+            const childNode: CanvasNodeData = {
+                id: nanoid(),
+                type: CanvasNodeType.Video,
+                title: `${node.title || "视频"} · ${label}`.slice(0, 36),
+                position: { x: node.position.x + node.width + 96, y: node.position.y },
+                width: node.width,
+                height: node.height,
+                metadata: {
+                    status: "idle",
+                    prompt: defaultPrompt,
+                    composerContent: defaultPrompt,
+                    model: targetModel,
+                    size: "adaptive",
+                    seconds: node.metadata?.seconds,
+                    vquality: node.metadata?.vquality || "720p",
+                    generateAudio: node.metadata?.generateAudio ?? "true",
+                    watermark: node.metadata?.watermark ?? "false",
+                    draft: "false",
+                    videoEditOperation: operation,
+                    generatedFromNodeId: node.id,
+                },
+            };
+            const nextNodes = [...nodesRef.current, childNode];
+            const nextConnections = [...connectionsRef.current, { id: nanoid(), fromNodeId: node.id, toNodeId: childNode.id }];
+            nodesRef.current = nextNodes;
+            connectionsRef.current = nextConnections;
+            setNodes(nextNodes);
+            setConnections(nextConnections);
+            pageUi.getState().setHoveredNodeId(null);
+            pageUi.getState().setToolbarNodeId(null);
+            pageUi.getState().setSelectedNodeIds(new Set([childNode.id]));
+            pageUi.getState().setSelectedConnectionId(null);
+            pageUi.getState().setDialogNodeId(childNode.id);
+        },
+        [connectionsRef, effectiveConfig, message, nodesRef, pageUi, setConnections, setNodes],
     );
 
     return {
@@ -408,6 +516,7 @@ export function useCanvasGenerationOrchestration({
         reconcileImageBatchRootNode,
         retryImageBatchChildren,
         generateImageFromTextNode,
-        runMidjourneyAction,
+        generateFinalVideoFromDraftNode,
+        createVideoEditNodeFromVideo,
     };
 }

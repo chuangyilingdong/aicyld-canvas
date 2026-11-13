@@ -1,28 +1,16 @@
-import { cpSync, mkdtempSync, mkdirSync, readFileSync, rmSync, existsSync, chmodSync } from 'node:fs';
+import { cpSync, mkdtempSync, mkdirSync, rmSync, existsSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
-export const NODE_VERSION = '24.15.0';
+export const NODE_VERSION = '24.22.1';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const targets = { 'darwin/arm64': ['darwin', 'arm64'], 'darwin/amd64': ['darwin', 'x64'], 'windows/amd64': ['win32', 'x64'], 'linux/amd64': ['linux', 'x64'] };
-const runtimeImportPattern = /(?:from\s+|import\s*\()\s*["']\.\/([^"']+\.mjs)["']/g;
-
-// Follow the real runtime import graph so new helper modules cannot be silently
-// omitted from desktop release packages.
-export function discoverRuntimeModules(source) {
-  const modules = new Set();
-  const visit = (name) => {
-    if (modules.has(name)) return;
-    modules.add(name);
-    const content = readFileSync(path.join(source, name), 'utf8');
-    for (const match of content.matchAll(runtimeImportPattern)) visit(match[1]);
-  };
-  visit('server.mjs');
-  modules.delete('server.mjs');
-  return [...modules];
-}
+const runtimeModules = ['session-identity.mjs', 'canvas-turn.mjs', 'request-budget.mjs', 'durable-request-budget.mjs',
+  'durable-session-owner.mjs', 'durable-turn-projection.mjs', 'durable-extensions.mjs', 'durable-watch-observer.mjs', 'business-progress.mjs', 'durable-turn-budget.mjs', 'media-content.mjs', 'native-part-store.mjs', 'native-history.mjs', 'skill-resource.mjs', 'active-skills.mjs',
+  'operation-bridge.mjs', 'await-business-tasks.mjs', 'timeline-delivery.mjs', 'canvas-read-view.mjs', 'canvas-write-view.mjs', 'session-owner.mjs', 'system-prompt.mjs', 'model-stream-idle.mjs', 'model-transport-error.mjs', 'plan.mjs', 'studio-digest.mjs', 'dispatch-diagnostics.mjs'];
+const sourceFiles = ['server.mjs', ...runtimeModules, 'package.json', 'bun.lock'];
 
 function run(command, args, cwd) {
   const result = spawnSync(command, args, { cwd, encoding: 'utf8', timeout: 180000 });
@@ -48,17 +36,12 @@ export function verifyRuntime(runtime, target) {
 export function packageAgentHost({ runtime, target, destination, source = path.join(root, 'agent-host') }) {
   const node = verifyRuntime(runtime, target);
   if (!destination) throw new Error('agent-host destination is required');
-  const runtimeModules = discoverRuntimeModules(source);
-  const sourceFiles = ['server.mjs', ...runtimeModules, 'package.json', 'bun.lock'];
   for (const name of sourceFiles) {
     if (!existsSync(path.join(source, name))) throw new Error(`Missing agent-host source: ${name}`);
   }
   const stage = mkdtempSync(path.join(tmpdir(), 'beeftv agent host '));
   try {
-    for (const name of sourceFiles) {
-      mkdirSync(path.dirname(path.join(stage, name)), { recursive: true });
-      cpSync(path.join(source, name), path.join(stage, name));
-    }
+    for (const name of sourceFiles) cpSync(path.join(source, name), path.join(stage, name));
     // Install from the committed lock into a clean tree, never from developer node_modules.
     run(process.execPath, ['install', '--production', '--frozen-lockfile', '--backend', 'copyfile', '--os', targets[target][0], '--cpu', targets[target][1]], stage);
     const nodeRelative = target.startsWith('windows/') ? 'runtime/node.exe' : 'runtime/bin/node';

@@ -1,0 +1,224 @@
+.collection-header {
+    display: grid;
+    min-width: 0;
+    flex-shrink: 0;
+    gap: 8px;
+    padding: 0;
+}
+
+.collection-header > .app-page-header {
+    min-height: 64px;
+    align-items: center;
+    padding: 0;
+    border: 0;
+    background: transparent;
+}
+
+.collection-header .app-page-header-main {
+    min-width: 0;
+}
+
+.collection-header .app-page-header-title {
+    letter-spacing: -0.02em;
+}
+
+.collection-header .app-page-header p {
+    max-width: 64ch;
+    text-wrap: pretty;
+}
+
+.collection-header-tools,
+.collection-header-trailing {
+    display: flex;
+    min-width: 0;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.collection-header-tools {
+    justify-content: flex-end;
+}
+
+.collection-header-navigation {
+    display: flex;
+    min-width: 0;
+    min-height: 36px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.collection-header-tabs {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.collection-header-tabs::-webkit-scrollbar {
+    display: none;
+}
+
+.collection-header-tab {
+    display: inline-flex;
+    height: 32px;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid transparent;
+    border-radius: 9px;
+    background: transparent;
+    padding: 0 10px;
+    color: var(--user-ink-muted, var(--muted-foreground));
+    font-size: var(--fs-caption);
+    font-weight: 540;
+    line-height: 1;
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+        background-color var(--motion-state) ease-out,
+        border-color var(--motion-state) ease-out,
+        color var(--motion-state) ease-out;
+}
+
+.collection-header-tab:hover {
+    background: var(--user-surface-hover, var(--surface-hover));
+    color: var(--user-ink, var(--foreground));
+}
+
+.collection-header-tab.is-active {
+    border-color: var(--user-border, var(--border));
+    background: var(--control-selected-bg, var(--user-surface-muted));
+    color: var(--control-selected-fg, var(--user-ink));
+    font-weight: 620;
+}
+
+.collection-header-tab:focus-visible {
+    outline: 2px solid var(--control-focus-ring, var(--ring));
+    outline-offset: 2px;
+}
+
+.collection-header-tab svg {
+    width: 15px;
+    height: 15px;
+    stroke-width: 1.8;
+}
+
+.collection-header-tab em {
+    display: inline-flex;
+    min-width: 18px;
+    height: 18px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: color-mix(in srgb, currentColor 9%, transparent);
+    padding-inline: 5px;
+    color: color-mix(in srgb, currentColor 62%, transparent);
+    font-size: var(--fs-micro);
+    font-style: normal;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+}
+
+.collection-header-tab.is-active em {
+    background: color-mix(in srgb, currentColor 12%, transparent);
+    color: currentColor;
+}
+
+/* Library, plugin and settings pages share the same content rhythm. */
+.app-user-workspace .plugins-page-layout {
+    width: min(1680px, calc(100% - 64px));
+    margin-top: 16px;
+}
+
+.app-user-workspace.settings-page .settings-pane-root {
+    width: min(100%, 1680px);
+    margin-inline: auto;
+}
+
+.app-user-workspace.settings-page .app-page-header {
+    min-height: 64px;
+    align-items: center;
+    padding: 0;
+    border: 0;
+    background: transparent;
+}
+
+.app-user-workspace.settings-page .app-page-header-title {
+    letter-spacing: -0.02em;
+}
+
+.app-user-workspace .plugin-card {
+    border-color: var(--user-border);
+    border-radius: 16px;
+    background: var(--user-surface);
+    box-shadow: 0 7px 22px color-mix(in srgb, var(--foreground) 4%, transparent);
+    transition:
+        border-color var(--motion-state) ease-out,
+        box-shadow var(--motion-state) ease-out;
+}
+
+.app-user-workspace .plugin-card:hover,
+.app-user-workspace .plugin-card:focus-within {
+    border-color: var(--user-border-strong);
+    box-shadow: 0 12px 26px color-mix(in srgb, var(--foreground) 8%, transparent);
+}
+
+.app-user-workspace .plugin-card .plugin-icon-tile {
+    width: 48px;
+    height: 48px;
+    border-radius: 14px;
+}
+
+.app-user-workspace .plugin-card .plugin-icon-tile svg {
+    width: 22px;
+    height: 22px;
+}
+
+@media (max-width: 760px) {
+    .collection-header > .app-page-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+        padding-block: 6px;
+    }
+
+    .collection-header-tools {
+        justify-content: flex-start;
+    }
+
+    .collection-header-navigation {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .collection-header-tabs {
+        width: 100%;
+    }
+
+    .collection-header-trailing {
+        width: 100%;
+        justify-content: space-between;
+    }
+}
+
+@media (max-width: 820px) {
+    .app-user-workspace .plugins-page-layout {
+        width: min(100% - 28px, 1680px);
+    }
+}
+
+@media (max-width: 580px) {
+    .app-user-workspace .plugins-page-layout {
+        width: calc(100% - 24px);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .collection-header-tab {
+        transition: none;
+    }
+}

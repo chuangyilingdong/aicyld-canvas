@@ -194,9 +194,13 @@ type ChannelModelCatalogItem struct {
 	SupportsImages           *bool                                `json:"supportsImages,omitempty"`
 	MinImages                *int                                 `json:"minImages,omitempty"`
 	MaxImages                *int                                 `json:"maxImages,omitempty"`
+	ImageCapabilities        json.RawMessage                      `json:"imageCapabilities,omitempty"`
+	ImageCapabilitiesVersion *string                              `json:"imageCapabilitiesVersion,omitempty"`
 	VideoCapabilities        json.RawMessage                      `json:"videoCapabilities,omitempty"`
 	VideoCapabilitiesVersion *string                              `json:"videoCapabilitiesVersion,omitempty"`
 	VideoPricing             json.RawMessage                      `json:"videoPricing,omitempty"`
+	MediaCapabilities        json.RawMessage                      `json:"mediaCapabilities,omitempty"`
+	MediaCapabilitiesVersion *string                              `json:"mediaCapabilitiesVersion,omitempty"`
 }
 
 type ChannelModelCatalogDefaultParameters struct {
@@ -217,13 +221,15 @@ type AdminChannelModelFetchResult struct {
 }
 
 type FailureInfo struct {
-	StatusCode     int
-	RetryAfter     time.Duration
-	SlotCode       string
-	RequestNotSent bool
-	ImageThrottle  bool
-	ImageRecovery  bool
-	Canceled       bool
+	StatusCode              int
+	RetryAfter              time.Duration
+	SlotCode                string
+	ImageThrottle           bool
+	ImageRecovery           bool
+	PreparationFailed       bool
+	ExplicitRejection       bool
+	TerminalProviderFailure bool
+	Canceled                bool
 }
 
 type DispatchUncertainError struct{ Message string }

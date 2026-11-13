@@ -1,0 +1,79 @@
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import type { ViewportTransform } from "@/types/canvas";
+
+export function useCanvasViewportState(projectId: string, projectLoaded: boolean, savedViewport?: ViewportTransform) {
+    const containerRef = useRef<HTMLDivElement>(null);
+    const didInitialCenter = useRef(false);
+    const restoredProjectRef = useRef("");
+    const [viewport, setCommittedViewport] = useState<ViewportTransform>({ x: 0, y: 0, k: 1 });
+    const viewportRef = useRef(viewport);
+    const [virtualizationViewport, setVirtualizationViewport] = useState<ViewportTransform | null>(null);
+    const [size, setSize] = useState({ width: 1200, height: 720 });
+    const setViewport = useCallback<Dispatch<SetStateAction<ViewportTransform>>>((next) => {
+        setVirtualizationViewport(null);
+        setCommittedViewport(next);
+    }, []);
+    useLayoutEffect(() => { viewportRef.current = viewport; }, [viewport]);
+    useEffect(() => { didInitialCenter.current = false; restoredProjectRef.current = ""; }, [projectId]);
+    // Hosted projects can hydrate their saved viewport one render after the
+    // first project snapshot. Apply it once when that real value arrives.
+    useEffect(() => {
+        if (!projectLoaded || restoredProjectRef.current === projectId) return;
+        if (!savedViewport) return;
+        const valid = Number.isFinite(savedViewport.x)
+            && Number.isFinite(savedViewport.y)
+            && Number.isFinite(savedViewport.k)
+            && savedViewport.k > 0
+            && !(savedViewport.x === 0 && savedViewport.y === 0 && savedViewport.k === 1);
+        if (!valid) return;
+        restoredProjectRef.current = projectId;
+        didInitialCenter.current = true;
+        const restored = { x: savedViewport.x, y: savedViewport.y, k: savedViewport.k };
+        viewportRef.current = restored;
+        setViewport(restored);
+    }, [projectId, projectLoaded, savedViewport, setViewport]);
+    useEffect(() => {
+        if (!projectLoaded || !containerRef.current) return;
+        const element = containerRef.current;
+        const updateSize = () => {
+            const rect = element.getBoundingClientRect();
+            setSize(current => current.width === rect.width && current.height === rect.height ? current : { width: rect.width, height: rect.height });
+            if (didInitialCenter.current) return;
+            const current = viewportRef.current;
+            if (current.x === 0 && current.y === 0 && current.k === 1) {
+                // Wait until the loaded project exposes its saved viewport; the
+                // store can hydrate one render after projectLoaded flips true.
+                if (!savedViewport) return;
+                didInitialCenter.current = true;
+                const restored = Number.isFinite(savedViewport.x)
+                    && Number.isFinite(savedViewport.y)
+                    && Number.isFinite(savedViewport.k)
+                    && savedViewport.k > 0
+                    && !(savedViewport.x === 0 && savedViewport.y === 0 && savedViewport.k === 1)
+                    ? { x: savedViewport.x, y: savedViewport.y, k: savedViewport.k }
+                    : null;
+                const next = restored || { x: rect.width / 2, y: rect.height / 2, k: 1 };
+                viewportRef.current = next;
+                setViewport(next);
+            }
+        };
+        updateSize();
+        const observer = new ResizeObserver(updateSize);
+        observer.observe(element);
+        return () => observer.disconnect();
+    }, [projectLoaded, savedViewport, setViewport]);
+    return { containerRef, viewport, viewportRef, setViewport, virtualizationViewport, setVirtualizationViewport, size };
+}
+
+export function useCanvasDockedViewport(width: number, viewport: Pick<ReturnType<typeof useCanvasViewportState>, "viewportRef" | "setViewport">) {
+    const previousWidth = useRef(width);
+    const { viewportRef, setViewport } = viewport;
+    useEffect(() => {
+        const delta = width - previousWidth.current;
+        previousWidth.current = width;
+        if (!delta) return;
+        const next = { ...viewportRef.current, x: viewportRef.current.x - delta / 2 };
+        viewportRef.current = next;
+        setViewport(next);
+    }, [width, viewportRef, setViewport]);
+}

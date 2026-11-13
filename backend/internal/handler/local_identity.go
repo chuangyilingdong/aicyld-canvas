@@ -1,15 +1,20 @@
 package handler
 
 import (
-	"infinite-canvas/backend/internal/app"
 	"infinite-canvas/backend/internal/model"
 
 	"github.com/gin-gonic/gin"
 )
 
+// workspaceOwners is the only capability handlers need to resolve the caller.
+type workspaceOwners interface {
+	WorkspaceOwner(string) (*model.User, error)
+	LocalWorkspaceOwner() (*model.User, error)
+}
+
 // currentUser resolves the stable workspace owner. Local routes never inspect
 // cookies and never create a session record.
-func currentUser(c *gin.Context, svc *app.Service) (*model.User, error) {
+func currentUser(c *gin.Context, svc workspaceOwners) (*model.User, error) {
 	if _, exists := c.Get(workspaceContextKey); exists {
 		scope, err := CurrentWorkspace(c)
 		if err != nil {
@@ -28,10 +33,8 @@ func currentUser(c *gin.Context, svc *app.Service) (*model.User, error) {
 	return applyHostedRole(c, user), nil
 }
 
-// applyHostedRole 在启用主站登录（多租户托管）后收紧权限：
-// 上游把每个工作区主体都视为管理员（单机形态合理），托管形态下如果照搬，
-// 任意登录用户都能调用管理接口（插件安装、渠道管理、平台开关）。
-// 因此托管形态下默认降级为普通用户，只有 AICYLD_CANVAS_ADMIN_IDS 白名单内的主站用户是管理员。
+// applyHostedRole 在启用主站登录后收紧权限。上游把每个工作区主体都视为管理员，
+// 托管形态下默认降级为普通用户，只有 AICYLD_CANVAS_ADMIN_IDS 白名单保留管理员角色。
 func applyHostedRole(c *gin.Context, user *model.User) *model.User {
 	if user == nil || !SSOConfigured() {
 		return user

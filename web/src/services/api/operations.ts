@@ -1,5 +1,6 @@
-import type { CapturedUserScope } from "@/lib/user-scope-guard";
+import { ensureAgentUiSession } from "@/services/api/agent-assistant";
 import { http } from "@/services/api/request";
+import { taskDiagnosticHeaders } from "@/services/diagnostics/client-diagnostics";
 
 export type WorkspaceCallerKind = "manual" | "assistant" | "external";
 
@@ -23,9 +24,13 @@ export async function executeWorkspaceOperation<T>(
     op: string,
     body: { opId?: string; params: unknown },
     signal?: AbortSignal,
-    expectedScope?: CapturedUserScope,
+    headers?: Record<string, string>,
 ) {
-    return http.post<WorkspaceOperationResult<T>>(`/ops/${encodeURIComponent(op)}`, body, { signal, expectedScope });
+    const requestHeaders = { ...(headers ?? {}) };
+    if (import.meta.env.VITE_CANVAS_HOSTED === "1") {
+        requestHeaders["X-Beeftv-Ui-Session"] = await ensureAgentUiSession();
+    }
+    return http.post<WorkspaceOperationResult<T>>(`/ops/${encodeURIComponent(op)}`, body, { signal, headers: requestHeaders });
 }
 
 export async function commitCanvasDocument(input: {
@@ -33,7 +38,6 @@ export async function commitCanvasDocument(input: {
     canvasId: string;
     expectedRevision: number;
     document: Record<string, unknown>;
-    expectedScope?: CapturedUserScope;
 }) {
     return executeWorkspaceOperation<CanvasDocumentCommitResult>("canvas.document.commit", {
         opId: input.operationId,
@@ -42,7 +46,7 @@ export async function commitCanvasDocument(input: {
             expectedRevision: input.expectedRevision,
             document: input.document,
         },
-    }, undefined, input.expectedScope);
+    });
 }
 
 export type CanvasTaskBindReceipt = {
@@ -117,7 +121,6 @@ export async function attachConversationMessage(input: {
     messageId: string;
     outputIndex?: number;
     signal?: AbortSignal;
-    expectedScope?: CapturedUserScope;
 }) {
     return executeWorkspaceOperation<ConversationMessageAttachReceipt>(
         "conversation.message.attach",
@@ -131,7 +134,6 @@ export async function attachConversationMessage(input: {
             },
         },
         input.signal,
-        input.expectedScope,
     );
 }
 
@@ -141,8 +143,9 @@ export async function bindCanvasTaskOutput(input: {
     taskId: string;
     nodeId: string;
     outputIndex?: number;
+    allowDifferentNode?: boolean;
     signal?: AbortSignal;
-    expectedScope?: CapturedUserScope;
+    traceId?: string;
 }) {
     return executeWorkspaceOperation<CanvasTaskBindReceipt>(
         "canvas.task.bind",
@@ -153,9 +156,10 @@ export async function bindCanvasTaskOutput(input: {
                 taskId: input.taskId,
                 nodeId: input.nodeId,
                 outputIndex: input.outputIndex ?? 0,
+                ...(input.allowDifferentNode ? { allowDifferentNode: true } : {}),
             },
         },
         input.signal,
-        input.expectedScope,
+        taskDiagnosticHeaders(input.taskId, input.traceId),
     );
 }

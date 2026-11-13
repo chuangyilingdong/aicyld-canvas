@@ -3,8 +3,10 @@ package app
 import (
 	"context"
 	"log"
+	"strings"
 	"time"
 
+	billingclient "infinite-canvas/backend/internal/billing"
 	"infinite-canvas/backend/internal/model"
 )
 
@@ -14,9 +16,8 @@ const (
 	canvasBillingStuckGrace        = 2 * time.Hour
 )
 
-// startCanvasBillingReconciliation finishes billing transitions that were
-// interrupted after a terminal task write. It never touches a live provider
-// request; stale pre-dispatch tasks are failed only after their lease expires.
+// startCanvasBillingReconciliation finishes billing transitions interrupted
+// after a terminal task write. It never touches a live provider request.
 func (s *Service) startCanvasBillingReconciliation(ctx context.Context) {
 	s.runWorkerLoop(func(ctx context.Context) {
 		reconcile := func() {
@@ -50,7 +51,6 @@ func (s *Service) reconcileCanvasBillingOnce(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	terminal := s.terminalCoordinator()
 	for index := range tasks {
 		if ctx.Err() != nil {
 			return nil
@@ -58,10 +58,13 @@ func (s *Service) reconcileCanvasBillingOnce(ctx context.Context) error {
 		task := tasks[index]
 		switch task.Status {
 		case model.TaskStatusSucceeded:
-			_ = terminal.handleSuccess(&task)
+			s.settleReconciledBilling(&task)
 		case model.TaskStatusFailed, model.TaskStatusCancelled:
-			terminal.releaseBilling(&task, "任务已结束但预扣未释放，自动原路退款")
+			s.releaseReconciledBilling(&task, "任务已结束但预扣未释放，自动原路退款")
 		case model.TaskStatusQueued:
+			if task.BillingStatus != "reserved" {
+				continue
+			}
 			cutoff := now.Add(-canvasBillingStuckGrace)
 			if task.UpdatedAt.After(cutoff) {
 				continue
@@ -75,10 +78,10 @@ func (s *Service) reconcileCanvasBillingOnce(ctx context.Context) error {
 				task.Status = model.TaskStatusFailed
 				task.Stage = "预扣对账"
 				task.Error = message
-				terminal.releaseBilling(&task, message)
+				s.releaseReconciledBilling(&task, message)
 			}
 		case model.TaskStatusRunning:
-			if task.ProviderRequestID != "" {
+			if task.BillingStatus != "reserved" || task.ProviderRequestID != "" {
 				continue
 			}
 			cutoff := now.Add(-canvasBillingStuckGrace)
@@ -94,9 +97,61 @@ func (s *Service) reconcileCanvasBillingOnce(ctx context.Context) error {
 				task.Status = model.TaskStatusFailed
 				task.Stage = "预扣对账"
 				task.Error = message
-				terminal.releaseBilling(&task, message)
+				s.releaseReconciledBilling(&task, message)
+			}
+		}
+	}
+	if counts, countErr := s.repo.TaskBillingStatusCounts(); countErr == nil {
+		for _, item := range counts {
+			if item.Status == "refund_pending" || item.Status == "pending_reconcile" {
+				log.Printf("canvas billing attention: worker_id=%s status=%s count=%d", s.workerID, item.Status, item.Count)
 			}
 		}
 	}
 	return nil
+}
+
+func (s *Service) settleReconciledBilling(task *model.Task) {
+	if task == nil || strings.TrimSpace(task.BillingHoldID) == "" || task.BillingStatus == "settled" || task.BillingStatus == "refunded" {
+		return
+	}
+	settlement, err := taskBillingAdapter{s.billing}.Settle(context.Background(), task, "succeeded", "任务终态对账")
+	if err != nil || settlement == nil {
+		task.BillingStatus = "pending_reconcile"
+		_ = s.repo.UpdateTaskBilling(task.UserID, task.ID, task.BillingHoldID, task.BillingStatus, task.BillingPoints)
+		return
+	}
+	applyReconciledBillingSettlement(task, settlement)
+	_ = s.repo.UpdateTaskBilling(task.UserID, task.ID, task.BillingHoldID, task.BillingStatus, task.BillingPoints)
+}
+
+func (s *Service) releaseReconciledBilling(task *model.Task, reason string) {
+	if task == nil || strings.TrimSpace(task.BillingHoldID) == "" || task.BillingStatus == "refunded" || task.BillingStatus == "settled" {
+		return
+	}
+	settlement, err := taskBillingAdapter{s.billing}.Release(context.Background(), task, reason)
+	if err != nil || settlement == nil {
+		task.BillingStatus = "refund_pending"
+		_ = s.repo.UpdateTaskBilling(task.UserID, task.ID, task.BillingHoldID, task.BillingStatus, task.BillingPoints)
+		return
+	}
+	applyReconciledBillingSettlement(task, settlement)
+	_ = s.repo.UpdateTaskBilling(task.UserID, task.ID, task.BillingHoldID, task.BillingStatus, task.BillingPoints)
+}
+
+func applyReconciledBillingSettlement(task *model.Task, settlement *billingclient.BillingSettlement) {
+	if task == nil || settlement == nil {
+		return
+	}
+	switch strings.TrimSpace(settlement.Status) {
+	case "settled":
+		task.BillingStatus = "settled"
+		task.BillingPoints = settlement.ChargedPoints
+	case "pending_reconcile":
+		task.BillingStatus = "pending_reconcile"
+	case "refunded":
+		task.BillingStatus = "refunded"
+	default:
+		task.BillingStatus = "pending_reconcile"
+	}
 }

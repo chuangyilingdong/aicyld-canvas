@@ -3,10 +3,11 @@ import type { ReactNode } from "react";
 import { AlertCircle, BookOpenCheck, CheckCircle2, ChevronRight, Clapperboard, Copy, Download, FileText, GripVertical, Image as ImageIcon, Lock, Maximize2, Move3d, Music2, Pencil, RefreshCw, ScanSearch, Settings2, Star, Trash2, Video, WandSparkles } from "lucide-react";
 
 import { useCanvasNodeActions } from "./canvas-node-action-context";
-import { shouldBlockManualRetry } from "@/lib/generation-error";
+import { canvasNodeFailureView } from "@/lib/canvas/canvas-node-failure-view";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { canvasConnectionTilt } from "@/lib/canvas/canvas-connection-tilt";
+import { usesCanvasCustomNodeContent } from "@/lib/canvas/canvas-node-content-policy";
 import { storyboardMinNodeHeight } from "@/lib/canvas/canvas-storyboard-layout";
 import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
 import { CanvasNodeType, type CanvasNodeData, type CanvasNodeTypeId, type Position } from "@/types/canvas";
@@ -37,12 +38,12 @@ type CanvasNodeProps = {
     forceInputVisible?: boolean;
     showImageInfo: boolean;
     reduceMediaEffects?: boolean;
+    lodPinned?: boolean;
     readOnly?: boolean;
     resourceLabel?: CanvasResourceReference;
     mentionReferences?: CanvasResourceReference[];
     renderNodeContent?: (node: CanvasNodeData) => ReactNode;
     drawingProjectId?: string;
-    projectId?: string;
     batchCount?: number;
     batchPreviewNodes?: CanvasNodeData[];
     batchExpanded?: boolean;
@@ -98,11 +99,11 @@ export const CanvasNode = React.memo(function CanvasNode({
     connectionApproach,
     forceInputVisible = false,
     reduceMediaEffects = false,
+    lodPinned = false,
     readOnly = false,
     mentionReferences = [],
     renderNodeContent,
     drawingProjectId,
-    projectId,
     batchCount = 0,
     batchPreviewNodes,
     batchExpanded = false,
@@ -157,6 +158,7 @@ export const CanvasNode = React.memo(function CanvasNode({
     const isDirectorNode = data.type === CanvasNodeType.Director || Boolean(data.metadata?.directorSceneId);
     const isBatchRoot = data.type === CanvasNodeType.Image && Boolean(data.metadata?.isBatchRoot) && batchCount > 1;
     const isBatchChild = data.type === CanvasNodeType.Image && Boolean(data.metadata?.batchRootId);
+    const failureView = canvasNodeFailureView(data);
     const showStatusTrack = Boolean(data.metadata?.locked || isBatchRoot || (isBatchChild && !readOnly));
     const isActive = isConnectionTarget || isSelected || isFocusRelated;
     const nodeState = isFocusRelated ? "focus" : isConnectionTarget ? "target" : isSelected ? "selected" : isRelated && !isBatchChild ? "related" : "idle";
@@ -298,9 +300,6 @@ export const CanvasNode = React.memo(function CanvasNode({
 
     const connectionTilt = isConnectionTarget && !reduceMediaEffects && !dragOffset
         ? canvasConnectionTilt(data, connectionApproach) : undefined;
-    // 分镜远景以分组标题和缩略图表达结构；子节点标题在 25% 以下会互相挤压，
-    // 只对内置分镜 Fixture 的子节点收起外置标题，回到近景后仍恢复完整标题。
-    const hideDistantStoryboardChildHeader = scale < 0.5 && Boolean(data.parentId) && (data.metadata?.fixture === "libtv-storyboard" || data.type === CanvasNodeType.Image || data.type === CanvasNodeType.Video);
 
     return (
         <div
@@ -337,6 +336,7 @@ export const CanvasNode = React.memo(function CanvasNode({
             data-video-merge-source-count={data.metadata?.videoMergeSourceNodeIds?.length ? String(data.metadata.videoMergeSourceNodeIds.length) : undefined}
             data-media-operation-error={data.metadata?.mediaOperationError || undefined}
             data-node-hovered={hovered ? "true" : undefined}
+            data-node-lod-pinned={lodPinned ? "true" : undefined}
             data-asset-category={data.metadata?.assetCategory || undefined}
             className={`node-element absolute flex select-none flex-col ${dragOffset ? "cursor-grabbing" : data.type === CanvasNodeType.Drawing ? "cursor-pointer" : "cursor-default"} ${isSelected ? "z-[var(--z-node-toolbar)]" : isFocusRelated || isConnectionTarget ? "z-[var(--z-node-active)]" : "z-[var(--z-node)]"}`}
             style={{
@@ -355,23 +355,21 @@ export const CanvasNode = React.memo(function CanvasNode({
             }}
             onContextMenu={(event) => onContextMenu(event, data.id)}
         >
-            {hideDistantStoryboardChildHeader ? null : (
-                <NodeExternalHeader
-                    node={data}
-                    scale={scale}
-                    dimensionLabel={null}
-                    active={isSelected || isFocusRelated}
-                    editable={!readOnly && !data.metadata?.locked && Boolean(onTitleChange)}
-                    editing={isEditingTitle}
-                    draft={titleDraft}
-                    theme={theme}
-                    onDraftChange={setTitleDraft}
-                    onDragStart={readOnly ? undefined : (event) => onMouseDown(event, data.id)}
-                    onEdit={() => setIsEditingTitle(true)}
-                    onCommit={commitTitle}
-                    onCancel={() => { setTitleDraft(data.title); setIsEditingTitle(false); }}
-                />
-            )}
+            {!data.metadata?.reusableWorkflow ? <NodeExternalHeader
+                node={data}
+                scale={scale}
+                dimensionLabel={null}
+                active={isSelected || isFocusRelated}
+                editable={!readOnly && !data.metadata?.locked && Boolean(onTitleChange)}
+                editing={isEditingTitle}
+                draft={titleDraft}
+                theme={theme}
+                onDraftChange={setTitleDraft}
+                onDragStart={readOnly ? undefined : (event) => onMouseDown(event, data.id)}
+                onEdit={() => setIsEditingTitle(true)}
+                onCommit={commitTitle}
+                onCancel={() => { setTitleDraft(data.title); setIsEditingTitle(false); }}
+            /> : null}
             <div
                 className="canvas-node-shell relative h-full w-full overflow-visible rounded-[var(--node-radius)]"
                 data-node-selected={isSelected ? "true" : "false"}
@@ -419,7 +417,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                 }}
             >
                 <div
-                    className={`relative flex h-full w-full items-center justify-center rounded-[inherit] ${annotationActive || maskEditActive || (imageCropActive && hasImageContent) || (videoCropActive && hasVideoContent) || isBatchRoot || data.type === CanvasNodeType.Script || data.type === CanvasNodeType.BatchTable || isComposerNode ? "overflow-visible" : "overflow-hidden"}`}
+                    className={`relative flex h-full w-full items-center justify-center rounded-[inherit] ${annotationActive || maskEditActive || (imageCropActive && hasImageContent) || (videoCropActive && hasVideoContent) || isBatchRoot || data.type === CanvasNodeType.Script || data.type === CanvasNodeType.BatchTable || data.type === CanvasNodeType.Upscale || isComposerNode ? "overflow-visible" : "overflow-hidden"}`}
                     style={
                         {
                             background: hasImageContent || hasVideoContent || hasAudioContent || isDirectorNode ? "transparent" : theme.node.fill,
@@ -433,7 +431,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                 >
                     {/* 仅在执行中或异常时显示状态；成功来源由内部元数据保留，不占用卡片视觉层。 */}
                     {data.metadata?.status && data.metadata.status !== "idle" && data.metadata.status !== "success" && data.type !== CanvasNodeType.Frame ? (
-                        <NodeStatusBadge status={data.metadata.status} resultPending={data.metadata.taskStatus === "succeeded" && data.metadata.resourceReloadAvailable === true} />
+                        <NodeStatusBadge status={data.metadata.status} resultPending={failureView.canReload} />
                     ) : null}
                     <CanvasNodeContent
                         node={data}
@@ -448,7 +446,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                         batchRecovering={batchRecovering}
                         renderNodeContent={renderNodeContent}
                         drawingProjectId={drawingProjectId}
-                        projectId={projectId}
+                        projectId={drawingProjectId}
                         mentionReferences={mentionReferences}
                         onContentChange={onContentChange}
                         onStopEditing={() => setIsEditingContent(false)}
@@ -561,8 +559,8 @@ export const CanvasNode = React.memo(function CanvasNode({
                             {hasImageContent ? (
                                 <BatchChildActionButton theme={theme} label={batchPrimary ? "当前主图" : "设为主图"} icon={<Star className={`size-3.5 ${batchPrimary ? "fill-current" : ""}`} style={{ color: theme.accent.primary }} />} onClick={() => onSetBatchPrimary?.(data)} />
                             ) : null}
-                            {data.metadata?.status === "error" && data.metadata.resourceReloadAvailable ? <BatchChildActionButton theme={theme} label="继续取回" icon={<Download className="size-3.5" />} onClick={() => onReloadResource?.(data)} /> : null}
-                            {data.metadata?.status === "error" && !shouldBlockManualRetry({ code: data.metadata.generationErrorCode || data.metadata.taskErrorCode, message: data.metadata.errorDetails }, data.metadata.taskStage) ? <BatchChildActionButton theme={theme} label="重新生成" icon={<RefreshCw className="size-3.5" />} onClick={() => onRetry?.(data)} /> : null}
+                            {isBatchChild && failureView.canReload ? <BatchChildActionButton theme={theme} label="继续取回" icon={<Download className="size-3.5" />} onClick={() => onReloadResource?.(data)} /> : null}
+                            {isBatchChild && failureView.batchRegenerateVisible ? <BatchChildActionButton theme={theme} label="重新生成" icon={<RefreshCw className="size-3.5" />} onClick={() => onRetry?.(data)} /> : null}
                             {data.metadata?.status === "error" && data.metadata.taskId && onOpenTaskDetails ? <BatchChildActionButton theme={theme} label="查看原任务" icon={<ScanSearch className="size-3.5" />} onClick={() => onOpenTaskDetails(data)} /> : null}
                             {data.metadata?.status === "error" ? <BatchChildActionButton theme={theme} label="删除" icon={<Trash2 className="size-3.5" />} danger onClick={() => deleteNode?.(data)} /> : null}
                         </div>
@@ -582,32 +580,19 @@ export const CanvasNode = React.memo(function CanvasNode({
                 </> : null}
             </div>
 
-            {!readOnly && data.type !== CanvasNodeType.Script && data.type !== CanvasNodeType.BatchTable ? <ConnectionSideRail side="left" scale={scale} theme={theme} visible={hovered || isSelected || forceInputVisible} onPointerDown={(event, anchorRatio) => onConnectStart(event, data.id, "target", undefined, anchorRatio)} /> : null}
+            {!readOnly && data.type !== CanvasNodeType.Script && data.type !== CanvasNodeType.BatchTable && data.type !== CanvasNodeType.WorkflowControl ? <ConnectionSideRail side="left" scale={scale} theme={theme} visible={hovered || isSelected || forceInputVisible} onPointerDown={(event, anchorRatio) => onConnectStart(event, data.id, "target", undefined, anchorRatio)} /> : null}
             {!readOnly && data.type !== CanvasNodeType.Script && data.type !== CanvasNodeType.Config && showOutputConnection ? <ConnectionSideRail side="right" scale={scale} theme={theme} visible={hovered || isSelected} onPointerDown={(event, anchorRatio) => onConnectStart(event, data.id, "source", undefined, anchorRatio)} /> : null}
 
         </div>
     );
 }, areCanvasNodePropsEqual);
 
-function usesCustomNodeContentRenderer(node: CanvasNodeData) {
-    return (
-        node.type === CanvasNodeType.Config ||
-        node.type === CanvasNodeType.Script ||
-        node.type === CanvasNodeType.BatchTable ||
-        node.type === CanvasNodeType.Director ||
-        Boolean(node.metadata?.directorSceneId) ||
-        Boolean(node.metadata?.workflowKind) ||
-        Boolean(node.metadata?.reusableWorkflow) ||
-        Boolean(node.metadata?.workflowSlot)
-    );
-}
-
 function areCanvasNodePropsEqual(previous: CanvasNodeProps, next: CanvasNodeProps) {
     return (
         previous.data === next.data &&
         previous.dragOffset?.x === next.dragOffset?.x &&
         previous.dragOffset?.y === next.dragOffset?.y &&
-        previous.scale === next.scale &&
+        Math.abs(previous.scale - next.scale) < 1e-6 &&
         previous.isSelected === next.isSelected &&
         previous.mediaActive === next.mediaActive &&
         previous.isRelated === next.isRelated &&
@@ -618,10 +603,10 @@ function areCanvasNodePropsEqual(previous: CanvasNodeProps, next: CanvasNodeProp
         previous.forceInputVisible === next.forceInputVisible &&
         previous.showImageInfo === next.showImageInfo &&
         previous.reduceMediaEffects === next.reduceMediaEffects &&
+        previous.lodPinned === next.lodPinned &&
         previous.readOnly === next.readOnly &&
-        previous.resourceLabel === next.resourceLabel &&
         previous.mentionReferences === next.mentionReferences &&
-        (!usesCustomNodeContentRenderer(next.data) || previous.renderNodeContent === next.renderNodeContent) &&
+        (!usesCanvasCustomNodeContent(next.data) || previous.renderNodeContent === next.renderNodeContent) &&
         previous.drawingProjectId === next.drawingProjectId &&
         previous.batchCount === next.batchCount &&
         previous.batchPreviewNodes === next.batchPreviewNodes &&
@@ -714,8 +699,6 @@ function ResizeHandle({ corner, onMouseDown }: { corner: ResizeCorner; onMouseDo
     return <div className={`absolute z-[var(--node-z-handle)] size-7 ${positionClass}`} onMouseDown={(event) => onMouseDown(event, corner)} />;
 }
 
-const NODE_EXTERNAL_HEADER_MIN_SCALE = 0.35;
-
 function NodeExternalHeader({ node, scale, dimensionLabel, active, editable, editing, draft, theme, onDragStart, onDraftChange, onEdit, onCommit, onCancel }: {
     node: CanvasNodeData;
     scale: number;
@@ -731,25 +714,32 @@ function NodeExternalHeader({ node, scale, dimensionLabel, active, editable, edi
     onCommit: () => void;
     onCancel: () => void;
 }) {
-    // 标题保持屏幕尺寸只适用于近景；远景继续反向缩放会遮住节点和连线。
-    if (scale < NODE_EXTERNAL_HEADER_MIN_SCALE && !editing && node.metadata?.fixture !== "libtv-readonly-dense") return null;
+    const titleInputRef = useRef<HTMLInputElement>(null);
+    useEffect(() => {
+        if (!editing) return;
+        const commitOutsideInput = (event: PointerEvent) => {
+            const input = titleInputRef.current;
+            if (!input || !(event.target instanceof Node) || input.contains(event.target)) return;
+            // 画布手势可能阻止鼠标默认失焦，主动触发同一条 onBlur 保存路径。
+            input.blur();
+        };
+        window.addEventListener("pointerdown", commitOutsideInput, true);
+        return () => window.removeEventListener("pointerdown", commitOutsideInput, true);
+    }, [editing]);
     const inverseScale = 1 / Math.max(scale, 0.05);
     const isDirectorNode = node.type === CanvasNodeType.Director || Boolean(node.metadata?.directorSceneId);
     const Icon = isDirectorNode ? Move3d : nodeTypeIcon(node.type);
-    const maxHeaderWidth = Math.min(240, node.width * scale);
-    const directorCardWidth = Math.min(node.width, node.height);
 
     return (
         <div
-            className="canvas-node-external-header absolute bottom-full left-0 z-[var(--node-z-overlay)] flex h-6 items-center gap-1 overflow-hidden"
+            className="canvas-node-external-header absolute bottom-full left-0 z-[var(--node-z-overlay)] flex min-h-6 items-center gap-1"
+            data-canvas-live-scale
+            data-expanded={active || editing ? "true" : undefined}
+            data-editing={editing ? "true" : undefined}
             style={{
-                width: dimensionLabel ? "calc(var(--canvas-node-width) * var(--canvas-live-scale, 1))" : undefined,
-                maxWidth: dimensionLabel ? undefined : maxHeaderWidth,
-                left: node.metadata?.directorSceneId ? Math.max(0, (node.width - directorCardWidth) / 2) : undefined,
                 "--canvas-node-width": `${node.width}px`,
+                "--canvas-node-header-width": `min(240px, calc(var(--canvas-node-width) * var(--canvas-live-scale, ${scale})))`,
                 borderRadius: "var(--r-sm)",
-                background: "transparent",
-                paddingInline: "var(--space-1-half)",
                 color: active ? theme.node.text : theme.node.label,
                 transform: `scale(var(--canvas-live-inverse-scale, ${inverseScale}))`,
                 transformOrigin: "left bottom",
@@ -767,7 +757,7 @@ function NodeExternalHeader({ node, scale, dimensionLabel, active, editable, edi
                 event.stopPropagation();
             }}
         >
-            <div className="flex min-w-0 items-center gap-1" style={{ maxWidth: maxHeaderWidth }}>
+            <div className="flex min-w-0 flex-1 items-center gap-1">
                 <button
                     type="button"
                     // LibTV 标题行只展示节点类型图标；保留无障碍拖动按钮，但不额外绘制抓手，
@@ -787,9 +777,10 @@ function NodeExternalHeader({ node, scale, dimensionLabel, active, editable, edi
                 >
                     {node.metadata?.locked ? <Lock className="size-3" /> : <GripVertical className="size-3" strokeWidth={1.8} />}
                 </button>
-                <Icon className="size-3 shrink-0" strokeWidth={1.8} data-node-header-icon={isDirectorNode ? "director" : undefined} />
+                <Icon className="canvas-node-title-type-icon size-3 shrink-0" strokeWidth={1.8} data-node-header-icon={isDirectorNode ? "director" : undefined} />
                 {editing ? (
                     <input
+                        ref={titleInputRef}
                         autoFocus
                         value={draft}
                         className="h-6 min-w-20 max-w-[190px] flex-1 truncate rounded bg-transparent px-1.5 text-xs font-medium outline-none"
@@ -804,12 +795,12 @@ function NodeExternalHeader({ node, scale, dimensionLabel, active, editable, edi
                         aria-label="节点名称"
                     />
                 ) : editable ? (
-                    <button type="button" className="group flex min-w-0 flex-1 items-center gap-1 rounded px-0.5 text-xs font-medium outline-none transition-opacity hover:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1" style={{ opacity: active ? 1 : 0.78, outlineColor: theme.node.muted }} onClick={onEdit} aria-label={`编辑节点名称：${node.title}`}>
-                        <span className="min-w-0 flex-1 truncate" title={node.title}>{node.title}</span>
+                    <button type="button" className="group flex min-w-0 flex-1 items-center gap-1 rounded px-0.5 text-left text-xs font-medium outline-none transition-opacity hover:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1" style={{ opacity: active ? 1 : 0.78, outlineColor: theme.node.muted }} onClick={onEdit} title={node.title} aria-label={`编辑节点名称：${node.title}`}>
+                        <span className="canvas-node-title-text min-w-0 truncate">{node.title}</span>
                         <Pencil className="canvas-node-title-edit-icon size-2.5 shrink-0 opacity-55 transition-opacity group-hover:opacity-100" />
                     </button>
                 ) : (
-                    <span className="min-w-0 flex-1 truncate text-xs font-medium" title={node.title} style={{ opacity: active ? 1 : 0.78 }}>{node.title}</span>
+                    <span className="canvas-node-title-text min-w-0 flex-1 truncate text-xs font-medium" title={node.title} style={{ opacity: active ? 1 : 0.78 }}>{node.title}</span>
                 )}
             </div>
             {dimensionLabel ? <span className="ml-auto shrink-0 whitespace-nowrap text-[var(--fs-micro)] font-medium leading-none tabular-nums" style={{ color: theme.node.muted }}>{dimensionLabel}</span> : null}
@@ -865,6 +856,7 @@ function ConnectionSideRail({ side, scale, theme, visible = false, onPointerDown
     // Keep the control responsive to zoom, but avoid sub-pixel circles and
     // strokes at far zoom levels where the plus sign appears visually off-center.
     const handleSize = Math.max(20, 8 * inverseScale);
+    const restingRailWidth = Math.max(28, Math.ceil(15 + handleSize / 2 + 3));
     // LibTV centers the visual quick-add icon in an approximately 80px
     // circular hit zone, then offsets it toward the node edge. Keep that
     // visual layer separate from the real centered connection anchor.
@@ -877,10 +869,11 @@ function ConnectionSideRail({ side, scale, theme, visible = false, onPointerDown
 
     const updateHandle = (event: React.PointerEvent<HTMLButtonElement>) => {
         const bounds = event.currentTarget.getBoundingClientRect();
-        const width = Math.max(bounds.width, 1);
         const height = Math.max(bounds.height, 1);
         const followLimit = 30;
-        const deltaX = event.clientX - (bounds.left + width / 2);
+        const railScreenWidth = railSize * scale;
+        const centerX = side === "left" ? bounds.right - railScreenWidth / 2 : bounds.left + railScreenWidth / 2;
+        const deltaX = event.clientX - centerX;
         const deltaY = event.clientY - (bounds.top + height / 2);
         const offsetScreenX = Math.max(-followLimit, Math.min(followLimit, deltaX));
         const offsetScreenY = Math.max(-followLimit, Math.min(followLimit, deltaY));
@@ -898,7 +891,7 @@ function ConnectionSideRail({ side, scale, theme, visible = false, onPointerDown
             type="button"
             data-canvas-connection-rail={side}
             className={`group pointer-events-auto absolute top-1/2 z-[var(--node-z-overlay)] flex -translate-y-1/2 items-center justify-center touch-none cursor-crosshair rounded-full outline-none transition-opacity duration-150 ${visible || railHovered ? "opacity-100" : "opacity-0"}`}
-            style={{ width: railSize, height: `min(100%, ${railSize}px)`, cursor: "crosshair", ...(side === "left" ? { right: "100%" } : { left: "100%" }) }}
+            style={{ width: railHovered ? railSize : restingRailWidth, height: `min(100%, ${railSize}px)`, cursor: "crosshair", ...(side === "left" ? { right: "100%" } : { left: "100%" }) }}
             onPointerEnter={(event) => {
                 setRailHovered(true);
                 updateHandle(event);
@@ -909,12 +902,16 @@ function ConnectionSideRail({ side, scale, theme, visible = false, onPointerDown
                 resetHandle();
             }}
             onPointerDown={(event) => onPointerDown(event, 0.5)}
+            onFocus={() => setRailHovered(true)}
+            onBlur={() => { setRailHovered(false); resetHandle(); }}
             aria-label={`${side === "left" ? "输入" : "输出"}连接点，单击创建节点或拖动连线`}
         >
             <span
                 ref={handleRef}
-                className="absolute left-1/2 top-1/2 block transition-transform duration-[80ms] ease-out group-hover:brightness-125 group-focus-visible:brightness-125"
+                className="absolute top-1/2 block transition-transform duration-[80ms] ease-out group-hover:brightness-125 group-focus-visible:brightness-125"
                 style={{
+                    display: visible || railHovered ? undefined : "none",
+                    left: side === "left" ? `calc(100% - ${railSize / 2}px)` : railSize / 2,
                     width: handleSize,
                     height: handleSize,
                     marginLeft: -handleSize / 2,
@@ -922,7 +919,7 @@ function ConnectionSideRail({ side, scale, theme, visible = false, onPointerDown
                     transform: `translate(${sideOffset}px, 0) scale(1)`,
                     transition: "transform 80ms ease-out",
                     transformOrigin: "center",
-                    willChange: "transform",
+                    willChange: railHovered ? "transform" : undefined,
                 }}
             >
                 <svg

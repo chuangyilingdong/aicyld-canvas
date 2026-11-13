@@ -84,17 +84,20 @@ func getResumableVideoBinary(req *http.Request, partial string) ([]byte, string,
 		}
 		observe(downloaded, total)
 	}
+	// The resumable transport's own header/idle timer cancels an attempt without
+	// canceling the owning task. The existing video loop owns the next attempt.
 	if errors.Is(err, context.Canceled) && ctx.Err() == nil {
 		err = context.DeadlineExceeded
 	}
 	return result.Data, result.MimeType, err
 }
 
-// Preserve the generation transport's credential policy while keeping range
+// Preserve the generation transport's credentials policy while keeping range
 // headers across the gateway's cross-origin redirect to a signed media URL.
 func videoDownloadHTTPClient(req *http.Request, timeout time.Duration) *http.Client {
 	client := outbound.OutboundHTTPClient(timeout)
 	checkRedirect := client.CheckRedirect
+	credentials, _ := req.Context().Value(videoCredentialContext{}).(videoProviderCredentials)
 	leftOrigin := false
 	client.CheckRedirect = func(next *http.Request, via []*http.Request) error {
 		if err := checkRedirect(next, via); err != nil {
@@ -113,6 +116,7 @@ func videoDownloadHTTPClient(req *http.Request, timeout time.Duration) *http.Cli
 			if validator != "" {
 				next.Header.Set("If-Range", validator)
 			}
+			stripVideoCredentialQuery(next.URL, credentials.Values)
 		}
 		return nil
 	}
@@ -123,14 +127,24 @@ func videoDownloadHTTPClient(req *http.Request, timeout time.Duration) *http.Cli
 }
 
 func openVideoDownloadResponse(req *http.Request, limit int64) (*http.Response, error) {
-	if _, err := outbound.ValidateOutboundURL(req.URL.String()); err != nil {
-		return nil, err
+	credentials, _ := req.Context().Value(videoCredentialContext{}).(videoProviderCredentials)
+	if !SameProviderOrigin(credentials.Origin, req.URL.String()) {
+		stripVideoCredentialQuery(req.URL, credentials.Values)
 	}
 	runtime, _ := RuntimeFromContext(req.Context())
 	observation := TransportObservation{Request: req, StartedAt: time.Now(), ResponseLimitBytes: limit}
 	trace := &transportTrace{}
-	response, err := videoDownloadHTTPClient(req, 0).Do(trace.attach(req))
-	observation.Dispatched, observation.TransportPhase = trace.result()
+	req = trace.attach(req)
+	if _, err := outbound.ValidateOutboundURLContext(req.Context(), req.URL.String()); err != nil {
+		observation.Dispatched, observation.TransportPhase = trace.result(err)
+		observation.Err = err
+		if runtime.Receipts != nil {
+			runtime.Receipts.Observe(observation)
+		}
+		return nil, err
+	}
+	response, err := videoDownloadHTTPClient(req, 0).Do(req)
+	observation.Dispatched, observation.TransportPhase = trace.result(err)
 	if err != nil {
 		observation.Err = err
 		if runtime.Receipts != nil {

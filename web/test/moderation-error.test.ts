@@ -13,7 +13,8 @@ for (const fixture of fixtures) {
         ];
         for (const input of inputs) {
             const first = explainGenerationError(input);
-            const persisted = explainGenerationError(generationFailureMetadata(input, "private prompt").errorDetails);
+            const metadata = generationFailureMetadata(input, "private prompt");
+            const persisted = explainGenerationError({ code: metadata.generationErrorCode, message: metadata.errorDetails });
             for (const f of [first, persisted]) {
                 expect(f.category).toBe(fixture.category);
                 expect(f.reason).toBe(fixture.reason);
@@ -27,7 +28,6 @@ for (const fixture of fixtures) {
             expect(shouldBlockAutomaticRetry(input)).toBe(true);
         }
         const emitted = `${fixture.reason}。${fixture.action}。排查编号：请求 req_moderation_123。`;
-        expect(explainGenerationError(emitted).message).toBe(emitted);
         expect(explainGenerationError({ code: fixture.category, message: emitted }).message).toBe(emitted);
         expect(explainGenerationError(fixture.message + " Request id: req_moderation_123").requestId).toBe(requestId);
     });
@@ -55,4 +55,22 @@ test("specific provider codes outrank incidental safety text; request echoes are
     expect(explainGenerationError({ error: { message: "opaque", code: "invalid_api_key" }, prompt: "真人形象" }).category).toBe("auth");
     const f = explainGenerationError({ error: { code: "invalid_request_error", message: "Rate limit exceeded" } });
     expect(f.category).toBe("throttled");
+});
+
+test("content security audit is moderation_output and permits manual retry after editing", () => {
+    const failure = explainGenerationError("Content security audit did not pass | 内容安全审查未通过");
+    expect(failure.category).toBe("moderation_output");
+    expect(failure.reason).toBe("生成结果未通过内容安全审核");
+    expect(failure.moderation).toBe(true);
+    expect(failure.blockAutomaticRetry).toBe(true);
+    expect(failure.blockManualRetry).toBe(false);
+    expect(explainGenerationError({ error: { code: "1501", message: "Content security audit did not pass | 内容安全审查未通过" } }).category).toBe("moderation_output");
+});
+
+test("declarative content review failure is moderation_output", () => {
+    const failure = explainGenerationError("声明式协议任务失败（任务 task_wfqrhLOrpN0sUUTDPYzuosFNkfT3v37s）：The generated result did not pass the content review. Adjust the prompt or reference materials and try again");
+    expect(failure.category).toBe("moderation_output");
+    expect(failure.reason).toBe("生成结果未通过内容安全审核");
+    expect(failure.moderation).toBe(true);
+    expect(failure.blockManualRetry).toBe(false);
 });
