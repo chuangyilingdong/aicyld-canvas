@@ -9,6 +9,7 @@ on:
         type: string
   push:
     branches:
+      - "codex/canvas-release-*"
       - codex/canvas-billing-ui-20261104
       - codex/canvas-gpt-image-26-20261106
       - codex/canvas-beef-remaining-20261109
@@ -109,6 +110,8 @@ jobs:
           test/local-workspace-stale-backend.test.ts
           test/script-document-import.test.ts
           test/voice-preview-player.test.ts
+          test/smart-film-starter.test.ts
+          test/smart-film-page.test.tsx
 
       - name: Build hosted web
         working-directory: web
