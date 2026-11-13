@@ -165,7 +165,9 @@ async function adoptCanonicalWorkspaceAsset(
     signal?: AbortSignal,
 ) {
     const canonicalId = String(receipt.id || "").trim();
-    if (!canonicalId || canonicalId === duplicateId) throw new Error("素材去重回执无效");
+    if (!canonicalId || canonicalId === duplicateId || !receipt.title || !receipt.createdAt || !receipt.updatedAt) {
+        throw new Error("素材保存回执无效，修改已保留在本机");
+    }
     const payload = await getWorkspaceAsset(canonicalId, signal);
     throwIfAborted(signal);
     const canonical = parseAssetRecord(payload.asset);
@@ -200,6 +202,7 @@ export async function persistWorkspaceAssetLink({ asset, domainProjectId, catego
         return useAssetStore.getState().assets.find((item) => item.id === asset.id) ?? asset;
     }
 
+    const submitted = { ...asset } as Asset;
     return enqueueAssetCommit(getActiveUserScope(), asset.id, async () => {
         throwIfAborted(signal);
         const live = useAssetStore.getState().assets.find((item) => item.id === asset.id) ?? peekAssetStoreDraft(getActiveUserScope(), asset.id)?.asset ?? asset;
@@ -209,7 +212,6 @@ export async function persistWorkspaceAssetLink({ asset, domainProjectId, catego
             await commitTrackedAssetDraft(live.id, signal);
             return live;
         }
-        const submitted = live;
         const saved = await putWorkspaceAsset(live.id, submitted, { signal });
         throwIfAborted(signal);
         let canonical = live;
@@ -246,7 +248,7 @@ export async function persistWorkspaceAssetLink({ asset, domainProjectId, catego
             await commitTrackedAssetDraft(canonical.id, signal);
             return canonical;
         }
-        applyReceiptProjection(canonical.id, canonical, receipt, domainProjectId);
+        applyReceiptProjection(canonical.id, submitted, receipt, domainProjectId);
         return useAssetStore.getState().assets.find((item) => item.id === canonical.id) ?? canonical;
     });
 }
