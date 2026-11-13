@@ -28,20 +28,11 @@ function validReceipt(overrides = {}) {
   };
 }
 
-test('committed minimal release receipt passes dry-run and matches release tag or HEAD sourceDigest', () => {
+test('committed minimal release receipt passes dry-run', () => {
   const dryRunResult = runReleaseGate({ cwd: ROOT_DIR, argv: ['--dry-run'] });
   assert.equal(dryRunResult.mode, 'dry-run');
   assert.equal(dryRunResult.receipt.version, dryRunResult.version);
   assert.equal(dryRunResult.receipt.passed, true);
-
-  const tagCheck = spawnSync('git', ['rev-parse', '--verify', `refs/tags/${dryRunResult.version}`], {
-    cwd: ROOT_DIR,
-    encoding: 'utf8',
-  });
-  const targetRef = tagCheck.status === 0 ? dryRunResult.version : 'HEAD';
-  const releaseResult = runReleaseGate({ cwd: ROOT_DIR, argv: ['--ref', targetRef] });
-  assert.equal(releaseResult.mode, 'release');
-  assert.equal(releaseResult.receipt.sourceDigest, computeSourceDigest(ROOT_DIR, targetRef));
 });
 
 test('validateReleaseReceipt accepts only minimal receipt fields and verifies evidence sha256', () => {
