@@ -57,8 +57,9 @@ func opTaskWait(ctx *Context, raw json.RawMessage) (any, error) {
 			return nil, err
 		}
 		remaining := time.Until(deadline)
-		if !observation.Pending || remaining <= 0 {
-			observation.TimedOut = observation.Pending && remaining <= 0
+		pending, _ := observation["pending"].(bool)
+		if !pending || remaining <= 0 {
+			observation["timedOut"] = pending && remaining <= 0
 			return observation, nil
 		}
 		delay := taskWaitPollInterval
@@ -238,13 +239,13 @@ func taskWaitBinding(ctx *Context, canvasID, nodeID string, taskIDs []string) (m
 		phase, _ = outcome["phase"].(string)
 	}
 	result["taskId"] = taskID
-	result["bound"] = containsString(taskIDs, strings.TrimSpace(taskID)) && status == "success" &&
+	result["bound"] = containsTaskID(taskIDs, strings.TrimSpace(taskID)) && status == "success" &&
 		strings.HasPrefix(storageKey, "resource:") && (phase == "" || phase == "ready")
 	result["node"] = sanitizeForClient(node)
 	return result, nil
 }
 
-func containsString(values []string, target string) bool {
+func containsTaskID(values []string, target string) bool {
 	for _, value := range values {
 		if value == target {
 			return true
