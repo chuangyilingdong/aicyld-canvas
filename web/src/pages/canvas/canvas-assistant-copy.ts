@@ -405,7 +405,7 @@ export function assistantTurnCanContinue(reason: string | null | undefined): boo
 }
 
 export const ASSISTANT_CONTINUE_PROMPT = "继续完成上一条要求。先检查当前画布和已经完成的操作，保留已有结果；不要重复创建节点或重新提交已开始的生成任务。";
-export const ASSISTANT_REPROPOSE_PROMPT = "生成设置在提出方案后改过。请基于当前画布和当前生成设置重新提出生成方案；不要重复创建节点，也不要提交已开始的生成任务。";
+export const ASSISTANT_REPROPOSE_PROMPT = "当前画布在方案提出后已有新结果或改动。请先核对当前画布和已有生成结果，保留所有已完成项，不要重复生成或重建；基于当前进度只补未完成步骤，更新步骤进度后再提出需要我确认的生成方案。";
 export const ASSISTANT_UNDONE_INCOMPLETE_TEXT = "这一轮未完成，已经产生的画布改动已撤销。";
 
 const REASONING_TAG_PREFIXES = ["</thinking>", "<thinking>", "</think>", "<think>"];

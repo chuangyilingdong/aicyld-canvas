@@ -236,7 +236,7 @@ export function CanvasAssistantTurnView({ turn, canvasId, sessionId, status, han
                             <div className="canvas-assistant-card-actions">
                                 {needsReproposal ? (
                                     <Button size="small" type="primary" autoInsertSpace={false} disabled={!onRepropose || generationDisabled || running} onClick={onRepropose}>
-                                        让助手重新提方案
+                                        按当前结果继续
                                     </Button>
                                 ) : (
                                     <Button size="small" type="primary" autoInsertSpace={false} loading={running} disabled={generationDisabled || Boolean(priceError)} onClick={() => onRunProposal(proposal, turn.turnId)}>

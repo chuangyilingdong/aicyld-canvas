@@ -434,6 +434,6 @@ test("stale proposal replaces the inert generate action with a direct re-propose
             onRepropose={() => {}}
         />,
     );
-    expect(html).toContain("让助手重新提方案");
+    expect(html).toContain("按当前结果继续");
     expect(html).not.toMatch(/>生成</);
 });

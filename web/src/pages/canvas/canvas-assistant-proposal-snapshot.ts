@@ -64,7 +64,7 @@ export const ASSISTANT_PROPOSAL_BLOCKED_TEXT: Record<AssistantProposalBlockedRea
     canvas_saving: "画布还在保存。稍等几秒再点生成。",
     canvas_conflict: "画布有未解决的版本冲突。请在顶部保存状态中使用最新版本，再让助手重新提出方案。",
     settings_unsaved: "生成设置还没保存。保存后再点生成。",
-    canvas_changed: "画布在提出方案后改过。请让助手重新提出方案。",
+    canvas_changed: "画布在方案提出后已有新结果或改动，旧方案不能直接扣费。已完成素材会保留；请点“按当前结果继续”，助手会重新核对并只补未完成步骤。",
     settings_changed: "生成设置在提出方案后改过。请让助手重新提出方案。",
     content_mismatch: "画布显示的内容和已保存的不一致。请重新打开这个画布，再让助手重新提出方案。",
 };

@@ -40,7 +40,7 @@ type Props = {
     slowResponseDelayMs?: number;
 };
 
-const PLAN_STATUS_TEXT: Record<AssistantPlan["items"][number]["status"], string> = { todo: "待做", doing: "进行中", done: "已完成", needs_user: "等待确认", blocked: "需要处理" };
+const PLAN_STATUS_TEXT: Record<AssistantPlan["items"][number]["status"], string> = { todo: "确认后继续", doing: "自动处理中", done: "已完成", needs_user: "等待你确认", blocked: "需要你处理" };
 
 export const ASSISTANT_SLOW_RESPONSE_DELAY_MS = 12_000;
 
@@ -104,6 +104,7 @@ export function CanvasAssistantPlan({ plan }: { plan: AssistantPlan | null | und
             <span>{item.title}</span><span className="canvas-assistant-meta">{PLAN_STATUS_TEXT[item.status]}</span>
             {item.note ? <span className="canvas-assistant-meta canvas-assistant-plan-note">{item.note}</span> : null}
         </li>)}</ol>
+        <p className="canvas-assistant-meta">“等待你确认”是当前需要你确认的付费步骤；“确认后继续”只会在该方案仍有效时由助手接续。方案失效时，请先按当前结果继续。</p>
     </details>;
 }
 
