@@ -102,8 +102,8 @@ export function isImageEditModel(model: string | undefined) {
     const name = (value.includes("::") ? value.split("::").pop() || "" : value).toLowerCase();
     if (capabilityImageEditModels.has(name)) return true;
     if (/(^|[^a-z])(i2i|edit|inpaint)([^a-z]|$)/.test(name)) return true;
-    // Image G v2.5 低价扩展版在上游支持参考图编辑，旧配置没有 operations 时保留兜底。
-    return /(^|[^a-z])g-v2\.5-lowprice$/.test(name);
+    // Image G v2.5/v2.6 低价扩展版在上游支持参考图编辑，旧配置没有 operations 时保留兜底。
+    return /(^|[^a-z])g-v2\.(?:5|6)-lowprice$/.test(name);
 }
 
 /** 图片编辑类功能解析实际模型：当前档已能编辑则保留，否则回退 image.edit。 */

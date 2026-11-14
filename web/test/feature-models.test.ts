@@ -63,6 +63,7 @@ test("image edit routing keeps capability-declared edit models", () => {
     });
 
     expect(isImageEditModel("image::vendor-image-v2.5")).toBe(true);
+    expect(isImageEditModel("aicyld-seedance::zhenzhen-image-g-v2.6-lowprice")).toBe(true);
     expect(withPlatformImageEditModel({ model: "image::t2i-model", imageModel: "image::t2i-model" })).toMatchObject({
         model: models["image.edit"],
         imageModel: models["image.edit"],
