@@ -2,6 +2,12 @@
 
 All notable public changes to BeefTV are documented in this file.
 
+## v2.1.3-aicyld.80
+
+- 修复 GPT Image 2.6（`zhenzhen-image-g-v2.6-lowprice`）在带参考图时被误判为不支持图片编辑、自动切换成 Seedream 5 Flash 图改图的问题。
+- GPT Image 2.6 的显式模型选择现在会保留；只有确实不支持参考图编辑的模型才回退到平台图改图模型。
+- 增加 GPT Image 2.6 图改图识别回归测试。
+
 ## v2.1.3-aicyld.79
 
 - 优化制作方案失效后的恢复动作：将“让助手重新提方案”改为“按当前结果继续”，明确保留已完成素材并只补未完成步骤。
