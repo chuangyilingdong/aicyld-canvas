@@ -37,6 +37,7 @@ test("smart film starter persists models, style and explicit per-shot durations"
     expect(starter).toContain("defaultVideoModel: resolvedVideoModel");
     expect(starter).toContain("await updateProject(project.project.id");
     expect(starter).toContain("shotDurationsSeconds: resolvedShotDurations");
+    expect(starter).toContain("createProjectAssetCandidates");
     expect(starter).toContain("smart-film-duration-grid");
     expect(starter).toContain("setAutoRun(false)");
     expect(starter).toContain("项目已创建");
@@ -44,6 +45,9 @@ test("smart film starter persists models, style and explicit per-shot durations"
     expect(chapter).toContain("逐镜时长");
     expect(styleHelper).toContain("applyStyleExecutionPlan");
     expect(workbench).toContain("styleExecutionPlan");
+    expect(workbench).toContain("添加资产");
+    expect(workbench).toContain("确认并使用");
+    expect(workbench).toContain("uploadWorkspaceAssetFiles");
     expect(modelSelection).toContain("normalizeModelOptionValue(projectModel, config.channels)");
 });
 

@@ -124,6 +124,11 @@
 .workflow-asset-row:hover:not(:disabled) { transform: translateX(2px); }
 .workflow-asset-row:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .workflow-asset-row.is-active { background: var(--workspace-accent-soft); }
+.workflow-asset-row.is-candidate {
+    border: 1px dashed color-mix(in srgb, var(--workspace-accent) 35%, var(--workspace-border));
+    background: color-mix(in srgb, var(--workspace-accent) 5%, transparent);
+}
+.workflow-asset-row.is-candidate .ant-btn { flex: 0 0 auto; padding-inline: 4px; }
 .workflow-asset-row:disabled { cursor: default; opacity: 1; }
 
 .workflow-asset-thumb {

@@ -2,16 +2,18 @@ import { ImageSizePicker } from "@/components/image-size-picker";
 import { imageResolutionUsesQuality } from "@/lib/image-size-presets";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { App, Button, Form, Image, Input, InputNumber, Select } from "antd";
+import { App, Button, Dropdown, Form, Image, Input, InputNumber, Select } from "antd";
 import { SegmentedControl } from "@/components/ui/base/segmented-control";
 import { EmptyState } from "@/components/ui/product/empty-state";
 import { StatusBadge } from "@/components/ui/base/badges";
 import { AppModal } from "@/components/ui/product/app-modal/app-modal";
-import { Box, ChevronDown, ChevronLeft, ChevronRight, Download, Film, Image as ImageIcon, Layers3, List, Maximize2, Play, Plus, RefreshCcw, Save, Search, SlidersHorizontal, Trash2, UsersRound, WandSparkles, X } from "lucide-react";
+import { Box, ChevronDown, ChevronLeft, ChevronRight, Download, Film, Image as ImageIcon, Layers3, List, Maximize2, Play, Plus, RefreshCcw, Save, Search, SlidersHorizontal, Sparkles, Trash2, UsersRound, WandSparkles, X } from "lucide-react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 
 import { CanvasResourceMentionTextarea } from "@/components/canvas/canvas-resource-mention-textarea";
+import { AssetLibraryPickerModal, type AssetLibraryPickerItem } from "@/components/assets/asset-library-picker-modal";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { usePersonalAssetLibrary } from "@/hooks/use-personal-asset-library";
 import { ModelPicker } from "@/components/model-picker";
 import { initialWorkbenchModel, refreshedWorkbenchModel } from "./workflow-model-selection";
 import { isMusicAudioModel } from "@/lib/audio-generation";
@@ -24,13 +26,16 @@ import { formatVideoResolutionLabel } from "@/lib/video-generation-options";
 import { submitBackendGenerationTask } from "@/services/api/generation-task";
 import { waitForGenerationTask, type GenerationTask } from "@/services/api/task-center";
 import {
+    confirmProjectAssetCandidate,
     createUnitWorkflow,
     deleteProjectShot,
+    linkProjectAsset,
     linkShotAsset,
     listProjectAssetsPage,
     saveProjectShot,
     unlinkShotAsset,
     type ProjectAsset,
+    type ProjectAssetCandidate,
     type ProjectDetail,
     type ProjectShot,
     type ShotAssetReference,
@@ -40,6 +45,8 @@ import {
 } from "@/services/api/projects";
 import { resourceFileUrl, resourceIdFromStorageKey } from "@/services/api/resources";
 import { skillRuntime } from "@/services/skill-runtime";
+import { uploadWorkspaceAssetFiles } from "@/services/workspace-asset-upload";
+import { ASSET_CATEGORIES, ASSET_CATEGORY_LABELS, defaultAssetCategoryForKind, normalizeAssetCategory, type AssetCategory } from "@/lib/asset-category";
 import { modelDisplayName, modelOptionName, resolveModelChannel, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { SkillRuntimePicker, useSkillRuntimeCatalog } from "@/components/skills/skill-runtime-picker";
 
@@ -80,6 +87,10 @@ const productionStageCopy: Record<"storyboard" | "previz" | "video", { label: st
 
 const SMART_FILM_TASK_TIMEOUT_MS = 60 * 60 * 1000;
 
+type AssetPickerTarget =
+    | { mode: "add"; category: AssetCategory }
+    | { mode: "replace"; category: AssetCategory; reference: ShotAssetReference };
+
 export default function WorkflowProductionWorkbench(props: Props) {
     const { activeStage, detail, projectId, unitId, workflowStep, selectedShot, onSelectShot, onRefresh, onAddShot, addingShot } = props;
     const { message, modal } = App.useApp();
@@ -92,6 +103,8 @@ export default function WorkflowProductionWorkbench(props: Props) {
     const watchedDuration = Form.useWatch("durationSeconds", form);
     const watchedTitle = Form.useWatch("title", form);
     const [leftTab, setLeftTab] = useState<"assets" | "episodes" | "shots">("episodes");
+    const [assetPickerTarget, setAssetPickerTarget] = useState<AssetPickerTarget | null>(null);
+    const personalAssets = usePersonalAssetLibrary(Boolean(assetPickerTarget));
     const [previewTab, setPreviewTab] = useState<"latest" | "history">("latest");
     const [previewArtifactId, setPreviewArtifactId] = useState("");
     const [imagePreviewArtifact, setImagePreviewArtifact] = useState<ShotArtifact | null>(null);
@@ -132,6 +145,19 @@ export default function WorkflowProductionWorkbench(props: Props) {
     const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
     const { skills: availableSkills, loading: skillsLoading } = useSkillRuntimeCatalog();
     const shotAssetReferenceContext = useMemo(() => buildShotAssetReferenceContext(detail, selectedShot?.id || ""), [detail, selectedShot?.id]);
+    const assetPickerItems = useMemo<AssetLibraryPickerItem[]>(() => personalAssets.flatMap((asset) => {
+        if (asset.kind !== "image" && asset.kind !== "video" && asset.kind !== "audio" && asset.kind !== "text") return [];
+        return [{
+            id: asset.id,
+            title: asset.title,
+            category: normalizeAssetCategory(asset.category, defaultAssetCategoryForKind(asset.kind)),
+            kindLabel: asset.kind === "image" ? "图片" : asset.kind === "video" ? "视频" : asset.kind === "audio" ? "音频" : "文本",
+            mediaKind: asset.kind,
+            asset,
+            description: asset.note,
+            searchText: (asset.tags || []).join(" "),
+        }];
+    }), [personalAssets]);
     const referenceByVersionId = useMemo(() => {
         const references = (detail.shotReferences || []).filter((reference) => reference.shotId === selectedShot?.id && reference.role === "reference" && reference.status === "linked");
         return new Map(references.flatMap((reference) => [
@@ -286,6 +312,49 @@ export default function WorkflowProductionWorkbench(props: Props) {
         },
         onSuccess: async (_result, variables) => { await onRefresh(); message.success(variables.reference ? "已取消当前镜头的资产引用" : "资产已绑定到当前镜头"); },
         onError: (error) => message.error(error instanceof Error ? error.message : "镜头资产更新失败"),
+    });
+
+    const bindPickedAssets = useMutation({
+        mutationFn: async ({ ids, target }: { ids: string[]; target: AssetPickerTarget }) => {
+            if (!selectedShot) throw new Error("请先选择镜头");
+            const uniqueIds = Array.from(new Set(ids.filter(Boolean)));
+            if (!uniqueIds.length) throw new Error("请选择要添加的资产");
+            const oldVersionId = target.mode === "replace" ? target.reference.assetVersionId : "";
+            const linkedVersionIds: string[] = [];
+            let linkedCount = 0;
+            for (const assetId of uniqueIds) {
+                const linked = await linkProjectAsset(projectId, { assetId, category: target.category, source: "canvas" });
+                if (!linked.asset.primaryVersionId) throw new Error(`资产“${linked.asset.title}”没有可绑定版本`);
+                await linkShotAsset(projectId, selectedShot.id, { assetVersionId: linked.asset.primaryVersionId, role: "reference" });
+                linkedVersionIds.push(linked.asset.primaryVersionId);
+                linkedCount += 1;
+            }
+            if (target.mode === "replace" && oldVersionId && !linkedVersionIds.includes(oldVersionId)) {
+                await unlinkShotAsset(projectId, selectedShot.id, target.reference.id);
+            }
+            return linkedCount;
+        },
+        onSuccess: async (count, variables) => {
+            setAssetPickerTarget(null);
+            await onRefresh();
+            message.success(variables.target.mode === "replace" ? "镜头资产已替换" : `已添加 ${count} 个镜头资产`);
+        },
+        onError: (error) => message.error(error instanceof Error ? error.message : "镜头资产添加失败"),
+    });
+
+    const useAssetCandidate = useMutation({
+        mutationFn: async (candidate: ProjectAssetCandidate) => {
+            if (!selectedShot) throw new Error("请先选择镜头");
+            const confirmed = await confirmProjectAssetCandidate(projectId, candidate.id);
+            if (!confirmed.asset.primaryVersionId) throw new Error("确认后的资产没有可绑定版本");
+            await linkShotAsset(projectId, selectedShot.id, { assetVersionId: confirmed.asset.primaryVersionId, role: "reference" });
+            return confirmed.asset;
+        },
+        onSuccess: async (asset) => {
+            await onRefresh();
+            message.success(`已确认并绑定“${asset.title}”`);
+        },
+        onError: (error) => message.error(error instanceof Error ? error.message : "资产确认失败"),
     });
 
     const ensureProductionStep = async () => {
@@ -746,7 +815,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                         options={[{ value: "episodes", label: "章节" }, { value: "shots", label: "镜头" }, { value: "assets", label: "资产" }]}
                     />
                     <div className="workflow-library-scroll thin-scrollbar">
-                        {leftTab === "assets" ? <AssetLibrary detail={detail} referenceByVersionId={referenceByVersionId} changing={changeAssetBinding.isPending} onToggle={(asset, reference) => changeAssetBinding.mutate({ asset, reference })} /> : null}
+                        {leftTab === "assets" ? <AssetLibrary detail={detail} unitId={unitId} referenceByVersionId={referenceByVersionId} changing={changeAssetBinding.isPending || useAssetCandidate.isPending} onToggle={(asset, reference) => changeAssetBinding.mutate({ asset, reference })} onUseCandidate={(candidate) => useAssetCandidate.mutate(candidate)} confirmingCandidateId={useAssetCandidate.isPending ? useAssetCandidate.variables?.id : undefined} /> : null}
                         {leftTab === "episodes" ? <EpisodeLibrary detail={detail} activeUnitId={unitId} projectId={projectId} activeStage={activeStage} /> : null}
                         {leftTab === "shots" ? <ShotLibrary detail={detail} shots={shots} selectedShotId={selectedShot.id} onSelectShot={requestShotSelection} /> : null}
                     </div>
@@ -766,7 +835,14 @@ export default function WorkflowProductionWorkbench(props: Props) {
                             <div className="workflow-form-section-heading"><span>镜头脚本</span><small>先写清镜头里发生什么，再调整生成参数</small></div>
                             <Form.Item name="title" label="镜头名称" rules={[{ required: true, message: "请输入镜头名称" }]}><Input placeholder="用一句话概括这个镜头" /></Form.Item>
                             <Form.Item name="videoPrompt" label="视频提示词" rules={[{ required: true, message: "请输入视频提示词" }]}><ShotAssetMentionTextarea references={shotAssetReferenceContext.mentionReferences} /></Form.Item>
-                            <BoundAssets detail={detail} shotId={selectedShot.id} changing={changeAssetBinding.isPending} onUnlink={(reference) => changeAssetBinding.mutate({ reference })} />
+                            <BoundAssets
+                                detail={detail}
+                                shotId={selectedShot.id}
+                                changing={changeAssetBinding.isPending || bindPickedAssets.isPending}
+                                onUnlink={(reference) => changeAssetBinding.mutate({ reference })}
+                                onAdd={(category) => setAssetPickerTarget({ mode: "add", category })}
+                                onReplace={(reference, category) => setAssetPickerTarget({ mode: "replace", reference, category })}
+                            />
                             <div className="workflow-form-grid">
                                 <Form.Item name="action" label="表演与动作"><Input.TextArea autoSize={{ minRows: 3, maxRows: 6 }} placeholder="按动作节拍描述人物表演、走位和物体运动" /></Form.Item>
                                 <Form.Item name="dialogue" label="对白 / 旁白"><Input.TextArea autoSize={{ minRows: 3, maxRows: 6 }} placeholder="填写对白、旁白或需要保留的声音信息" /></Form.Item>
@@ -874,6 +950,35 @@ export default function WorkflowProductionWorkbench(props: Props) {
                 {imagePreviewArtifact?.resourceId ? <img className={`workflow-image-preview-modal ${imagePreviewArtifact.type === "action_board" ? "grayscale" : ""}`} src={resourceFileUrl(imagePreviewArtifact.resourceId)} alt={imagePreviewArtifact.type === "action_board" ? "动作预演大图" : "分镜图大图"} /> : null}
             </AppModal>
 
+            <AssetLibraryPickerModal
+                open={Boolean(assetPickerTarget)}
+                remoteLibrary
+                mediaKinds={["image", "video", "audio", "text"]}
+                items={assetPickerItems}
+                categoryLabels={{ all: "全部素材", ...ASSET_CATEGORY_LABELS }}
+                multiple={assetPickerTarget?.mode !== "replace"}
+                eyebrow={assetPickerTarget?.mode === "replace" ? "替换镜头资产" : `添加${assetPickerTarget ? ASSET_CATEGORY_LABELS[assetPickerTarget.category] : "资产"}`}
+                title={assetPickerTarget?.mode === "replace" ? "选择替换资产" : "从画布或素材库选择"}
+                confirmLabel={(count) => assetPickerTarget?.mode === "replace" ? "替换资产" : `添加到当前镜头${count ? `（${count}）` : ""}`}
+                emptyTitle="还没有可用资产"
+                emptyDescription="可以直接从本地上传图片、视频或音频；上传后会自动出现在当前镜头。"
+                upload={{
+                    accept: "image/*,video/*,audio/*",
+                    description: "支持本地图片、视频和音频，上传后自动加入素材库",
+                    onUpload: async (files) => {
+                        const result = await uploadWorkspaceAssetFiles(Array.from(files), "");
+                        if (result.failed || result.persistenceError) message.warning(`已上传 ${result.completed} 个，${result.failed || 1} 个未完成`);
+                        if (!result.addedAssetIds.length) throw new Error("本地资产上传失败，请重试");
+                        return result.addedAssetIds;
+                    },
+                }}
+                onClose={() => { if (!bindPickedAssets.isPending) setAssetPickerTarget(null); }}
+                onConfirm={async (ids) => {
+                    if (!assetPickerTarget) throw new Error("请选择资产用途");
+                    await bindPickedAssets.mutateAsync({ ids, target: assetPickerTarget });
+                }}
+            />
+
             <ShotTimeline activeStage={activeStage} detail={detail} shots={shots} selectedShotId={selectedShot.id} submittingShotIds={submittingShotIds} onSelectShot={requestShotSelection} onAddShot={requestAddShot} addingShot={addingShot} />
         </div>
     );
@@ -896,7 +1001,15 @@ function WorkflowDisclosure({ icon, title, description, summary, className = "",
     );
 }
 
-function AssetLibrary({ detail, referenceByVersionId, changing, onToggle }: { detail: ProjectDetail; referenceByVersionId: Map<string, ShotAssetReference>; changing: boolean; onToggle: (asset: ProjectAsset, reference?: ShotAssetReference) => void }) {
+function AssetLibrary({ detail, unitId, referenceByVersionId, changing, onToggle, onUseCandidate, confirmingCandidateId }: {
+    detail: ProjectDetail;
+    unitId: string;
+    referenceByVersionId: Map<string, ShotAssetReference>;
+    changing: boolean;
+    onToggle: (asset: ProjectAsset, reference?: ShotAssetReference) => void;
+    onUseCandidate: (candidate: ProjectAssetCandidate) => void;
+    confirmingCandidateId?: string;
+}) {
     const [category, setCategory] = useState("all");
     const [keyword, setKeyword] = useState("");
     const debouncedKeyword = useDebouncedValue(keyword.trim(), 250);
@@ -915,7 +1028,59 @@ function AssetLibrary({ detail, referenceByVersionId, changing, onToggle }: { de
     }, [assetsPage]);
     const total = assetsQuery.data?.total || 0;
     const pages = Math.max(1, Math.ceil(total / pageSize));
-    return <div className="workflow-asset-groups"><Input allowClear size="small" className="mb-2 w-full" value={keyword} onChange={(event) => setKeyword(event.target.value)} prefix={<Search className="size-3.5 text-foreground/35" />} placeholder="搜索资产名称" aria-label="搜索镜头资产" /><Select size="small" className="mb-2 w-full" value={category} options={[{ value: "all", label: `全部资产（${Object.values(assetsQuery.data?.categoryCounts || {}).reduce((sum, count) => sum + count, 0)}）` }, ...Object.entries(assetsQuery.data?.categoryCounts || {}).filter(([, count]) => count > 0).map(([value, count]) => ({ value, label: `${assetCategoryLabel(value)}（${count}）` }))]} onChange={(value) => { setCategory(value); setPage(1); }} />{assetsQuery.isLoading ? <div className="py-6 text-center text-xs text-foreground/45">正在读取资产…</div> : groups.length ? groups.map(([groupCategory, assets]) => <section key={groupCategory}><h3>{assetCategoryLabel(groupCategory)} <span>({assets.length})</span></h3><div className="workflow-asset-list">{assets.map((asset) => { const reference = asset.primaryVersionId ? referenceByVersionId.get(asset.primaryVersionId) : undefined; const active = Boolean(reference); const previewUrl = assetPreviewUrl(asset); return <button key={asset.id} type="button" className={`workflow-asset-row ${active ? "is-active" : ""}`} disabled={changing || !asset.primaryVersionId} aria-pressed={active} onClick={() => onToggle(asset, reference)}><span className="workflow-asset-thumb">{previewUrl ? <img src={previewUrl} alt="" loading="lazy" /> : asset.category === "character" ? <UsersRound /> : asset.mediaType === "image" ? <ImageIcon /> : <Box />}</span><span className="min-w-0 flex-1"><strong>{asset.title}</strong><small>{active ? "已绑定 · 点击取消" : `${assetCategoryLabel(asset.category)} · v${Math.max(1, asset.versionCount)}`}</small></span>{active ? <span className="workflow-bound-dot" /> : null}</button>; })}</div></section>) : <EmptyState size="compact" title={debouncedKeyword ? "没有找到匹配资产" : "项目还没有资产"} />}{total > pageSize ? <div className="mt-3 flex items-center justify-between border-t border-border/60 pt-2 text-[var(--fs-micro)] text-foreground/45"><span>{page}/{pages} · 共 {total} 项</span><span className="flex gap-1"><Button type="text" size="small" icon={<ChevronLeft className="size-3.5" />} disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))} /><Button type="text" size="small" icon={<ChevronRight className="size-3.5" />} disabled={page >= pages} onClick={() => setPage((value) => Math.min(pages, value + 1))} /></span></div> : null}</div>;
+    const candidates = useMemo(() => {
+        const query = debouncedKeyword.toLowerCase();
+        return detail.assetCandidates.filter((candidate) =>
+            candidate.status === "pending_confirmation"
+            && (!candidate.unitId || candidate.unitId === unitId)
+            && (category === "all" || candidate.category === category)
+            && (!query || candidate.name.toLowerCase().includes(query))
+        );
+    }, [category, debouncedKeyword, detail.assetCandidates, unitId]);
+    return (
+        <div className="workflow-asset-groups">
+            <Input allowClear size="small" className="mb-2 w-full" value={keyword} onChange={(event) => setKeyword(event.target.value)} prefix={<Search className="size-3.5 text-foreground/35" />} placeholder="搜索资产名称" aria-label="搜索镜头资产" />
+            <Select size="small" className="mb-2 w-full" value={category} options={[{ value: "all", label: `全部资产（${Object.values(assetsQuery.data?.categoryCounts || {}).reduce((sum, count) => sum + count, 0) + candidates.length}）` }, ...Object.entries(assetsQuery.data?.categoryCounts || {}).filter(([, count]) => count > 0).map(([value, count]) => ({ value, label: `${assetCategoryLabel(value)}（${count}）` })), ...ASSET_CATEGORIES.filter((value) => !Object.keys(assetsQuery.data?.categoryCounts || {}).includes(value) && candidates.some((candidate) => candidate.category === value)).map((value) => ({ value, label: `${ASSET_CATEGORY_LABELS[value]}（${candidates.filter((candidate) => candidate.category === value).length}）` }))]} onChange={(value) => { setCategory(value); setPage(1); }} />
+            {candidates.length ? (
+                <section className="mb-3">
+                    <h3>待确认资产 <span>({candidates.length})</span></h3>
+                    <div className="workflow-asset-list">
+                        {candidates.map((candidate) => (
+                            <div key={candidate.id} className="workflow-asset-row is-candidate">
+                                <span className="workflow-asset-thumb"><Sparkles className="size-4" /></span>
+                                <span className="min-w-0 flex-1"><strong>{candidate.name}</strong><small>{assetCategoryLabel(candidate.category)} · {assetCandidateDescription(candidate)}</small></span>
+                                <Button type="link" size="small" loading={confirmingCandidateId === candidate.id} disabled={changing} onClick={() => onUseCandidate(candidate)}>确认并使用</Button>
+                            </div>
+                        ))}
+                    </div>
+                </section>
+            ) : null}
+            {assetsQuery.isLoading ? <div className="py-6 text-center text-xs text-foreground/45">正在读取资产…</div> : groups.length ? groups.map(([groupCategory, assets]) => (
+                <section key={groupCategory}>
+                    <h3>{assetCategoryLabel(groupCategory)} <span>({assets.length})</span></h3>
+                    <div className="workflow-asset-list">
+                        {assets.map((asset) => {
+                            const reference = asset.primaryVersionId ? referenceByVersionId.get(asset.primaryVersionId) : undefined;
+                            const active = Boolean(reference);
+                            const previewUrl = assetPreviewUrl(asset);
+                            return <button key={asset.id} type="button" className={`workflow-asset-row ${active ? "is-active" : ""}`} disabled={changing || !asset.primaryVersionId} aria-pressed={active} onClick={() => onToggle(asset, reference)}><span className="workflow-asset-thumb">{previewUrl ? <img src={previewUrl} alt="" loading="lazy" /> : asset.category === "character" ? <UsersRound /> : asset.mediaType === "image" ? <ImageIcon /> : <Box />}</span><span className="min-w-0 flex-1"><strong>{asset.title}</strong><small>{active ? "已绑定 · 点击取消" : `${assetCategoryLabel(asset.category)} · v${Math.max(1, asset.versionCount)}`}</small></span>{active ? <span className="workflow-bound-dot" /> : null}</button>;
+                        })}
+                    </div>
+                </section>
+            )) : candidates.length ? null : <EmptyState size="compact" title={debouncedKeyword ? "没有找到匹配资产" : "项目还没有资产"} />}
+            {total > pageSize ? <div className="mt-3 flex items-center justify-between border-t border-border/60 pt-2 text-[var(--fs-micro)] text-foreground/45"><span>{page}/{pages} · 共 {total} 项</span><span className="flex gap-1"><Button type="text" size="small" icon={<ChevronLeft className="size-3.5" />} disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))} /><Button type="text" size="small" icon={<ChevronRight className="size-3.5" />} disabled={page >= pages} onClick={() => setPage((value) => Math.min(pages, value + 1))} /></span></div> : null}
+        </div>
+    );
+}
+
+function assetCandidateDescription(candidate: ProjectAssetCandidate) {
+    try {
+        const details = JSON.parse(candidate.detailsJson || "{}") as Record<string, unknown>;
+        const value = details.prompt || details.description || details.appearance || details.consistencyPrompt;
+        return typeof value === "string" && value.trim() ? value.trim().slice(0, 34) : "待确认";
+    } catch {
+        return "待确认";
+    }
 }
 
 function ShotAssetMentionTextarea({ value = "", onChange = () => undefined, references, variant = "motion" }: { value?: string; onChange?: (value: string) => void; references: ReturnType<typeof buildShotAssetReferenceContext>["mentionReferences"]; variant?: "scene" | "motion" }) {
@@ -944,24 +1109,45 @@ function ShotLibrary({ detail, shots, selectedShotId, onSelectShot }: { detail: 
     return <div className="workflow-simple-list">{shots.map((shot, index) => { const video = currentArtifact(detail, shot.id, "video"); return <button key={shot.id} type="button" className={shot.id === selectedShotId ? "is-active" : ""} onClick={() => onSelectShot(shot.id)}><span>{formatShotOrdinal(index)}</span><span className="min-w-0 flex-1"><strong>{customShotTitle(shot.title, index) || "未命名"}</strong><small>{formatDuration(shot.durationMs)}</small></span><ArtifactStatus artifact={video} compact /></button>; })}</div>;
 }
 
-function BoundAssets({ detail, shotId, changing, onUnlink }: { detail: ProjectDetail; shotId: string; changing: boolean; onUnlink: (reference: ShotAssetReference) => void }) {
+function BoundAssets({ detail, shotId, changing, onUnlink, onAdd, onReplace }: {
+    detail: ProjectDetail;
+    shotId: string;
+    changing: boolean;
+    onUnlink: (reference: ShotAssetReference) => void;
+    onAdd: (category: AssetCategory) => void;
+    onReplace: (reference: ShotAssetReference, category: AssetCategory) => void;
+}) {
     const references = (detail.shotReferences || []).filter((item) => item.shotId === shotId);
     const assetByVersionId = useMemo(() => new Map(detail.assets.filter((asset) => asset.primaryVersionId).map((asset) => [asset.primaryVersionId as string, asset])), [detail.assets]);
     return (
         <div className="workflow-bound-assets">
-            <div className="workflow-bound-assets-heading"><span className="workflow-field-label">镜头资产</span><small>{references.length ? `已绑定 ${references.length} 项` : "从左侧资产栏点击绑定"}</small></div>
+            <div className="workflow-bound-assets-heading">
+                <span><span className="workflow-field-label">镜头资产</span><small className="ml-2">{references.length ? `已绑定 ${references.length} 项` : "角色、场景、道具可逐项添加或替换"}</small></span>
+                <Dropdown
+                    trigger={["click"]}
+                    disabled={changing}
+                    menu={{
+                        items: ASSET_CATEGORIES.map((category) => ({ key: category, label: `添加${ASSET_CATEGORY_LABELS[category]}` })),
+                        onClick: ({ key }) => onAdd(key as AssetCategory),
+                    }}
+                >
+                    <Button size="small" icon={<Plus className="size-3.5" />} loading={changing}>添加资产</Button>
+                </Dropdown>
+            </div>
             <Image.PreviewGroup>
                 <div className="workflow-bound-assets-content">
                     {references.length ? references.map((reference) => {
                         const asset = reference.asset || assetByVersionId.get(reference.assetVersionId);
                         const title = asset?.title || "历史资产版本";
+                        const category = normalizeAssetCategory(asset?.category, "other");
                         const previewUrl = asset ? assetPreviewUrl(asset) : "";
                         return <div key={reference.id} className="workflow-bound-asset-chip">
                             <span className="workflow-bound-asset-preview">{previewUrl ? <Image src={previewUrl} alt={`${title}预览`} width={40} height={40} loading="lazy" preview={{ mask: "预览" }} /> : <Box aria-hidden />}</span>
                             <span className="workflow-bound-asset-copy"><em>{asset ? assetCategoryLabel(asset.category) : "历史"}</em><strong title={title}>{title}</strong></span>
+                            <button type="button" disabled={changing} aria-label={`替换 ${title}`} title="替换资产" onClick={() => onReplace(reference, category)}><RefreshCcw aria-hidden /></button>
                             <button type="button" disabled={changing} aria-label={`取消引用 ${title}`} onClick={() => onUnlink(reference)}><X aria-hidden /></button>
                         </div>;
-                    }) : <span>尚未绑定角色、场景或道具</span>}
+                    }) : <span>尚未绑定资产。点击右上角“添加资产”，可从画布素材库选择或本地上传。</span>}
                 </div>
             </Image.PreviewGroup>
         </div>

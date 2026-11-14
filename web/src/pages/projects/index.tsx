@@ -21,7 +21,7 @@ import { settingsPath } from "@/lib/settings-navigation";
 import { PromptTemplateOperation, parseGeneratedStory, promptTemplateTaskPlaceholder, shortDramaOutlineVariables } from "@/lib/prompts";
 import { prepareBackendGenerationTask, runBackendGenerationTask } from "@/services/api/generation-task";
 import { quoteGenerationTask } from "@/services/api/task-billing";
-import { createProject, createProjectUnit, createUnitWorkflow, deleteProject, duplicateProject, getProjectCore, importProjectUnits, listProjectFolders, listProjects, moveProjectToFolder, replaceProjectUnitShots, updateProject, type ProjectSummary } from "@/services/api/projects";
+import { createProject, createProjectAssetCandidates, createProjectUnit, createUnitWorkflow, deleteProject, duplicateProject, getProjectCore, importProjectUnits, listProjectFolders, listProjects, moveProjectToFolder, replaceProjectUnitShots, updateProject, type ProjectSummary } from "@/services/api/projects";
 import { modelDisplayName, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 
 import { storyboardRowsToProjectShots } from "./detail/chapter-storyboard-production";
@@ -301,6 +301,7 @@ export default function ProjectsPage() {
             });
             await createUnitWorkflow(project.project.id, unit.id);
             const core = await getProjectCore(project.project.id);
+            let approvedRevision = core.project.revision;
             let characters: Array<{ name: string; definition: Record<string, unknown> }> = [];
             let assets: Array<{ id: string; title: string; type: "image"; category: string; tags: string[]; prompt: string }> = [];
             try {
@@ -319,9 +320,16 @@ export default function ProjectsPage() {
                     ...extracted.scenes.map((scene, index) => ({ id: `smart-scene-${index}`, title: scene.name, type: "image" as const, category: "environment", tags: [], prompt: scene.prompt })),
                     ...extracted.props.map((prop, index) => ({ id: `smart-prop-${index}`, title: prop.name, type: "image" as const, category: "prop", tags: [], prompt: prop.prompt })),
                 ];
+                const candidates = [
+                    ...extracted.characters.map((asset) => ({ unitId: unit.id, name: asset.name, category: "character" as const, details: { ...asset } })),
+                    ...extracted.scenes.map((asset) => ({ unitId: unit.id, name: asset.name, category: "environment" as const, details: { ...asset } })),
+                    ...extracted.props.map((asset) => ({ unitId: unit.id, name: asset.name, category: "prop" as const, details: { ...asset } })),
+                ];
+                if (candidates.length) await createProjectAssetCandidates(project.project.id, candidates, "chapter_character_extract", { sourceTaskId: extracted.taskId });
             } catch {
                 message.warning("角色、场景和道具提取失败，继续生成分镜");
             }
+            approvedRevision = (await getProjectCore(project.project.id)).project.revision;
             setSmartFilmStatus(`正在规划 ${shotCount} 个镜头…`);
             const generated = await generateChapterStoryboard({
                 projectId: project.project.id,
@@ -339,7 +347,7 @@ export default function ProjectsPage() {
                 config: { ...effectiveConfig, model: textModel, textModel, imageModel, videoModel },
                 skills: [],
                 selectedSkillIds: [],
-                approvedRevision: core.project.revision,
+                approvedRevision,
                 approvedShotIds: [],
                 shotCount,
                 userRequirements: `这是一条从主题直接启动的成片项目。主题：${topic}\n画面以 AI 生成图片和视频为主，分镜要能直接继续生成首帧和镜头视频。`,
@@ -350,7 +358,7 @@ export default function ProjectsPage() {
             }
             setSmartFilmStatus("正在写入分镜…");
             const shots = storyboardRowsToProjectShots(generated.rows.slice(0, shotCount));
-            await replaceProjectUnitShots(project.project.id, unit.id, shots, [], core.project.revision, { sourceTaskId: generated.taskId });
+            await replaceProjectUnitShots(project.project.id, unit.id, shots, [], approvedRevision, { sourceTaskId: generated.taskId });
             await Promise.all([
                 queryClient.invalidateQueries({ queryKey: ["projects"] }),
                 queryClient.invalidateQueries({ queryKey: ["project", project.project.id] }),

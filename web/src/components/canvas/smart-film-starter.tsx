@@ -23,7 +23,7 @@ import {
     smartFilmMaxClipSeconds,
 } from "@/lib/canvas/smart-film-options";
 import { settingsPath } from "@/lib/settings-navigation";
-import { createProject, createProjectUnit, createUnitWorkflow, getProjectCore, replaceProjectUnitShots, updateProject } from "@/services/api/projects";
+import { createProject, createProjectAssetCandidates, createProjectUnit, createUnitWorkflow, getProjectCore, replaceProjectUnitShots, updateProject } from "@/services/api/projects";
 import { modelDisplayName, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 
 import { storyboardRowsToProjectShots } from "@/pages/projects/detail/chapter-storyboard-production";
@@ -169,6 +169,7 @@ export function SmartFilmStarter({ open = true, initialTopic = "", onClose, pres
             setCreatedProject({ id: project.project.id, name: project.project.name, unitId: unit.id });
             await createUnitWorkflow(project.project.id, unit.id);
             const core = await getProjectCore(project.project.id);
+            let approvedRevision = core.project.revision;
             let characters: Array<{ name: string; definition: Record<string, unknown> }> = [];
             let assets: Array<{ id: string; title: string; type: "image"; category: string; tags: string[]; prompt: string }> = [];
             try {
@@ -187,9 +188,16 @@ export function SmartFilmStarter({ open = true, initialTopic = "", onClose, pres
                     ...extracted.scenes.map((scene, index) => ({ id: `smart-scene-${index}`, title: scene.name, type: "image" as const, category: "environment", tags: [], prompt: scene.prompt })),
                     ...extracted.props.map((prop, index) => ({ id: `smart-prop-${index}`, title: prop.name, type: "image" as const, category: "prop", tags: [], prompt: prop.prompt })),
                 ];
+                const candidates = [
+                    ...extracted.characters.map((asset) => ({ unitId: unit.id, name: asset.name, category: "character" as const, details: { ...asset } })),
+                    ...extracted.scenes.map((asset) => ({ unitId: unit.id, name: asset.name, category: "environment" as const, details: { ...asset } })),
+                    ...extracted.props.map((asset) => ({ unitId: unit.id, name: asset.name, category: "prop" as const, details: { ...asset } })),
+                ];
+                if (candidates.length) await createProjectAssetCandidates(project.project.id, candidates, "chapter_character_extract", { sourceTaskId: extracted.taskId });
             } catch {
                 message.warning("角色、场景和道具提取失败，继续生成分镜");
             }
+            approvedRevision = (await getProjectCore(project.project.id)).project.revision;
             setStatus(`正在规划 ${resolvedShotCount} 个镜头…`);
             const generated = await generateChapterStoryboard({
                 projectId: project.project.id,
@@ -209,7 +217,7 @@ export function SmartFilmStarter({ open = true, initialTopic = "", onClose, pres
                 config: { ...effectiveConfig, model: resolvedTextModel, textModel: resolvedTextModel, imageModel: resolvedImageModel, videoModel: resolvedVideoModel },
                 skills: [],
                 selectedSkillIds: [],
-                approvedRevision: core.project.revision,
+                approvedRevision,
                 approvedShotIds: [],
                 shotCount: resolvedShotCount,
                 shotDurationsSeconds: resolvedShotDurations,
@@ -231,7 +239,7 @@ export function SmartFilmStarter({ open = true, initialTopic = "", onClose, pres
                 const durationMs = Math.round(duration * 1000);
                 return { ...shot, durationMs, revision: { ...shot.revision, durationMs } };
             });
-            await replaceProjectUnitShots(project.project.id, unit.id, shots, [], core.project.revision, { sourceTaskId: generated.taskId });
+            await replaceProjectUnitShots(project.project.id, unit.id, shots, [], approvedRevision, { sourceTaskId: generated.taskId });
             await Promise.all([queryClient.invalidateQueries({ queryKey: ["projects"] }), queryClient.invalidateQueries({ queryKey: ["canvas-projects"] }), queryClient.invalidateQueries({ queryKey: ["project", project.project.id] })]);
             if (presentation === "modal") onClose();
             message.success(autoRun ? `已生成 ${shots.length} 个分镜，开始自动制作成片` : `已生成 ${shots.length} 个分镜，图片与视频模型已写入项目默认配置`);
