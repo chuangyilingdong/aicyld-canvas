@@ -292,6 +292,7 @@ export default function ProjectsPage() {
                     styleProfileJson: serializeStyleProfile(selectedStyle.profile || createStyleProfileSnapshot(selectedStyle)),
                 } : {}),
             });
+            void queryClient.invalidateQueries({ queryKey: ["projects"] });
             setSmartFilmStatus("正在创建章节与制作流程…");
             const { unit } = await createProjectUnit(project.project.id, {
                 kind: "chapter",

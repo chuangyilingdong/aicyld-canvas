@@ -148,6 +148,7 @@ export function SmartFilmStarter({ open = true, initialTopic = "", onClose, pres
                       }
                     : {}),
             });
+            void queryClient.invalidateQueries({ queryKey: ["projects"] });
             await updateProject(project.project.id, {
                 defaultImageModel: resolvedImageModel,
                 defaultVideoModel: resolvedVideoModel,

@@ -61,6 +61,8 @@ test("smart film is a standalone workflow page and entries leave the modal behin
     expect(page).toContain("每个镜头单独选择时长");
     expect(router).toContain('path: "/smart-film"');
     expect(home).toContain('to: "/smart-film"');
+    expect(canvas).toContain("SmartFilmProjectCard");
+    expect(canvas).toContain("smart-film-auto");
     expect(canvas).toContain('navigate("/smart-film")');
     expect(canvas).not.toContain("SmartFilmStarterModal");
 });

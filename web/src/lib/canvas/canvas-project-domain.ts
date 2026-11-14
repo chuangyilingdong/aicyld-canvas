@@ -113,7 +113,7 @@ export function storyboardRowsOutputContract(requirement: string) {
         "  shotNumber（整数，从 1 递增）、durationSeconds（整数，1-60）、plotDescription（本镜可见的剧情与关键动作）、",
         "  dialogue（本镜实际念出的台词或简短旁白，超长必须拆镜）、characters（本镜出现的角色名数组）、",
         "  narrativeIntent、viewerPOV、performanceBlocking、shotSize（景别）、emotion、lightingAndAtmosphere、",
-        "  audioEffects、camera、motion、timeBeats、imageGenerationPrompt（首帧画面提示词）、",
+        "  audioEffects、camera、motion、timeBeats（字符串或字符串数组）、imageGenerationPrompt（首帧画面提示词）、",
         "  videoMotionPrompt（运镜与结尾状态）、continuityOut、negativePrompt、",
         "  mustHave（数组，最多 3 项）、optionalDetails（数组）。",
         "- 镜头数量以完整覆盖剧情因果、人物关系和关键台词为准，不要为压缩数量删减关键情节。",
@@ -148,19 +148,55 @@ export function storyboardRowsFromTask(task: GenerationTask) {
     return {
         title: result.title?.trim(),
         rows: result.rows.map((row, index) => {
+            const raw = row as Record<string, unknown>;
             const next = createStoryboardRow(index + 1, {
                 ...row,
                 id: `shot-${Date.now()}-${index + 1}-${Math.random().toString(36).slice(2, 6)}`,
                 shotNumber: index + 1,
+                durationSeconds: normalizeStoryboardDuration(row.durationSeconds),
+                plotDescription: storyboardText(raw.plotDescription),
+                dialogue: storyboardText(raw.dialogue),
+                narrativeIntent: storyboardText(raw.narrativeIntent),
+                viewerPOV: storyboardText(raw.viewerPOV),
+                performanceBlocking: storyboardText(raw.performanceBlocking),
+                shotSize: storyboardText(raw.shotSize),
+                emotion: storyboardText(raw.emotion),
+                lightingAndAtmosphere: storyboardText(raw.lightingAndAtmosphere),
+                audioEffects: storyboardText(raw.audioEffects),
+                camera: storyboardText(raw.camera),
+                motion: storyboardText(raw.motion),
+                timeBeats: storyboardText(raw.timeBeats),
+                imageGenerationPrompt: storyboardText(raw.imageGenerationPrompt),
+                videoMotionPrompt: storyboardText(raw.videoMotionPrompt),
+                continuityOut: storyboardText(raw.continuityOut),
+                negativePrompt: storyboardText(raw.negativePrompt),
                 status: "idle",
                 assetBindings: normalizeStoryboardAssetBindings(row.assetBindings),
             });
-            next.characters = Array.isArray(row.characters) ? row.characters : [];
-            next.mustHave = Array.isArray(row.mustHave) ? row.mustHave : [];
-            next.optionalDetails = Array.isArray(row.optionalDetails) ? row.optionalDetails : [];
+            next.characters = Array.isArray(raw.characters) ? raw.characters as StoryboardRow["characters"] : [];
+            next.mustHave = storyboardStringList(raw.mustHave);
+            next.optionalDetails = storyboardStringList(raw.optionalDetails);
             return next;
         }),
     };
+}
+
+function normalizeStoryboardDuration(value: unknown) {
+    const seconds = Number(value);
+    return Number.isFinite(seconds) ? Math.max(1, Math.min(60, Math.round(seconds))) : 6;
+}
+
+function storyboardText(value: unknown): string {
+    if (typeof value === "string") return value;
+    if (Array.isArray(value)) return value.map(storyboardText).filter(Boolean).join("\n");
+    if (value === null || value === undefined) return "";
+    if (typeof value === "number" || typeof value === "boolean") return String(value);
+    try { return JSON.stringify(value); } catch { return ""; }
+}
+
+function storyboardStringList(value: unknown): string[] {
+    if (!Array.isArray(value)) return [];
+    return value.map(storyboardText).map((item) => item.trim()).filter(Boolean);
 }
 
 

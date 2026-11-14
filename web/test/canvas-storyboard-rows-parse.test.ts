@@ -44,6 +44,25 @@ describe("storyboardRowsFromTask", () => {
         expect(storyboardRowsFromTask(task).rows).toHaveLength(1);
     });
 
+    test("把数组型 timeBeats 和其他非字符串字段规范化为可编辑文本", () => {
+        const task = storyboardTask(JSON.stringify({
+            title: "章节",
+            rows: [{
+                shotNumber: 1,
+                durationSeconds: "4",
+                plotDescription: "产品展示",
+                timeBeats: ["0-1 秒：出现", "1-4 秒：摆动"],
+                mustHave: ["头部摆动", 2],
+                optionalDetails: ["暖光", null],
+            }],
+        }));
+        const row = storyboardRowsFromTask(task).rows[0];
+        expect(row.durationSeconds).toBe(4);
+        expect(row.timeBeats).toBe("0-1 秒：出现\n1-4 秒：摆动");
+        expect(row.mustHave).toEqual(["头部摆动", "2"]);
+        expect(row.optionalDetails).toEqual(["暖光"]);
+    });
+
     test("text 内层不是 JSON 时抛出缺行错误", () => {
         // 无契约时期模型返回 Markdown 表格的真实场景。
         const task = storyboardTask(JSON.stringify({ mode: "text", text: "| 7-41 | 全景/拉远 | 桃园结义 |" }));

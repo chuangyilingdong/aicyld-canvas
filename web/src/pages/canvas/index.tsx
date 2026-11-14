@@ -27,7 +27,7 @@ import { beginLocalCanvasProject, deleteLocalCanvasProjects, hydrateLocalCanvasP
 import { createWorkspaceCanvasProject } from "@/services/workspace-project-repository";
 import { listWorkspaceCanvasProjectsPage, type CanvasLibrarySummary } from "@/services/api/workspace-data";
 import { useUserStore } from "@/stores/use-user-store";
-import { listProjects } from "@/services/api/projects";
+import { listProjects, type ProjectSummary } from "@/services/api/projects";
 import { loadCanvasProjectPage } from "@/lib/workspace-route-modules";
 import { useSyncProgressStore } from "@/stores/use-sync-progress-store";
 import { useAppearanceStore } from "@/stores/use-appearance-store";
@@ -111,6 +111,16 @@ export default function CanvasPage() {
     const [associationProjectId, setAssociationProjectId] = useState("");
     // 本地工作区的画布、文件夹与历史完全来自浏览器本地存储；项目关系查询只在远程工作区启用。
     const projectQuery = useQuery({ queryKey: ["projects", userId], queryFn: () => listProjects(), enabled: remoteMode && sessionHydrated });
+    const smartFilmProjects = useMemo(() => remoteMode
+        ? (projectQuery.data?.projects || []).filter(({ project }) => project.type === "smart-film" || project.type === "smart-film-auto")
+        : [], [projectQuery.data, remoteMode]);
+    const visibleSmartFilmProjects = useMemo(() => {
+        if (folderFilter !== "all") return [];
+        const query = debouncedKeyword.toLowerCase();
+        return smartFilmProjects
+            .filter(({ project }) => (projectFilter === "all" || projectFilter === project.id) && (!query || project.name.toLowerCase().includes(query)))
+            .sort((left, right) => sort === "name" ? left.project.name.localeCompare(right.project.name, "zh-CN") : right.project.updatedAt.localeCompare(left.project.updatedAt));
+    }, [debouncedKeyword, folderFilter, projectFilter, smartFilmProjects, sort]);
 
     const mode = searchParams.get("mode");
     const agentMode = mode === "new" || mode === "recent" || mode === "choose";
@@ -395,7 +405,7 @@ export default function CanvasPage() {
                     <div role="alert">画布列表读取失败<Button onClick={() => void libraryQuery.refetch()}>重试</Button></div>
                 ) : !hydrated || (remoteMode && libraryQuery.isPending) ? (
                     <WorkspaceLoadingState label="正在恢复画布" detail="读取本地缓存与账号同步状态" />
-                ) : visibleProjects.length || (!keyword && projectFilter === "all") ? (
+                ) : visibleProjects.length || visibleSmartFilmProjects.length || (!keyword && projectFilter === "all") ? (
                     <CollectionGrid className="canvas-collection-grid">
                         <div className="libtv-create-project-entry">
                             <article className="libtv-create-project-card" role="button" tabIndex={0} onClick={() => createAndEnter()} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); createAndEnter(); } }}>
@@ -411,6 +421,9 @@ export default function CanvasPage() {
                                 message.error(error instanceof Error ? error.message : "封面没有保存成功");
                             });
                         }} />)}
+                        {visibleSmartFilmProjects.map((item) => (
+                            <SmartFilmProjectCard key={`smart-film-project-${item.project.id}`} item={item} onOpen={() => navigate(`/projects/${item.project.id}/overview`)} />
+                        ))}
                         {visibleProjects.map((project) => (
                             <CanvasFolderCard
                                 key={project.id}
@@ -505,6 +518,32 @@ export default function CanvasPage() {
                 }} /> : null}
             {deleteDialogOpen ? <Suspense fallback={null}><CanvasDeleteProjectsDialog /></Suspense> : null}
         </WorkspacePage>
+    );
+}
+
+function SmartFilmProjectCard({ item, onOpen }: { item: ProjectSummary; onOpen: () => void }) {
+    return (
+        <LibraryCardShell
+            ariaLabel={`打开智能成片项目 ${item.project.name}`}
+            className="canvas-collection-card"
+            updatedAt={item.project.updatedAt}
+            onOpen={onOpen}
+            cover={
+                <div className="canvas-collection-preview-content">
+                    <div className="flex size-full flex-col justify-between bg-[radial-gradient(circle_at_top_right,color-mix(in_srgb,var(--workspace-accent)_28%,transparent),transparent_58%),linear-gradient(145deg,color-mix(in_srgb,var(--foreground)_5%,transparent),transparent)] p-4">
+                        <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-border/70 bg-background/70 px-2.5 py-1 text-[var(--fs-micro)] text-foreground/55"><Clapperboard className="size-3.5" />智能成片</span>
+                        <div className="flex items-end justify-between gap-3">
+                            <div className="min-w-0">
+                                <strong className="line-clamp-2 text-sm leading-5">{item.project.name}</strong>
+                                <span className="mt-1 block text-[var(--fs-micro)] text-foreground/45">{item.unitCount} 个章节 · {item.assetCount} 个资产</span>
+                            </div>
+                            <Clapperboard className="size-9 shrink-0 text-foreground/18" />
+                        </div>
+                    </div>
+                </div>
+            }
+            title={item.project.name}
+        />
     );
 }
 
