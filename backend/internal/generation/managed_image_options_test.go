@@ -3,6 +3,7 @@ package generation
 import (
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 
 	"infinite-canvas/backend/internal/beefapi"
@@ -23,6 +24,26 @@ func mustNormalizeImageProfile(t *testing.T, raw string) *ImageCapabilityConfig 
 		t.Fatal(err)
 	}
 	return &profile
+}
+
+func TestManagedImageEditMakesSelectedAspectRatioExplicit(t *testing.T) {
+	base := Input{Mode: "image", Prompt: "让沧龙继续在宇宙中游行", Config: Config{Size: "9:16"}, ReferenceImages: []Media{{ID: "source"}}}
+	got := managedImagePrompt(base)
+	if !strings.Contains(got, "输出画幅要求：9:16 竖屏，必须按该宽高比构图和输出。") {
+		t.Fatalf("missing vertical ratio directive: %q", got)
+	}
+	if again := managedImagePrompt(Input{Mode: "image", Prompt: got, Config: base.Config, ReferenceImages: base.ReferenceImages}); again != got {
+		t.Fatalf("ratio directive duplicated: %q", again)
+	}
+	if text := managedImagePrompt(Input{Mode: "image", Prompt: base.Prompt, Config: Config{Size: "16:9"}}); strings.Contains(text, "输出画幅要求") {
+		t.Fatalf("text-to-image prompt must not be changed: %q", text)
+	}
+	if text := managedImagePrompt(Input{Mode: "image", Prompt: base.Prompt, Config: Config{Size: "720x1280"}, ReferenceImages: base.ReferenceImages}); strings.Contains(text, "输出画幅要求") {
+		t.Fatalf("pixel size must not be treated as a ratio: %q", text)
+	}
+	if text := managedImagePrompt(Input{Mode: "image", Prompt: "保持 16:9 构图", Config: Config{Size: "16:9"}, ReferenceImages: base.ReferenceImages}); strings.Contains(text, "输出画幅要求") {
+		t.Fatalf("existing user ratio must not be overridden: %q", text)
+	}
 }
 
 // 能力直接经由 beefapi.NormalizeCatalogImageCapability 解析自服务端 /v1/models 录制快照与线上目录声明。

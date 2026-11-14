@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"net/http"
@@ -50,7 +51,7 @@ func runManagedImageTask(ctx context.Context, input Input) (map[string]any, erro
 		return nil, RequestPreparationError{Cause: errors.New("图片请求缺少持久化提交标识")}
 	}
 	request := beefapi.MediaRequest{TaskRef: SubmissionKeyFromContext(ctx), MediaType: "image", Model: input.Config.Model, Operation: "generate", Options: managedImageOptions(input)}
-	request.Input.Prompt = WithSystemPrompt(input.Config, input.Prompt)
+	request.Input.Prompt = managedImagePrompt(input)
 	refs := make([]beefapi.LocalMediaReference, 0, len(input.ReferenceImages)+1)
 	for _, image := range input.ReferenceImages {
 		refs = append(refs, managedReference(image, "reference"))
@@ -92,6 +93,31 @@ func executeManagedMedia(ctx context.Context, client *beefapi.MediaClient, reque
 		return nil, RequestPreparationError{Cause: err}
 	}
 	return result, nil
+}
+
+// Some managed edit models follow the source image ratio even when the API
+// receives size/aspect_ratio. Keep the machine option and make the selected
+// canvas ratio explicit in the prompt without overriding a user's own ratio.
+func managedImagePrompt(input Input) string {
+	prompt := WithSystemPrompt(input.Config, input.Prompt)
+	if len(input.ReferenceImages) == 0 {
+		return prompt
+	}
+	width, height, ok := parseImageRatio(strings.TrimSpace(input.Config.Size))
+	if !ok {
+		return prompt
+	}
+	ratio := strconv.Itoa(width) + ":" + strconv.Itoa(height)
+	if strings.Contains(prompt, ratio) {
+		return prompt
+	}
+	orientation := "方形"
+	if width > height {
+		orientation = "横屏"
+	} else if width < height {
+		orientation = "竖屏"
+	}
+	return prompt + fmt.Sprintf("\n\n输出画幅要求：%s %s，必须按该宽高比构图和输出。", ratio, orientation)
 }
 
 func managedReference(media Media, role string) beefapi.LocalMediaReference {
