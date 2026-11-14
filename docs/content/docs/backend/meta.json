@@ -8,6 +8,7 @@
     "beeftv-cli",
     "http-api",
     "storyboard-operations",
+    "smart-film-batches",
     "code-map",
     "backend-database",
     "task-runtime-stability",

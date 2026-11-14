@@ -118,19 +118,22 @@ type ProjectAssetFolder struct {
 }
 
 type ProjectAssetCandidate struct {
-	ID              string        `json:"id" gorm:"primaryKey;size:36"`
-	ProjectID       string        `json:"projectId" gorm:"index;size:36;index:idx_project_asset_candidates_project_unit_status,priority:1;index:idx_project_asset_candidates_project_status_category,priority:1"`
-	UnitID          string        `json:"unitId,omitempty" gorm:"index;size:36;index:idx_project_asset_candidates_project_unit_status,priority:2"`
-	ShotID          string        `json:"shotId,omitempty" gorm:"index;size:36"`
-	Name            string        `json:"name" gorm:"size:240"`
-	NameKey         string        `json:"-" gorm:"index;size:240"`
-	Category        AssetCategory `json:"category" gorm:"index;size:32;index:idx_project_asset_candidates_project_status_category,priority:3"`
-	Status          string        `json:"status" gorm:"index;size:32;index:idx_project_asset_candidates_project_unit_status,priority:3;index:idx_project_asset_candidates_project_status_category,priority:2"`
-	Source          string        `json:"source,omitempty" gorm:"index;size:48"`
-	DetailsJSON     string        `json:"detailsJson" gorm:"type:text"`
-	ResolvedAssetID string        `json:"resolvedAssetId,omitempty" gorm:"index;size:80"`
-	CreatedAt       time.Time     `json:"createdAt"`
-	UpdatedAt       time.Time     `json:"updatedAt"`
+	ID                string        `json:"id" gorm:"primaryKey;size:36"`
+	ProjectID         string        `json:"projectId" gorm:"index;size:36;index:idx_project_asset_candidates_project_unit_status,priority:1;index:idx_project_asset_candidates_project_status_category,priority:1"`
+	UnitID            string        `json:"unitId,omitempty" gorm:"index;size:36;index:idx_project_asset_candidates_project_unit_status,priority:2"`
+	ShotID            string        `json:"shotId,omitempty" gorm:"index;size:36"`
+	Name              string        `json:"name" gorm:"size:240"`
+	NameKey           string        `json:"-" gorm:"index;size:240"`
+	Category          AssetCategory `json:"category" gorm:"index;size:32;index:idx_project_asset_candidates_project_status_category,priority:3"`
+	Status            string        `json:"status" gorm:"index;size:32;index:idx_project_asset_candidates_project_unit_status,priority:3;index:idx_project_asset_candidates_project_status_category,priority:2"`
+	Source            string        `json:"source,omitempty" gorm:"index;size:48"`
+	DetailsJSON       string        `json:"detailsJson" gorm:"type:text"`
+	ResolvedAssetID   string        `json:"resolvedAssetId,omitempty" gorm:"index;size:80"`
+	PreviewResourceID string        `json:"previewResourceId,omitempty" gorm:"index;size:36"`
+	PreviewTaskID     string        `json:"previewTaskId,omitempty" gorm:"index;size:36"`
+	PreviewStatus     string        `json:"previewStatus,omitempty" gorm:"size:24"`
+	CreatedAt         time.Time     `json:"createdAt"`
+	UpdatedAt         time.Time     `json:"updatedAt"`
 }
 
 type AssetVersion struct {
@@ -200,6 +203,55 @@ type Project struct {
 	Revision          int64         `json:"revision"`
 	CreatedAt         time.Time     `json:"createdAt"`
 	UpdatedAt         time.Time     `json:"updatedAt" gorm:"index"`
+}
+
+// SmartFilmBatch groups independent smart-film scripts. Each script owns its
+// own project, assets, storyboard and video; the batch only keeps the shared
+// idea, product references and creation defaults together for the UI.
+type SmartFilmBatch struct {
+	ID                string    `json:"id" gorm:"primaryKey;size:36"`
+	UserID            string    `json:"userId" gorm:"index;size:36;index:idx_smart_film_batches_user_updated,priority:1"`
+	Title             string    `json:"title" gorm:"size:240"`
+	SourceText        string    `json:"sourceText" gorm:"type:text"`
+	InputAssetIDsJSON string    `json:"inputAssetIdsJson" gorm:"type:text"`
+	ConfigJSON        string    `json:"configJson" gorm:"type:text"`
+	ScriptsJSON       string    `json:"scriptsJson" gorm:"type:text"`
+	Status            string    `json:"status" gorm:"index;size:32"`
+	Revision          int64     `json:"revision"`
+	CreatedAt         time.Time `json:"createdAt" gorm:"index:idx_smart_film_batches_user_updated,priority:2"`
+	UpdatedAt         time.Time `json:"updatedAt" gorm:"index:idx_smart_film_batches_user_updated,priority:2"`
+}
+
+// SmartFilmProductionRun is the durable receipt for turning one batch script
+// into an independent project. The idempotency key is derived from the batch,
+// script and script content so retries after a timeout cannot create a second
+// project for the same confirmed input.
+type SmartFilmProductionRun struct {
+	ID                   string     `json:"id" gorm:"primaryKey;size:36"`
+	UserID               string     `json:"userId" gorm:"index;size:36;index:idx_smart_film_runs_batch,priority:1"`
+	BatchID              string     `json:"batchId" gorm:"index;size:36;index:idx_smart_film_runs_batch,priority:2"`
+	ScriptID             string     `json:"scriptId" gorm:"index;size:36"`
+	IdempotencyKey       string     `json:"idempotencyKey" gorm:"uniqueIndex;size:96"`
+	Status               string     `json:"status" gorm:"index;size:24"`
+	CurrentStep          string     `json:"currentStep" gorm:"size:32"`
+	ProjectID            string     `json:"projectId,omitempty" gorm:"index;size:36"`
+	UnitID               string     `json:"unitId,omitempty" gorm:"index;size:36"`
+	ResourceSnapshotJSON string     `json:"resourceSnapshotJson" gorm:"type:text"`
+	FailedStep           string     `json:"failedStep,omitempty" gorm:"size:32"`
+	Error                string     `json:"error,omitempty" gorm:"type:text"`
+	RecoverableAction    string     `json:"recoverableAction,omitempty" gorm:"size:32"`
+	AssetStatus          string     `json:"assetStatus,omitempty" gorm:"index;size:24"`
+	AssetTaskID          string     `json:"assetTaskId,omitempty" gorm:"size:36"`
+	AssetCount           int        `json:"assetCount"`
+	StoryboardStatus     string     `json:"storyboardStatus,omitempty" gorm:"index;size:24"`
+	StoryboardTaskID     string     `json:"storyboardTaskId,omitempty" gorm:"size:36"`
+	StoryboardShotCount  int        `json:"storyboardShotCount"`
+	WorkerLeaseOwner     string     `json:"-" gorm:"index;size:120"`
+	WorkerLeaseUntil     *time.Time `json:"-" gorm:"index"`
+	Attempts             int        `json:"attempts"`
+	Revision             int64      `json:"revision"`
+	CreatedAt            time.Time  `json:"createdAt"`
+	UpdatedAt            time.Time  `json:"updatedAt" gorm:"index:idx_smart_film_runs_batch,priority:3"`
 }
 
 // ProjectFolder 是用户项目列表级目录；与项目内部素材目录分开。

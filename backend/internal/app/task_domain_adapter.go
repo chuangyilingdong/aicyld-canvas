@@ -109,6 +109,10 @@ func (a taskProjectsAdapter) EnsureActive(userID, canvasOrProjectID string) erro
 	return a.s.ensureTaskProjectActive(userID, canvasOrProjectID)
 }
 
+func (a taskProjectsAdapter) EnsureVideoTaskAllowed(userID, projectID string, input map[string]any) error {
+	return a.s.projectDomain().EnsureSmartFilmVideoTaskAllowed(userID, projectID, input)
+}
+
 type taskOwnedMediaAdapter struct{ s *Service }
 
 func (a taskOwnedMediaAdapter) Resource(userID, id string) (*model.Resource, error) {

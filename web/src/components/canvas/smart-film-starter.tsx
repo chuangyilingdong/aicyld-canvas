@@ -396,7 +396,7 @@ export function SmartFilmStarter({ open = true, initialTopic = "", onClose, pres
             <div className="flex items-start justify-between gap-4 rounded-xl border border-border/70 px-4 py-3">
                 <div>
                     <div className="text-sm font-medium">全自动制作成片</div>
-                    <p className="mt-1 text-xs leading-5 text-foreground/48">默认关闭。开启后会继续补齐分镜图、镜头视频、旁白和 BGM，并自动提交一键成片，连续产生多次生成任务和积分消耗。</p>
+                    <p className="mt-1 text-xs leading-5 text-foreground/48">默认关闭。开启后会先自动确认分镜提示词，再继续补齐分镜图、镜头视频、旁白和 BGM，并自动提交一键成片，连续产生多次生成任务和积分消耗。</p>
                     <p className="mt-1 text-xs leading-5 text-foreground/40">{musicModel ? `BGM 模型：${modelDisplayName(effectiveConfig, musicModel)}` : "未配置 audio.music 模型，自动成片将跳过 BGM。"}</p>
                 </div>
                 <Switch checked={autoRun} onChange={setAutoRun} disabled={generating} aria-label="全自动制作成片" />

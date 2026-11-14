@@ -7,7 +7,7 @@ import { SegmentedControl } from "@/components/ui/base/segmented-control";
 import { EmptyState } from "@/components/ui/product/empty-state";
 import { StatusBadge } from "@/components/ui/base/badges";
 import { AppModal } from "@/components/ui/product/app-modal/app-modal";
-import { Box, ChevronDown, ChevronLeft, ChevronRight, Download, Film, Image as ImageIcon, Layers3, List, Maximize2, Play, Plus, RefreshCcw, Save, Search, SlidersHorizontal, Sparkles, Trash2, UsersRound, WandSparkles, X } from "lucide-react";
+import { Box, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Download, Film, Image as ImageIcon, Layers3, List, Maximize2, Play, Plus, RefreshCcw, Save, Search, SlidersHorizontal, Sparkles, Trash2, UsersRound, WandSparkles, X } from "lucide-react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 
 import { CanvasResourceMentionTextarea } from "@/components/canvas/canvas-resource-mention-textarea";
@@ -16,6 +16,8 @@ import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { usePersonalAssetLibrary } from "@/hooks/use-personal-asset-library";
 import { ModelPicker } from "@/components/model-picker";
 import { initialWorkbenchModel, refreshedWorkbenchModel } from "./workflow-model-selection";
+import { confirmAutomaticSmartFilmPrompts, smartFilmPromptGate } from "./workflow-storyboard-confirmation";
+import { useStoryboardPromptConfirmation } from "./workflow-storyboard-prompt-hook";
 import { isMusicAudioModel } from "@/lib/audio-generation";
 import { canvasFeatureModel } from "@/lib/canvas/feature-models";
 import { applyProjectStyleToGenerationPrompt, projectStyleHint } from "./workflow-generation-style";
@@ -276,7 +278,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
     };
 
     const saveShot = useMutation({
-        mutationFn: async (values: ShotEditorValues) => {
+        mutationFn: async ({ values, status }: { values: ShotEditorValues; status?: string }) => {
             if (!selectedShot) throw new Error("请先选择镜头");
             return saveProjectShot(projectId, {
                 id: selectedShot.id,
@@ -285,13 +287,49 @@ export default function WorkflowProductionWorkbench(props: Props) {
                 description: values.plotDescription,
                 position: selectedShot.position,
                 durationMs: Math.round(values.durationSeconds * 1000),
-                status: selectedShot.status,
+                status: status || (selectedShot.status === "confirmed" ? "draft" : selectedShot.status),
                 revision: revisionInput(values),
             });
         },
-        onSuccess: async () => { setEditorDirty(false); await onRefresh(); message.success("镜头脚本已保存为新版本"); },
+        onSuccess: async (_result, variables) => { setEditorDirty(false); await onRefresh(); message.success(variables.status === "confirmed" ? "分镜提示词已确认" : "镜头脚本已保存为新版本"); },
         onError: (error) => message.error(error instanceof Error ? error.message : "镜头保存失败"),
     });
+
+    const saveConfirmedStoryboardShot = async (shot: ProjectShot, values: ShotEditorValues) => {
+        await saveProjectShot(projectId, {
+            id: shot.id, unitId, title: values.title, description: values.plotDescription, position: shot.position,
+            durationMs: Math.round(values.durationSeconds * 1000), status: "confirmed", revision: revisionInput(values),
+        });
+    };
+
+    const confirmStoryboardPrompts = useStoryboardPromptConfirmation<ShotEditorValues>({
+        shots,
+        selectedShot,
+        form,
+        busy: activeStage !== "storyboard" || Boolean(batchProgress),
+        valuesForShot: (shot, index) => shotEditorValues(detail, shot, index, buildShotAssetReferenceContext(detail, shot.id)),
+        save: saveConfirmedStoryboardShot,
+        onConfirmed: async () => {
+            setEditorDirty(false);
+            await onRefresh();
+        },
+    });
+
+    const confirmAutomaticStoryboardPrompts = async () => {
+        await confirmAutomaticSmartFilmPrompts({
+            stage: activeStage,
+            projectType: detail.project.type,
+            shots,
+            selectedShotId: selectedShot?.id,
+            selectedValues: () => form.validateFields(),
+            valuesForShot: (shot, index) => shotEditorValues(detail, shot, index, buildShotAssetReferenceContext(detail, shot.id)),
+            save: saveConfirmedStoryboardShot,
+            onConfirmed: async () => {
+                setEditorDirty(false);
+                await onRefresh();
+            },
+        });
+    };
 
     const deleteShot = useMutation({
         mutationFn: async ({ shotId }: { shotId: string; nextShotId: string }) => deleteProjectShot(projectId, shotId),
@@ -310,7 +348,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
             if (!asset?.primaryVersionId) throw new Error("该资产还没有可绑定版本");
             return linkShotAsset(projectId, selectedShot.id, { assetVersionId: asset.primaryVersionId, role: "reference" });
         },
-        onSuccess: async (_result, variables) => { await onRefresh(); message.success(variables.reference ? "已取消当前镜头的资产引用" : "资产已绑定到当前镜头"); },
+        onSuccess: async (_result, variables) => { await onRefresh(); message.success(variables.reference ? "已取消当前镜头的资产引用，请重新确认分镜提示词" : "资产已绑定到当前镜头，请重新确认分镜提示词"); },
         onError: (error) => message.error(error instanceof Error ? error.message : "镜头资产更新失败"),
     });
 
@@ -337,7 +375,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
         onSuccess: async (count, variables) => {
             setAssetPickerTarget(null);
             await onRefresh();
-            message.success(variables.target.mode === "replace" ? "镜头资产已替换" : `已添加 ${count} 个镜头资产`);
+            message.success(`${variables.target.mode === "replace" ? "镜头资产已替换" : `已添加 ${count} 个镜头资产`}，请重新确认分镜提示词`);
         },
         onError: (error) => message.error(error instanceof Error ? error.message : "镜头资产添加失败"),
     });
@@ -352,7 +390,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
         },
         onSuccess: async (asset) => {
             await onRefresh();
-            message.success(`已确认并绑定“${asset.title}”`);
+            message.success(`已确认并绑定“${asset.title}”，请重新确认分镜提示词`);
         },
         onError: (error) => message.error(error instanceof Error ? error.message : "资产确认失败"),
     });
@@ -556,6 +594,11 @@ export default function WorkflowProductionWorkbench(props: Props) {
 
     const generateArtifact = async () => {
         if (!selectedShot || submittingShotIds.has(selectedShot.id) || batchProgress) return;
+        const promptGate = smartFilmPromptGate({ detail, stage: activeStage, shots: [selectedShot], selectedShot, editorDirty });
+        if (promptGate) {
+            message.warning(promptGate);
+            return;
+        }
         const submittingShot = selectedShot;
         setSubmittingShotIds((current) => new Set(current).add(submittingShot.id));
         try {
@@ -590,6 +633,11 @@ export default function WorkflowProductionWorkbench(props: Props) {
 
     const generateAllArtifacts = async (options?: { automatic?: boolean }) => {
         if (batchProgress || submittingShotIds.size) return;
+        const promptGate = smartFilmPromptGate({ detail, stage: activeStage, shots, selectedShot, editorDirty });
+        if (promptGate) {
+            message.warning(promptGate);
+            return;
+        }
         const advanceAutomaticStage = () => {
             const nextStage = activeStage === "storyboard" ? "video" : activeStage === "video" ? "delivery" : "";
             if (nextStage) navigate(`/projects/${projectId}/workflow/${unitId}/${nextStage}?autostart=1`);
@@ -625,6 +673,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                             return;
                         }
                     }
+                    await confirmAutomaticStoryboardPrompts();
                     await finishVideoPostProduction();
                     advanceAutomaticStage();
                 } catch (error) {
@@ -718,6 +767,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                     message.error(`${waitFailures.length} 个${stageCopy.label}生成失败：${waitFailures.slice(0, 3).join("；")}`);
                     return;
                 }
+                await confirmAutomaticStoryboardPrompts();
                 await finishVideoPostProduction();
                 message.success(`全部${stageCopy.label}已生成，继续下一步`);
                 advanceAutomaticStage();
@@ -749,6 +799,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
 
     const stageCopy = productionStageCopy[activeStage as "storyboard" | "previz" | "video"];
     const selectedShotSubmitting = submittingShotIds.has(selectedShot?.id || "");
+    const unconfirmedSmartFilmShots = ["smart-film", "smart-film-auto"].includes(detail.project.type) ? shots.filter((shot) => shot.status !== "confirmed") : [];
 
     if (!selectedShot) {
         return <div className="workflow-empty-shot"><EmptyState size="compact" title="当前章节还没有分镜" description="推荐先用 AI 根据章节内容生成分镜，也可以手动新增。" action={<div className="flex flex-wrap items-center justify-center gap-2"><Button type="primary" icon={<Sparkles className="size-4" />} onClick={() => navigate(`/projects/${projectId}/chapters/${unitId}`)}>AI 生成分镜</Button><Button icon={<Plus className="size-4" />} loading={addingShot} onClick={onAddShot}>手动新增</Button></div>} /></div>;
@@ -826,11 +877,11 @@ export default function WorkflowProductionWorkbench(props: Props) {
                         <div className="workflow-shot-heading">
                             <span className="workflow-shot-number">{formatShotOrdinal(shotIndex)}</span>
                             {customShotTitle(watchedTitle || selectedShot.title, shotIndex) ? <h2>{customShotTitle(watchedTitle || selectedShot.title, shotIndex)}</h2> : null}
-                            <StatusBadge tone={saveShot.isPending ? "loading" : editorDirty ? "warning" : revision ? "success" : "neutral"} label={saveShot.isPending ? "保存中" : editorDirty ? "有未保存修改" : revision ? "已保存" : "草稿"} className="m-0" />
+                            <StatusBadge tone={saveShot.isPending ? "loading" : editorDirty ? "warning" : selectedShot.status === "confirmed" ? "success" : "neutral"} label={saveShot.isPending ? "保存中" : editorDirty ? "有未保存修改" : selectedShot.status === "confirmed" ? "提示词已确认" : revision ? "待确认提示词" : "草稿"} className="m-0" />
                         </div>
                         <div className="flex items-center gap-1"><span className="mr-1 text-[var(--fs-micro)] text-foreground/45">{shotIndex + 1} / {shots.length}</span><Button type="text" size="small" icon={<ChevronLeft className="size-4" />} disabled={shotIndex <= 0} onClick={() => selectRelativeShot(-1)} aria-label="上一个镜头" /><Button type="text" size="small" icon={<ChevronRight className="size-4" />} disabled={shotIndex >= shots.length - 1} onClick={() => selectRelativeShot(1)} aria-label="下一个镜头" /></div>
                     </header>
-                    <Form form={form} layout="vertical" className="workflow-shot-form" onValuesChange={() => setEditorDirty(true)} onFinish={(values) => saveShot.mutate(values)}>
+                    <Form form={form} layout="vertical" className="workflow-shot-form" onValuesChange={() => setEditorDirty(true)} onFinish={(values) => saveShot.mutate({ values })}>
                         <div className="workflow-shot-form-scroll thin-scrollbar">
                             <div className="workflow-form-section-heading"><span>镜头脚本</span><small>先写清镜头里发生什么，再调整生成参数</small></div>
                             <Form.Item name="title" label="镜头名称" rules={[{ required: true, message: "请输入镜头名称" }]}><Input placeholder="用一句话概括这个镜头" /></Form.Item>
@@ -909,7 +960,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                             </WorkflowDisclosure>
                         </div>
                         <footer className="workflow-editor-actions">
-                            <div className="flex items-center gap-2"><Button danger icon={<Trash2 className="size-4" />} loading={deleteShot.isPending} disabled={saveShot.isPending || selectedShotSubmitting || Boolean(batchProgress) || changeAssetBinding.isPending} onClick={requestDeleteShot}>删除镜头</Button><Button htmlType="submit" icon={<Save className="size-4" />} loading={saveShot.isPending} disabled={!editorDirty || deleteShot.isPending || Boolean(batchProgress)}>保存脚本</Button><Button icon={<Layers3 className="size-4" />} loading={Boolean(batchProgress)} disabled={deleteShot.isPending || selectedShotSubmitting || Boolean(batchProgress)} onClick={() => void generateAllArtifacts()}>{batchProgress ? batchProgress.phase === "waiting" ? `生成中 ${batchProgress.done}/${batchProgress.total}` : `提交中 ${batchProgress.done}/${batchProgress.total}` : `补齐全部${stageCopy.label}`}</Button><Button type="primary" icon={<Play className="size-4" />} loading={selectedShotSubmitting || shotTask?.status === "queued" || shotTask?.status === "running"} disabled={deleteShot.isPending || Boolean(batchProgress)} onClick={() => void generateArtifact()}>{selectedShotSubmitting ? `${stageCopy.action}（正在提交）` : shotTask?.status === "queued" || shotTask?.status === "running" ? `${stageCopy.action}（已运行${shotTaskElapsed}）` : shotTask?.status === "failed" ? `${stageCopy.action}（上次失败，可重试）` : shotTask?.status === "succeeded" && !newestArtifact ? `${stageCopy.action}（已完成，正在同步）` : newestArtifact ? `${stageCopy.action}（已生成）` : stageCopy.action}</Button></div>
+                            <div className="flex items-center gap-2"><Button danger icon={<Trash2 className="size-4" />} loading={deleteShot.isPending} disabled={saveShot.isPending || selectedShotSubmitting || Boolean(batchProgress) || changeAssetBinding.isPending} onClick={requestDeleteShot}>删除镜头</Button><Button htmlType="submit" icon={<Save className="size-4" />} loading={saveShot.isPending} disabled={!editorDirty || deleteShot.isPending || Boolean(batchProgress)}>保存脚本</Button>{activeStage === "storyboard" ? <Button icon={<CheckCircle2 className="size-4" />} disabled={deleteShot.isPending || selectedShotSubmitting || Boolean(batchProgress)} onClick={() => void confirmStoryboardPrompts()}>确认全部提示词{unconfirmedSmartFilmShots.length ? `（${unconfirmedSmartFilmShots.length} 待确认）` : ""}</Button> : null}<Button icon={<Layers3 className="size-4" />} loading={Boolean(batchProgress)} disabled={deleteShot.isPending || selectedShotSubmitting || Boolean(batchProgress)} onClick={() => void generateAllArtifacts()}>{batchProgress ? batchProgress.phase === "waiting" ? `生成中 ${batchProgress.done}/${batchProgress.total}` : `提交中 ${batchProgress.done}/${batchProgress.total}` : `补齐全部${stageCopy.label}`}</Button><Button type="primary" icon={<Play className="size-4" />} loading={selectedShotSubmitting || shotTask?.status === "queued" || shotTask?.status === "running"} disabled={deleteShot.isPending || Boolean(batchProgress)} onClick={() => void generateArtifact()}>{selectedShotSubmitting ? `${stageCopy.action}（正在提交）` : shotTask?.status === "queued" || shotTask?.status === "running" ? `${stageCopy.action}（已运行${shotTaskElapsed}）` : shotTask?.status === "failed" ? `${stageCopy.action}（上次失败，可重试）` : shotTask?.status === "succeeded" && !newestArtifact ? `${stageCopy.action}（已完成，正在同步）` : newestArtifact ? `${stageCopy.action}（已生成）` : stageCopy.action}</Button></div>
                         </footer>
                     </Form>
                 </section>

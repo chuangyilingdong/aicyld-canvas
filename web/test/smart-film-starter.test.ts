@@ -76,5 +76,6 @@ test("full auto production is opt-in and still waits for image, video and delive
     expect(workbench).toContain("smart-film-narration");
     expect(workbench).toContain("smart-film-bgm");
     expect(workbench).toContain("generateAllArtifacts({ automatic: true })");
+    expect(workbench).toContain("confirmAutomaticSmartFilmPrompts");
     expect(delivery).toContain('searchParams.get("autostart") !== "1"');
 });

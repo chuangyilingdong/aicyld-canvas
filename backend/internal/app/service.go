@@ -24,6 +24,7 @@ import (
 	"infinite-canvas/backend/internal/prompts"
 	"infinite-canvas/backend/internal/repository"
 	"infinite-canvas/backend/internal/skills"
+	"infinite-canvas/backend/internal/smartfilm"
 	"infinite-canvas/backend/internal/supporttrace"
 	localtask "infinite-canvas/backend/internal/task"
 	"infinite-canvas/backend/internal/taskdelivery"
@@ -110,6 +111,8 @@ type Service struct {
 	mediaAttemptService      *mediaattempt.Service
 	mediaAttemptOnce         sync.Once
 	videoRecoveryActive      atomic.Bool
+	smartFilmWorker          *smartfilm.Worker
+	smartFilmWorkerOnce      sync.Once
 	videoRecoveryAfterID     string
 	bindAfterID              string
 	bindCursorMu             sync.Mutex

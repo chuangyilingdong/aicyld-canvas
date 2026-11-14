@@ -37,6 +37,7 @@ func (w *taskWorkerCoordinator) start(ctx context.Context) {
 	s.startCanvasBillingReconciliation(ctx)
 	s.startGenerationDeliveryRecovery(ctx)
 	s.startCanvasWorkflowScheduler(ctx)
+	s.startSmartFilmProductionWorker(ctx)
 	if w.runtime == nil {
 		w.runtime = newAppTaskRuntime(w)
 	}

@@ -154,6 +154,13 @@ func (s *Service) admit(userID string, req CreateRequest) (*model.Task, error) {
 	if err := s.deps.Projects.EnsureActive(userID, req.ProjectID); err != nil {
 		return nil, err
 	}
+	if gate, ok := s.deps.Projects.(interface {
+		EnsureVideoTaskAllowed(userID, projectID string, input map[string]any) error
+	}); ok {
+		if err := gate.EnsureVideoTaskAllowed(userID, req.ProjectID, normalizedInput); err != nil {
+			return nil, err
+		}
+	}
 	if req.PrepareOnly {
 		encoded, encodeErr := encodeTaskInput(normalizedInput)
 		if encodeErr != nil {

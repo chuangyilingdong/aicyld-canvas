@@ -52,6 +52,8 @@ func newTestService(t *testing.T, workflows Workflows) (*Service, *gorm.DB) {
 	}
 	if err := db.AutoMigrate(
 		&model.Project{},
+		&model.SmartFilmBatch{},
+		&model.SmartFilmProductionRun{},
 		&model.ProjectFolder{},
 		&model.ProjectUnit{},
 		&model.CanvasProject{},

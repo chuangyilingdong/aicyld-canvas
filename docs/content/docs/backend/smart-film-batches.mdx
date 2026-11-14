@@ -1,0 +1,82 @@
+---
+title: 多剧本智能成片
+---
+
+# 多剧本智能成片
+
+多剧本批次把一个想法、产品参考图和生成规格保存为批次；批次中的每条剧本都代表一个完全独立的视频项目。系统不会把多条剧本合并成一条视频。
+
+## 数据边界
+
+| 对象 | 职责 |
+| --- | --- |
+| `smart_film_batches` | 共享想法、产品素材 ID、模型与分镜规格、剧本候选 JSON、批次修订号 |
+| `smart_film_production_runs` | 每条剧本的项目创建步骤、幂等键、资源快照和可恢复动作 |
+| `projects` | 每条已确认剧本对应的独立视频项目 |
+| `project_units` | 项目中的剧本正文和制作上下文 |
+| 现有资产、镜头、任务与产物表 | 保持每条视频独立确认、计费、生成和失败恢复 |
+
+批次只保存草稿层的剧本候选。确认剧本后，后端创建独立项目和章节，并把批次级产品图关联到各自项目；后续资产图、分镜提示词、镜头视频和成片全部走现有项目工作台。
+
+## HTTP 合同
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `POST` | `/api/smart-film-batches` | 创建批次 |
+| `GET` | `/api/smart-film-batches/:id` | 读取批次与剧本候选 |
+| `PUT` | `/api/smart-film-batches/:id/scripts` | 保存整组剧本候选 |
+| `PATCH` | `/api/smart-film-batches/:id/scripts/:scriptId` | 修改或重新生成单条剧本 |
+| `DELETE` | `/api/smart-film-batches/:id/scripts/:scriptId?expectedRevision=N` | 删除未创建项目的剧本 |
+| `POST` | `/api/smart-film-batches/:id/confirm` | 为选中的剧本分别创建独立项目 |
+| `PATCH` | `/api/smart-film-batches/:id/production-runs/:runId` | 记录资产或分镜阶段状态、任务 ID、错误和资源数量 |
+| `POST` | `/api/smart-film-batches/:id/production-runs/:runId/start` | 将资产提取阶段加入后台 Worker 队列 |
+
+所有写接口都要求 `expectedRevision`，避免页面旧状态覆盖新的批次内容。确认接口会在同一个数据库事务中创建 Project、ProjectUnit、关联产品图、写入 ProductionRun 快照并更新批次修订号；任何一步失败都会整体回滚，并保留一条 `needs_attention` 的 ProductionRun 供重试。
+
+ProductionRun 的幂等键由批次、剧本 ID 和剧本内容共同生成。请求超时后重试同一内容会复用同一条记录，不会重复创建项目。成功回执丢失后，即使客户端仍携带旧 `expectedRevision`，后端发现所选剧本的 ProductionRun 已全部 `ready` 时会直接返回当前批次。Project 已存在但 Unit 缺失的历史半成品也会在重试时补齐 Unit 和产品图关联。
+
+ProductionRun 同时保存 `assetStatus`、`assetTaskId`、`assetCount`、`storyboardStatus`、
+`storyboardTaskId`、`storyboardShotCount`、`revision` 和阶段错误。资产提取与分镜生成开始时
+写入 `running`，完成后写入 `ready`；失败时写入 `needs_attention` 和对应 `retry_assets` /
+`retry_storyboard` 恢复动作。批次页刷新后仍能显示每个项目最后完成的阶段和失败原因。
+
+资产提取已经接入后台 Worker。用户点击“提取资产”后，接口只把 ProductionRun 的资产阶段改为
+`queued`；Worker 使用批次中保存的文本模型提交 `chapter_assets_extract` 任务，并在任务完成后
+写入资产候选、更新阶段为 `ready`。因此当前资产提取不依赖页面保持打开。分镜阶段仍由页面
+发起，后续会迁移到同一个 Worker。
+
+当前 Worker 通过服务端渠道目录解析批次中形如 `channelId::model` 的文本模型。若模型依赖只存在
+于浏览器本地的自定义直连密钥，阶段会进入 `needs_attention` 并保留错误；后续需要增加受保护的
+编排配置快照，而不是把浏览器密钥明文写入批次表。
+
+## 前端流程
+
+1. 用户填写想法、上传产品图，并设置剧本数量、每条视频分镜数和单镜时长。
+2. 文本模型生成严格 JSON 的剧本候选，保存到批次。
+3. 用户可逐条编辑、重新生成或删除，也可多选要制作的剧本。
+4. 确认后每条剧本创建独立项目、章节和 ProductionRun，并关联批次产品图；失败时可在批次页修复。
+5. 每条项目先提取角色、场景和道具候选，失败会直接反馈，不再静默继续生成分镜。
+6. 用户在资产页确认候选并生成所需资产图；仍有待确认资产时，批次页会阻止生成分镜。
+7. 资产确认完成后生成分镜，再进入项目确认分镜提示词并生成视频。
+
+批次详情页负责候选选择、独立项目创建、资产提取和分镜生成；资产图与分镜提示词的最终确认仍在各项目工作台完成。
+
+## 资产图确认
+
+场景、道具、素材等非角色候选可以在资产库中先生成资产图。生成结果通过
+`PATCH /api/projects/:id/asset-candidates/:candidateId/preview` 保存到候选的
+`previewResourceId`、`previewTaskId` 和 `previewStatus` 字段。用户确认候选时，
+后端把预览资源转换为正式图片资产、资产版本和 `primary` representation，再关联到项目。
+
+角色候选继续使用角色卡和三视图链路，不与通用资产图确认混用。
+
+## 分镜提示词确认
+
+智能成片项目的镜头状态使用 `confirmed` 表示分镜提示词已确认。确认动作会保存当前提示词、
+时长、资产引用和新版本；确认后再次修改并保存，或添加、替换、取消镜头资产，都会由后端在
+同一事务中把镜头改回 `draft`。修改已创建项目的剧本正文也会把该章节所有镜头改回 `draft`，
+旧分镜产物标记为过期。视频生成入口只对 `confirmed` 镜头开放，避免用户修改剧本、提示词
+或资产后仍按旧版本扣费生成。
+
+该限制作用于 `project.type = smart-film` 和 `smart-film-auto` 的智能成片项目。全自动模式会显式
+保存一次自动确认的镜头版本，然后才进入视频阶段，不再直接绕过确认门禁。

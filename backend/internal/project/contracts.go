@@ -171,6 +171,13 @@ type ConfirmProjectAssetCandidateRequest struct {
 	AssetID string `json:"assetId"`
 }
 
+type UpdateProjectAssetCandidatePreviewRequest struct {
+	ResourceID       string `json:"resourceId"`
+	TaskID           string `json:"taskId"`
+	Status           string `json:"status"`
+	ExpectedRevision int64  `json:"expectedRevision"`
+}
+
 type CreateProjectAssetFolderRequest struct {
 	Name     string `json:"name"`
 	ParentID string `json:"parentId"`

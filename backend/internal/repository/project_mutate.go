@@ -219,6 +219,11 @@ func (r *Repository) UpdateProjectUnitActive(userID string, expectedRevision int
 			return gorm.ErrRecordNotFound
 		}
 		if invalidateWorkflow {
+			if err := tx.Model(&model.Shot{}).Where("project_id = ? AND unit_id = ?", unit.ProjectID, unit.ID).Updates(map[string]any{
+				"status": "draft", "updated_at": unit.UpdatedAt,
+			}).Error; err != nil {
+				return err
+			}
 			if err := tx.Model(&model.ShotArtifact{}).Where("project_id = ? AND unit_id = ? AND status NOT IN ?", unit.ProjectID, unit.ID, []string{"failed", "stale"}).Updates(map[string]any{"status": "stale", "selected": false, "updated_at": unit.UpdatedAt}).Error; err != nil {
 				return err
 			}
@@ -829,42 +834,6 @@ func (r *Repository) ConfirmProjectCharacterCandidateActive(userID string, candi
 	})
 }
 
-func (r *Repository) ConfirmProjectAssetCandidateActive(userID string, candidate *model.ProjectAssetCandidate, asset *model.Asset, version *model.AssetVersion, link *model.ProjectAssetLink, createAsset bool) error {
-	return r.db.Transaction(func(tx *gorm.DB) error {
-		if _, err := requireActiveProjectTx(tx, userID, candidate.ProjectID); err != nil {
-			return err
-		}
-		if strings.TrimSpace(link.FolderID) != "" {
-			if err := tx.First(&model.ProjectAssetFolder{}, "id = ? AND project_id = ?", link.FolderID, link.ProjectID).Error; err != nil {
-				return err
-			}
-		}
-		if createAsset {
-			if err := tx.Create(asset).Error; err != nil {
-				return err
-			}
-			if err := tx.Create(version).Error; err != nil {
-				return err
-			}
-		} else if err := tx.First(&model.Asset{}, "id = ? AND user_id = ?", asset.ID, asset.UserID).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("project_id = ? AND asset_id = ?", link.ProjectID, link.AssetID).FirstOrCreate(link).Error; err != nil {
-			return err
-		}
-		result := tx.Model(&model.ProjectAssetCandidate{}).
-			Where("id = ? AND project_id = ? AND status = ?", candidate.ID, candidate.ProjectID, "pending_confirmation").
-			Updates(map[string]any{"status": candidate.Status, "resolved_asset_id": candidate.ResolvedAssetID, "updated_at": candidate.UpdatedAt})
-		if result.Error != nil {
-			return result.Error
-		}
-		if result.RowsAffected != 1 {
-			return gorm.ErrInvalidData
-		}
-		return bumpProjectRevisionTx(tx, candidate.ProjectID, candidate.UpdatedAt)
-	})
-}
-
 func (r *Repository) SaveShotWithRevisionActive(userID string, shot *model.Shot, revision *model.ShotRevision, create bool, expectedCurrentRevisionID string) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		if _, err := requireActiveProjectTx(tx, userID, shot.ProjectID); err != nil {
@@ -1072,6 +1041,11 @@ func (r *Repository) UpsertShotAssetReferenceActive(userID, projectID string, re
 		if err := tx.First(&shot, "id = ? AND project_id = ?", reference.ShotID, projectID).Error; err != nil {
 			return err
 		}
+		if err := tx.Model(&model.Shot{}).Where("id = ? AND project_id = ?", shot.ID, projectID).Updates(map[string]any{
+			"status": "draft", "updated_at": updatedAt,
+		}).Error; err != nil {
+			return err
+		}
 		if err := invalidateUnitWorkflowTx(tx, projectID, shot.UnitID, "storyboard", updatedAt); err != nil {
 			return err
 		}
@@ -1098,6 +1072,11 @@ func (r *Repository) DeleteShotAssetReferenceActive(userID, projectID, shotID, r
 		}
 		var shot model.Shot
 		if err := tx.First(&shot, "id = ? AND project_id = ?", shotID, projectID).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&model.Shot{}).Where("id = ? AND project_id = ?", shot.ID, projectID).Updates(map[string]any{
+			"status": "draft", "updated_at": updatedAt,
+		}).Error; err != nil {
 			return err
 		}
 		if err := invalidateUnitWorkflowTx(tx, projectID, shot.UnitID, "storyboard", updatedAt); err != nil {

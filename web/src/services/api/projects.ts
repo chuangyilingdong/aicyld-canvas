@@ -130,6 +130,9 @@ export type ProjectAssetCandidate = {
     status: "pending_confirmation" | "confirmed" | "ignored" | string;
     detailsJson: string;
     resolvedAssetId?: string;
+    previewResourceId?: string;
+    previewTaskId?: string;
+    previewStatus?: "generating" | "ready" | "failed" | string;
     createdAt: string;
     updatedAt: string;
 };
@@ -621,6 +624,15 @@ export function listChapterApplyReceipts(projectId: string, taskIds: string[]) {
 
 export function confirmProjectAssetCandidate(projectId: string, candidateId: string, assetId?: string) {
     return http.post<{ asset: ProjectAsset }>(`/projects/${encodeURIComponent(projectId)}/asset-candidates/${encodeURIComponent(candidateId)}/confirm`, { assetId: assetId || "" });
+}
+
+export function updateProjectAssetCandidatePreview(projectId: string, candidateId: string, input: {
+    resourceId: string;
+    taskId?: string;
+    status: "generating" | "ready" | "failed";
+    expectedRevision: number;
+}) {
+    return http.patch<{ candidate: ProjectAssetCandidate }>(`/projects/${encodeURIComponent(projectId)}/asset-candidates/${encodeURIComponent(candidateId)}/preview`, input);
 }
 
 export function updateWorkflowStep(projectId: string, stepId: string, input: { status: string; outputJson?: string; error?: string }) {

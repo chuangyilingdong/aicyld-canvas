@@ -26,6 +26,7 @@ import {
     createProjectCharacter,
     deleteProjectAssetFolder,
     getProjectCharacter,
+    getProjectCore,
     linkProjectAsset,
     listProjectAssetCandidates,
     listProjectAssetFolders,
@@ -36,10 +37,13 @@ import {
     unlinkProjectAsset,
     updateProjectAssetCategory,
     updateProjectAssetFolder,
+    updateProjectAssetCandidatePreview,
     updateProjectCharacter,
     type ProjectAsset,
+    type ProjectAssetCandidate,
     type ProjectAssetFolder,
 } from "@/services/api/projects";
+import { runBackendGenerationTask } from "@/services/api/generation-task";
 import { hasRemoteUserDataSyncSession, saveRemoteUserDataNow } from "@/services/local-workspace-sync";
 import { isLocalWorkspaceMode } from "@/services/workspace-mode";
 import { useAssetStore, type Asset, type AssetCategory, type AssetStatus, type EntityAsset, type ImageAsset } from "@/stores/use-asset-store";
@@ -314,6 +318,57 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
         onError: failed("资产确认失败"),
     });
     const confirmingCandidateId = confirmMutation.isPending ? confirmMutation.variables?.candidateId || "" : "";
+    const candidateImageMutation = useMutation({
+        mutationFn: async (candidate: ProjectAssetCandidate) => {
+            const model = effectiveConfig.imageModel || effectiveConfig.model;
+            const config = { ...effectiveConfig, model };
+            if (!isAiConfigReady(config, model)) throw new Error("请先在设置中配置可用的图片模型");
+            const style = resolveProjectCanvasStyle(detail.project.stylePresetId, detail.project.styleProfileJson);
+            const referenceImages = detail.assets.flatMap((asset) => {
+                if (asset.mediaType !== "image" || !asset.storageKey) return [];
+                const resourceId = resourceIdFromStorageKey(asset.storageKey);
+                return [{
+                    id: asset.id,
+                    name: asset.title,
+                    type: "image/*",
+                    dataUrl: "",
+                    storageKey: asset.storageKey,
+                    ...(resourceId ? { url: resourceFileUrl(resourceId) } : {}),
+                }];
+            }).slice(0, 4);
+            let taskId = "";
+            const result = await runBackendGenerationTask({
+                projectId: detail.project.id,
+                mode: "image",
+                prompt: assetCandidateImagePrompt(candidate, style?.prompt || ""),
+                config,
+                referenceImages,
+                metadata: { source: "asset_candidate_preview", candidateId: candidate.id, unitId: candidate.unitId || "" },
+                onTaskUpdate: (task) => { taskId = task.id; },
+            });
+            const image = result.images?.[0];
+            const resourceId = ownedResourceIdFromMediaRef(image?.storageKey, image?.url) || resourceIdFromStorageKey(image?.storageKey);
+            if (!resourceId) throw new Error("资产图已生成，但没有取得可保存的图片资源");
+            const latest = await getProjectCore(detail.project.id);
+            await updateProjectAssetCandidatePreview(detail.project.id, candidate.id, {
+                resourceId,
+                taskId,
+                status: "ready",
+                expectedRevision: latest.project.revision,
+            });
+            return { candidateId: candidate.id, resourceId };
+        },
+        onSuccess: async () => {
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: ["project", detail.project.id, "asset-candidates"] }),
+                queryClient.invalidateQueries({ queryKey: ["project", detail.project.id] }),
+            ]);
+            refreshProject();
+            message.success("资产图已生成，可预览后确认");
+        },
+        onError: failed("资产图生成失败"),
+    });
+    const generatingCandidateId = candidateImageMutation.isPending ? candidateImageMutation.variables?.id || "" : "";
     const saveCharacter = useMutation({
         mutationFn: async (values: CharacterForm) => {
             const definition = characterDefinition(values);
@@ -475,15 +530,19 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
                             <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                                 {pendingCandidates.map((candidate) => {
                                     const confirming = confirmingCandidateId === candidate.id;
+                                    const generatingImage = generatingCandidateId === candidate.id;
                                     const isCharacter = candidate.category === "character";
                                     return (
                                         <article key={candidate.id} className="flex min-h-28 items-center gap-3 rounded-lg bg-surface-active p-3">
-                                            <span className="grid size-12 shrink-0 place-items-center rounded-md bg-foreground/[.045] text-foreground/25">{isCharacter ? <UserRound className="size-5" /> : <Box className="size-5" />}</span>
+                                            <span className="grid size-16 shrink-0 place-items-center overflow-hidden rounded-md bg-foreground/[.045] text-foreground/25">
+                                                {candidate.previewResourceId ? <CachedResourceImage storageKey={`resource:${candidate.previewResourceId}`} alt={candidate.name} eager className="h-full w-full object-cover" /> : isCharacter ? <UserRound className="size-5" /> : <Box className="size-5" />}
+                                            </span>
                                             <div className="min-w-0 flex-1">
                                                 <div className="truncate text-xs font-semibold">{candidate.name}</div>
-                                                <div className="mt-1 text-[var(--fs-tiny)] text-foreground/42">待确认{categoryLabel(candidate.category)} · 来自章节分析</div>
+                                                <div className="mt-1 text-[var(--fs-tiny)] text-foreground/42">待确认{categoryLabel(candidate.category)} · {candidate.previewResourceId ? "资产图已生成" : "来自章节分析"}</div>
                                                 <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1">
-                                                    <Button type="text" size="small" icon={<Check className="size-3.5" />} loading={confirming} disabled={Boolean(confirmingCandidateId) && !confirming} onClick={() => confirmMutation.mutate({ candidateId: candidate.id })}>{isCharacter ? "确认新角色" : "确认新增"}</Button>
+                                                    {!isCharacter ? <Button type="text" size="small" icon={<Sparkles className="size-3.5" />} loading={generatingImage} disabled={Boolean(generatingCandidateId) && !generatingImage} onClick={() => candidateImageMutation.mutate(candidate)}>{candidate.previewResourceId ? "重新生成资产图" : "生成资产图"}</Button> : null}
+                                                    <Button type="text" size="small" icon={<Check className="size-3.5" />} loading={confirming} disabled={(Boolean(confirmingCandidateId) && !confirming) || Boolean(generatingCandidateId)} onClick={() => confirmMutation.mutate({ candidateId: candidate.id })}>{isCharacter ? "确认新角色" : candidate.previewResourceId ? "确认资产图" : "确认新增"}</Button>
                                                     {isCharacter && characterAssets.length ? <Dropdown trigger={["click"]} menu={{ items: characterAssets.map((asset) => ({ key: asset.id, label: asset.title })), onClick: ({ key }) => confirmMutation.mutate({ candidateId: candidate.id, targetAssetId: key }) }}><Button type="text" size="small" disabled={Boolean(confirmingCandidateId)}>归并到角色<ChevronDown className="size-3" /></Button></Dropdown> : null}
                                                 </div>
                                             </div>
@@ -791,3 +850,24 @@ function syncPersonalCharacterProjection(asset: ProjectAsset) {
     useAssetStore.getState().replaceAssets([projected, ...current.filter((item) => item.id !== asset.id)]);
 }
 function MediaIcon({ kind }: { kind: string }) { if (kind === "image") return <ImageIcon className="size-10" />; if (kind === "video") return <Video className="size-10" />; if (kind === "audio") return <Music2 className="size-10" />; if (kind === "model") return <Box className="size-10" />; return <FileText className="size-10" />; }
+
+function assetCandidateImagePrompt(candidate: ProjectAssetCandidate, projectStyle: string) {
+    let details: Record<string, unknown> = {};
+    try {
+        const parsed: unknown = JSON.parse(candidate.detailsJson || "{}");
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) details = parsed as Record<string, unknown>;
+    } catch {
+        // A malformed candidate still has its name and can be generated from that.
+    }
+    const description = ["prompt", "description", "appearance", "consistencyPrompt"]
+        .map((key) => typeof details[key] === "string" ? String(details[key]).trim() : "")
+        .find(Boolean) || candidate.name;
+    return [
+        `生成一张用于短视频制作的${categoryLabel(candidate.category)}资产设定图。`,
+        `资产名称：${candidate.name}`,
+        `外观与设定：${description}`,
+        projectStyle ? `项目画风：${projectStyle}` : "",
+        "画面只展示资产本身，构图完整、背景干净、光线清晰，适合作为后续分镜的视觉参考。",
+        "不要出现文字、水印、边框、拼贴说明或多主体。",
+    ].filter(Boolean).join("\n");
+}

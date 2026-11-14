@@ -15,7 +15,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion int64 = 33
+const CurrentSchemaVersion int64 = 37
 
 type localSchemaMigration struct {
 	Version   int64 `gorm:"primaryKey;autoIncrement:false"`
@@ -54,7 +54,7 @@ func LocalModels() []any {
 		&model.Asset{}, &model.AssetFolder{}, &model.AssetVersion{}, &model.AssetRepresentation{},
 		&model.ProjectAssetLink{}, &model.ProjectAssetFolder{}, &model.ProjectAssetCandidate{},
 		&model.VoiceProfile{}, &model.CharacterVoiceBinding{},
-		&model.Project{}, &model.ProjectFolder{}, &model.StyleProfile{}, &model.ProjectUnit{}, &model.CanvasUnitLink{},
+		&model.Project{}, &model.SmartFilmBatch{}, &model.SmartFilmProductionRun{}, &model.ProjectFolder{}, &model.StyleProfile{}, &model.ProjectUnit{}, &model.CanvasUnitLink{},
 		&model.Shot{}, &model.ShotRevision{}, &model.ShotArtifact{}, &model.ShotAssetReference{},
 		&model.WorkflowTemplateVersion{}, &model.WorkflowInstance{}, &model.WorkflowStepInstance{}, &model.WorkflowStepTask{}, &model.ProductionTaskLink{},
 		&model.CanvasProject{}, &model.CanvasSnapshot{}, &model.CanvasSnapshotResource{}, &model.AgentOpRecord{}, &model.CanvasOnboardingEvent{},
@@ -147,6 +147,20 @@ func canonicalLocalMigrations() []localMigration {
 		{version: 31, name: "agent-operation-query-index", apply: ensureAgentOpUserOpStatusIndex},
 		{version: 32, name: "agent-operation-result-compression", apply: ensureAgentOpResultEncoding},
 		{version: 33, name: "canvas-media-asset-identity", apply: migrateCanvasMediaAssetIdentity},
+		{version: 34, name: "smart-film-batches", apply: func(tx *gorm.DB) error { return tx.AutoMigrate(&model.SmartFilmBatch{}) }},
+		{version: 35, name: "asset-candidate-previews", apply: func(tx *gorm.DB) error { return tx.AutoMigrate(&model.ProjectAssetCandidate{}) }},
+		{version: 36, name: "smart-film-production-runs", apply: func(tx *gorm.DB) error { return tx.AutoMigrate(&model.SmartFilmProductionRun{}) }},
+		{version: 37, name: "smart-film-production-stages", apply: func(tx *gorm.DB) error {
+			if err := tx.AutoMigrate(&model.SmartFilmProductionRun{}); err != nil {
+				return err
+			}
+			return tx.Model(&model.SmartFilmProductionRun{}).
+				Where("asset_status = '' OR asset_status IS NULL OR asset_status = ?", "pending").
+				Updates(map[string]any{
+					"asset_status": "waiting", "storyboard_status": gorm.Expr("CASE WHEN storyboard_status = '' OR storyboard_status IS NULL THEN 'waiting' ELSE storyboard_status END"),
+					"revision": gorm.Expr("CASE WHEN revision < 1 THEN 1 ELSE revision END"),
+				}).Error
+		}},
 	}
 }
 

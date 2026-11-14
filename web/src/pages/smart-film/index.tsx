@@ -26,9 +26,14 @@ export default function SmartFilmPage() {
                     <h1>智能成片</h1>
                     <p>从主题到分镜、画面、镜头和成片。先创建真实项目，再沿流程逐步制作，不再把成片流程藏在一个弹窗里。</p>
                 </div>
-                <Button icon={<Clapperboard className="size-4" />} onClick={() => navigate("/projects")}>
-                    返回项目库
-                </Button>
+                <div className="flex flex-wrap items-center gap-2">
+                    <Button icon={<Layers3 className="size-4" />} onClick={() => navigate("/smart-film/batches/new")}>
+                        多剧本批次
+                    </Button>
+                    <Button icon={<Clapperboard className="size-4" />} onClick={() => navigate("/projects")}>
+                        返回项目库
+                    </Button>
+                </div>
             </header>
 
             <div className="smart-film-layout">
@@ -48,7 +53,7 @@ export default function SmartFilmPage() {
                     ))}
                     <div className="smart-film-sidebar-note">
                         <Palette className="size-4" />
-                        <p>按上方步骤逐步操作即可。全自动制作默认关闭，需要连续生成图片、视频和成片时再开启。</p>
+                        <p>单条成片直接进入分镜工作台；多剧本批次会为每条剧本创建独立视频项目，互不合并。</p>
                     </div>
                 </aside>
                 <main className="smart-film-main">

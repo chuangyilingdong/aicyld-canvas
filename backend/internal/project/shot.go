@@ -242,7 +242,7 @@ func newShotRevision(userID string, shotID string, input ShotRevisionInput, fall
 
 func validShotStatus(status string) bool {
 	switch status {
-	case "draft", "ready", "running", "review", "completed", "failed":
+	case "draft", "ready", "confirmed", "running", "review", "completed", "failed":
 		return true
 	default:
 		return false

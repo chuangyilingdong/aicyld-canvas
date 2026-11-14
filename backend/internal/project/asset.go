@@ -299,6 +299,41 @@ func (s *Service) CreateProjectAssetVersion(userID string, projectID string, ass
 	return version, nil
 }
 
+func (s *Service) UpdateProjectAssetCandidatePreview(userID, projectID, candidateID string, req UpdateProjectAssetCandidatePreviewRequest) (model.ProjectAssetCandidate, error) {
+	if req.ExpectedRevision <= 0 {
+		return model.ProjectAssetCandidate{}, kernel.BadAuthRequest("请刷新后再保存资产图")
+	}
+	if _, err := s.Active(userID, projectID); err != nil {
+		return model.ProjectAssetCandidate{}, err
+	}
+	resourceID := strings.TrimSpace(req.ResourceID)
+	taskID := strings.TrimSpace(req.TaskID)
+	status := strings.TrimSpace(req.Status)
+	switch status {
+	case "", "generating", "ready", "failed":
+	default:
+		return model.ProjectAssetCandidate{}, kernel.BadAuthRequest("资产图状态无效")
+	}
+	if resourceID != "" {
+		resource, err := s.repo.ResourceForUser(userID, resourceID)
+		if err != nil {
+			return model.ProjectAssetCandidate{}, err
+		}
+		if resource.Kind != "image" {
+			return model.ProjectAssetCandidate{}, kernel.BadAuthRequest("资产图必须是图片资源")
+		}
+	}
+	now := time.Now()
+	if err := s.repo.UpdateProjectAssetCandidatePreviewActive(userID, projectID, candidateID, req.ExpectedRevision, resourceID, taskID, status, now); err != nil {
+		return model.ProjectAssetCandidate{}, mapProjectWriteError(err)
+	}
+	candidate, err := s.repo.ProjectAssetCandidate(projectID, candidateID)
+	if err != nil {
+		return model.ProjectAssetCandidate{}, err
+	}
+	return *candidate, nil
+}
+
 func (s *Service) ConfirmProjectAssetCandidate(userID string, projectID string, candidateID string, req ConfirmProjectAssetCandidateRequest) (AssetSummary, error) {
 	if _, err := s.Active(userID, projectID); err != nil {
 		return AssetSummary{}, err
@@ -341,7 +376,17 @@ func (s *Service) ConfirmProjectAssetCandidate(userID string, projectID string, 
 	createAsset := assetID == ""
 	var asset model.Asset
 	var version model.AssetVersion
-	if createAsset {
+	var representations []model.AssetRepresentation
+	if createAsset && candidate.PreviewResourceID != "" && candidate.Category != model.AssetCategoryCharacter {
+		previewAsset, previewVersion, previewRepresentations, previewErr := s.assetFromCandidatePreview(userID, candidate, now)
+		if previewErr != nil {
+			return AssetSummary{}, previewErr
+		}
+		asset = previewAsset
+		version = previewVersion
+		representations = previewRepresentations
+		assetID = asset.ID
+	} else if createAsset {
 		assetID = kernel.NewID()
 		versionID := kernel.NewID()
 		kind := "text"
@@ -383,10 +428,59 @@ func (s *Service) ConfirmProjectAssetCandidate(userID string, projectID string, 
 		return AssetSummary{}, positionErr
 	}
 	link := model.ProjectAssetLink{ID: kernel.NewID(), ProjectID: projectID, AssetID: assetID, FolderID: folderID, Position: position, CreatedAt: now}
-	if err := s.repo.ConfirmProjectAssetCandidateActive(userID, candidate, &asset, &version, &link, createAsset); err != nil {
+	if err := s.repo.ConfirmProjectAssetCandidateActive(userID, candidate, &asset, &version, representations, &link, createAsset); err != nil {
 		return AssetSummary{}, mapProjectWriteError(err)
 	}
 	return s.assetSummary(userID, projectID, &asset)
+}
+
+func (s *Service) assetFromCandidatePreview(userID string, candidate *model.ProjectAssetCandidate, now time.Time) (model.Asset, model.AssetVersion, []model.AssetRepresentation, error) {
+	resource, err := s.repo.ResourceForUser(userID, candidate.PreviewResourceID)
+	if err != nil {
+		return model.Asset{}, model.AssetVersion{}, nil, err
+	}
+	if resource.Kind != "image" {
+		return model.Asset{}, model.AssetVersion{}, nil, kernel.BadAuthRequest("资产图必须是图片资源")
+	}
+	assetID := kernel.NewID()
+	versionID := kernel.NewID()
+	payload, err := json.Marshal(map[string]any{
+		"id": assetID, "kind": resource.Kind, "category": candidate.Category, "status": model.AssetVersionStatusConfirmed,
+		"primaryVersionId": versionID, "title": candidate.Name, "tags": []string{},
+		"data": map[string]any{
+			"storageKey": "resource:" + resource.ID, "mimeType": resource.MimeType, "kind": resource.Kind,
+			"size": resource.Size, "width": resource.Width, "height": resource.Height, "durationMs": resource.DurationMs,
+			"status": resource.Status, "mediaType": resource.Kind, "source": "asset_candidate",
+		},
+		"createdAt": now.Format(time.RFC3339Nano), "updatedAt": now.Format(time.RFC3339Nano),
+	})
+	if err != nil {
+		return model.Asset{}, model.AssetVersion{}, nil, err
+	}
+	asset := model.Asset{
+		ID: assetID, UserID: userID, Kind: resource.Kind, Category: candidate.Category, Status: model.AssetVersionStatusConfirmed,
+		PrimaryVersionID: versionID, Title: candidate.Name, PayloadJSON: string(payload), CreatedAt: now, UpdatedAt: now,
+	}
+	version := model.AssetVersion{
+		ID: versionID, AssetID: assetID, Version: 1, Status: model.AssetVersionStatusConfirmed,
+		DefinitionJSON: candidate.DetailsJSON, Prompt: candidatePreviewPrompt(candidate), CreatedAt: now, UpdatedAt: now,
+	}
+	representation := model.AssetRepresentation{
+		ID: kernel.NewID(), AssetVersionID: versionID, ResourceID: resource.ID, MediaType: resource.Kind, Role: "primary", CreatedAt: now,
+	}
+	return asset, version, []model.AssetRepresentation{representation}, nil
+}
+
+func candidatePreviewPrompt(candidate *model.ProjectAssetCandidate) string {
+	var details map[string]any
+	if json.Unmarshal([]byte(candidate.DetailsJSON), &details) == nil {
+		for _, key := range []string{"prompt", "description", "consistencyPrompt"} {
+			if value, ok := details[key].(string); ok && strings.TrimSpace(value) != "" {
+				return strings.TrimSpace(value)
+			}
+		}
+	}
+	return candidate.Name
 }
 
 func mergeCharacterCandidateDefinition(currentJSON string, candidateJSON string, currentName string, candidateName string) (string, error) {

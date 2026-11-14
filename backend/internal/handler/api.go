@@ -96,6 +96,8 @@ func registerDesktopCanvasAPI(api *gin.RouterGroup, svc *app.Service, dependenci
 func registerShortDramaRoutes(r *gin.RouterGroup, svc *app.Service) {
 	RegisterStyleProfileRoutes(r, svc, svc.PromptService())
 	registerCanvasProductionRoutes(r, svc)
+	RegisterSmartFilmBatchRoutes(r, svc, svc.ProjectService())
+	RegisterProjectAssetCandidatePreviewRoutes(r, svc, svc.ProjectService())
 	RegisterProjectRoutes(r, svc, svc.ProjectService(), svc)
 }
 
