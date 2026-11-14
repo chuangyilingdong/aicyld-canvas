@@ -426,7 +426,7 @@ test("stale proposal replaces the inert generate action with a direct re-propose
         <CanvasAssistantTurnView
             turn={turn}
             handledProposals={new Set()}
-            proposalFeedback={{ [proposal.proposalId]: "生成设置在提出方案后改过。请让助手重新提出方案。" }}
+            proposalFeedback={{ [proposal.proposalId]: "画布在方案提出后已有新结果或改动，旧方案不能直接扣费。已完成素材会保留；请点“按当前结果继续”，助手会重新核对并只补未完成步骤。" }}
             onLocate={() => {}}
             onUndo={() => {}}
             onRunProposal={() => {}}

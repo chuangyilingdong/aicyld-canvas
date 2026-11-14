@@ -178,7 +178,7 @@ export function CanvasAssistantTurnView({ turn, canvasId, sessionId, status, han
                 const orderTargetLines = assistantOrderTargetLines(proposal);
                 const legacyProposalNote = !assistantVisibleReply(turn.reply || "") && proposal.note?.trim() ? proposal.note.trim() : "";
                 const proposalFeedbackText = proposalFeedback?.[proposal.proposalId] || "";
-                const needsReproposal = /请让助手重新提出(?:生成)?方案/.test(proposalFeedbackText);
+                const needsReproposal = /(?:请让助手重新提出(?:生成)?方案|按当前结果继续)/.test(proposalFeedbackText);
                 return (
                     <div key={proposal.proposalId} className="canvas-assistant-card">
                         {legacyProposalNote ? <span className="canvas-assistant-proposal-note" style={{ whiteSpace: "pre-line", overflowWrap: "anywhere" }}>{legacyProposalNote}</span> : null}
