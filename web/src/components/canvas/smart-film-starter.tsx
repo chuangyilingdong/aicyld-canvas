@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { App, Button, Input, InputNumber, Modal, Select, Switch } from "antd";
 import { useQueryClient } from "@tanstack/react-query";
-import { Clapperboard, Palette, Sparkles } from "lucide-react";
+import { Check, Clapperboard, LoaderCircle, Palette, Sparkles } from "lucide-react";
 import { useNavigate } from "react-router";
 
 import { CanvasStylePickerModal, type CanvasStylePreset } from "@/components/canvas/canvas-style-picker-modal";
@@ -45,6 +45,7 @@ export function SmartFilmStarter({ open = true, initialTopic = "", onClose, pres
     const effectiveConfig = useEffectiveConfig();
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const [topic, setTopic] = useState("");
+    const [step, setStep] = useState<1 | 2 | 3>(1);
     const [shotCount, setShotCount] = useState<number | null>(SMART_FILM_DEFAULT_SHOT_COUNT);
     const [shotDurations, setShotDurations] = useState<number[]>([]);
     const [aspectRatio, setAspectRatio] = useState("9:16");
@@ -66,6 +67,8 @@ export function SmartFilmStarter({ open = true, initialTopic = "", onClose, pres
     const normalizedShotCount = normalizeSmartFilmShotCount(shotCount);
     const shotCountValid = isValidSmartFilmShotCount(shotCount);
     const totalDurationSeconds = shotDurations.reduce((total, value) => total + value, 0);
+    const modelsReady = Boolean(textModel || effectiveConfig.textModel) && Boolean(imageModel || effectiveConfig.imageModel) && Boolean(resolvedVideoModel);
+    const generatingStage = status.includes("写入") ? 3 : status.includes("规划") ? 2 : status.includes("提取") ? 1 : 0;
 
     useEffect(() => {
         if (!open) return;
@@ -75,6 +78,7 @@ export function SmartFilmStarter({ open = true, initialTopic = "", onClose, pres
         setVideoModel(effectiveConfig.videoModel || "");
         setAutoRun(false);
         setCreatedProject(null);
+        setStep(1);
     }, [effectiveConfig.imageModel, effectiveConfig.textModel, effectiveConfig.videoModel, initialTopic, open]);
 
     useEffect(() => {
@@ -253,7 +257,7 @@ export function SmartFilmStarter({ open = true, initialTopic = "", onClose, pres
         }
     };
 
-    const content = (
+    const formContent = (
         <div className={presentation === "page" ? "smart-film-form" : "space-y-4 pt-2"}>
             {createdProject ? (
                 <div className="smart-film-created" role="status">
@@ -266,6 +270,19 @@ export function SmartFilmStarter({ open = true, initialTopic = "", onClose, pres
                     </Button>
                 </div>
             ) : null}
+            <div className="smart-film-stepper" aria-label="智能成片步骤">
+                {[
+                    { step: 1 as const, label: "主题与规格" },
+                    { step: 2 as const, label: "创作参数" },
+                    { step: 3 as const, label: "确认生成" },
+                ].map((item) => (
+                    <button key={item.step} type="button" className={step === item.step ? "is-active" : step > item.step ? "is-done" : ""} disabled={generating || item.step > step} onClick={() => setStep(item.step)}>
+                        <span>{step > item.step ? <Check className="size-3.5" /> : item.step}</span>
+                        <strong>{item.label}</strong>
+                    </button>
+                ))}
+            </div>
+            {step === 1 ? <>
             <label className="block space-y-1.5">
                 <span className="block text-xs font-medium text-foreground/60">视频主题或文案</span>
                 <Input.TextArea
@@ -299,6 +316,8 @@ export function SmartFilmStarter({ open = true, initialTopic = "", onClose, pres
                     />
                 </label>
             </div>
+            </> : null}
+            {step === 2 ? <>
             <section className="smart-film-duration-section">
                 <div className="smart-film-duration-heading">
                     <div>
@@ -365,6 +384,15 @@ export function SmartFilmStarter({ open = true, initialTopic = "", onClose, pres
                     {selectedStyle ? `画风：${selectedStyle.title}` : "选择画风（可选）"}
                 </Button>
             </div>
+            </> : null}
+            {step === 3 ? <>
+            <section className="grid gap-3 rounded-xl border border-border/70 bg-foreground/[0.025] p-4 sm:grid-cols-2">
+                <div className="min-w-0 sm:col-span-2"><span className="text-[var(--fs-micro)] text-foreground/42">主题或文案</span><p className="mt-1 line-clamp-3 text-sm leading-6">{topic.trim()}</p></div>
+                <div><span className="text-[var(--fs-micro)] text-foreground/42">成片规格</span><p className="mt-1 text-sm">{normalizedShotCount} 镜 · {aspectRatio} · 共 {totalDurationSeconds} 秒</p></div>
+                <div><span className="text-[var(--fs-micro)] text-foreground/42">画风</span><p className="mt-1 text-sm">{selectedStyle?.title || "未指定，使用模型默认风格"}</p></div>
+                <div><span className="text-[var(--fs-micro)] text-foreground/42">生成模型</span><p className="mt-1 truncate text-sm">{modelDisplayName(effectiveConfig, textModel || effectiveConfig.textModel)} / {modelDisplayName(effectiveConfig, imageModel || effectiveConfig.imageModel)} / {modelDisplayName(effectiveConfig, resolvedVideoModel)}</p></div>
+                <div><span className="text-[var(--fs-micro)] text-foreground/42">执行方式</span><p className="mt-1 text-sm">{autoRun ? "生成分镜后继续自动成片" : "先只生成分镜，之后在工作台逐步制作"}</p></div>
+            </section>
             <div className="flex items-start justify-between gap-4 rounded-xl border border-border/70 px-4 py-3">
                 <div>
                     <div className="text-sm font-medium">全自动制作成片</div>
@@ -377,21 +405,45 @@ export function SmartFilmStarter({ open = true, initialTopic = "", onClose, pres
                 {autoRun ? "项目与分镜 → 全部分镜图 → 全部镜头视频 → 旁白 + BGM → MP4/SRT 成片。执行期间请保持页面打开。" : "项目与分镜创建后，可在分镜工作台逐步生成图片、视频和成片。"}图片和视频生成使用上方选择的模型，旁白与 BGM
                 使用平台音频功能模型。费用按实际任务账单结算。
             </div>
+            </> : null}
             {status ? (
                 <p className="text-xs text-foreground/55" role="status">
                     {status}
                 </p>
             ) : null}
-            <div className="flex justify-end gap-2">
-                <Button disabled={generating} onClick={requestClose}>
-                    取消
-                </Button>
-                <Button type="primary" icon={<Sparkles className="size-3.5" />} loading={generating} disabled={!topic.trim() || !shotCountValid} onClick={() => void createSmartFilm()}>
-                    {generating ? "正在准备分镜" : autoRun ? "创建并自动成片" : "创建并生成分镜"}
-                </Button>
+            <div className="flex items-center justify-between gap-2 border-t border-border/60 pt-4">
+                <Button disabled={generating} onClick={requestClose}>取消</Button>
+                <div className="flex gap-2">
+                    {step > 1 ? <Button disabled={generating} onClick={() => setStep((current) => Math.max(1, current - 1) as 1 | 2 | 3)}>上一步</Button> : null}
+                    {step < 3 ? (
+                        <Button type="primary" disabled={generating || (step === 1 ? !topic.trim() || !shotCountValid : !modelsReady)} onClick={() => setStep((current) => Math.min(3, current + 1) as 1 | 2 | 3)}>
+                            下一步
+                        </Button>
+                    ) : (
+                        <Button type="primary" icon={<Sparkles className="size-3.5" />} disabled={!topic.trim() || !shotCountValid} onClick={() => void createSmartFilm()}>
+                            {autoRun ? "创建并自动成片" : "创建并生成分镜"}
+                        </Button>
+                    )}
+                </div>
             </div>
         </div>
     );
+
+    const content = generating ? (
+        <div className="smart-film-generating" role="status" aria-live="polite">
+            <span className="smart-film-generating-icon"><LoaderCircle className="size-6 animate-spin" /></span>
+            <div>
+                <h2>正在生成分镜</h2>
+                <p>{status || "正在准备项目与镜头脚本…"}</p>
+            </div>
+            <div className="smart-film-generating-steps">
+                {["创建项目", "提取资产", "生成镜头脚本", "写入分镜"].map((label, index) => (
+                    <span key={label} className={index <= generatingStage ? "is-active" : ""}>{label}</span>
+                ))}
+            </div>
+            <p className="smart-film-generating-note">完成后会自动进入分镜工作台。通常需要 1–3 分钟，请不要关闭页面。</p>
+        </div>
+    ) : formContent;
 
     if (presentation === "page") {
         return (

@@ -11,9 +11,11 @@ test("smart film page renders as a workflow page instead of a dialog", () => {
     const html = renderToStaticMarkup(createElement(MemoryRouter, { initialEntries: ["/smart-film"] }, createElement(App, null, createElement(QueryClientProvider, { client: new QueryClient() }, createElement(SmartFilmPage)))));
 
     expect(html).toContain("制作流程");
-    expect(html).toContain("每个分镜时长");
-    expect(html).toContain("全自动制作成片");
-    expect(html).toContain("视频模型单镜上限");
+    expect(html).toContain("主题与规格");
+    expect(html).toContain("创作参数");
+    expect(html).toContain("确认生成");
+    expect(html).toContain("下一步");
+    expect(html).toContain("视频主题或文案");
     expect(html).toContain("智能成片");
     expect(html).not.toContain('role="dialog"');
 });

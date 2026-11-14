@@ -8,10 +8,10 @@ import { SmartFilmStarter } from "@/components/canvas/smart-film-starter";
 import "./smart-film.css";
 
 const flow = [
-    { title: "主题与文案", detail: "输入内容方向，确定画幅和分镜数量" },
-    { title: "逐镜节奏", detail: "为每个镜头单独选择时长，不超过模型上限" },
-    { title: "模型与画风", detail: "模型写入项目默认配置，画风进入生成提示词" },
-    { title: "生成分镜", detail: "创建项目后进入工作台，可继续逐步生成" },
+    { title: "填写主题", detail: "输入内容方向，设置画幅和分镜数量" },
+    { title: "确认参数", detail: "检查逐镜时长、模型与画风" },
+    { title: "开始生成", detail: "确认摘要后创建项目并生成分镜" },
+    { title: "进入工作台", detail: "生成完成后自动进入分镜编辑页面" },
 ];
 
 export default function SmartFilmPage() {
@@ -48,7 +48,7 @@ export default function SmartFilmPage() {
                     ))}
                     <div className="smart-film-sidebar-note">
                         <Palette className="size-4" />
-                        <p>画风会统一角色、场景、分镜图和镜头视频的视觉语言。全自动制作默认关闭，避免误触后连续产生任务。</p>
+                        <p>按上方步骤逐步操作即可。全自动制作默认关闭，需要连续生成图片、视频和成片时再开启。</p>
                     </div>
                 </aside>
                 <main className="smart-film-main">

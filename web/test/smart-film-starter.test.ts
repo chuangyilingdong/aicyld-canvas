@@ -58,7 +58,8 @@ test("smart film is a standalone workflow page and entries leave the modal behin
     const canvas = await Bun.file(new URL("../src/pages/canvas/index.tsx", import.meta.url)).text();
 
     expect(page).toContain('presentation="page"');
-    expect(page).toContain("每个镜头单独选择时长");
+    expect(page).toContain("确认参数");
+    expect(page).toContain("进入工作台");
     expect(router).toContain('path: "/smart-film"');
     expect(home).toContain('to: "/smart-film"');
     expect(canvas).toContain("SmartFilmProjectCard");

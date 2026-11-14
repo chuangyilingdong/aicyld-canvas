@@ -751,7 +751,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
     const selectedShotSubmitting = submittingShotIds.has(selectedShot?.id || "");
 
     if (!selectedShot) {
-        return <div className="workflow-empty-shot"><EmptyState size="compact" title="当前章节还没有分镜" action={<Button type="primary" icon={<Plus className="size-4" />} loading={addingShot} onClick={onAddShot}>新增第一个分镜</Button>} /></div>;
+        return <div className="workflow-empty-shot"><EmptyState size="compact" title="当前章节还没有分镜" description="推荐先用 AI 根据章节内容生成分镜，也可以手动新增。" action={<div className="flex flex-wrap items-center justify-center gap-2"><Button type="primary" icon={<Sparkles className="size-4" />} onClick={() => navigate(`/projects/${projectId}/chapters/${unitId}`)}>AI 生成分镜</Button><Button icon={<Plus className="size-4" />} loading={addingShot} onClick={onAddShot}>手动新增</Button></div>} /></div>;
     }
 
     const requestShotSelection = (nextShotId: string) => {
