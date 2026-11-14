@@ -63,6 +63,7 @@ func newTestService(t *testing.T, workflows Workflows) (*Service, *gorm.DB) {
 		&model.ProjectAssetLink{},
 		&model.ProjectAssetFolder{},
 		&model.ProjectAssetCandidate{},
+		&model.ProjectAssetCandidatePreview{},
 		&model.Asset{},
 		&model.AssetVersion{},
 		&model.AssetRepresentation{},

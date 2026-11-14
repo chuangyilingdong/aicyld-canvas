@@ -258,6 +258,35 @@ func (r *Repository) ResourceReferenceSnapshot(userID string, excludingAssetID s
 		snapshot.Direct = append(snapshot.Direct, ResourceDirectReference{Kind: "素材", ID: representation.ID, Title: representation.Title, ResourceID: representation.ResourceID})
 	}
 
+	var candidatePreviews []joinedRepresentation
+	if r.db.Migrator().HasTable(&model.ProjectAssetCandidatePreview{}) && r.db.Migrator().HasTable(&model.ProjectAssetCandidate{}) {
+		if err := r.db.Table("project_asset_candidate_previews").
+			Select("project_asset_candidate_previews.id, project_asset_candidates.name AS title, project_asset_candidate_previews.resource_id").
+			Joins("JOIN project_asset_candidates ON project_asset_candidates.id = project_asset_candidate_previews.candidate_id").
+			Joins("JOIN projects ON projects.id = project_asset_candidates.project_id").
+			Where("projects.user_id = ? AND project_asset_candidate_previews.resource_id IN ? AND project_asset_candidate_previews.status <> ?", userID, resourceIDs, "deleted").
+			Scan(&candidatePreviews).Error; err != nil {
+			return snapshot, err
+		}
+		for _, preview := range candidatePreviews {
+			snapshot.Direct = append(snapshot.Direct, ResourceDirectReference{Kind: "资产候选历史", ID: preview.ID, Title: preview.Title, ResourceID: preview.ResourceID})
+		}
+	}
+
+	var selectedCandidates []joinedRepresentation
+	if r.db.Migrator().HasTable(&model.ProjectAssetCandidate{}) {
+		if err := r.db.Table("project_asset_candidates").
+			Select("project_asset_candidates.id, project_asset_candidates.name AS title, project_asset_candidates.preview_resource_id").
+			Joins("JOIN projects ON projects.id = project_asset_candidates.project_id").
+			Where("projects.user_id = ? AND project_asset_candidates.preview_resource_id IN ?", userID, resourceIDs).
+			Scan(&selectedCandidates).Error; err != nil {
+			return snapshot, err
+		}
+		for _, candidate := range selectedCandidates {
+			snapshot.Direct = append(snapshot.Direct, ResourceDirectReference{Kind: "资产候选", ID: candidate.ID, Title: candidate.Title, ResourceID: candidate.ResourceID})
+		}
+	}
+
 	var voices []model.VoiceProfile
 	if err := r.db.Where("user_id = ? AND sample_resource_id IN ?", userID, resourceIDs).Find(&voices).Error; err != nil {
 		return snapshot, err

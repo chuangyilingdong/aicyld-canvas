@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"infinite-canvas/backend/internal/kernel"
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/repository"
 
@@ -55,7 +56,7 @@ func TestValidateStructuredStorageQuotaRejectsBytesAndCounts(t *testing.T) {
 	}
 	err := validateStructuredStorageQuotaWithPolicy(usage, "asset", true, 0, policy)
 	var quota *AppError
-	if err == nil || !errors.As(err, &quota) || quota.Code != CodeQuotaExceeded || quota.Status != CodeForbidden {
+	if err == nil || !errors.As(err, &quota) || quota.Code != kernel.CodeQuotaExceeded || quota.Status != kernel.CodeForbidden {
 		t.Fatalf("validateStructuredStorageQuota() count error = %v", err)
 	}
 }
@@ -69,7 +70,7 @@ func TestValidateStructuredCountQuotaRejectsBatchOverAssetLimit(t *testing.T) {
 	}
 	err := validateStructuredCountQuotaWithPolicy(usage, "asset", 2, 0, policy)
 	var quota *AppError
-	if err == nil || !errors.As(err, &quota) || quota.Code != CodeQuotaExceeded {
+	if err == nil || !errors.As(err, &quota) || quota.Code != kernel.CodeQuotaExceeded {
 		t.Fatalf("batch create error = %v", err)
 	}
 }

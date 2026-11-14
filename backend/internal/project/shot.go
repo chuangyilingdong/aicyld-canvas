@@ -232,11 +232,19 @@ func newShotRevision(userID string, shotID string, input ShotRevisionInput, fall
 		}
 		actionBeatsJSON = string(encoded)
 	}
+	assetRolesJSON := "[]"
+	if input.AssetRoles != nil {
+		encoded, err := json.Marshal(input.AssetRoles)
+		if err != nil {
+			return model.ShotRevision{}, kernel.BadAuthRequest("镜头资产关联格式无效")
+		}
+		assetRolesJSON = string(encoded)
+	}
 	return model.ShotRevision{
 		ID: kernel.NewID(), ShotID: shotID, PlotDescription: plotDescription, Action: strings.TrimSpace(input.Action), Dialogue: strings.TrimSpace(input.Dialogue),
 		ShotSize: strings.TrimSpace(input.ShotSize), CameraAngle: strings.TrimSpace(input.CameraAngle), CameraMovement: strings.TrimSpace(input.CameraMovement), DurationMs: durationMs,
 		ImagePrompt: strings.TrimSpace(input.ImagePrompt), VideoPrompt: strings.TrimSpace(input.VideoPrompt), NegativePrompt: strings.TrimSpace(input.NegativePrompt),
-		ContinuityNotes: strings.TrimSpace(input.ContinuityNotes), ActionBeatsJSON: actionBeatsJSON, CreatedBy: userID, CreatedAt: now,
+		ContinuityNotes: strings.TrimSpace(input.ContinuityNotes), ActionBeatsJSON: actionBeatsJSON, AssetRolesJSON: assetRolesJSON, CreatedBy: userID, CreatedAt: now,
 	}, nil
 }
 

@@ -29,6 +29,7 @@ test("smart film accepts a custom shot count across the backend range", () => {
 test("smart film starter persists models, style and explicit per-shot durations", async () => {
     const starter = await Bun.file(new URL("../src/components/canvas/smart-film-starter.tsx", import.meta.url)).text();
     const workbench = await Bun.file(new URL("../src/pages/projects/detail/workflow-production-workbench.tsx", import.meta.url)).text();
+    const productionHelpers = await Bun.file(new URL("../src/pages/projects/detail/workflow-production-helpers.tsx", import.meta.url)).text();
     const styleHelper = await Bun.file(new URL("../src/pages/projects/detail/workflow-generation-style.ts", import.meta.url)).text();
     const chapter = await Bun.file(new URL("../src/pages/projects/detail/project-chapter-ai.ts", import.meta.url)).text();
     const modelSelection = await Bun.file(new URL("../src/pages/projects/detail/workflow-model-selection.ts", import.meta.url)).text();
@@ -46,7 +47,7 @@ test("smart film starter persists models, style and explicit per-shot durations"
     expect(styleHelper).toContain("applyStyleExecutionPlan");
     expect(workbench).toContain("styleExecutionPlan");
     expect(workbench).toContain("添加资产");
-    expect(workbench).toContain("确认并使用");
+    expect(productionHelpers).toContain("确认并使用");
     expect(workbench).toContain("uploadWorkspaceAssetFiles");
     expect(modelSelection).toContain("normalizeModelOptionValue(projectModel, config.channels)");
 });

@@ -6,10 +6,12 @@ import (
 	"strings"
 	"time"
 
+	"infinite-canvas/backend/internal/billing"
 	"infinite-canvas/backend/internal/kernel"
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/prompts"
 	"infinite-canvas/backend/internal/repository"
+	localtask "infinite-canvas/backend/internal/task"
 
 	"gorm.io/gorm"
 )
@@ -23,18 +25,24 @@ type Workflows interface {
 }
 
 type Dependencies struct {
-	Workflows Workflows
+	Workflows     Workflows
+	EncryptSecret func(string) (string, error)
+	DecryptSecret func(string) (string, error)
+	QuoteTask     func(string, localtask.CreateRequest) (*billing.BillingQuote, error)
 }
 
 // Service owns project identity, folders, units, revision, canvas membership,
 // workflow steps, asset versions, characters and shots.
 type Service struct {
-	repo      *repository.Repository
-	workflows Workflows
+	repo          *repository.Repository
+	workflows     Workflows
+	encryptSecret func(string) (string, error)
+	decryptSecret func(string) (string, error)
+	quoteTask     func(string, localtask.CreateRequest) (*billing.BillingQuote, error)
 }
 
 func New(repo *repository.Repository, deps Dependencies) *Service {
-	service := &Service{repo: repo, workflows: deps.Workflows}
+	service := &Service{repo: repo, workflows: deps.Workflows, encryptSecret: deps.EncryptSecret, decryptSecret: deps.DecryptSecret, quoteTask: deps.QuoteTask}
 	if service.workflows == nil {
 		service.workflows = builtinWorkflows{service}
 	}
@@ -271,6 +279,7 @@ func (s *Service) CreateProject(userID string, req CreateProjectRequest) (model.
 		ID: kernel.NewID(), UserID: userID, Name: name, Type: projectType, AspectRatio: aspectRatio, SourceType: sourceType,
 		Description: strings.TrimSpace(req.Description), StylePresetID: stylePresetID, StyleProfileJSON: styleProfileJSON,
 		DefaultImageModel: defaultImageModel, DefaultVideoModel: defaultVideoModel, Status: model.ProjectStatusActive,
+		BatchID: strings.TrimSpace(req.BatchID), SourceRunID: strings.TrimSpace(req.SourceRunID), SourceScriptID: strings.TrimSpace(req.SourceScriptID),
 		Revision: 1, CreatedAt: now, UpdatedAt: now,
 	}
 	var instance *model.WorkflowInstance

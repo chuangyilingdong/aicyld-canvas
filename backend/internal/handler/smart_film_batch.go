@@ -45,6 +45,69 @@ func RegisterSmartFilmBatchRoutes(r *gin.RouterGroup, owners workspaceOwners, pr
 		ok(c, gin.H{"batch": batch})
 	})
 
+	r.GET("/smart-film-batches", func(c *gin.Context) {
+		user, err := currentUser(c, owners)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+		pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "20"))
+		result, err := projects.ListSmartFilmBatches(user.ID, c.Query("status"), page, pageSize)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, result)
+	})
+
+	r.DELETE("/smart-film-batches/:id", func(c *gin.Context) {
+		user, err := currentUser(c, owners)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		if err := projects.DeleteSmartFilmBatchDraft(user.ID, c.Param("id")); err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"deleted": true})
+	})
+
+	r.PATCH("/smart-film-batches/:id/budget", func(c *gin.Context) {
+		user, err := currentUser(c, owners)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 16<<10)
+		var req localproject.UpdateSmartFilmBatchBudgetRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			fail(c, http.StatusBadRequest, err)
+			return
+		}
+		batch, err := projects.UpdateSmartFilmBatchBudget(user.ID, c.Param("id"), req)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"batch": batch})
+	})
+
+	r.GET("/smart-film-batches/:id/costs", func(c *gin.Context) {
+		user, err := currentUser(c, owners)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		costs, err := projects.SmartFilmBatchCost(user.ID, c.Param("id"))
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, costs)
+	})
+
 	r.PUT("/smart-film-batches/:id/scripts", func(c *gin.Context) {
 		user, err := currentUser(c, owners)
 		if err != nil {
@@ -156,6 +219,46 @@ func RegisterSmartFilmBatchRoutes(r *gin.RouterGroup, owners workspaceOwners, pr
 			return
 		}
 		run, err := projects.StartSmartFilmProductionStage(user.ID, c.Param("id"), c.Param("runId"), req)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"run": run})
+	})
+
+	r.PATCH("/smart-film-batches/:id/control", func(c *gin.Context) {
+		user, err := currentUser(c, owners)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 16<<10)
+		var req localproject.SmartFilmBatchControlRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			fail(c, http.StatusBadRequest, err)
+			return
+		}
+		batch, err := projects.ControlSmartFilmBatch(user.ID, c.Param("id"), req)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"batch": batch})
+	})
+
+	r.PATCH("/smart-film-batches/:id/production-runs/:runId/control", func(c *gin.Context) {
+		user, err := currentUser(c, owners)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 16<<10)
+		var req localproject.SmartFilmProductionRunControlRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			fail(c, http.StatusBadRequest, err)
+			return
+		}
+		run, err := projects.ControlSmartFilmProductionRun(user.ID, c.Param("id"), c.Param("runId"), req)
 		if err != nil {
 			failService(c, err)
 			return

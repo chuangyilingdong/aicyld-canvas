@@ -185,7 +185,7 @@ func newService(repo *repository.Repository, dataDir string, options serviceOpti
 	service.skills = skills.New(service.repo, service.dataDir, service.runWorkerLoop)
 	service.skills.SetLocalSourceEnabled(service.IsLocalMode())
 	service.prompts = prompts.New(service.repo, newPromptAdminGate(service))
-	service.projects = localproject.New(repo, localproject.Dependencies{})
+	service.projects = localproject.New(repo, localproject.Dependencies{EncryptSecret: service.encryptSettingSecret, DecryptSecret: service.decryptSettingSecret, QuoteTask: service.QuoteLocalTask})
 	service.canvas = canvas.New(service.repo, newCanvasHost(service))
 	service.assistantTurns = assistantturns.New(assistantturns.NewStore(service.repo), assistantCanvasFactory{service}, filepath.Join(dataDir, "assistant-turns"))
 	service.assets = localasset.NewService(localasset.Dependencies{

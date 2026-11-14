@@ -2,12 +2,20 @@ package task
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 
 	billingclient "infinite-canvas/backend/internal/billing"
 	"infinite-canvas/backend/internal/model"
 )
+
+type rejectingBudgetGuard struct{ checks int }
+
+func (g *rejectingBudgetGuard) Check(string, *model.Task) error {
+	g.checks++
+	return errors.New("batch budget exceeded")
+}
 
 type fakeTaskBilling struct {
 	mu        sync.Mutex
@@ -84,6 +92,23 @@ func TestCreateTaskReservesAndStoresBillingMetadata(t *testing.T) {
 	saved := store.tasks[created.ID]
 	if saved.BillingHoldID != "hold-1" || saved.BillingStatus != "reserved" || saved.BillingPoints != 7 {
 		t.Fatalf("stored billing = %+v", saved)
+	}
+}
+
+func TestBudgetGuardRunsOnCreateButNotQuote(t *testing.T) {
+	store := newMemStore()
+	billing := &fakeTaskBilling{}
+	budget := &rejectingBudgetGuard{}
+	service := domainService(store, func(deps *Dependencies) { deps.Billing = billing; deps.Budget = budget })
+	request := CreateRequest{Type: "canvas_image", Prompt: "cat", Input: map[string]any{"prompt": "cat"}}
+	if quote, err := service.QuoteTask("user", request); err != nil || quote == nil || budget.checks != 0 {
+		t.Fatalf("quote=%+v err=%v checks=%d", quote, err, budget.checks)
+	}
+	if _, err := service.CreateTask("user", request); err == nil || budget.checks != 1 {
+		t.Fatalf("create err=%v checks=%d", err, budget.checks)
+	}
+	if billing.reserves != 0 || len(store.tasks) != 0 {
+		t.Fatalf("budget rejection reserved=%d persisted=%d", billing.reserves, len(store.tasks))
 	}
 }
 

@@ -189,6 +189,7 @@ type Billing interface {
 type Dependencies struct {
 	BindTranscriptionModel func(string) (string, error)
 	Billing                Billing
+	Budget                 BudgetGuard
 	Catalog                Catalog
 	Secrets                Secrets
 	Media                  Media
@@ -208,4 +209,8 @@ type Dependencies struct {
 	Features               Features
 	NewID                  func() string
 	Now                    func() time.Time
+}
+
+type BudgetGuard interface {
+	Check(userID string, task *model.Task) error
 }

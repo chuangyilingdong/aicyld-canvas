@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"infinite-canvas/backend/internal/app"
+	"infinite-canvas/backend/internal/kernel"
 
 	"github.com/gin-gonic/gin"
 )
@@ -26,7 +27,7 @@ func TestFailServiceProjectsAppError(t *testing.T) {
 	failService(context, err)
 
 	response := decodeFailureEnvelope(t, recorder)
-	if recorder.Code != http.StatusTooManyRequests || response.Code != app.CodeRateLimited || response.Reason != string(app.ReasonRateLimited) || response.Msg != err.Message {
+	if recorder.Code != http.StatusTooManyRequests || response.Code != kernel.CodeRateLimited || response.Reason != string(kernel.ReasonRateLimited) || response.Msg != err.Message {
 		t.Fatalf("response = status %d, body %#v", recorder.Code, response)
 	}
 }
@@ -55,7 +56,7 @@ func TestFailServiceQuotaExceeded(t *testing.T) {
 	failService(context, app.QuotaExceeded("账号素材数量已达到 100 个上限"))
 
 	response := decodeFailureEnvelope(t, recorder)
-	if recorder.Code != http.StatusForbidden || response.Code != app.CodeQuotaExceeded || response.Reason != string(app.ReasonQuotaExceeded) {
+	if recorder.Code != http.StatusForbidden || response.Code != kernel.CodeQuotaExceeded || response.Reason != string(kernel.ReasonQuotaExceeded) {
 		t.Fatalf("quota response = status %d, body %#v", recorder.Code, response)
 	}
 }

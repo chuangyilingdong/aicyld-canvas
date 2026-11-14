@@ -27,8 +27,8 @@ export default function SmartFilmPage() {
                     <p>从主题到分镜、画面、镜头和成片。先创建真实项目，再沿流程逐步制作，不再把成片流程藏在一个弹窗里。</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                    <Button icon={<Layers3 className="size-4" />} onClick={() => navigate("/smart-film/batches/new")}>
-                        多剧本批次
+                    <Button icon={<Layers3 className="size-4" />} onClick={() => navigate("/smart-film/batches")}>
+                        批次历史
                     </Button>
                     <Button icon={<Clapperboard className="size-4" />} onClick={() => navigate("/projects")}>
                         返回项目库

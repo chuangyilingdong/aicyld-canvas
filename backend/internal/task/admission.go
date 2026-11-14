@@ -177,6 +177,11 @@ func (s *Service) admit(userID string, req CreateRequest) (*model.Task, error) {
 		return nil, err
 	}
 	task.InputJSON = inputJSON
+	if s.deps.Budget != nil {
+		if err := s.deps.Budget.Check(userID, &task); err != nil {
+			return nil, err
+		}
+	}
 	billingReserved, err := s.reserveBilling(userID, &task)
 	if err != nil {
 		return nil, err

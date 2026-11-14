@@ -23,6 +23,7 @@ func (s *Service) StartDeletionWorker(ctx context.Context, loop func(func(contex
 	loop(func(ctx context.Context) {
 		s.DrainDeletionJobs(32)
 		s.CleanupExpiredArchivedAssets()
+		s.cleanupAssetCandidatePreviewHistory()
 		s.CleanupDetachedResources()
 		ticker := time.NewTicker(15 * time.Second)
 		defer ticker.Stop()
@@ -35,12 +36,33 @@ func (s *Service) StartDeletionWorker(ctx context.Context, loop func(func(contex
 				s.DrainDeletionJobs(32)
 				if time.Since(lastPeriodicCleanup) >= time.Hour {
 					s.CleanupExpiredArchivedAssets()
+					s.cleanupAssetCandidatePreviewHistory()
 					s.CleanupDetachedResources()
 					lastPeriodicCleanup = time.Now()
 				}
 			}
 		}
 	})
+}
+
+func (s *Service) cleanupAssetCandidatePreviewHistory() {
+	if s == nil || s.repo == nil {
+		return
+	}
+	cleaner, ok := s.repo.(interface {
+		CleanupOrphanedProjectAssetCandidatePreviews(cutoff time.Time) (int64, error)
+	})
+	if !ok {
+		return
+	}
+	deleted, err := cleaner.CleanupOrphanedProjectAssetCandidatePreviews(time.Now().Add(-detachedReadyResourceRetention))
+	if err != nil {
+		log.Printf("asset candidate preview history cleanup failed: %v", err)
+		return
+	}
+	if deleted > 0 {
+		log.Printf("asset candidate preview history cleanup: removed %d rows", deleted)
+	}
 }
 
 func (s *Service) CleanupDetachedResources() {

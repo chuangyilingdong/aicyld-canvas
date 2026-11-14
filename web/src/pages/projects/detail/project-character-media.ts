@@ -1,23 +1,29 @@
 import { runBackendCanvasGenerationTask } from "@/lib/canvas/canvas-project-generation";
+import { buildBackendGenerationTaskQuoteInput } from "@/services/api/generation-task";
+import type { CreateTaskInput } from "@/services/api/task-center";
 import { PromptTemplateOperation, promptTemplateTaskPlaceholder } from "@/lib/prompts";
 import { resolveStyleExecutionPlan, serializeStyleProfile, type StyleProfileSnapshot } from "@/lib/canvas/style-profile";
 import { logicalModelIDForConfig, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
 
 type ProjectStylePrompt = { id: string; title: string; prompt: string; profile?: StyleProfileSnapshot };
 
-export async function generateCharacterTurnaround(input: { projectId: string; assetId: string; versionId: string; name: string; definition: Record<string, unknown>; projectStyle?: ProjectStylePrompt; config: AiConfig }) {
+export async function generateCharacterTurnaround(input: { projectId: string; assetId: string; versionId: string; name: string; definition: Record<string, unknown>; projectStyle?: ProjectStylePrompt; config: AiConfig; confirmQuote?: (input: CreateTaskInput) => Promise<boolean> }) {
     const promptTemplateVariables = characterTurnaroundVariables(input.name, input.definition, input.projectStyle);
     const generationConfig = { ...input.config, model: input.config.imageModel || input.config.model, count: "1" };
     const requestConfig = resolveModelRequestConfig(generationConfig, generationConfig.model);
     const styleExecutionPlan = input.projectStyle?.profile ? resolveStyleExecutionPlan(input.projectStyle.profile, { mode: "image", model: requestConfig.model, interfaceType: requestConfig.interfaceType || requestConfig.apiFormat }) : undefined;
     if (styleExecutionPlan?.status === "blocked" && !logicalModelIDForConfig(generationConfig)) throw new Error(`当前图片模型无法完整执行项目画风：${styleExecutionPlan.warnings.join("；")}。请切换图片模型，或在项目设置中停用对应画风资产`);
-    await runBackendCanvasGenerationTask({
+    const quoteOptions: Parameters<typeof buildBackendGenerationTaskQuoteInput>[0] = {
         projectId: input.projectId,
-        nodeId: `character-turnaround:${input.assetId}`,
         mode: "image",
         prompt: promptTemplateTaskPlaceholder("角色三视图"),
         config: generationConfig,
         metadata: { operation: PromptTemplateOperation.CharacterTurnaround, promptTemplateOperation: PromptTemplateOperation.CharacterTurnaround, promptTemplateVariables, characterAssetId: input.assetId, stylePresetId: input.projectStyle?.id, styleProfileJson: input.projectStyle?.profile ? serializeStyleProfile(input.projectStyle.profile) : undefined, styleExecutionPlan, resolvedCharacterVersions: [{ assetId: input.assetId, versionId: input.versionId }] },
+    };
+    if (input.confirmQuote && !(await input.confirmQuote(buildBackendGenerationTaskQuoteInput(quoteOptions)))) throw new Error("已取消生成角色三视图");
+    await runBackendCanvasGenerationTask({
+        projectId: input.projectId, nodeId: `character-turnaround:${input.assetId}`, mode: "image",
+        prompt: quoteOptions.prompt, config: quoteOptions.config, metadata: quoteOptions.metadata,
     });
 }
 

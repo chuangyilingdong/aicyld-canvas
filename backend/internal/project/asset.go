@@ -314,6 +314,20 @@ func (s *Service) UpdateProjectAssetCandidatePreview(userID, projectID, candidat
 	default:
 		return model.ProjectAssetCandidate{}, kernel.BadAuthRequest("资产图状态无效")
 	}
+	if status == "" && resourceID != "" {
+		status = "ready"
+	}
+	if req.Points < 0 {
+		return model.ProjectAssetCandidate{}, kernel.BadAuthRequest("资产图费用不能为负数")
+	}
+	modelName := strings.TrimSpace(req.Model)
+	if len([]rune(modelName)) > 160 {
+		return model.ProjectAssetCandidate{}, kernel.BadAuthRequest("资产图模型名称过长")
+	}
+	errorMessage := strings.TrimSpace(req.Error)
+	if len([]rune(errorMessage)) > 4000 {
+		return model.ProjectAssetCandidate{}, kernel.BadAuthRequest("资产图错误信息过长")
+	}
 	if resourceID != "" {
 		resource, err := s.repo.ResourceForUser(userID, resourceID)
 		if err != nil {
@@ -323,8 +337,56 @@ func (s *Service) UpdateProjectAssetCandidatePreview(userID, projectID, candidat
 			return model.ProjectAssetCandidate{}, kernel.BadAuthRequest("资产图必须是图片资源")
 		}
 	}
+	selected := resourceID != "" && status == "ready"
+	if req.Selected != nil {
+		selected = *req.Selected
+	}
+	if selected && (resourceID == "" || status != "ready") {
+		return model.ProjectAssetCandidate{}, kernel.BadAuthRequest("只有已完成的图片才能设为当前资产图")
+	}
 	now := time.Now()
-	if err := s.repo.UpdateProjectAssetCandidatePreviewActive(userID, projectID, candidateID, req.ExpectedRevision, resourceID, taskID, status, now); err != nil {
+	preview := model.ProjectAssetCandidatePreview{
+		ID: kernel.NewID(), ResourceID: resourceID, TaskID: taskID, Model: modelName, Points: req.Points,
+		Status: status, Error: errorMessage, CreatedAt: now, UpdatedAt: now,
+	}
+	if err := s.repo.UpsertProjectAssetCandidatePreviewActive(userID, projectID, candidateID, req.ExpectedRevision, preview, selected, now); err != nil {
+		return model.ProjectAssetCandidate{}, mapProjectWriteError(err)
+	}
+	candidate, err := s.repo.ProjectAssetCandidate(projectID, candidateID)
+	if err != nil {
+		return model.ProjectAssetCandidate{}, err
+	}
+	return *candidate, nil
+}
+
+func (s *Service) SelectProjectAssetCandidatePreview(userID, projectID, candidateID, previewID string, req SelectProjectAssetCandidatePreviewRequest) (model.ProjectAssetCandidate, error) {
+	if req.ExpectedRevision <= 0 {
+		return model.ProjectAssetCandidate{}, kernel.BadAuthRequest("请刷新后再选择资产图")
+	}
+	if _, err := s.Active(userID, projectID); err != nil {
+		return model.ProjectAssetCandidate{}, err
+	}
+	if err := s.repo.SelectProjectAssetCandidatePreviewActive(userID, projectID, candidateID, previewID, req.ExpectedRevision, time.Now()); err != nil {
+		return model.ProjectAssetCandidate{}, mapProjectWriteError(err)
+	}
+	candidate, err := s.repo.ProjectAssetCandidate(projectID, candidateID)
+	if err != nil {
+		return model.ProjectAssetCandidate{}, err
+	}
+	return *candidate, nil
+}
+
+func (s *Service) DeleteProjectAssetCandidatePreview(userID, projectID, candidateID, previewID string, expectedRevision int64) (model.ProjectAssetCandidate, error) {
+	if expectedRevision <= 0 {
+		return model.ProjectAssetCandidate{}, kernel.BadAuthRequest("请刷新后再删除资产图")
+	}
+	if _, err := s.Active(userID, projectID); err != nil {
+		return model.ProjectAssetCandidate{}, err
+	}
+	if err := s.repo.DeleteProjectAssetCandidatePreviewActive(userID, projectID, candidateID, previewID, expectedRevision, time.Now()); err != nil {
+		if errors.Is(err, gorm.ErrInvalidData) {
+			return model.ProjectAssetCandidate{}, kernel.BadAuthRequest("当前采用的资产图不能删除，请先选择其他图片")
+		}
 		return model.ProjectAssetCandidate{}, mapProjectWriteError(err)
 	}
 	candidate, err := s.repo.ProjectAssetCandidate(projectID, candidateID)
@@ -371,7 +433,12 @@ func (s *Service) ConfirmProjectAssetCandidate(userID string, projectID string, 
 		if saveErr := s.repo.ConfirmProjectCharacterCandidateActive(userID, candidate, expectedPrimary, &nextAsset, &nextVersion, representations, voice); saveErr != nil {
 			return AssetSummary{}, mapProjectWriteError(saveErr)
 		}
-		return s.assetSummary(userID, projectID, &nextAsset)
+		summary, summaryErr := s.assetSummary(userID, projectID, &nextAsset)
+		if summaryErr != nil {
+			return AssetSummary{}, summaryErr
+		}
+		s.markSmartFilmAssetsConfirmedIfReady(projectID, candidate.UnitID)
+		return summary, nil
 	}
 	createAsset := assetID == ""
 	var asset model.Asset
@@ -431,7 +498,20 @@ func (s *Service) ConfirmProjectAssetCandidate(userID string, projectID string, 
 	if err := s.repo.ConfirmProjectAssetCandidateActive(userID, candidate, &asset, &version, representations, &link, createAsset); err != nil {
 		return AssetSummary{}, mapProjectWriteError(err)
 	}
-	return s.assetSummary(userID, projectID, &asset)
+	summary, summaryErr := s.assetSummary(userID, projectID, &asset)
+	if summaryErr != nil {
+		return AssetSummary{}, summaryErr
+	}
+	s.markSmartFilmAssetsConfirmedIfReady(projectID, candidate.UnitID)
+	return summary, nil
+}
+
+func (s *Service) markSmartFilmAssetsConfirmedIfReady(projectID, unitID string) {
+	pending, err := s.repo.PendingProjectAssetCandidateCount(projectID, unitID)
+	if err != nil || pending > 0 {
+		return
+	}
+	_ = s.repo.MarkSmartFilmAssetStageConfirmed(projectID, unitID)
 }
 
 func (s *Service) assetFromCandidatePreview(userID string, candidate *model.ProjectAssetCandidate, now time.Time) (model.Asset, model.AssetVersion, []model.AssetRepresentation, error) {

@@ -16,6 +16,9 @@ type CreateProjectRequest struct {
 	StyleProfileJSON  string `json:"styleProfileJson"`
 	DefaultImageModel string `json:"defaultImageModel"`
 	DefaultVideoModel string `json:"defaultVideoModel"`
+	BatchID           string `json:"-"`
+	SourceRunID       string `json:"-"`
+	SourceScriptID    string `json:"-"`
 }
 
 type UpdateProjectRequest struct {
@@ -174,8 +177,16 @@ type ConfirmProjectAssetCandidateRequest struct {
 type UpdateProjectAssetCandidatePreviewRequest struct {
 	ResourceID       string `json:"resourceId"`
 	TaskID           string `json:"taskId"`
+	Model            string `json:"model,omitempty"`
+	Points           int    `json:"points,omitempty"`
 	Status           string `json:"status"`
+	Error            string `json:"error,omitempty"`
+	Selected         *bool  `json:"selected,omitempty"`
 	ExpectedRevision int64  `json:"expectedRevision"`
+}
+
+type SelectProjectAssetCandidatePreviewRequest struct {
+	ExpectedRevision int64 `json:"expectedRevision"`
 }
 
 type CreateProjectAssetFolderRequest struct {
@@ -301,6 +312,14 @@ type ShotRevisionInput struct {
 	NegativePrompt  string           `json:"negativePrompt"`
 	ContinuityNotes string           `json:"continuityNotes"`
 	ActionBeats     []map[string]any `json:"actionBeats"`
+	AssetRoles      []ShotAssetRole  `json:"assetRoles,omitempty"`
+}
+
+type ShotAssetRole struct {
+	AssetID   string `json:"assetId"`
+	VersionID string `json:"versionId,omitempty"`
+	Title     string `json:"title,omitempty"`
+	Role      string `json:"role"`
 }
 
 type ReplaceProjectUnitShotsRequest struct {

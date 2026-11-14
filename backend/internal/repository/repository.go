@@ -2103,13 +2103,13 @@ func (r *Repository) ProjectShotAssetReferences(projectID string) ([]model.ShotA
 
 func (r *Repository) ProjectAssetCandidates(projectID string) ([]model.ProjectAssetCandidate, error) {
 	var candidates []model.ProjectAssetCandidate
-	err := r.db.Where("project_id = ?", projectID).Order("created_at asc").Find(&candidates).Error
+	err := r.db.Preload("Previews", visibleCandidatePreviews).Where("project_id = ?", projectID).Order("created_at asc").Find(&candidates).Error
 	return candidates, err
 }
 
 func (r *Repository) ProjectAssetCandidate(projectID string, candidateID string) (*model.ProjectAssetCandidate, error) {
 	var candidate model.ProjectAssetCandidate
-	if err := r.db.First(&candidate, "id = ? AND project_id = ?", candidateID, projectID).Error; err != nil {
+	if err := r.db.Preload("Previews", visibleCandidatePreviews).First(&candidate, "id = ? AND project_id = ?", candidateID, projectID).Error; err != nil {
 		return nil, err
 	}
 	return &candidate, nil

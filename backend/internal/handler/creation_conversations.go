@@ -12,6 +12,7 @@ import (
 
 	"infinite-canvas/backend/internal/app"
 	"infinite-canvas/backend/internal/conversation"
+	"infinite-canvas/backend/internal/kernel"
 )
 
 const creationConversationMaxBody = conversation.MaxDocumentBytes + (1 << 20)
@@ -165,7 +166,7 @@ func failConversation(c *gin.Context, err error) {
 	var convErr *conversation.Error
 	if errors.As(err, &convErr) {
 		appErr := app.NewAppError(convErr.Status, convErr.Message)
-		appErr.Reason = app.ErrorReason(convErr.Reason)
+		appErr.Reason = kernel.ErrorReason(convErr.Reason)
 		failService(c, appErr)
 		return
 	}

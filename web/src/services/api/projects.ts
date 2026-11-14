@@ -17,6 +17,9 @@ export type Project = {
     styleProfileJson?: string;
     defaultImageModel?: string;
     defaultVideoModel?: string;
+    batchId?: string;
+    sourceRunId?: string;
+    sourceScriptId?: string;
     status: "active" | "archived" | string;
     revision: number;
     createdAt: string;
@@ -120,6 +123,21 @@ export type ProjectCharacterDetail = {
     character: CharacterCardSummary;
 };
 
+export type ProjectAssetCandidatePreview = {
+    id: string;
+    projectId: string;
+    candidateId: string;
+    resourceId?: string;
+    taskId?: string;
+    model?: string;
+    points: number;
+    status: "generating" | "ready" | "failed" | "deleted" | string;
+    selected: boolean;
+    error?: string;
+    createdAt: string;
+    updatedAt: string;
+};
+
 export type ProjectAssetCandidate = {
     id: string;
     projectId: string;
@@ -133,6 +151,9 @@ export type ProjectAssetCandidate = {
     previewResourceId?: string;
     previewTaskId?: string;
     previewStatus?: "generating" | "ready" | "failed" | string;
+    previewModel?: string;
+    previewPoints?: number;
+    previews?: ProjectAssetCandidatePreview[];
     createdAt: string;
     updatedAt: string;
 };
@@ -404,7 +425,11 @@ function normalizeProjectAsset(asset: ProjectAsset): ProjectAsset {
 }
 
 function normalizeProjectAssetCandidate(candidate: ProjectAssetCandidate): ProjectAssetCandidate {
-    return { ...candidate, category: normalizeAssetCategory(candidate.category) };
+    return {
+        ...candidate,
+        category: normalizeAssetCategory(candidate.category),
+        previews: Array.isArray(candidate.previews) ? candidate.previews : [],
+    };
 }
 
 function normalizeProjectDetail(detail: ProjectDetail): ProjectDetail {
@@ -629,10 +654,29 @@ export function confirmProjectAssetCandidate(projectId: string, candidateId: str
 export function updateProjectAssetCandidatePreview(projectId: string, candidateId: string, input: {
     resourceId: string;
     taskId?: string;
+    model?: string;
+    points?: number;
     status: "generating" | "ready" | "failed";
+    error?: string;
+    selected?: boolean;
     expectedRevision: number;
 }) {
-    return http.patch<{ candidate: ProjectAssetCandidate }>(`/projects/${encodeURIComponent(projectId)}/asset-candidates/${encodeURIComponent(candidateId)}/preview`, input);
+    return http.patch<{ candidate: ProjectAssetCandidate }>(`/projects/${encodeURIComponent(projectId)}/asset-candidates/${encodeURIComponent(candidateId)}/preview`, input)
+        .then((result) => ({ candidate: normalizeProjectAssetCandidate(result.candidate) }));
+}
+
+export function selectProjectAssetCandidatePreview(projectId: string, candidateId: string, previewId: string, expectedRevision: number) {
+    return http.post<{ candidate: ProjectAssetCandidate }>(
+        `/projects/${encodeURIComponent(projectId)}/asset-candidates/${encodeURIComponent(candidateId)}/previews/${encodeURIComponent(previewId)}/select`,
+        { expectedRevision },
+    ).then((result) => ({ candidate: normalizeProjectAssetCandidate(result.candidate) }));
+}
+
+export function deleteProjectAssetCandidatePreview(projectId: string, candidateId: string, previewId: string, expectedRevision: number) {
+    return http.delete<{ candidate: ProjectAssetCandidate }>(
+        `/projects/${encodeURIComponent(projectId)}/asset-candidates/${encodeURIComponent(candidateId)}/previews/${encodeURIComponent(previewId)}`,
+        { params: { expectedRevision: String(expectedRevision) } },
+    ).then((result) => ({ candidate: normalizeProjectAssetCandidate(result.candidate) }));
 }
 
 export function updateWorkflowStep(projectId: string, stepId: string, input: { status: string; outputJson?: string; error?: string }) {

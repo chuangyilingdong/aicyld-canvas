@@ -221,7 +221,7 @@ func (r *Repository) ProjectAssetCandidatesPage(projectID string, page int, page
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	err := query.Order("created_at desc").Offset((page - 1) * pageSize).Limit(pageSize).Find(&candidates).Error
+	err := query.Preload("Previews", visibleCandidatePreviews).Order("created_at desc").Offset((page - 1) * pageSize).Limit(pageSize).Find(&candidates).Error
 	return candidates, total, err
 }
 

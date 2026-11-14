@@ -19,6 +19,18 @@
     overflow: hidden;
 }
 
+.workflow-batch-return {
+    flex: 0 0 auto;
+    border-bottom: 1px solid var(--workspace-border);
+    background: color-mix(in srgb, var(--workspace-accent) 5%, var(--workspace-content));
+    padding: 7px 32px;
+    font-size: 11px;
+}
+
+.workflow-batch-return a {
+    color: var(--workspace-accent);
+}
+
 .workflow-overview-scroll {
     height: 100%;
     overflow-y: auto;

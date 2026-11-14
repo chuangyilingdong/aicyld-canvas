@@ -120,10 +120,16 @@
     font-size: 11px;
 }
 
+.smart-film-product-hint {
+    margin-top: -8px;
+    color: color-mix(in srgb, var(--foreground) 40%, transparent);
+    font-size: 10px;
+}
+
 .smart-film-batch-number-grid,
 .smart-film-batch-model-grid {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
     gap: 12px;
 }
 
@@ -138,6 +144,34 @@
 .smart-film-batch-model-grid label > span {
     color: color-mix(in srgb, var(--foreground) 48%, transparent);
     font-size: 11px;
+}
+
+.smart-film-batch-style-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    border: 1px solid color-mix(in srgb, var(--foreground) 9%, transparent);
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--foreground) 2.5%, transparent);
+    padding: 13px 14px;
+}
+
+.smart-film-batch-style-row strong,
+.smart-film-batch-style-row span {
+    display: block;
+}
+
+.smart-film-batch-style-row strong {
+    font-size: 12px;
+    font-weight: 650;
+}
+
+.smart-film-batch-style-row span {
+    margin-top: 3px;
+    color: color-mix(in srgb, var(--foreground) 44%, transparent);
+    font-size: 10px;
+    line-height: 1.6;
 }
 
 .smart-film-batch-submit {
@@ -206,6 +240,158 @@
     justify-content: space-between;
     gap: 14px;
     padding: 12px 14px;
+}
+
+.smart-film-batch-control-strip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    border: 1px solid color-mix(in srgb, var(--workspace-accent) 22%, transparent);
+    border-radius: 16px;
+    background: color-mix(in srgb, var(--workspace-accent) 6%, transparent);
+    padding: 12px 14px;
+}
+
+.smart-film-batch-control-strip strong,
+.smart-film-batch-control-strip span {
+    display: block;
+}
+
+.smart-film-batch-control-strip strong {
+    font-size: 12px;
+    font-weight: 650;
+}
+
+.smart-film-batch-control-strip span {
+    margin-top: 3px;
+    overflow: hidden;
+    color: color-mix(in srgb, var(--foreground) 45%, transparent);
+    font-size: 10px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.smart-film-budget-panel {
+    display: grid;
+    gap: 10px;
+    border: 1px solid color-mix(in srgb, var(--foreground) 9%, transparent);
+    border-radius: 16px;
+    background: color-mix(in srgb, var(--foreground) 3%, transparent);
+    padding: 14px;
+}
+
+.smart-film-budget-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 22px;
+}
+
+.smart-film-budget-stats span {
+    color: color-mix(in srgb, var(--foreground) 43%, transparent);
+    font-size: 10px;
+}
+
+.smart-film-budget-stats strong {
+    display: block;
+    margin-top: 3px;
+    color: var(--foreground);
+    font-size: 18px;
+    font-variant-numeric: tabular-nums;
+}
+
+.smart-film-budget-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.smart-film-budget-over {
+    border-radius: 10px;
+    background: color-mix(in srgb, #f43f5e 10%, transparent);
+    color: #e11d48;
+    padding: 8px 10px;
+    font-size: 11px;
+}
+
+.smart-film-batch-empty {
+    padding: 40px 20px;
+    border: 1px dashed color-mix(in srgb, var(--foreground) 14%, transparent);
+    border-radius: 18px;
+    color: color-mix(in srgb, var(--foreground) 50%, transparent);
+    text-align: center;
+}
+
+.smart-film-batch-list-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+    gap: 14px;
+}
+
+.smart-film-batch-list-card {
+    display: grid;
+    gap: 14px;
+    border: 1px solid color-mix(in srgb, var(--foreground) 9%, transparent);
+    border-radius: 18px;
+    background: color-mix(in srgb, var(--background) 94%, var(--foreground) 6%);
+    padding: 18px;
+}
+
+.smart-film-batch-list-card-head,
+.smart-film-batch-list-card-foot {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.smart-film-batch-list-card h2 {
+    margin: 5px 0 0;
+    overflow: hidden;
+    font-size: 17px;
+    font-weight: 660;
+    letter-spacing: -0.02em;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.smart-film-batch-list-card > p {
+    display: -webkit-box;
+    overflow: hidden;
+    margin: 0;
+    color: color-mix(in srgb, var(--foreground) 52%, transparent);
+    font-size: 12px;
+    line-height: 1.7;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+}
+
+.smart-film-batch-list-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    color: color-mix(in srgb, var(--foreground) 44%, transparent);
+    font-size: 10px;
+}
+
+.smart-film-batch-list-stats strong {
+    color: var(--foreground);
+    font-size: 15px;
+    font-variant-numeric: tabular-nums;
+}
+
+.smart-film-batch-list-card-foot {
+    align-items: center;
+    border-top: 1px solid color-mix(in srgb, var(--foreground) 8%, transparent);
+    padding-top: 12px;
+}
+
+.smart-film-batch-list-card-foot > span {
+    overflow: hidden;
+    color: color-mix(in srgb, var(--foreground) 42%, transparent);
+    font-size: 10px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .smart-film-script-list {
@@ -292,7 +478,8 @@
         grid-template-columns: 1fr;
     }
     .smart-film-batch-submit,
-    .smart-film-batch-toolbar {
+    .smart-film-batch-toolbar,
+    .smart-film-batch-style-row {
         align-items: flex-start;
         flex-direction: column;
     }

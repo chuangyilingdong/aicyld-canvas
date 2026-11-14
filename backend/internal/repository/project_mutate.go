@@ -602,6 +602,9 @@ func (r *Repository) CreateProjectAssetVersionAndBump(userID, projectID string, 
 		if result.RowsAffected != 1 {
 			return gorm.ErrRecordNotFound
 		}
+		if err := invalidateShotsReferencingAssetTx(tx, projectID, asset.ID, asset.UpdatedAt); err != nil {
+			return err
+		}
 		return bumpProjectRevisionTx(tx, projectID, asset.UpdatedAt)
 	})
 }
@@ -809,6 +812,9 @@ func (r *Repository) SaveCharacterVersionActive(userID, projectID, expectedPrima
 		if err := saveCharacterVersionCAS(tx, expectedPrimaryVersionID, asset, version, representations, voice); err != nil {
 			return err
 		}
+		if err := invalidateShotsReferencingAssetTx(tx, projectID, asset.ID, asset.UpdatedAt); err != nil {
+			return err
+		}
 		return bumpProjectRevisionTx(tx, projectID, asset.UpdatedAt)
 	})
 }
@@ -829,6 +835,9 @@ func (r *Repository) ConfirmProjectCharacterCandidateActive(userID string, candi
 		}
 		if result.RowsAffected != 1 {
 			return gorm.ErrInvalidData
+		}
+		if err := invalidateShotsReferencingAssetTx(tx, candidate.ProjectID, asset.ID, candidate.UpdatedAt); err != nil {
+			return err
 		}
 		return bumpProjectRevisionTx(tx, candidate.ProjectID, candidate.UpdatedAt)
 	})

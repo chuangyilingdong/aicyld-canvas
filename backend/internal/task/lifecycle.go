@@ -121,6 +121,11 @@ func (s *Service) retry(userID, id string, refresh *retryCredentialRefresh) (*mo
 	nextAttempt.BillingHoldID = ""
 	nextAttempt.BillingStatus = ""
 	nextAttempt.BillingPoints = 0
+	if s.deps.Budget != nil {
+		if err := s.deps.Budget.Check(userID, &nextAttempt); err != nil {
+			return nil, err
+		}
+	}
 	billingReserved, reserveErr := s.reserveBilling(userID, &nextAttempt)
 	if reserveErr != nil {
 		return nil, reserveErr

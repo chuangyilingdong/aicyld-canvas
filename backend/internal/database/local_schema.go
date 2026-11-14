@@ -15,7 +15,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion int64 = 37
+const CurrentSchemaVersion int64 = 41
 
 type localSchemaMigration struct {
 	Version   int64 `gorm:"primaryKey;autoIncrement:false"`
@@ -52,7 +52,7 @@ func LocalModels() []any {
 		&model.Skill{}, &model.SkillVersion{}, &model.SkillFile{}, &model.UserSkillState{}, &model.SkillSubmission{},
 		&model.Resource{}, &model.ResourceDeletionJob{}, &model.UserDailyUploadUsage{}, &model.UserUploadReservation{}, &model.ArkPrivateAssetBinding{},
 		&model.Asset{}, &model.AssetFolder{}, &model.AssetVersion{}, &model.AssetRepresentation{},
-		&model.ProjectAssetLink{}, &model.ProjectAssetFolder{}, &model.ProjectAssetCandidate{},
+		&model.ProjectAssetLink{}, &model.ProjectAssetFolder{}, &model.ProjectAssetCandidate{}, &model.ProjectAssetCandidatePreview{},
 		&model.VoiceProfile{}, &model.CharacterVoiceBinding{},
 		&model.Project{}, &model.SmartFilmBatch{}, &model.SmartFilmProductionRun{}, &model.ProjectFolder{}, &model.StyleProfile{}, &model.ProjectUnit{}, &model.CanvasUnitLink{},
 		&model.Shot{}, &model.ShotRevision{}, &model.ShotArtifact{}, &model.ShotAssetReference{},
@@ -161,7 +161,72 @@ func canonicalLocalMigrations() []localMigration {
 					"revision": gorm.Expr("CASE WHEN revision < 1 THEN 1 ELSE revision END"),
 				}).Error
 		}},
+		{version: 38, name: "smart-film-orchestration-controls", apply: func(tx *gorm.DB) error {
+			if err := tx.AutoMigrate(&model.SmartFilmBatch{}, &model.SmartFilmProductionRun{}, &model.ShotRevision{}); err != nil {
+				return err
+			}
+			return tx.Model(&model.SmartFilmProductionRun{}).
+				Where("control_status = '' OR control_status IS NULL").
+				Update("control_status", "active").Error
+		}},
+		{version: 39, name: "smart-film-project-source", apply: func(tx *gorm.DB) error {
+			if err := tx.AutoMigrate(&model.Project{}); err != nil {
+				return err
+			}
+			return tx.Exec(`UPDATE projects SET
+				batch_id = COALESCE((SELECT r.batch_id FROM smart_film_production_runs r WHERE r.project_id = projects.id ORDER BY r.created_at ASC LIMIT 1), batch_id),
+				source_run_id = COALESCE((SELECT r.id FROM smart_film_production_runs r WHERE r.project_id = projects.id ORDER BY r.created_at ASC LIMIT 1), source_run_id),
+				source_script_id = COALESCE((SELECT r.script_id FROM smart_film_production_runs r WHERE r.project_id = projects.id ORDER BY r.created_at ASC LIMIT 1), source_script_id)
+				WHERE batch_id = '' OR batch_id IS NULL OR source_run_id = '' OR source_run_id IS NULL OR source_script_id = '' OR source_script_id IS NULL`).Error
+		}},
+		{version: 40, name: "smart-film-batch-budget", apply: func(tx *gorm.DB) error { return tx.AutoMigrate(&model.SmartFilmBatch{}) }},
+		{version: 41, name: "asset-candidate-preview-history", apply: migrateAssetCandidatePreviewHistory},
 	}
+}
+
+func migrateAssetCandidatePreviewHistory(tx *gorm.DB) error {
+	if err := tx.AutoMigrate(&model.ProjectAssetCandidate{}, &model.ProjectAssetCandidatePreview{}); err != nil {
+		return err
+	}
+	var candidates []model.ProjectAssetCandidate
+	if err := tx.Where("preview_resource_id <> '' OR preview_task_id <> '' OR preview_status <> ''").Find(&candidates).Error; err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	for _, candidate := range candidates {
+		var count int64
+		if err := tx.Model(&model.ProjectAssetCandidatePreview{}).
+			Where("candidate_id = ? AND resource_id = ? AND task_id = ?", candidate.ID, candidate.PreviewResourceID, candidate.PreviewTaskID).
+			Count(&count).Error; err != nil {
+			return err
+		}
+		if count > 0 {
+			continue
+		}
+		status := strings.TrimSpace(candidate.PreviewStatus)
+		if status == "" {
+			status = "ready"
+		}
+		preview := model.ProjectAssetCandidatePreview{
+			ID: kernel.NewID(), UserID: "", ProjectID: candidate.ProjectID, CandidateID: candidate.ID,
+			ResourceID: candidate.PreviewResourceID, TaskID: candidate.PreviewTaskID,
+			Status: status, Selected: candidate.PreviewResourceID != "", CreatedAt: candidate.UpdatedAt, UpdatedAt: candidate.UpdatedAt,
+		}
+		var project model.Project
+		if err := tx.Select("user_id").First(&project, "id = ?", candidate.ProjectID).Error; err == nil {
+			preview.UserID = project.UserID
+		}
+		if preview.CreatedAt.IsZero() {
+			preview.CreatedAt = now
+		}
+		if preview.UpdatedAt.IsZero() {
+			preview.UpdatedAt = now
+		}
+		if err := tx.Create(&preview).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // migrateSkillMarketSubmissions adds the explicit review gate for publishable

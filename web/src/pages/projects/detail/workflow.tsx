@@ -73,6 +73,7 @@ export default function ProjectWorkflowView({ detail, projectId, unitId, stage }
 
     return (
         <div className="workflow-page-root">
+            {detail.project.batchId ? <div className="workflow-batch-return"><Link to={`/smart-film/batches/${detail.project.batchId}`}>返回所属批次</Link></div> : null}
             <main className={`workflow-stage-content ${productionStage ? "is-production" : ""}`}>
                 {activeStage === "story" ? <div className="workflow-overview-scroll thin-scrollbar"><StoryStage detail={detail} projectId={projectId} unitId={unit.id} /></div> : null}
                 {activeStage === "assets" ? <div className="workflow-overview-scroll thin-scrollbar"><AssetsStage detail={detail} projectId={projectId} unitId={unit.id} /></div> : null}

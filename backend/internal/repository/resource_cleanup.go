@@ -65,14 +65,27 @@ func (r *Repository) DeleteDetachedResources(resources []model.Resource, deletio
 				}
 			}
 		}
-		for _, check := range []struct {
+		checks := []struct {
 			model any
 			query string
 		}{
 			{&model.AssetRepresentation{}, "resource_id IN ?"},
 			{&model.VoiceProfile{}, "sample_resource_id IN ?"},
 			{&model.ShotArtifact{}, "resource_id IN ?"},
-		} {
+		}
+		if tx.Migrator().HasTable(&model.ProjectAssetCandidatePreview{}) {
+			checks = append(checks, struct {
+				model any
+				query string
+			}{&model.ProjectAssetCandidatePreview{}, "resource_id IN ?"})
+		}
+		if tx.Migrator().HasTable(&model.ProjectAssetCandidate{}) {
+			checks = append(checks, struct {
+				model any
+				query string
+			}{&model.ProjectAssetCandidate{}, "preview_resource_id IN ?"})
+		}
+		for _, check := range checks {
 			var count int64
 			if err := tx.Model(check.model).Where(check.query, resourceIDs).Count(&count).Error; err != nil {
 				return err

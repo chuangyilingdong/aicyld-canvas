@@ -8,6 +8,7 @@ import (
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/modelcatalog"
 	localtask "infinite-canvas/backend/internal/task"
+	"infinite-canvas/backend/internal/taskbudget"
 )
 
 func (s *Service) taskDomain() *localtask.Service {
@@ -26,26 +27,25 @@ func (s *Service) TaskService() *localtask.Service { return s.taskDomain() }
 
 func (s *Service) taskDependencies() localtask.Dependencies {
 	return localtask.Dependencies{
-		BindTranscriptionModel: s.bindTranscriptionModel,
-		Billing:                taskBillingAdapter{s.billing},
-		Catalog:                taskCatalogAdapter{s},
-		Secrets:                taskSecretsAdapter{s},
-		Media:                  taskMediaAdapter{s},
-		Projects:               taskProjectsAdapter{s},
-		Policy:                 taskPolicyAdapter{s},
-		Persist:                taskPersistAdapter{s},
-		Runtime:                taskRuntimeAdapter{s},
-		Images:                 taskImagesAdapter{s},
-		Failures:               taskFailuresAdapter{},
-		TextReplay:             s.TextReplay(),
-		Provider:               taskProviderAdapter{s},
-		Recovery:               taskRecoveryAdapter{s},
-		Present:                taskPresenterAdapter{s},
-		Logs:                   taskLogAdapter{s},
-		Activity:               taskActivityAdapter{s},
-		OwnedMedia:             taskOwnedMediaAdapter{s},
-		Features:               taskFeaturesAdapter{s},
-		NewID:                  newID,
+		BindTranscriptionModel: s.bindTranscriptionModel, Billing: taskBillingAdapter{s.billing}, Budget: taskbudget.New(s.repo, s.billing),
+		Catalog:    taskCatalogAdapter{s},
+		Secrets:    taskSecretsAdapter{s},
+		Media:      taskMediaAdapter{s},
+		Projects:   taskProjectsAdapter{s},
+		Policy:     taskPolicyAdapter{s},
+		Persist:    taskPersistAdapter{s},
+		Runtime:    taskRuntimeAdapter{s},
+		Images:     taskImagesAdapter{s},
+		Failures:   taskFailuresAdapter{},
+		TextReplay: s.TextReplay(),
+		Provider:   taskProviderAdapter{s},
+		Recovery:   taskRecoveryAdapter{s},
+		Present:    taskPresenterAdapter{s},
+		Logs:       taskLogAdapter{s},
+		Activity:   taskActivityAdapter{s},
+		OwnedMedia: taskOwnedMediaAdapter{s},
+		Features:   taskFeaturesAdapter{s},
+		NewID:      newID,
 	}
 }
 

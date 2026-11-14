@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"infinite-canvas/backend/internal/app"
+	"infinite-canvas/backend/internal/kernel"
 
 	"github.com/gin-gonic/gin"
 )
@@ -14,7 +15,7 @@ import (
 const internalErrorMessage = "系统处理失败，请稍后重试"
 
 func ok(c *gin.Context, data any) {
-	c.JSON(http.StatusOK, gin.H{"code": app.CodeOK, "data": data, "msg": "ok"})
+	c.JSON(http.StatusOK, gin.H{"code": kernel.CodeOK, "data": data, "msg": "ok"})
 }
 
 // fail 只接受调用方已经确认可公开的错误；service 返回值统一交给 failService 投影。
@@ -23,7 +24,7 @@ func fail(c *gin.Context, status int, err error) {
 	if err != nil && strings.TrimSpace(err.Error()) != "" {
 		message = err.Error()
 	}
-	writeFailure(c, status, status, app.ReasonForStatus(status), message)
+	writeFailure(c, status, status, kernel.ReasonForStatus(status), message)
 }
 
 func failService(c *gin.Context, err error) {
@@ -47,7 +48,7 @@ func writeAppError(c *gin.Context, appErr *app.AppError) {
 	}
 	reason := appErr.Reason
 	if reason == "" {
-		reason = app.ReasonForStatus(appErr.Status)
+		reason = kernel.ReasonForStatus(appErr.Status)
 	}
 	message := strings.TrimSpace(appErr.Message)
 	if message == "" {
@@ -69,10 +70,10 @@ func failInternal(c *gin.Context, status int, err error) {
 		status = http.StatusInternalServerError
 	}
 	logHandlerError(c, status, err)
-	writeFailure(c, status, status, app.ReasonForStatus(status), safeInternalErrorMessage(status))
+	writeFailure(c, status, status, kernel.ReasonForStatus(status), safeInternalErrorMessage(status))
 }
 
-func writeFailure(c *gin.Context, status int, code int, reason app.ErrorReason, message string, details ...map[string]any) {
+func writeFailure(c *gin.Context, status int, code int, reason kernel.ErrorReason, message string, details ...map[string]any) {
 	body := gin.H{"code": code, "data": nil, "msg": message}
 	if len(details) > 0 && details[0] != nil {
 		body["details"] = details[0]

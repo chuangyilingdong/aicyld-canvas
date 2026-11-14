@@ -21,6 +21,7 @@ const SettingsPage = lazy(() => import("@/pages/settings"));
 const SkillsPage = lazy(loadSkillsPage);
 const SmartFilmPage = lazy(() => import("@/pages/smart-film"));
 const SmartFilmBatchNewPage = lazy(() => import("@/pages/smart-film/batch-new"));
+const SmartFilmBatchListPage = lazy(() => import("@/pages/smart-film/batch-list"));
 const SmartFilmBatchDetailPage = lazy(() => import("@/pages/smart-film/batch-detail"));
 const TestVoiceRecording = lazy(() => import("@/pages/test-voice-recording"));
 const UserLayout = lazy(() => import("@/layouts/user-layout"));
@@ -78,6 +79,7 @@ export const router = createWorkspaceRouter([
             { path: "/", element: deferred(<HomePage />) },
             { path: "/create", element: deferred(<CreatePage />) },
             { path: "/smart-film", element: deferred(<SmartFilmPage />) },
+            { path: "/smart-film/batches", element: deferred(<SmartFilmBatchListPage />) },
             { path: "/smart-film/batches/new", element: deferred(<SmartFilmBatchNewPage />) },
             { path: "/smart-film/batches/:batchId", element: deferred(<SmartFilmBatchDetailPage />) },
             {

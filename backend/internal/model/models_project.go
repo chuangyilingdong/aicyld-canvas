@@ -118,22 +118,44 @@ type ProjectAssetFolder struct {
 }
 
 type ProjectAssetCandidate struct {
-	ID                string        `json:"id" gorm:"primaryKey;size:36"`
-	ProjectID         string        `json:"projectId" gorm:"index;size:36;index:idx_project_asset_candidates_project_unit_status,priority:1;index:idx_project_asset_candidates_project_status_category,priority:1"`
-	UnitID            string        `json:"unitId,omitempty" gorm:"index;size:36;index:idx_project_asset_candidates_project_unit_status,priority:2"`
-	ShotID            string        `json:"shotId,omitempty" gorm:"index;size:36"`
-	Name              string        `json:"name" gorm:"size:240"`
-	NameKey           string        `json:"-" gorm:"index;size:240"`
-	Category          AssetCategory `json:"category" gorm:"index;size:32;index:idx_project_asset_candidates_project_status_category,priority:3"`
-	Status            string        `json:"status" gorm:"index;size:32;index:idx_project_asset_candidates_project_unit_status,priority:3;index:idx_project_asset_candidates_project_status_category,priority:2"`
-	Source            string        `json:"source,omitempty" gorm:"index;size:48"`
-	DetailsJSON       string        `json:"detailsJson" gorm:"type:text"`
-	ResolvedAssetID   string        `json:"resolvedAssetId,omitempty" gorm:"index;size:80"`
-	PreviewResourceID string        `json:"previewResourceId,omitempty" gorm:"index;size:36"`
-	PreviewTaskID     string        `json:"previewTaskId,omitempty" gorm:"index;size:36"`
-	PreviewStatus     string        `json:"previewStatus,omitempty" gorm:"size:24"`
-	CreatedAt         time.Time     `json:"createdAt"`
-	UpdatedAt         time.Time     `json:"updatedAt"`
+	ID                string                         `json:"id" gorm:"primaryKey;size:36"`
+	ProjectID         string                         `json:"projectId" gorm:"index;size:36;index:idx_project_asset_candidates_project_unit_status,priority:1;index:idx_project_asset_candidates_project_status_category,priority:1"`
+	UnitID            string                         `json:"unitId,omitempty" gorm:"index;size:36;index:idx_project_asset_candidates_project_unit_status,priority:2"`
+	ShotID            string                         `json:"shotId,omitempty" gorm:"index;size:36"`
+	Name              string                         `json:"name" gorm:"size:240"`
+	NameKey           string                         `json:"-" gorm:"index;size:240"`
+	Category          AssetCategory                  `json:"category" gorm:"index;size:32;index:idx_project_asset_candidates_project_status_category,priority:3"`
+	Status            string                         `json:"status" gorm:"index;size:32;index:idx_project_asset_candidates_project_unit_status,priority:3;index:idx_project_asset_candidates_project_status_category,priority:2"`
+	Source            string                         `json:"source,omitempty" gorm:"index;size:48"`
+	DetailsJSON       string                         `json:"detailsJson" gorm:"type:text"`
+	ResolvedAssetID   string                         `json:"resolvedAssetId,omitempty" gorm:"index;size:80"`
+	PreviewResourceID string                         `json:"previewResourceId,omitempty" gorm:"index;size:36"`
+	PreviewTaskID     string                         `json:"previewTaskId,omitempty" gorm:"index;size:36"`
+	PreviewStatus     string                         `json:"previewStatus,omitempty" gorm:"size:24"`
+	PreviewModel      string                         `json:"previewModel,omitempty" gorm:"size:160"`
+	PreviewPoints     int                            `json:"previewPoints" gorm:"not null;default:0"`
+	Previews          []ProjectAssetCandidatePreview `json:"previews,omitempty" gorm:"foreignKey:CandidateID;constraint:OnDelete:CASCADE"`
+	CreatedAt         time.Time                      `json:"createdAt"`
+	UpdatedAt         time.Time                      `json:"updatedAt"`
+}
+
+// ProjectAssetCandidatePreview records one generated image attempt. Candidate
+// keeps the selected preview in its legacy fields; this table owns history,
+// comparison metadata, and soft deletion.
+type ProjectAssetCandidatePreview struct {
+	ID          string    `json:"id" gorm:"primaryKey;size:36"`
+	UserID      string    `json:"userId" gorm:"index;size:36"`
+	ProjectID   string    `json:"projectId" gorm:"index;size:36;index:idx_project_asset_candidate_previews_candidate,priority:1"`
+	CandidateID string    `json:"candidateId" gorm:"index;size:36;index:idx_project_asset_candidate_previews_candidate,priority:2"`
+	ResourceID  string    `json:"resourceId,omitempty" gorm:"index;size:36"`
+	TaskID      string    `json:"taskId,omitempty" gorm:"index;size:36"`
+	Model       string    `json:"model,omitempty" gorm:"size:160"`
+	Points      int       `json:"points" gorm:"not null;default:0"`
+	Status      string    `json:"status" gorm:"index;size:24"`
+	Selected    bool      `json:"selected" gorm:"index;not null;default:false"`
+	Error       string    `json:"error,omitempty" gorm:"type:text"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
 type AssetVersion struct {
@@ -199,6 +221,9 @@ type Project struct {
 	StyleProfileJSON  string        `json:"styleProfileJson" gorm:"type:text"`
 	DefaultImageModel string        `json:"defaultImageModel,omitempty" gorm:"size:500"`
 	DefaultVideoModel string        `json:"defaultVideoModel,omitempty" gorm:"size:500"`
+	BatchID           string        `json:"batchId,omitempty" gorm:"index;size:36"`
+	SourceRunID       string        `json:"sourceRunId,omitempty" gorm:"index;size:36"`
+	SourceScriptID    string        `json:"sourceScriptId,omitempty" gorm:"index;size:36"`
 	Status            ProjectStatus `json:"status" gorm:"index;size:24"`
 	Revision          int64         `json:"revision"`
 	CreatedAt         time.Time     `json:"createdAt"`
@@ -209,17 +234,20 @@ type Project struct {
 // own project, assets, storyboard and video; the batch only keeps the shared
 // idea, product references and creation defaults together for the UI.
 type SmartFilmBatch struct {
-	ID                string    `json:"id" gorm:"primaryKey;size:36"`
-	UserID            string    `json:"userId" gorm:"index;size:36;index:idx_smart_film_batches_user_updated,priority:1"`
-	Title             string    `json:"title" gorm:"size:240"`
-	SourceText        string    `json:"sourceText" gorm:"type:text"`
-	InputAssetIDsJSON string    `json:"inputAssetIdsJson" gorm:"type:text"`
-	ConfigJSON        string    `json:"configJson" gorm:"type:text"`
-	ScriptsJSON       string    `json:"scriptsJson" gorm:"type:text"`
-	Status            string    `json:"status" gorm:"index;size:32"`
-	Revision          int64     `json:"revision"`
-	CreatedAt         time.Time `json:"createdAt" gorm:"index:idx_smart_film_batches_user_updated,priority:2"`
-	UpdatedAt         time.Time `json:"updatedAt" gorm:"index:idx_smart_film_batches_user_updated,priority:2"`
+	ID                        string    `json:"id" gorm:"primaryKey;size:36"`
+	UserID                    string    `json:"userId" gorm:"index;size:36;index:idx_smart_film_batches_user_updated,priority:1"`
+	Title                     string    `json:"title" gorm:"size:240"`
+	SourceText                string    `json:"sourceText" gorm:"type:text"`
+	InputAssetIDsJSON         string    `json:"inputAssetIdsJson" gorm:"type:text"`
+	ConfigJSON                string    `json:"configJson" gorm:"type:text"`
+	OrchestrationConfigCipher string    `json:"-" gorm:"type:text"`
+	ScriptsJSON               string    `json:"scriptsJson" gorm:"type:text"`
+	Status                    string    `json:"status" gorm:"index;size:32"`
+	Paused                    bool      `json:"paused" gorm:"index;not null;default:false"`
+	BudgetPoints              int       `json:"budgetPoints" gorm:"not null;default:0"`
+	Revision                  int64     `json:"revision"`
+	CreatedAt                 time.Time `json:"createdAt" gorm:"index:idx_smart_film_batches_user_updated,priority:2"`
+	UpdatedAt                 time.Time `json:"updatedAt" gorm:"index:idx_smart_film_batches_user_updated,priority:2"`
 }
 
 // SmartFilmProductionRun is the durable receipt for turning one batch script
@@ -246,6 +274,7 @@ type SmartFilmProductionRun struct {
 	StoryboardStatus     string     `json:"storyboardStatus,omitempty" gorm:"index;size:24"`
 	StoryboardTaskID     string     `json:"storyboardTaskId,omitempty" gorm:"size:36"`
 	StoryboardShotCount  int        `json:"storyboardShotCount"`
+	ControlStatus        string     `json:"controlStatus,omitempty" gorm:"index;size:24"`
 	WorkerLeaseOwner     string     `json:"-" gorm:"index;size:120"`
 	WorkerLeaseUntil     *time.Time `json:"-" gorm:"index"`
 	Attempts             int        `json:"attempts"`
@@ -334,6 +363,7 @@ type ShotRevision struct {
 	NegativePrompt  string    `json:"negativePrompt" gorm:"type:text"`
 	ContinuityNotes string    `json:"continuityNotes" gorm:"type:text"`
 	ActionBeatsJSON string    `json:"actionBeatsJson" gorm:"type:text"`
+	AssetRolesJSON  string    `json:"assetRolesJson" gorm:"type:text"`
 	CreatedBy       string    `json:"createdBy,omitempty" gorm:"index;size:36"`
 	CreatedAt       time.Time `json:"createdAt"`
 }
