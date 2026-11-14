@@ -37,10 +37,12 @@ test('fresh explicit selection reads even a historically loaded exact pin', () =
   assert.throws(() => skillsToLoad([{ ...pin, contentHash: 'fixture-hash' }], loaded), /invalid_skill_selection/);
 });
 
-test('active projection restores full fixed rules and refuses a small model window without truncation', async () => {
+test('active projection accepts a selected large Chinese skill but refuses a small window without truncation', async () => {
   const context={scopeId:'scope',revision:2,lifecycle:'active',activePins:[pin]};
-  const projected=await activeSkillProjection({context,readVersion:async()=>resource,model:{contextWindow:200000,maxTokens:16000}});
-  assert(projected.text.includes(resource.instruction));
+  const large={...resource,instruction:'规则'.repeat(15500),files:Array.from({length:137},(_,index)=>({path:`references/镜头-${index}.md`}))};
+  const projected=await activeSkillProjection({context,readVersion:async()=>large,model:{contextWindow:200000,maxTokens:16384}});
+  assert(projected.text.includes(large.instruction));
+  await assert.rejects(activeSkillProjection({context,readVersion:async()=>large,model:{contextWindow:128000,maxTokens:16384}}),/skill_context_budget_exceeded/);
   await assert.rejects(activeSkillProjection({context,readVersion:async()=>({...resource,instruction:'规则'.repeat(400)}),model:{contextWindow:4096,maxTokens:2048}}),/skill_context_budget_exceeded/);
   await assert.rejects(activeSkillProjection({context:{...context,lifecycle:'reset_pending'},readVersion:async()=>resource,model:{contextWindow:200000}}),/skill_scope_reset_pending/);
 });

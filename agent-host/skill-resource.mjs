@@ -94,11 +94,12 @@ export async function activeSkillProjection({ context, readVersion, model, signa
   const text = [`当前任务技能（scope=${context.scopeId}, revision=${context.revision}）。只有以下固定版本是活动技能。`,
     ...resources.map(formatSkillBlock)].join('\n\n');
   // The SDK has no model tokenizer API. UTF-8 bytes are a conservative token
-  // upper bound; reserve at least 75% of the selected window for conversation,
-  // tools and output. Never truncate instructions to satisfy this admission.
+  // upper bound; reserve at least half of the selected window for conversation,
+  // tools and output. Large selected skills must remain usable without truncation.
   const window = Number(model?.contextWindow);
   if (!Number.isFinite(window) || window <= 0) throw fail('skill_context_model_unavailable');
-  const budget = Math.max(0, Math.min(Math.floor(window / 4), window - Number(model?.maxTokens || 8192)));
+  const inputBudget = window - Number(model?.maxTokens || 8192);
+  const budget = Math.max(0, Math.min(Math.floor(window / 2), inputBudget));
   if (Buffer.byteLength(text, 'utf8') > budget) throw fail('skill_context_budget_exceeded');
   return { text, resources, context };
 }
