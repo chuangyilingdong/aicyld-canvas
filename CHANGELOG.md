@@ -2,6 +2,11 @@
 
 All notable public changes to BeefTV are documented in this file.
 
+## v2.1.3-aicyld.77
+
+- 修复大型已选技能在首次请求前被 `skill_context_budget_exceeded` 误拦截的问题。技能上下文现在最多使用模型窗口的一半，同时仍为对话、工具和输出保留至少一半空间。
+- 新增约 9 万字节中文技能、137 个包内文件的回归用例，并继续拒绝小窗口下无法安全容纳的技能，保持正文不截断。
+
 ## v2.1.3-aicyld.76
 
 - 智能成片配置改为明确的三步向导：填写主题与规格、确认创作参数、检查摘要并生成。
