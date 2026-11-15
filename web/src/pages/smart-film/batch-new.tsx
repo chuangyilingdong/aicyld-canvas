@@ -1,5 +1,5 @@
-import { useMemo, useRef, useState } from "react";
-import { App, Button, Input, InputNumber, Select } from "antd";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { App, Button, Input, InputNumber, Progress, Select } from "antd";
 import { ArrowLeft, ImagePlus, Library, LoaderCircle, Palette, Sparkles, Trash2 } from "lucide-react";
 import { useNavigate } from "react-router";
 
@@ -47,13 +47,18 @@ export default function SmartFilmBatchNewPage() {
     const [stylePickerOpen, setStylePickerOpen] = useState(false);
     const [assetPickerOpen, setAssetPickerOpen] = useState(false);
     const [pickerRole, setPickerRole] = useState<BatchReferenceRole>("product");
-    const [budgetPoints, setBudgetPoints] = useState<number | null>(0);
     const [textModel, setTextModel] = useState("");
     const [imageModel, setImageModel] = useState("");
     const [videoModel, setVideoModel] = useState("");
     const [uploadingRole, setUploadingRole] = useState<BatchReferenceRole | null>(null);
     const [generating, setGenerating] = useState(false);
+    const [generationProgress, setGenerationProgress] = useState(0);
     const [status, setStatus] = useState("");
+    useEffect(() => {
+        if (!generating) return;
+        const timer = window.setInterval(() => setGenerationProgress((progress) => Math.min(90, progress + 1)), 1500);
+        return () => window.clearInterval(timer);
+    }, [generating]);
     const productAssets = productAssetIds.flatMap((id) => {
         const asset = assets.find((item) => item.id === id && item.kind === "image");
         return asset ? [asset as ImageAsset] : [];
@@ -115,6 +120,7 @@ export default function SmartFilmBatchNewPage() {
             return message.warning("所选模型当前不可用，请先检查模型配置");
         }
         setGenerating(true);
+        setGenerationProgress(5);
         setStatus("正在创建多剧本批次…");
         let batchId = "";
         try {
@@ -137,7 +143,7 @@ export default function SmartFilmBatchNewPage() {
                     inputAssetRoles: referenceRoles,
                     scriptCount: resolvedScriptCount,
                 },
-                budgetPoints: Math.max(0, Math.floor(Number(budgetPoints) || 0)),
+                budgetPoints: 0,
                 orchestrationConfig: {
                     text: textProvider,
                     image: imageProvider,
@@ -145,6 +151,7 @@ export default function SmartFilmBatchNewPage() {
                 },
             });
             batchId = created.batch.id;
+            setGenerationProgress(10);
             setStatus(`正在生成 ${resolvedScriptCount} 条独立剧本…`);
             const generated = await generateSmartFilmScripts({
                 idea: sourceText,
@@ -155,19 +162,26 @@ export default function SmartFilmBatchNewPage() {
                 count: resolvedScriptCount,
                 config: { ...effectiveConfig, model: resolvedTextModel, textModel: resolvedTextModel, imageModel: resolvedImageModel, videoModel: resolvedVideoModel },
                 batchId,
+                onProgress: (progress, stage) => {
+                    setGenerationProgress(Math.max(10, progress));
+                    if (stage) setStatus(stage);
+                },
             });
+            setGenerationProgress(95);
             setStatus("正在保存剧本候选…");
             await saveSmartFilmBatchScripts(
                 batchId,
                 generated.scripts.map((script) => ({ title: script.title, content: script.content, taskId: generated.taskId })),
                 created.batch.revision,
             );
+            setGenerationProgress(100);
             navigate(`/smart-film/batches/${batchId}`);
         } catch (error) {
             message.error(error instanceof Error ? error.message : "多剧本生成失败，请重试");
             if (batchId) navigate(`/smart-film/batches/${batchId}`);
         } finally {
             setGenerating(false);
+            if (!batchId) setGenerationProgress(0);
             setStatus("");
         }
     };
@@ -185,7 +199,7 @@ export default function SmartFilmBatchNewPage() {
 
             <main className="smart-film-batch-form">
                 <section className="smart-film-batch-section">
-                    <div className="smart-film-batch-section-title"><span>01</span><div><strong>想法与参考素材</strong><small>可上传产品、场景、人物、道具等参考图，后续会进入独立项目的资产提取</small></div></div>
+                    <div className="smart-film-batch-section-title"><span>01</span><div><strong>想法与参考素材</strong><small>可上传产品、场景、人物、道具等参考图；创建项目后会分析剧本所需资产并生成可修改的提示词</small></div></div>
                     <Input.TextArea value={idea} onChange={(event) => setIdea(event.target.value)} autoSize={{ minRows: 5, maxRows: 10 }} placeholder="例如：为这款便携咖啡机做 3 条不同角度的独立短视频，分别突出办公室、露营和早晨通勤。" />
                     <div className="smart-film-reference-groups">
                         {REFERENCE_ROLE_OPTIONS.map((option) => {
@@ -227,7 +241,6 @@ export default function SmartFilmBatchNewPage() {
                     <div className="smart-film-batch-number-grid">
                         <label><span>生成剧本数量</span><InputNumber min={1} max={10} precision={0} value={scriptCount} onChange={setScriptCount} addonAfter="条" /></label>
                         <label><span>成片画幅</span><Select value={aspectRatio} onChange={setAspectRatio} disabled={generating} options={[{ label: "9:16 竖屏", value: "9:16" }, { label: "16:9 横屏", value: "16:9" }, { label: "1:1 方形", value: "1:1" }]} /></label>
-                        <label><span>批次预算</span><InputNumber min={0} precision={0} value={budgetPoints} onChange={setBudgetPoints} addonAfter="积分" /></label>
                     </div>
                     <div className="smart-film-batch-style-row">
                         <div>
@@ -235,7 +248,7 @@ export default function SmartFilmBatchNewPage() {
                             <span>{selectedStyle ? `${selectedStyle.title}，将应用到角色、场景、分镜图和镜头视频提示词` : "未指定时使用模型默认风格；可选择后统一全批次视觉基线"}</span>
                         </div>
                         <Button size="small" icon={<Palette className="size-3.5" />} disabled={generating} onClick={() => setStylePickerOpen(true)}>
-                            {selectedStyle ? `画风：${selectedStyle.title}` : "选择画风（可选）"}
+                            {selectedStyle ? `画风：${selectedStyle.title}` : "选择/新建画风（可选）"}
                         </Button>
                     </div>
                 </section>
@@ -250,9 +263,13 @@ export default function SmartFilmBatchNewPage() {
                 </section>
 
                 <div className="smart-film-batch-submit">
-                    <div><strong>确认后生成独立剧本候选</strong><span>每条剧本都可以单独重新生成、修改和选择是否制作。</span></div>
+                    <div className="smart-film-batch-submit-copy">
+                        <strong>确认后生成独立剧本候选</strong>
+                        <span>每条剧本都可以单独重新生成、修改和选择是否制作。</span>
+                        {generating ? <div className="smart-film-generation-progress"><Progress percent={generationProgress} size="small" /><small>{status || "正在生成剧本候选"}</small></div> : null}
+                    </div>
                     <Button type="primary" size="large" loading={generating || Boolean(uploadingRole)} icon={<Sparkles className="size-4" />} onClick={() => void createBatch()}>
-                        {generating ? status || "正在生成" : `生成 ${scriptCount || 0} 条剧本`}
+                        {generating ? `${generationProgress}%` : `生成 ${scriptCount || 0} 条剧本`}
                     </Button>
                 </div>
             </main>

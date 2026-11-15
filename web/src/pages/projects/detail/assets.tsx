@@ -59,6 +59,7 @@ import { mediaFileExtension, sanitizeDownloadFileName } from "@/lib/canvas/canva
 
 import { ProjectCharacterCard } from "./project-character-card";
 import { AssetCandidateHistoryModal } from "./asset-candidate-history-modal";
+import { AssetCandidatePromptModal, assetCandidateImagePrompt, assetCandidatePromptPreview, assetCandidatePromptValue } from "./asset-candidate-prompt-modal";
 import { TextAssetPromotionModal } from "./text-asset-promotion-modal";
 import { linkSelectedProjectAssets } from "./project-asset-linking";
 import { generateCharacterTurnaround } from "./project-character-media";
@@ -135,7 +136,9 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
     // 章节提取会产出角色、场景和道具三类候选；待确认列表必须跟随当前分类，否则非角色候选永远无法确认。
     const candidateCategory = category === "all" ? undefined : category;
     const candidateLabel = category === "all" ? "资产" : categoryLabel(category);
-    const showPendingCandidates = folderId === ALL_FOLDERS;
+    // Pending candidates are not assigned to a folder yet. Keep them visible on
+    // the root view where a newly-created smart-film project opens.
+    const showPendingCandidates = !folderId || folderId === ALL_FOLDERS;
     const candidatesQuery = useQuery({
         queryKey: ["project", detail.project.id, "asset-candidates", candidatePage, candidatePageSize, candidateCategory || "all", "pending_confirmation", debouncedKeyword],
         queryFn: () => listProjectAssetCandidates(detail.project.id, { page: candidatePage, pageSize: candidatePageSize, category: candidateCategory, status: "pending_confirmation", query: debouncedKeyword || undefined }),
@@ -638,6 +641,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
                                             </span>
                                             <div className="min-w-0 flex-1">
                                                 <div className="truncate text-xs font-semibold">{candidate.name}</div>
+                                                <p className="mt-1 line-clamp-2 text-[var(--fs-tiny)] leading-4 text-foreground/52">{assetCandidatePromptPreview(candidate)}</p>
                                                 <div className="mt-1 truncate text-[var(--fs-tiny)] text-foreground/42">
                                                     待确认{categoryLabel(candidate.category)} · {candidate.previewResourceId ? "资产图已生成" : isCharacter ? "来自章节分析，确认后为文本角色设定" : "未生成资产图，暂不能确认"}
                                                     {candidate.previewModel ? ` · ${candidate.previewModel}` : ""}
@@ -645,6 +649,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
                                                 </div>
                                                 {!isCharacter && !candidate.previewResourceId ? <div className="mt-1 text-[var(--fs-tiny)] leading-4 text-foreground/38">请先生成资产图。未生成资产图的内容不能绑定镜头或参与分镜生图。</div> : null}
                                                 <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1">
+                                                    <Button type="text" size="small" icon={<Pencil className="size-3.5" />} disabled={Boolean(generatingCandidateId)} onClick={() => { setCandidatePromptEditing(candidate); setCandidatePromptDraft(assetCandidatePromptValue(candidate)); }}>修改提示词</Button>
                                                     {!isCharacter ? <Button type="text" size="small" icon={<Sparkles className="size-3.5" />} loading={generatingImage} disabled={Boolean(generatingCandidateId) && !generatingImage} onClick={() => candidateImageMutation.mutate(candidate)}>{candidate.previewResourceId ? "重新生成资产图" : "生成资产图"}</Button> : null}
                                                     {candidate.previews?.length ? <Button type="text" size="small" icon={<ImageIcon className="size-3.5" />} disabled={Boolean(generatingCandidateId)} onClick={() => setCandidateHistoryId(candidate.id)}>历史 {candidate.previews.filter((preview) => preview.status !== "deleted").length}</Button> : null}
                                                     <Button type="text" size="small" icon={<Check className="size-3.5" />} loading={confirming} disabled={(Boolean(confirmingCandidateId) && !confirming) || Boolean(generatingCandidateId) || (!isCharacter && !candidate.previewResourceId)} onClick={() => confirmMutation.mutate({ candidateId: candidate.id })}>{isCharacter ? "确认角色设定" : candidate.previewResourceId ? "确认资产图" : "需先生成资产图"}</Button>
@@ -688,6 +693,14 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
                 onClose={() => setCandidateHistoryId("")}
                 onSelect={(candidate, preview) => selectCandidatePreviewMutation.mutate({ candidate, preview })}
                 onDelete={(candidate, preview) => deleteCandidatePreviewMutation.mutate({ candidate, preview })}
+            />
+            <AssetCandidatePromptModal
+                candidate={candidatePromptEditing}
+                draft={candidatePromptDraft}
+                saving={updateCandidatePromptMutation.isPending}
+                onChange={setCandidatePromptDraft}
+                onClose={() => setCandidatePromptEditing(null)}
+                onSave={() => candidatePromptEditing && updateCandidatePromptMutation.mutate({ candidate: candidatePromptEditing, prompt: candidatePromptDraft })}
             />
             <ProjectAssetPreviewModal asset={previewAsset} personalAsset={previewAsset ? personalAssets.find((item) => item.id === previewAsset.id) : undefined} onClose={() => setPreviewAsset(null)} onDownload={() => previewAsset && downloadPreviewAsset(previewAsset)} onReplaceImage={() => { if (!previewAsset || previewAsset.category !== "character") return; setPreviewAsset(null); openImages(previewAsset); }} onPromoteVisual={() => previewAsset && openPromotion(previewAsset)} />
             <TextAssetPromotionModal open={Boolean(promotionAsset)} detail={detail} asset={promotionAsset} onClose={() => setPromotionAsset(null)} onPromoted={(asset) => { updatePersonalAsset(asset.id, { status: asset.status as AssetStatus, primaryVersionId: asset.primaryVersionId }); void Promise.all([queryClient.invalidateQueries({ queryKey: ["project", detail.project.id, "assets"] }), queryClient.invalidateQueries({ queryKey: ["project", detail.project.id] })]).then(refreshProject); }} />
@@ -965,34 +978,3 @@ function syncPersonalCharacterProjection(asset: ProjectAsset) {
     useAssetStore.getState().replaceAssets([projected, ...current.filter((item) => item.id !== asset.id)]);
 }
 function MediaIcon({ kind }: { kind: string }) { if (kind === "image") return <ImageIcon className="size-10" />; if (kind === "video") return <Video className="size-10" />; if (kind === "audio") return <Music2 className="size-10" />; if (kind === "model") return <Box className="size-10" />; return <FileText className="size-10" />; }
-
-function assetCandidatePromptPreview(candidate: ProjectAssetCandidate) {
-    try {
-        const details = JSON.parse(candidate.detailsJson || "{}") as Record<string, unknown>;
-        const value = details.prompt || details.description || details.appearance || details.consistencyPrompt;
-        return typeof value === "string" && value.trim() ? value.trim() : "等待补充资产提示词";
-    } catch {
-        return "等待补充资产提示词";
-    }
-}
-
-function assetCandidateImagePrompt(candidate: ProjectAssetCandidate, projectStyle: string) {
-    let details: Record<string, unknown> = {};
-    try {
-        const parsed: unknown = JSON.parse(candidate.detailsJson || "{}");
-        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) details = parsed as Record<string, unknown>;
-    } catch {
-        // A malformed candidate still has its name and can be generated from that.
-    }
-    const description = ["prompt", "description", "appearance", "consistencyPrompt"]
-        .map((key) => typeof details[key] === "string" ? String(details[key]).trim() : "")
-        .find(Boolean) || candidate.name;
-    return [
-        `生成一张用于短视频制作的${categoryLabel(candidate.category)}资产设定图。`,
-        `资产名称：${candidate.name}`,
-        `外观与设定：${description}`,
-        projectStyle ? `项目画风：${projectStyle}` : "",
-        "画面只展示资产本身，构图完整、背景干净、光线清晰，适合作为后续分镜的视觉参考。",
-        "不要出现文字、水印、边框、拼贴说明或多主体。",
-    ].filter(Boolean).join("\n");
-}

@@ -12,6 +12,7 @@ export type SmartFilmScriptGenerationInput = {
     batchId?: string;
     existingTitles?: string[];
     regenerateIndex?: number;
+    onProgress?: (progress: number, stage?: string) => void;
 };
 
 export async function generateSmartFilmScripts(input: SmartFilmScriptGenerationInput): Promise<{ scripts: GeneratedSmartFilmScript[]; taskId: string }> {
@@ -29,6 +30,8 @@ export async function generateSmartFilmScripts(input: SmartFilmScriptGenerationI
         },
         onTaskUpdate: (task) => {
             taskId = task.id;
+            const progress = typeof task.progress === "number" ? task.progress : 5;
+            input.onProgress?.(Math.max(5, Math.min(95, Math.round(progress))), task.stage);
         },
     });
     const scripts = parseGeneratedSmartFilmScripts(result.text || "");

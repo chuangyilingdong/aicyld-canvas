@@ -270,9 +270,20 @@ func (r *Repository) PendingProjectAssetCandidateCount(projectID, unitID string)
 }
 
 func (r *Repository) MarkSmartFilmAssetStageConfirmed(projectID, unitID string) error {
-	return r.db.Model(&model.SmartFilmProductionRun{}).
+	now := time.Now()
+	if err := r.db.Model(&model.SmartFilmProductionRun{}).
 		Where("project_id = ? AND unit_id = ? AND asset_status IN ?", projectID, unitID, []string{"ready", "queued", "running", "needs_attention"}).
-		Updates(map[string]any{"asset_status": "confirmed", "error": "", "recoverable_action": "", "updated_at": time.Now()}).Error
+		Updates(map[string]any{"asset_status": "confirmed", "error": "", "recoverable_action": "", "updated_at": now}).Error; err != nil {
+		return err
+	}
+	// Once every required asset is confirmed, generate the editable storyboard
+	// prompts without depending on the batch page being open or refreshed.
+	return r.db.Model(&model.SmartFilmProductionRun{}).
+		Where("project_id = ? AND unit_id = ? AND asset_status = ? AND storyboard_status IN ?", projectID, unitID, "confirmed", []string{"pending", "waiting"}).
+		Updates(map[string]any{
+			"storyboard_status": "queued", "current_step": "storyboard", "status": "ready",
+			"control_status": "active", "error": "", "recoverable_action": "", "updated_at": now,
+		}).Error
 }
 
 // PrepareSmartFilmProductionRun creates the orchestration receipt before the

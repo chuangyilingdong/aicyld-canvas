@@ -995,6 +995,45 @@ func TestSmartFilmProductionRunCheckpointsAssetAndStoryboardStages(t *testing.T)
 	}
 }
 
+func TestSmartFilmAssetConfirmationQueuesStoryboardPrompts(t *testing.T) {
+	svc, db := newTestService(t, &recordingWorkflows{})
+	now := time.Now()
+	run := model.SmartFilmProductionRun{
+		ID: "asset-confirm-run", UserID: "user-1", BatchID: "asset-confirm-batch", ScriptID: "asset-confirm-script",
+		IdempotencyKey: "asset-confirm-key", Status: SmartFilmProductionRunStatusReady, CurrentStep: SmartFilmProductionStepAssets,
+		ProjectID: "asset-confirm-project", UnitID: "asset-confirm-unit",
+		AssetStatus: SmartFilmProductionStageStatusReady, StoryboardStatus: SmartFilmProductionStageStatusWaiting,
+		ControlStatus: SmartFilmProductionControlActive, Revision: 1, CreatedAt: now, UpdatedAt: now,
+	}
+	if err := db.Create(&run).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.repo.MarkSmartFilmAssetStageConfirmed(run.ProjectID, run.UnitID); err != nil {
+		t.Fatal(err)
+	}
+	var queued model.SmartFilmProductionRun
+	if err := db.First(&queued, "id = ?", run.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if queued.AssetStatus != SmartFilmProductionStageStatusConfirmed || queued.StoryboardStatus != SmartFilmProductionStageStatusQueued || queued.CurrentStep != SmartFilmProductionStepStoryboard || queued.Status != SmartFilmProductionRunStatusReady {
+		t.Fatalf("asset confirmation did not queue storyboard prompts: %+v", queued)
+	}
+
+	if err := db.Model(&model.SmartFilmProductionRun{}).Where("id = ?", run.ID).Update("storyboard_status", SmartFilmProductionStageStatusRunning).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.repo.MarkSmartFilmAssetStageConfirmed(run.ProjectID, run.UnitID); err != nil {
+		t.Fatal(err)
+	}
+	var stillRunning model.SmartFilmProductionRun
+	if err := db.First(&stillRunning, "id = ?", run.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stillRunning.StoryboardStatus != SmartFilmProductionStageStatusRunning {
+		t.Fatalf("repeated asset confirmation reset a running storyboard: %+v", stillRunning)
+	}
+}
+
 func TestSmartFilmScriptDeleteRemovesOrphanProductionRun(t *testing.T) {
 	svc, db := newTestService(t, &recordingWorkflows{})
 	created, err := svc.CreateSmartFilmBatch("user-1", CreateSmartFilmBatchRequest{Title: "孤立运行", SourceText: "想法"})

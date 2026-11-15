@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { App, Button, Checkbox, Dropdown, Input, InputNumber, Select, Tag, type MenuProps } from "antd";
-import { ArrowLeft, CheckCircle2, ChevronDown, Clapperboard, Columns3, Edit3, Layers3, LoaderCircle, Pause, Play, RefreshCcw, SkipForward, Sparkles, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { App, Button, Checkbox, Input, InputNumber, Select, Tag, Tooltip } from "antd";
+import { ArrowLeft, CheckCircle2, Clapperboard, Columns3, Edit3, LoaderCircle, Play, RefreshCcw, Sparkles, Trash2 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router";
 
@@ -10,15 +10,12 @@ import { parseStyleProfile } from "@/lib/canvas/style-profile";
 import { modelCapabilityConfigFor } from "@/lib/model-capabilities";
 import { normalizeSmartFilmShotCount, resizeSmartFilmShotDurations, smartFilmDefaultShotSeconds, smartFilmDurationOptions, smartFilmMaxClipSeconds } from "@/lib/canvas/smart-film-options";
 import {
-    controlSmartFilmBatch,
     controlSmartFilmProductionRun,
     confirmSmartFilmBatchScripts,
     deleteSmartFilmBatchScript,
     getSmartFilmBatch,
-    getSmartFilmBatchCosts,
     saveSmartFilmBatchScripts,
     startSmartFilmProductionStage,
-    updateSmartFilmBatchBudget,
     updateSmartFilmBatchProductionConfig,
     updateSmartFilmBatchScript,
     type SmartFilmBatch,
@@ -26,14 +23,11 @@ import {
     type SmartFilmScript,
     type SmartFilmScriptStatus,
 } from "@/services/api/smart-film-batches";
-import { listProjectAssetCandidates, updateProjectUnit } from "@/services/api/projects";
+import { updateProjectUnit } from "@/services/api/projects";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { useEffectiveConfig } from "@/stores/use-config-store";
 import { generateSmartFilmScripts } from "./smart-film-script-generation";
 import { smartFilmRecoveryMessage, smartFilmRecoveryStage, type SmartFilmRecoveryMode } from "./smart-film-recovery";
-import { batchBulkEligibility, bulkDialogCount, type SmartFilmBulkDialogKind } from "./batch-bulk-operations";
-import { SmartFilmBatchBulkDialog, type SmartFilmBulkDialogValue } from "./batch-bulk-dialogs";
-import { useSmartFilmBatchBulkActions } from "./use-smart-film-batch-bulk";
 import { canCompareSmartFilmScripts } from "./smart-film-script-comparison";
 import { SmartFilmScriptComparisonDialog } from "./smart-film-script-comparison-dialog";
 
@@ -68,31 +62,35 @@ export default function SmartFilmBatchDetailPage() {
     const assets = useAssetStore((state) => state.assets);
     const [selected, setSelected] = useState<Set<string>>(new Set());
     const [comparisonOpen, setComparisonOpen] = useState(false);
-    const [bulkDialog, setBulkDialog] = useState<SmartFilmBulkDialogKind | "">("");
     const [editing, setEditing] = useState<SmartFilmScript | null>(null);
     const [draftTitle, setDraftTitle] = useState("");
     const [draftContent, setDraftContent] = useState("");
     const [busy, setBusy] = useState("");
-    const [budgetDraft, setBudgetDraft] = useState<number | null>(0);
+    const [productionSaving, setProductionSaving] = useState(false);
     const [productionModeDraft, setProductionModeDraft] = useState<"fixed" | "smart" | "">("");
     const [shotCountDraft, setShotCountDraft] = useState<number | null>(6);
     const [shotDurationsDraft, setShotDurationsDraft] = useState<number[]>([]);
     const [targetDurationDraft, setTargetDurationDraft] = useState<number | null>(30);
-    const budgetSourceRef = useRef(-1);
-    const productionSourceRef = useRef("");
+    const productionHydratedBatchRef = useRef("");
+    const productionSaveRevisionRef = useRef(0);
+    const productionSavePayloadRef = useRef<{
+        productionMode: "fixed" | "smart";
+        shotCount?: number;
+        shotDurationsSeconds?: number[];
+        targetDurationSeconds?: number;
+    } | null>(null);
+    const productionSaveInFlightRef = useRef(false);
+    const productionSaveQueuedRef = useRef(false);
+    const [productionSaveRetry, setProductionSaveRetry] = useState(0);
+    const autoStartedAssetRunsRef = useRef<Set<string>>(new Set());
+    const autoStartedStoryboardRunsRef = useRef<Set<string>>(new Set());
     const batchQuery = useQuery({
         queryKey: ["smart-film-batch", batchId],
         queryFn: ({ signal }) => getSmartFilmBatch(batchId, signal).then((result) => result.batch),
         enabled: Boolean(batchId),
         refetchInterval: (query) => query.state.data?.productionRuns?.some((run) => ["queued", "running"].includes(run.assetStatus) || ["queued", "running"].includes(run.storyboardStatus)) ? 3000 : false,
     });
-    const costsQuery = useQuery({
-        queryKey: ["smart-film-batch-costs", batchId],
-        queryFn: () => getSmartFilmBatchCosts(batchId),
-        enabled: Boolean(batchId),
-    });
     const batch = batchQuery.data;
-    const costs = costsQuery.data;
     const resolvedProductionVideoModel = batch?.config.defaultVideoModel || effectiveConfig.videoModel;
     const productionVideoProfile = useMemo(() => modelCapabilityConfigFor(effectiveConfig, resolvedProductionVideoModel).video, [effectiveConfig, resolvedProductionVideoModel]);
     const productionDurationOptions = useMemo(() => smartFilmDurationOptions(productionVideoProfile), [productionVideoProfile]);
@@ -105,6 +103,16 @@ export default function SmartFilmBatchDetailPage() {
         : productionModeDraft === "smart"
             ? Number(targetDurationDraft) >= 1 && Number(targetDurationDraft) <= productionMaxTargetSeconds
             : false;
+    const productionDraftMatchesSaved = useMemo(() => {
+        if (!batch) return false;
+        const savedDurations = batch.config.shotDurationsSeconds?.length
+            ? batch.config.shotDurationsSeconds
+            : Array.from({ length: batch.config.shotCount || 0 }, () => batch.config.shotDurationSeconds || 0);
+        return productionModeDraft === batch.config.productionMode
+            && (productionModeDraft === "fixed"
+                ? normalizedDraftShotCount === (batch.config.shotCount || 0) && JSON.stringify(shotDurationsDraft) === JSON.stringify(savedDurations)
+                : Math.round(Number(targetDurationDraft) || 0) === (batch.config.targetDurationSeconds || 0));
+    }, [batch, normalizedDraftShotCount, productionModeDraft, shotDurationsDraft, targetDurationDraft]);
     const batchSpec = useMemo(() => {
         if (!batch) return "";
         const durationCopy = batch.config.productionMode === "smart"
@@ -134,14 +142,31 @@ export default function SmartFilmBatchDetailPage() {
     const runsByScript = useMemo(() => new Map<string, SmartFilmProductionRun>((batch?.productionRuns || []).filter((run) => run.status !== "archived").map((run) => [run.scriptId, run])), [batch?.productionRuns]);
     const selectedScripts = useMemo(() => (batch?.scripts || []).filter((script) => selected.has(script.id)), [batch?.scripts, selected]);
     const selectedDraftCount = selectedScripts.filter((script) => !script.projectId).length;
-    const bulkEligibility = useMemo(() => batchBulkEligibility(selectedScripts, runsByScript), [runsByScript, selectedScripts]);
+    const createProjectHint = !selectedDraftCount
+        ? "请先勾选尚未创建项目的剧本"
+        : productionSaving
+            ? "制作规格正在自动保存，请稍候"
+            : !productionConfigValid
+                ? "请完成分镜方式和时长设置"
+                : !productionDraftMatchesSaved
+                    ? "正在同步最新制作规格"
+                    : undefined;
     const assetExtractionScripts = projectScripts.filter((script) => {
         const run = runsByScript.get(script.id);
-        return script.status === "project_created" && run?.assetStatus !== "queued" && run?.assetStatus !== "running";
+        return script.status === "project_created"
+            && Boolean(run)
+            && (run!.assetStatus === "pending" || run!.assetStatus === "waiting")
+            && run!.status !== "needs_attention"
+            && run!.status !== "failed";
     });
     const storyboardGenerationScripts = projectScripts.filter((script) => {
         const run = runsByScript.get(script.id);
-        return script.status === "assets_extracted" && run?.assetStatus === "confirmed" && run?.storyboardStatus !== "queued" && run?.storyboardStatus !== "running";
+        return script.status === "assets_extracted"
+            && Boolean(run)
+            && run!.assetStatus === "confirmed"
+            && (run!.storyboardStatus === "pending" || run!.storyboardStatus === "waiting")
+            && run!.status !== "needs_attention"
+            && run!.status !== "failed";
     });
     const recoverableScripts = batch?.scripts.filter((script) => {
         const run = runsByScript.get(script.id);
@@ -154,119 +179,95 @@ export default function SmartFilmBatchDetailPage() {
 
     useEffect(() => {
         if (!batch) return;
-        if (budgetSourceRef.current !== batch.budgetPoints) {
-            budgetSourceRef.current = batch.budgetPoints;
-            setBudgetDraft(batch.budgetPoints || 0);
-        }
         setSelected((current) => {
             const available = new Set(batch.scripts.map((script) => script.id));
             const next = new Set([...current].filter((id) => available.has(id)));
             if (!next.size) batch.scripts.filter((script) => !script.projectId).forEach((script) => next.add(script.id));
             return next;
         });
-        const productionSource = [batch.revision, batch.config.productionMode || "", batch.config.shotCount || 0, batch.config.targetDurationSeconds || 0, ...(batch.config.shotDurationsSeconds || [])].join(":");
-        if (productionSourceRef.current !== productionSource) {
-            productionSourceRef.current = productionSource;
-            setProductionModeDraft(batch.config.productionMode || "");
-            setShotCountDraft(batch.config.shotCount || 6);
-            setTargetDurationDraft(batch.config.targetDurationSeconds || Math.min(30, productionMaxTargetSeconds));
-            setShotDurationsDraft(resizeSmartFilmShotDurations(batch.config.shotDurationsSeconds || [], batch.config.shotCount || 6, productionVideoProfile));
-        }
+        productionSaveRevisionRef.current = batch.revision;
+        if (productionHydratedBatchRef.current === batch.id) return;
+        productionHydratedBatchRef.current = batch.id;
+        setProductionModeDraft(batch.config.productionMode || "");
+        setShotCountDraft(batch.config.shotCount || 6);
+        setTargetDurationDraft(batch.config.targetDurationSeconds || Math.min(30, productionMaxTargetSeconds));
+        setShotDurationsDraft(resizeSmartFilmShotDurations(batch.config.shotDurationsSeconds || [], batch.config.shotCount || 6, productionVideoProfile));
     }, [batch, productionMaxTargetSeconds]);
 
     useEffect(() => {
         if (productionModeDraft !== "fixed") return;
-        setShotDurationsDraft((previous) => resizeSmartFilmShotDurations(previous, normalizedDraftShotCount, productionVideoProfile));
+        setShotDurationsDraft((previous) => {
+            const next = resizeSmartFilmShotDurations(previous, normalizedDraftShotCount, productionVideoProfile);
+            return previous.length === next.length && previous.every((value, index) => value === next[index]) ? previous : next;
+        });
     }, [normalizedDraftShotCount, productionModeDraft, productionVideoProfile]);
 
-    const refresh = async () => {
+    const refresh = useCallback(async () => {
         await queryClient.invalidateQueries({ queryKey: ["smart-film-batch", batchId] });
         await queryClient.invalidateQueries({ queryKey: ["projects"] });
-        await queryClient.invalidateQueries({ queryKey: ["smart-film-batch-costs", batchId] });
-    };
+    }, [batchId, queryClient]);
 
-    const updateBatch = (next: SmartFilmBatch) => {
+    const updateBatch = useCallback((next: SmartFilmBatch) => {
         queryClient.setQueryData(["smart-film-batch", batchId], next);
-    };
+    }, [batchId, queryClient]);
 
-    const bulkActions = useSmartFilmBatchBulkActions({
-        batch,
-        selectedScripts,
-        effectiveConfig,
-        scriptReferences,
-        message,
-        setBusy,
-        updateBatch,
-        refresh,
-    });
+    const productionSavePayload = useMemo(() => {
+        if (!productionConfigValid || !productionModeDraft) return null;
+        return productionModeDraft === "fixed"
+            ? {
+                  productionMode: "fixed" as const,
+                  shotCount: normalizedDraftShotCount,
+                  shotDurationsSeconds: shotDurationsDraft,
+              }
+            : {
+                  productionMode: "smart" as const,
+                  targetDurationSeconds: Math.max(1, Math.round(Number(targetDurationDraft) || 0)),
+              };
+    }, [normalizedDraftShotCount, productionConfigValid, productionModeDraft, shotDurationsDraft, targetDurationDraft]);
+    const productionSavePayloadSignature = productionSavePayload ? JSON.stringify(productionSavePayload) : "";
+    productionSavePayloadRef.current = productionSavePayload;
 
-    const openBulkDialog = (kind: SmartFilmBulkDialogKind) => {
-        if (busy) return;
-        if (!bulkDialogCount(kind, bulkEligibility)) {
-            message.warning("当前选中项没有可执行该操作的剧本");
-            return;
-        }
-        setBulkDialog(kind);
-    };
-
-    const submitBulkDialog = (value: SmartFilmBulkDialogValue) => {
-        const kind = bulkDialog;
-        setBulkDialog("");
-        if (kind === "title") void bulkActions.runBulkTitle(value.titleTemplate || "", Boolean(value.appendIndex));
-        if (kind === "creative") void bulkActions.runBulkCreativeRequirement(value.creativeRequirement || "");
-        if (kind === "regenerate") void bulkActions.runBulkRegenerate();
-        if (kind === "delete") void bulkActions.runBulkDelete();
-        if (kind === "confirm_assets") void bulkActions.runBulkConfirmAssets();
-        if (kind === "confirm_storyboard") void bulkActions.runBulkConfirmStoryboard();
-    };
-
-    const saveBudget = async () => {
-        if (!batch || busy) return;
-        setBusy("正在保存批次预算…");
-        try {
-            const result = await updateSmartFilmBatchBudget(batch.id, Math.max(0, Math.floor(Number(budgetDraft) || 0)));
-            updateBatch(result.batch);
-            await queryClient.invalidateQueries({ queryKey: ["smart-film-batch-costs", batch.id] });
-            message.success("批次预算已保存");
-        } catch (error) {
-            message.error(error instanceof Error ? error.message : "保存预算失败");
-        } finally {
-            setBusy("");
-        }
-    };
-
-    const saveProductionConfig = async () => {
-        if (!batch || busy) return;
-        if (!productionModeDraft) return message.warning("请选择固定分镜或智能整片");
-        if (!productionConfigValid) return message.warning("请先填写完整的制作规格");
-        setBusy("正在保存制作规格…");
-        try {
-            const result = await updateSmartFilmBatchProductionConfig(batch.id, {
-                productionMode: productionModeDraft,
-                ...(productionModeDraft === "fixed"
-                    ? { shotCount: normalizedDraftShotCount, shotDurationsSeconds: shotDurationsDraft }
-                    : { targetDurationSeconds: Math.max(1, Math.round(Number(targetDurationDraft) || 0)) }),
-                expectedRevision: batch.revision,
-            });
-            updateBatch(result.batch);
-            await queryClient.invalidateQueries({ queryKey: ["smart-film-batch-costs", batch.id] });
-            message.success("制作规格已保存");
-        } catch (error) {
-            message.error(error instanceof Error ? error.message : "保存制作规格失败");
-            await refresh();
-        } finally {
-            setBusy("");
-        }
-    };
-
-    const ensureBudgetAvailable = async () => {
-        if (!batch || !batch.budgetPoints) return;
-        const latest = await getSmartFilmBatchCosts(batch.id);
-        queryClient.setQueryData(["smart-film-batch-costs", batch.id], latest);
-        if (latest.overBudget) {
-            throw new Error(`批次预计需要 ${latest.totalPoints} 积分，已超过预算 ${latest.budgetPoints} 积分`);
-        }
-    };
+    useEffect(() => {
+        if (!batch || productionLocked) { setProductionSaving(false); return; }
+        if (!productionConfigValid) { setProductionSaving(false); return; }
+        if (productionDraftMatchesSaved) { setProductionSaving(false); return; }
+        setProductionSaving(true);
+        const timer = window.setTimeout(() => {
+            if (productionSaveInFlightRef.current) {
+                productionSaveQueuedRef.current = true;
+                return;
+            }
+            productionSaveInFlightRef.current = true;
+            void (async () => {
+                try {
+                    while (true) {
+                        const payload = productionSavePayloadRef.current;
+                        if (!payload) break;
+                        const requestSignature = JSON.stringify(payload);
+                        const result = await updateSmartFilmBatchProductionConfig(batch.id, {
+                            ...payload,
+                            expectedRevision: productionSaveRevisionRef.current,
+                        });
+                        productionSaveRevisionRef.current = result.batch.revision;
+                        updateBatch(result.batch);
+                        const latestPayload = productionSavePayloadRef.current;
+                        if (!latestPayload || JSON.stringify(latestPayload) === requestSignature) break;
+                    }
+                } catch (error) {
+                    message.error(error instanceof Error ? error.message : "自动保存制作规格失败");
+                    await refresh();
+                } finally {
+                    productionSaveInFlightRef.current = false;
+                    setProductionSaving(false);
+                    if (productionSaveQueuedRef.current) {
+                        productionSaveQueuedRef.current = false;
+                        setProductionSaveRetry((current) => current + 1);
+                    }
+                }
+            })();
+        }, 700);
+        return () => window.clearTimeout(timer);
+    }, [batch?.id, batch?.revision, message, productionConfigValid, productionDraftMatchesSaved, productionLocked, productionSavePayloadSignature, productionSaveRetry, refresh, updateBatch]);
 
     const generateMissingScripts = async () => {
         if (!batch || busy) return;
@@ -391,19 +392,35 @@ export default function SmartFilmBatchDetailPage() {
         if (!batch || busy) return;
         const scriptIds = [...selected].filter((id) => batch.scripts.some((script) => script.id === id && !script.projectId));
         if (!scriptIds.length) return message.warning("请先选择要制作的剧本");
-        if (!batch.config.productionMode) return message.warning("请先选择并保存分镜策略");
+        if (productionSaving || !productionDraftMatchesSaved) return message.warning("制作规格正在自动保存，请稍候");
+        if (!batch.config.productionMode) return message.warning("请先选择分镜策略");
         modal.confirm({
             title: `为 ${scriptIds.length} 条剧本分别创建独立视频项目？`,
-            content: "每条剧本会创建自己的项目、资产、分镜、任务和视频产物，不会合并成一条视频。",
+            content: "每条剧本会创建自己的项目。系统先分析剧本所需资产：已上传的素材会关联到项目，缺失资产会生成可修改的提示词；资产确认后再生成分镜提示词。",
             okText: "创建独立视频项目",
             cancelText: "取消",
             onOk: async () => {
-                setBusy("正在创建独立视频项目…");
+                setBusy("正在创建项目并分析剧本资产…");
                 try {
                     const result = await confirmSmartFilmBatchScripts(batch.id, scriptIds, batch.revision);
                     updateBatch(result.batch);
+                    const selectedIds = new Set(scriptIds);
+                    const newRuns = result.batch.productionRuns.filter((run) => selectedIds.has(run.scriptId) && ["waiting", "pending"].includes(run.assetStatus));
+                    newRuns.forEach((run) => autoStartedAssetRunsRef.current.add(run.scriptId));
+                    const failures: string[] = [];
+                    for (const run of newRuns) {
+                        try { await startSmartFilmProductionStage(batch.id, run.id, "assets"); }
+                        catch (error) { autoStartedAssetRunsRef.current.delete(run.scriptId); failures.push(error instanceof Error ? error.message : "启动失败"); }
+                    }
+                    const latest = await getSmartFilmBatch(batch.id);
+                    updateBatch(latest.batch);
                     await queryClient.invalidateQueries({ queryKey: ["projects"] });
-                    message.success(`已创建 ${scriptIds.length} 个独立视频项目`);
+                    if (failures.length) message.warning(`已创建 ${scriptIds.length} 个项目，${failures.length} 个资产分析启动失败：${failures.slice(0, 3).join("；")}`);
+                    else message.success(`已创建 ${scriptIds.length} 个独立视频项目，剧本资产分析已自动开始`);
+                    const createdScript = latest.batch.scripts.find((script) => script.id === scriptIds[0] && script.projectId);
+                    if (scriptIds.length === 1 && createdScript?.projectId) {
+                        navigate(`/projects/${createdScript.projectId}/assets`);
+                    }
                 } catch (error) {
                     message.error(error instanceof Error ? error.message : "创建视频项目失败");
                     await refresh();
@@ -430,150 +447,48 @@ export default function SmartFilmBatchDetailPage() {
         }
     };
 
-    const extractProjectAssets = async (script: SmartFilmScript) => {
-        if (!batch || busy || !script.projectId || !script.unitId) return;
-        setBusy(`正在为「${script.title}」提取资产…`);
-        try {
-            await ensureBudgetAvailable();
-            const run = runsByScript.get(script.id);
-            if (!run) throw new Error("这条剧本还没有生产运行记录，请先修复批次创建");
-            await startSmartFilmProductionStage(batch.id, run.id, "assets");
-            const latest = await getSmartFilmBatch(batch.id);
-            updateBatch(latest.batch);
-            message.success(`「${script.title}」资产提取已进入后台队列`);
-        } catch (error) {
-            message.error(error instanceof Error ? error.message : "资产提取失败");
-            await refresh();
-        } finally {
-            setBusy("");
-        }
-    };
-
-    const extractPendingProjectAssets = async () => {
-        if (!batch || busy || !assetExtractionScripts.length) return;
-        modal.confirm({
-            title: `为 ${assetExtractionScripts.length} 个独立项目提取资产候选？`,
-            content: "每个项目会分别提取角色、场景和道具候选。提取完成后需要先确认资产，再生成分镜。",
-            okText: "开始提取",
-            cancelText: "取消",
-            onOk: async () => {
-                setBusy(`正在提取 ${assetExtractionScripts.length} 个独立项目的资产…`);
-                const failures: string[] = [];
-                try {
-                    await ensureBudgetAvailable();
-                    for (const script of assetExtractionScripts) {
-                        try {
-                            const run = runsByScript.get(script.id);
-                            if (!run) throw new Error("缺少生产运行记录");
-                            await startSmartFilmProductionStage(batch.id, run.id, "assets");
-                        } catch (error) {
-                            failures.push(`${script.title}：${error instanceof Error ? error.message : "提取失败"}`);
-                        }
-                    }
-                    const latest = await getSmartFilmBatch(batch.id);
-                    updateBatch(latest.batch);
-                    await queryClient.invalidateQueries({ queryKey: ["projects"] });
-                    if (failures.length) message.warning(`${assetExtractionScripts.length - failures.length} 个已入队，${failures.length} 个失败：${failures.slice(0, 3).join("；")}`);
-                    else message.success("所有独立项目的资产提取已进入后台队列");
-                } finally {
-                    setBusy("");
-                }
-            },
-        });
-    };
-
-    const generateProjectStoryboard = async (script: SmartFilmScript) => {
-        if (!batch || busy || !script.projectId || !script.unitId) return;
-        setBusy(`正在为「${script.title}」分镜入队…`);
-        try {
-            await ensureBudgetAvailable();
-            const result = await listProjectAssetCandidates(script.projectId, { status: "pending_confirmation", pageSize: 1 });
-            if (result.total > 0) {
-                message.warning(`还有 ${result.total} 个资产待确认，请先确认资产再生成分镜`);
-                navigate(`/projects/${script.projectId}/workflow/${script.unitId}/assets`);
-                return;
+    const assetAutoStartKey = assetExtractionScripts.map((script) => script.id).join(",");
+    useEffect(() => {
+        if (!batch || !assetAutoStartKey) return;
+        const targets = assetExtractionScripts.filter((script) => !autoStartedAssetRunsRef.current.has(script.id));
+        if (!targets.length) return;
+        targets.forEach((script) => autoStartedAssetRunsRef.current.add(script.id));
+        void (async () => {
+            const failures: string[] = [];
+            for (const script of targets) {
+                const run = runsByScript.get(script.id);
+                if (!run) { failures.push(`${script.title}：缺少生产运行记录`); continue; }
+                try { await startSmartFilmProductionStage(batch.id, run.id, "assets"); }
+                catch (error) { autoStartedAssetRunsRef.current.delete(script.id); failures.push(`${script.title}：${error instanceof Error ? error.message : "启动失败"}`); }
             }
-            const run = runsByScript.get(script.id);
-            if (!run) throw new Error("缺少生产运行记录");
-            await startSmartFilmProductionStage(batch.id, run.id, "storyboard");
+            if (failures.length) message.warning(`资产分析自动启动失败：${failures.slice(0, 3).join("；")}`);
+            else message.success("项目已创建，剧本资产分析已自动开始");
             const latest = await getSmartFilmBatch(batch.id);
             updateBatch(latest.batch);
-            message.success(`「${script.title}」分镜已进入后台队列`);
-        } catch (error) {
-            message.error(error instanceof Error ? error.message : "分镜生成失败");
-            await refresh();
-        } finally {
-            setBusy("");
-        }
-    };
+            await queryClient.invalidateQueries({ queryKey: ["projects"] });
+        })();
+    }, [assetAutoStartKey, batch?.id, runsByScript, message, queryClient]);
 
-    const generatePendingStoryboards = async () => {
-        if (!batch || busy || !storyboardGenerationScripts.length) return;
-        modal.confirm({
-            title: `为 ${storyboardGenerationScripts.length} 个独立项目生成分镜？`,
-            content: "只有资产已确认的项目才会进入后台队列。仍有待确认资产的项目会跳过，不会自动确认资产。",
-            okText: "开始入队",
-            cancelText: "取消",
-            onOk: async () => {
-                setBusy(`正在为 ${storyboardGenerationScripts.length} 个独立项目分镜入队…`);
-                const failures: string[] = [];
-                try {
-                    await ensureBudgetAvailable();
-                    for (const script of storyboardGenerationScripts) {
-                        try {
-                            const result = await listProjectAssetCandidates(script.projectId!, { status: "pending_confirmation", pageSize: 1 });
-                            if (result.total > 0) throw new Error(`还有 ${result.total} 个资产待确认`);
-                            const run = runsByScript.get(script.id);
-                            if (!run) throw new Error("缺少生产运行记录");
-                            await startSmartFilmProductionStage(batch.id, run.id, "storyboard");
-                        } catch (error) {
-                            failures.push(`${script.title}：${error instanceof Error ? error.message : "生成失败"}`);
-                        }
-                    }
-                    const latest = await getSmartFilmBatch(batch.id);
-                    updateBatch(latest.batch);
-                    await queryClient.invalidateQueries({ queryKey: ["projects"] });
-                    if (failures.length) message.warning(`${storyboardGenerationScripts.length - failures.length} 个已入队，${failures.length} 个失败：${failures.slice(0, 3).join("；")}`);
-                    else message.success("所有已确认资产的项目分镜已进入后台队列");
-                } finally {
-                    setBusy("");
-                }
-            },
-        });
-    };
-
-    const toggleBatchPause = async () => {
-        if (!batch || busy) return;
-        setBusy(batch.paused ? "正在继续批次…" : "正在暂停批次…");
-        try {
-            const result = await controlSmartFilmBatch(batch.id, batch.paused ? "resume" : "pause");
-            updateBatch(result.batch);
-            message.success(result.batch.paused ? "批次已暂停" : "批次已继续");
-        } catch (error) {
-            message.error(error instanceof Error ? error.message : "批次控制失败");
-            await refresh();
-        } finally {
-            setBusy("");
-        }
-    };
-
-    const controlProject = async (script: SmartFilmScript, action: "pause" | "resume" | "skip") => {
-        if (!batch || busy) return;
-        const run = runsByScript.get(script.id);
-        if (!run) return;
-        setBusy(action === "skip" ? `正在跳过「${script.title}」…` : `正在更新「${script.title}」…`);
-        try {
-            await controlSmartFilmProductionRun(batch.id, run.id, action);
+    const storyboardAutoStartKey = storyboardGenerationScripts.map((script) => script.id).join(",");
+    useEffect(() => {
+        if (!batch || !storyboardAutoStartKey) return;
+        const targets = storyboardGenerationScripts.filter((script) => !autoStartedStoryboardRunsRef.current.has(script.id));
+        if (!targets.length) return;
+        targets.forEach((script) => autoStartedStoryboardRunsRef.current.add(script.id));
+        void (async () => {
+            const failures: string[] = [];
+            for (const script of targets) {
+                const run = runsByScript.get(script.id);
+                if (!run) { failures.push(`${script.title}：缺少生产运行记录`); continue; }
+                try { await startSmartFilmProductionStage(batch.id, run.id, "storyboard"); }
+                catch (error) { autoStartedStoryboardRunsRef.current.delete(script.id); failures.push(`${script.title}：${error instanceof Error ? error.message : "启动失败"}`); }
+            }
+            if (failures.length) message.warning(`分镜生成自动启动失败：${failures.slice(0, 3).join("；")}`);
+            else message.success("资产已确认，分镜提示词已自动开始生成");
             const latest = await getSmartFilmBatch(batch.id);
             updateBatch(latest.batch);
-            message.success(action === "skip" ? "项目已跳过" : action === "pause" ? "项目已暂停" : "项目已继续");
-        } catch (error) {
-            message.error(error instanceof Error ? error.message : "项目控制失败");
-            await refresh();
-        } finally {
-            setBusy("");
-        }
-    };
+        })();
+    }, [storyboardAutoStartKey, batch?.id, runsByScript, message, updateBatch]);
 
     const runProjectRecovery = async (script: SmartFilmScript, mode: SmartFilmRecoveryMode) => {
         if (!batch || busy) return;
@@ -619,16 +534,6 @@ export default function SmartFilmBatchDetailPage() {
         });
     };
 
-    const bulkMenuItems: MenuProps["items"] = [
-        { key: "title", label: `批量修改标题（${bulkEligibility.title}）`, disabled: !bulkEligibility.title },
-        { key: "creative", label: `应用创意要求（${bulkEligibility.creative}）`, disabled: !bulkEligibility.creative },
-        { key: "regenerate", label: `重新生成草稿（${bulkEligibility.regenerate}）`, danger: true, disabled: !bulkEligibility.regenerate },
-        { key: "delete", label: `删除草稿（${bulkEligibility.delete}）`, danger: true, disabled: !bulkEligibility.delete },
-        { type: "divider" },
-        { key: "confirm_assets", label: `确认项目资产（${bulkEligibility.confirmAssets}）`, disabled: !bulkEligibility.confirmAssets },
-        { key: "confirm_storyboard", label: `确认项目分镜（${bulkEligibility.confirmStoryboard}）`, disabled: !bulkEligibility.confirmStoryboard },
-    ];
-
     if (batchQuery.isLoading) {
         return <WorkspacePage className="smart-film-page"><div className="smart-film-generating"><LoaderCircle className="size-7 animate-spin" /><strong>正在读取多剧本批次…</strong></div></WorkspacePage>;
     }
@@ -651,40 +556,15 @@ export default function SmartFilmBatchDetailPage() {
                 <section className="smart-film-batch-summary">
                     <div>
                         <h2>每条剧本都是独立视频</h2>
-                        <p>{busy || "选择剧本后分别创建项目。每个项目拥有自己的资产确认、分镜提示词、任务、计费和最终视频。"}</p>
+                        <p>{busy || "选择剧本后分别创建项目；系统会分析所需资产并生成可修改的资产提示词。"}</p>
                         <p>{batchSpec}</p>
                     </div>
                     <div className="smart-film-batch-summary-stats">
                         <div><span>剧本</span><strong>{batch.scripts.length}</strong></div>
                         <div><span>已建项目</span><strong>{projectScripts.length}</strong></div>
                         <div><span>参考图</span><strong>{batch.inputAssetIds.length}</strong></div>
-                        <div><span>后台队列</span><strong>{batch.control.queuedCount + batch.control.runningCount}</strong></div>
                     </div>
                 </section>
-
-                <div className="smart-film-batch-control-strip">
-                    <div>
-                        <strong>{batch.paused ? "批次已暂停" : batch.control.currentProjectId ? "后台正在处理项目" : "等待后台调度"}</strong>
-                        <span>{batch.control.currentProjectId ? `当前项目 ${batch.control.currentProjectId}` : `等待项目 ${batch.control.queuedCount} 个，运行中 ${batch.control.runningCount} 个`}</span>
-                    </div>
-                    <Button icon={batch.paused ? <Play className="size-4" /> : <Pause className="size-4" />} disabled={Boolean(busy)} onClick={() => void toggleBatchPause()}>{batch.paused ? "继续批次" : "暂停批次"}</Button>
-                </div>
-
-                <div className="smart-film-budget-panel">
-                    <div className="smart-film-budget-stats">
-                        <div><span>预算</span><strong>{batch.budgetPoints || "不限"}</strong></div>
-                        <div><span>已占用</span><strong>{costs?.committedPoints ?? 0}</strong></div>
-                        <div><span>预计剩余</span><strong>{costs?.estimatedPoints ?? 0}</strong></div>
-                        <div><span>合计</span><strong>{costs?.totalPoints ?? 0}</strong></div>
-                        <div><span>余额</span><strong>{costs?.enabled ? costs.balance : "—"}</strong></div>
-                    </div>
-                    <div className="smart-film-budget-actions">
-                        <InputNumber min={0} precision={0} value={budgetDraft} onChange={setBudgetDraft} addonAfter="积分" />
-                        <Button loading={Boolean(busy)} onClick={() => void saveBudget()}>保存预算</Button>
-                    </div>
-                    {costs?.overBudget ? <div className="smart-film-budget-over">当前预算不足以覆盖剩余计划，系统会阻止继续提交付费任务。</div> : null}
-                    {!costs?.enabled && costs ? <div className="text-xs text-foreground/45">当前环境未启用积分计费，仅展示已占用记录。</div> : null}
-                </div>
 
                 {batch.scripts.length ? (
                     <section className="smart-film-production-config">
@@ -693,7 +573,7 @@ export default function SmartFilmBatchDetailPage() {
                                 <strong>制作规格与分镜策略</strong>
                                 <span>剧本确认后再决定分镜。模型已在本批次创建时固定，后续不再重复选择。</span>
                             </div>
-                            <Tag bordered={false}>{productionLocked ? "已锁定" : productionModeDraft ? "待确认" : "待设置"}</Tag>
+                            <Tag bordered={false}>{productionLocked ? "已锁定" : productionSaving ? "保存中" : productionConfigValid && productionDraftMatchesSaved ? "已设置" : productionModeDraft ? "待完善" : "待设置"}</Tag>
                         </div>
                         <div className="smart-film-production-mode-row">
                             <label>
@@ -763,7 +643,7 @@ export default function SmartFilmBatchDetailPage() {
                         ) : null}
                         <div className="smart-film-production-config-foot">
                             <span>视频模型：{batch.config.defaultVideoModel || effectiveConfig.videoModel || "未配置"}</span>
-                            {productionLocked ? <span>项目已经开始制作，制作规格不可再修改。</span> : <Button type="primary" loading={Boolean(busy)} disabled={!productionConfigValid} onClick={() => void saveProductionConfig()}>保存制作规格</Button>}
+                            <span>{productionLocked ? "项目已经开始制作，制作规格不可再修改。" : productionSaving ? "正在自动保存…" : productionConfigValid && productionDraftMatchesSaved ? "已自动保存" : productionConfigValid ? "等待同步…" : "选择后自动保存"}</span>
                         </div>
                     </section>
                 ) : null}
@@ -780,13 +660,10 @@ export default function SmartFilmBatchDetailPage() {
                     <div className="flex flex-wrap items-center gap-2">
                         {!batch.scripts.length ? <Button icon={<Sparkles className="size-4" />} loading={Boolean(busy)} onClick={() => void generateMissingScripts()}>生成剧本</Button> : null}
                         {recoverableScripts.length ? <Button danger icon={<RefreshCcw className="size-4" />} disabled={Boolean(busy)} onClick={() => void retryFailedRuns()}>修复批次创建（{recoverableScripts.length}）</Button> : null}
-                        {assetExtractionScripts.length ? <Button icon={<Layers3 className="size-4" />} disabled={Boolean(busy)} onClick={() => void extractPendingProjectAssets()}>提取资产（{assetExtractionScripts.length}）</Button> : null}
-                        {storyboardGenerationScripts.length ? <Button icon={<Clapperboard className="size-4" />} disabled={Boolean(busy)} onClick={() => void generatePendingStoryboards()}>生成分镜提示词（{storyboardGenerationScripts.length}）</Button> : null}
                         <Button icon={<Columns3 className="size-4" />} disabled={!canCompareSmartFilmScripts(selectedScripts) || Boolean(busy)} onClick={() => setComparisonOpen(true)}>对比剧本</Button>
-                        <Dropdown trigger={["click"]} menu={{ items: bulkMenuItems, onClick: ({ key }) => openBulkDialog(key as SmartFilmBulkDialogKind) }}>
-                            <Button icon={<Layers3 className="size-4" />} disabled={!selectedScripts.length || Boolean(busy)}>批量操作<ChevronDown className="size-3.5" /></Button>
-                        </Dropdown>
-                        <Button type="primary" icon={<Play className="size-4" />} disabled={!selectedDraftCount || Boolean(busy)} onClick={() => void confirmSelected()}>创建独立视频项目</Button>
+                        <Tooltip title={createProjectHint}>
+                            <span className="inline-flex"><Button type="primary" icon={<Play className="size-4" />} disabled={!selectedDraftCount || Boolean(busy) || productionSaving || !productionConfigValid || !productionDraftMatchesSaved} onClick={() => void confirmSelected()}>创建独立视频项目</Button></span>
+                        </Tooltip>
                     </div>
                 </div>
 
@@ -806,10 +683,8 @@ export default function SmartFilmBatchDetailPage() {
                                     <p>{script.content}</p>
                                     {runsByScript.get(script.id) ? (
                                         <div className="mt-2 flex flex-wrap items-center gap-1">
-                                            <Tag bordered={false}>资产提取：{stageStatusCopy[runsByScript.get(script.id)!.assetStatus]}{runsByScript.get(script.id)!.assetCount ? ` · ${runsByScript.get(script.id)!.assetCount} 个` : ""}</Tag>
+                                            <Tag bordered={false}>资产分析：{stageStatusCopy[runsByScript.get(script.id)!.assetStatus]}{runsByScript.get(script.id)!.assetCount ? ` · ${runsByScript.get(script.id)!.assetCount} 个` : ""}</Tag>
                                             <Tag bordered={false}>分镜生成：{stageStatusCopy[runsByScript.get(script.id)!.storyboardStatus]}{runsByScript.get(script.id)!.storyboardShotCount ? ` · ${runsByScript.get(script.id)!.storyboardShotCount} 镜` : ""}</Tag>
-                                            {runsByScript.get(script.id)!.controlStatus === "paused" ? <Tag color="orange">项目已暂停</Tag> : null}
-                                            {runsByScript.get(script.id)!.controlStatus === "skipped" ? <Tag>项目已跳过</Tag> : null}
                                         </div>
                                     ) : null}
                                     {script.error || runsByScript.get(script.id)?.error ? (
@@ -832,23 +707,17 @@ export default function SmartFilmBatchDetailPage() {
                                         <>
                                             {script.status === "project_created" ? (
                                                 runsByScript.get(script.id)?.assetStatus === "queued" || runsByScript.get(script.id)?.assetStatus === "running"
-                                                    ? <Button size="small" loading disabled>资产提取中</Button>
-                                                    : <Button size="small" icon={<Layers3 className="size-3.5" />} disabled={Boolean(busy)} onClick={() => void extractProjectAssets(script)}>提取资产</Button>
+                                                    ? <Button size="small" loading disabled>资产分析中</Button>
+                                                    : null
                                             ) : null}
                                             {script.status === "assets_extracted" && runsByScript.get(script.id)?.assetStatus !== "confirmed" ? <Button size="small" type="primary" icon={<CheckCircle2 className="size-3.5" />} onClick={() => navigate(`/projects/${script.projectId}/assets`)}>确认资产与资产图</Button> : null}
                                             {script.status === "assets_extracted" && runsByScript.get(script.id)?.assetStatus === "confirmed" ? (
                                                 runsByScript.get(script.id)?.storyboardStatus === "queued" || runsByScript.get(script.id)?.storyboardStatus === "running"
                                                     ? <Button size="small" loading disabled>分镜提示词生成中</Button>
-                                                    : <Button size="small" icon={<Sparkles className="size-3.5" />} disabled={Boolean(busy)} onClick={() => void generateProjectStoryboard(script)}>生成分镜提示词</Button>
+                                                    : null
                                             ) : null}
-                                            {script.status === "storyboard_ready" ? <Button size="small" type="primary" icon={<Clapperboard className="size-3.5" />} onClick={() => navigate(`/projects/${script.projectId}/workflow/${script.unitId}/storyboard`)}>确认分镜提示词与分镜图</Button> : null}
-                                            <Button size="small" type="primary" icon={<CheckCircle2 className="size-3.5" />} onClick={() => navigate(`/projects/${script.projectId}/workflow/${script.unitId}/${script.status === "storyboard_ready" ? "storyboard" : "assets"}`)}>打开项目</Button>
-                                            {runsByScript.get(script.id)?.controlStatus !== "skipped" ? (
-                                                runsByScript.get(script.id)?.controlStatus === "paused"
-                                                    ? <Button size="small" icon={<Play className="size-3.5" />} disabled={Boolean(busy)} onClick={() => void controlProject(script, "resume")}>继续项目</Button>
-                                                    : <Button size="small" icon={<Pause className="size-3.5" />} disabled={Boolean(busy)} onClick={() => void controlProject(script, "pause")}>暂停项目</Button>
-                                            ) : null}
-                                            {runsByScript.get(script.id)?.controlStatus !== "skipped" ? <Button size="small" icon={<SkipForward className="size-3.5" />} disabled={Boolean(busy)} onClick={() => void controlProject(script, "skip")}>跳过</Button> : null}
+                                            {script.status === "storyboard_ready" ? <Button size="small" type="primary" icon={<Clapperboard className="size-3.5" />} onClick={() => navigate(`/projects/${script.projectId}/workflow/${script.unitId}/storyboard`)}>查看分镜</Button> : null}
+                                            <Button size="small" icon={<CheckCircle2 className="size-3.5" />} onClick={() => navigate(`/projects/${script.projectId}/workflow/${script.unitId}/${script.status === "storyboard_ready" ? "storyboard" : "assets"}`)}>查看项目</Button>
                                             {(runsByScript.get(script.id)?.status === "needs_attention" || script.status === "needs_attention") && smartFilmRecoveryStage(runsByScript.get(script.id)?.failedStep) ? (
                                                 <>
                                                     <Button size="small" icon={<RefreshCcw className="size-3.5" />} disabled={Boolean(busy)} onClick={() => void retryProject(script)}>重试并优先复用</Button>
@@ -883,13 +752,6 @@ export default function SmartFilmBatchDetailPage() {
                     </div>
                 </div>
             ) : null}
-            <SmartFilmBatchBulkDialog
-                kind={bulkDialog}
-                count={bulkDialogCount(bulkDialog, bulkEligibility)}
-                busy={Boolean(busy)}
-                onCancel={() => setBulkDialog("")}
-                onSubmit={submitBulkDialog}
-            />
             <SmartFilmScriptComparisonDialog open={comparisonOpen} scripts={selectedScripts} onClose={() => setComparisonOpen(false)} />
         </WorkspacePage>
     );

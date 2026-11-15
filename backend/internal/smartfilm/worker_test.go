@@ -378,3 +378,13 @@ func TestWorkerStoryboardWritesShotsAndCheckpointsRun(t *testing.T) {
 		t.Fatalf("run = %+v", updatedRun)
 	}
 }
+
+func TestStoryboardPromptCarriesProjectStyle(t *testing.T) {
+	style := "项目统一画风：冷色电影感，低饱和，柔和高光，人物皮肤保留真实纹理"
+	prompt := storyboardPrompt(localproject.SmartFilmStoryboardWorkItem{
+		ScriptContent: "角色在雨夜街道停下。", ProjectStyle: style, ShotCount: 1, ShotDurationSeconds: 5,
+	}, []byte("[]"))
+	if !strings.Contains(prompt, "【项目画风】") || !strings.Contains(prompt, style) {
+		t.Fatalf("storyboard prompt did not carry the selected project style: %s", prompt)
+	}
+}

@@ -252,6 +252,22 @@
     display: block;
 }
 
+.smart-film-batch-submit-copy {
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.smart-film-generation-progress {
+    max-width: 420px;
+    margin-top: 10px;
+}
+
+.smart-film-generation-progress small {
+    margin-top: 5px;
+    color: color-mix(in srgb, var(--foreground) 48%, transparent);
+    font-size: 10px;
+}
+
 .smart-film-batch-submit strong { font-size: 14px; }
 .smart-film-batch-submit span { margin-top: 4px; color: color-mix(in srgb, var(--foreground) 48%, transparent); font-size: 11px; }
 
