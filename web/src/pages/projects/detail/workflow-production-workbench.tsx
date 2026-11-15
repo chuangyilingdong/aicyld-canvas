@@ -869,7 +869,6 @@ export default function WorkflowProductionWorkbench(props: Props) {
                 detail={detail}
                 shots={shots}
                 readyCount={readyStoryboardCount}
-                pendingPromptCount={unconfirmedSmartFilmShots.length}
                 busy={Boolean(batchProgress) || submittingShotIds.size > 0}
                 submittingShotIds={submittingShotIds}
                 onConfirmPrompts={() => void confirmStoryboardPrompts()}
