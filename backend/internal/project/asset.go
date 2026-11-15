@@ -473,11 +473,12 @@ func (s *Service) ConfirmProjectAssetCandidate(userID string, projectID string, 
 		return summary, nil
 	}
 	createAsset := assetID == ""
+	updateReusedAsset := false
 	var asset model.Asset
 	var version model.AssetVersion
 	var representations []model.AssetRepresentation
 	if createAsset && candidate.PreviewResourceID != "" && candidate.Category != model.AssetCategoryCharacter {
-		previewAsset, previewVersion, previewRepresentations, previewErr := s.assetFromCandidatePreview(userID, candidate, now)
+		previewAsset, previewVersion, previewRepresentations, reused, previewErr := s.assetFromCandidatePreview(userID, candidate, now)
 		if previewErr != nil {
 			return AssetSummary{}, previewErr
 		}
@@ -485,6 +486,8 @@ func (s *Service) ConfirmProjectAssetCandidate(userID string, projectID string, 
 		version = previewVersion
 		representations = previewRepresentations
 		assetID = asset.ID
+		createAsset = !reused
+		updateReusedAsset = reused
 	} else if createAsset {
 		assetID = kernel.NewID()
 		versionID := kernel.NewID()
@@ -530,7 +533,7 @@ func (s *Service) ConfirmProjectAssetCandidate(userID string, projectID string, 
 		return AssetSummary{}, positionErr
 	}
 	link := model.ProjectAssetLink{ID: kernel.NewID(), ProjectID: projectID, AssetID: assetID, FolderID: folderID, Position: position, CreatedAt: now}
-	if err := s.repo.ConfirmProjectAssetCandidateActive(userID, candidate, &asset, &version, representations, &link, createAsset); err != nil {
+	if err := s.repo.ConfirmProjectAssetCandidateActive(userID, candidate, &asset, &version, representations, &link, createAsset, updateReusedAsset); err != nil {
 		return AssetSummary{}, mapProjectWriteError(err)
 	}
 	summary, summaryErr := s.assetSummary(userID, projectID, &asset)
@@ -549,13 +552,30 @@ func (s *Service) markSmartFilmAssetsConfirmedIfReady(projectID, unitID string) 
 	_ = s.repo.MarkSmartFilmAssetStageConfirmed(projectID, unitID)
 }
 
-func (s *Service) assetFromCandidatePreview(userID string, candidate *model.ProjectAssetCandidate, now time.Time) (model.Asset, model.AssetVersion, []model.AssetRepresentation, error) {
+func (s *Service) assetFromCandidatePreview(userID string, candidate *model.ProjectAssetCandidate, now time.Time) (model.Asset, model.AssetVersion, []model.AssetRepresentation, bool, error) {
 	resource, err := s.repo.ResourceForUser(userID, candidate.PreviewResourceID)
 	if err != nil {
-		return model.Asset{}, model.AssetVersion{}, nil, err
+		return model.Asset{}, model.AssetVersion{}, nil, false, err
 	}
 	if resource.Kind != "image" {
-		return model.Asset{}, model.AssetVersion{}, nil, kernel.BadAuthRequest("资产图必须是图片资源")
+		return model.Asset{}, model.AssetVersion{}, nil, false, kernel.BadAuthRequest("资产图必须是图片资源")
+	}
+	storageKey := "resource:" + resource.ID
+	existing, err := s.repo.AssetsForUserMediaStorageKeys(userID, resource.Kind, []string{storageKey})
+	if err != nil {
+		return model.Asset{}, model.AssetVersion{}, nil, false, err
+	}
+	if len(existing) > 0 {
+		reused := existing[0]
+		reused.Category = candidate.Category
+		reused.Title = candidate.Name
+		reused.Status = model.AssetVersionStatusConfirmed
+		reused.UpdatedAt = now
+		reused.PayloadJSON, err = relabelCandidatePreviewAssetPayload(reused.PayloadJSON, reused.ID, candidate.Name, candidate.Category, now)
+		if err != nil {
+			return model.Asset{}, model.AssetVersion{}, nil, false, err
+		}
+		return reused, model.AssetVersion{}, nil, true, nil
 	}
 	assetID := kernel.NewID()
 	versionID := kernel.NewID()
@@ -570,7 +590,7 @@ func (s *Service) assetFromCandidatePreview(userID string, candidate *model.Proj
 		"createdAt": now.Format(time.RFC3339Nano), "updatedAt": now.Format(time.RFC3339Nano),
 	})
 	if err != nil {
-		return model.Asset{}, model.AssetVersion{}, nil, err
+		return model.Asset{}, model.AssetVersion{}, nil, false, err
 	}
 	asset := model.Asset{
 		ID: assetID, UserID: userID, Kind: resource.Kind, Category: candidate.Category, Status: model.AssetVersionStatusConfirmed,
@@ -583,7 +603,30 @@ func (s *Service) assetFromCandidatePreview(userID string, candidate *model.Proj
 	representation := model.AssetRepresentation{
 		ID: kernel.NewID(), AssetVersionID: versionID, ResourceID: resource.ID, MediaType: resource.Kind, Role: "primary", CreatedAt: now,
 	}
-	return asset, version, []model.AssetRepresentation{representation}, nil
+	return asset, version, []model.AssetRepresentation{representation}, false, nil
+}
+
+func relabelCandidatePreviewAssetPayload(payloadJSON, assetID, title string, category model.AssetCategory, now time.Time) (string, error) {
+	payload := map[string]any{}
+	if strings.TrimSpace(payloadJSON) != "" {
+		if err := json.Unmarshal([]byte(payloadJSON), &payload); err != nil {
+			return "", err
+		}
+	}
+	payload["id"] = assetID
+	payload["title"] = title
+	payload["category"] = category
+	payload["status"] = model.AssetVersionStatusConfirmed
+	payload["source"] = "asset_candidate"
+	payload["updatedAt"] = now.Format(time.RFC3339Nano)
+	if data, ok := payload["data"].(map[string]any); ok {
+		data["source"] = "asset_candidate"
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	return string(encoded), nil
 }
 
 func candidatePreviewPrompt(candidate *model.ProjectAssetCandidate) string {
