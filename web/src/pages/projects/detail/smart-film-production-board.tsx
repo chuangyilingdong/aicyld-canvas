@@ -20,6 +20,7 @@ export function SmartFilmStoryboardBoard({ detail, shots, readyCount, pendingPro
     onNext: () => void;
 }) {
     const allReady = shots.length > 0 && readyCount === shots.length;
+    const assetTitles = new Map(detail.assets.map((asset) => [asset.id, asset.title]));
     return (
         <section className="min-h-0 overflow-auto px-4 py-4 thin-scrollbar">
             <header className="mb-4 flex flex-col gap-3 rounded-xl border border-border/70 bg-surface px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
@@ -57,10 +58,10 @@ export function SmartFilmStoryboardBoard({ detail, shots, readyCount, pendingPro
                                     <span className="text-[var(--fs-tiny)] text-foreground/42">计划 {formatDuration(shot.durationMs)}</span>
                                     {shot.status === "confirmed" ? <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[var(--fs-micro)] text-emerald-500">提示词已确认</span> : <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[var(--fs-micro)] text-amber-500">提示词待确认</span>}
                                 </div>
-                                <p className="mt-1 text-xs leading-5 text-foreground/55">{revision?.plotDescription || shot.description || "尚未填写镜头画面"}</p>
+                                <p className="mt-1 text-xs leading-5 text-foreground/55">{readablePrompt(revision?.plotDescription || shot.description || "尚未填写镜头画面", assetTitles)}</p>
                                 <div className="mt-2 grid gap-2 xl:grid-cols-2">
-                                    <PromptBlock label="分镜画面提示词（图片）" value={imagePrompt} />
-                                    <PromptBlock label="视频提示词（后续视频）" value={revision?.videoPrompt || "尚未填写"} />
+                                    <PromptBlock label="分镜画面提示词（图片）" value={readablePrompt(imagePrompt, assetTitles)} />
+                                    <PromptBlock label="视频提示词（后续视频）" value={readablePrompt(revision?.videoPrompt || "尚未填写", assetTitles)} />
                                 </div>
                                 {revision?.action ? <details className="mt-2 rounded-lg border border-border/60 bg-foreground/[.02] px-2.5 py-2"><summary className="cursor-pointer text-[var(--fs-tiny)] font-medium text-foreground/55">表演动作与时间节拍（只用于视频）</summary><p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-foreground/52">{revision.action}</p></details> : null}
                             </div>
@@ -131,4 +132,8 @@ export function SmartFilmVideoBoard({ detail, shots, readyCount, targetSeconds, 
 
 function PromptBlock({ label, value }: { label: string; value: string }) {
     return <div className="rounded-lg border border-border/60 bg-foreground/[.02] px-2.5 py-2"><div className="text-[var(--fs-micro)] font-medium text-foreground/38">{label}</div><p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-foreground/58">{value}</p></div>;
+}
+
+function readablePrompt(value: string, assetTitles: Map<string, string>) {
+    return value.replace(/@\[asset:([^\]]+)\]/g, (_, assetId: string) => `@${assetTitles.get(assetId) || "关联资产"}`);
 }
