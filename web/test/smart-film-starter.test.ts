@@ -18,6 +18,9 @@ test("smart film script prompt preserves product, character and scene reference 
     expect(prompt).toContain("人物参考：通勤女生");
     expect(prompt).toContain("场景参考：清晨厨房");
     expect(prompt).toContain("不要把所有参考图都写成产品");
+    expect(prompt).toContain("痛点共鸣、场景故事、结果证明");
+    expect(prompt).toContain("创意方向：");
+    expect(prompt).toContain("开场钩子：");
     expect(prompt).not.toContain("用户提供的产品参考图：便携咖啡机、通勤女生、清晨厨房");
 });
 test("smart film keeps per-shot duration inside the selected video model limit", () => {

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { App, Button, Checkbox, Dropdown, Input, InputNumber, Select, Tag, type MenuProps } from "antd";
-import { ArrowLeft, CheckCircle2, ChevronDown, Clapperboard, Edit3, Layers3, LoaderCircle, Pause, Play, RefreshCcw, SkipForward, Sparkles, Trash2 } from "lucide-react";
+import { ArrowLeft, CheckCircle2, ChevronDown, Clapperboard, Columns3, Edit3, Layers3, LoaderCircle, Pause, Play, RefreshCcw, SkipForward, Sparkles, Trash2 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router";
 
@@ -34,6 +34,8 @@ import { smartFilmRecoveryMessage, smartFilmRecoveryStage, type SmartFilmRecover
 import { batchBulkEligibility, bulkDialogCount, type SmartFilmBulkDialogKind } from "./batch-bulk-operations";
 import { SmartFilmBatchBulkDialog, type SmartFilmBulkDialogValue } from "./batch-bulk-dialogs";
 import { useSmartFilmBatchBulkActions } from "./use-smart-film-batch-bulk";
+import { canCompareSmartFilmScripts } from "./smart-film-script-comparison";
+import { SmartFilmScriptComparisonDialog } from "./smart-film-script-comparison-dialog";
 
 import "./smart-film.css";
 import "./smart-film-batch.css";
@@ -65,6 +67,7 @@ export default function SmartFilmBatchDetailPage() {
     const effectiveConfig = useEffectiveConfig();
     const assets = useAssetStore((state) => state.assets);
     const [selected, setSelected] = useState<Set<string>>(new Set());
+    const [comparisonOpen, setComparisonOpen] = useState(false);
     const [bulkDialog, setBulkDialog] = useState<SmartFilmBulkDialogKind | "">("");
     const [editing, setEditing] = useState<SmartFilmScript | null>(null);
     const [draftTitle, setDraftTitle] = useState("");
@@ -779,6 +782,7 @@ export default function SmartFilmBatchDetailPage() {
                         {recoverableScripts.length ? <Button danger icon={<RefreshCcw className="size-4" />} disabled={Boolean(busy)} onClick={() => void retryFailedRuns()}>修复批次创建（{recoverableScripts.length}）</Button> : null}
                         {assetExtractionScripts.length ? <Button icon={<Layers3 className="size-4" />} disabled={Boolean(busy)} onClick={() => void extractPendingProjectAssets()}>提取资产（{assetExtractionScripts.length}）</Button> : null}
                         {storyboardGenerationScripts.length ? <Button icon={<Clapperboard className="size-4" />} disabled={Boolean(busy)} onClick={() => void generatePendingStoryboards()}>生成分镜提示词（{storyboardGenerationScripts.length}）</Button> : null}
+                        <Button icon={<Columns3 className="size-4" />} disabled={!canCompareSmartFilmScripts(selectedScripts) || Boolean(busy)} onClick={() => setComparisonOpen(true)}>对比剧本</Button>
                         <Dropdown trigger={["click"]} menu={{ items: bulkMenuItems, onClick: ({ key }) => openBulkDialog(key as SmartFilmBulkDialogKind) }}>
                             <Button icon={<Layers3 className="size-4" />} disabled={!selectedScripts.length || Boolean(busy)}>批量操作<ChevronDown className="size-3.5" /></Button>
                         </Dropdown>
@@ -886,6 +890,7 @@ export default function SmartFilmBatchDetailPage() {
                 onCancel={() => setBulkDialog("")}
                 onSubmit={submitBulkDialog}
             />
+            <SmartFilmScriptComparisonDialog open={comparisonOpen} scripts={selectedScripts} onClose={() => setComparisonOpen(false)} />
         </WorkspacePage>
     );
 }

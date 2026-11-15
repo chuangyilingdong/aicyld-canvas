@@ -91,6 +91,9 @@ export function smartFilmScriptPrompt(input: {
     const productionHint = input.shotCount && input.shotCount > 0
         ? `每条视频预计 ${input.shotCount} 个镜头${input.shotDurationSeconds && input.shotDurationSeconds > 0 ? `，单镜约 ${input.shotDurationSeconds} 秒` : ""}。`
         : "分镜数量和时长将在剧本确认后设置，本轮只需要写出完整、可拆分的独立剧本。";
+    const directionRule = input.count >= 3
+        ? "当生成 3 条及以上时，必须分别使用不同的创意策略：至少覆盖痛点共鸣、场景故事、结果证明中的三种方向；每条的开场钩子、主要场景、叙事结构和结尾不能重复。"
+        : "不同剧本必须使用不同的开场钩子、主要场景、叙事结构和结尾。";
     return [
         "你是短视频导演和商业内容编剧。请把用户想法拆成可直接进入资产提取、分镜和视频生成的独立剧本。",
         "",
@@ -99,11 +102,13 @@ export function smartFilmScriptPrompt(input: {
         target,
         productionHint,
         "每条剧本都必须有完整开头钩子、核心对象或产品展示、卖点证明、情绪推进和明确结尾。",
-        "不同剧本必须使用不同创意角度，不能只是替换同义词。",
+        directionRule,
+        "每条 content 必须以四行结构化字段开头：`创意方向：...`、`开场钩子：...`、`正文：...`、`结尾：...`；正文中写画面、动作、台词或旁白和产品卖点。",
+        "不能只是替换同义词，也不能把同一条剧本改标题后重复输出。",
         avoid,
         "",
         "只返回严格 JSON，不要 Markdown，不要解释：",
-        '{"scripts":[{"title":"不超过 24 字的标题","content":"完整剧本正文，包含画面、动作、台词或旁白、产品卖点和结尾"}]}',
+        '{"scripts":[{"title":"不超过 24 字的标题","content":"创意方向：...\\n开场钩子：...\\n正文：...\\n结尾：..."}]}',
     ].filter(Boolean).join("\n");
 }
 
