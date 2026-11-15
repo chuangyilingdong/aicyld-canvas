@@ -43,6 +43,7 @@ import {
     updateProjectCharacter,
     type ProjectAsset,
     type ProjectAssetCandidate,
+    type ProjectAssetCandidatePage,
     type ProjectAssetCandidatePreview,
     type ProjectAssetFolder,
 } from "@/services/api/projects";
@@ -63,6 +64,7 @@ import { useProjectAssetAnalysis } from "./use-project-asset-analysis";
 import { useCandidateImageGeneration } from "./use-candidate-image-generation";
 import { TextAssetPromotionModal } from "./text-asset-promotion-modal";
 import { linkSelectedProjectAssets } from "./project-asset-linking";
+import { removeProjectAssetCandidateFromPage } from "./project-asset-candidate-state";
 import { generateCharacterTurnaround } from "./project-character-media";
 import { categoryLabels, categoryLabel, mediaLabel, StatusPill, formatTime, textValue, type ProjectDetailViewProps } from "./shared";
 
@@ -326,12 +328,13 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
         onSuccess: ({ asset }, variables) => {
             if (asset.category === "character") syncPersonalCharacterProjection(asset);
             const label = asset.category === "character" ? "角色卡" : categoryLabel(asset.category);
-            // 确认会改变候选、资产列表和左侧计数三处数据，必须一并失效缓存，否则计数与列表滞后。
+            // 先让待确认卡片立即离场，再由服务端结果刷新下方正式资产，避免点击成功后看起来没有响应。
+            queryClient.setQueriesData<ProjectAssetCandidatePage>({ queryKey: ["project", detail.project.id, "asset-candidates"] }, (current) => current ? removeProjectAssetCandidateFromPage(current, variables.candidateId) : current);
             void Promise.all([
                 queryClient.invalidateQueries({ queryKey: ["project", detail.project.id, "asset-candidates"] }),
                 queryClient.invalidateQueries({ queryKey: ["project", detail.project.id, "assets"] }),
-            ]);
-            done(variables.targetAssetId ? `${label}已关联到已有素材` : `${label}已创建`);
+            ]).then(() => refreshProject());
+            message.success(variables.targetAssetId ? `${label}已关联到已有素材` : `${label}已确认并加入下方「已确认资产」`);
         },
         onError: failed("资产确认失败"),
     });
@@ -565,7 +568,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
                         <section className="mb-4" aria-label={`待确认${candidateLabel}`}>
                             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                                 <div className="flex items-center gap-1.5 text-xs font-medium"><Sparkles className="size-3.5 text-foreground/50" />剧情识别出的{candidateLabel}</div>
-                                <span className="text-[var(--fs-tiny)] tabular-nums text-foreground/42">剩余 {candidatesQuery.data?.total || 0} 个待确认</span>
+                                <span className="text-[var(--fs-tiny)] tabular-nums text-foreground/42">确认后移入下方「已确认资产」 · 剩余 {candidatesQuery.data?.total || 0} 个</span>
                             </div>
                             <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                                 {pendingCandidates.map((candidate) => {
@@ -594,7 +597,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
                                                     {matchingExistingAssets.length ? <Dropdown trigger={["click"]} menu={{ items: matchingExistingAssets.map((asset) => ({ key: asset.id, label: asset.title })), onClick: ({ key }) => confirmMutation.mutate({ candidateId: candidate.id, targetAssetId: key }) }}><Button type="text" size="small" disabled={Boolean(confirmingCandidateId && !confirming) || generatingImage}>使用已有素材<ChevronDown className="size-3" /></Button></Dropdown> : null}
                                                     {!isCharacter ? <Button type="text" size="small" icon={<Sparkles className="size-3.5" />} loading={generatingImage} disabled={generatingImage} onClick={() => void candidateImageGeneration.generate(candidate)}>{candidate.previewResourceId ? "重新生成资产图" : "生成资产图"}</Button> : null}
                                                     {candidate.previews?.length ? <Button type="text" size="small" icon={<ImageIcon className="size-3.5" />} disabled={generatingImage} onClick={() => setCandidateHistoryId(candidate.id)}>历史 {candidate.previews.filter((preview) => preview.status !== "deleted").length}</Button> : null}
-                                                    <Button type="text" size="small" icon={<Check className="size-3.5" />} loading={confirming} disabled={(Boolean(confirmingCandidateId) && !confirming) || generatingImage || (!isCharacter && !candidate.previewResourceId)} onClick={() => confirmMutation.mutate({ candidateId: candidate.id })}>{isCharacter ? "确认角色设定" : candidate.previewResourceId ? "确认资产图" : "需先生成资产图"}</Button>
+                                                    <Button type="text" size="small" icon={<Check className="size-3.5" />} loading={confirming} disabled={(Boolean(confirmingCandidateId) && !confirming) || generatingImage || (!isCharacter && !candidate.previewResourceId)} title={isCharacter ? "确认角色设定并加入下方「已确认资产」" : "将当前资产图设为正式项目资产；确认后会移到下方「已确认资产」，可绑定到镜头"} onClick={() => confirmMutation.mutate({ candidateId: candidate.id })}>{isCharacter ? "确认并加入角色库" : candidate.previewResourceId ? "确认并加入资产库" : "需先生成资产图"}</Button>
                                                     {isCharacter && characterAssets.length ? <Dropdown trigger={["click"]} menu={{ items: characterAssets.map((asset) => ({ key: asset.id, label: asset.title })), onClick: ({ key }) => confirmMutation.mutate({ candidateId: candidate.id, targetAssetId: key }) }}><Button type="text" size="small" disabled={Boolean(confirmingCandidateId)}>归并到角色<ChevronDown className="size-3" /></Button></Dropdown> : null}
                                                 </div>
                                             </div>
@@ -605,7 +608,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
                             <PaginationBar current={candidatePage} pageSize={candidatePageSize} total={candidatesQuery.data?.total || 0} itemLabel="项" pageSizeOptions={[candidatePageSize]} onChange={(nextPage) => setCandidatePage(nextPage)} />
                         </section>
                     ) : null}
-                    <div className="mb-2 flex items-center justify-between text-xs text-foreground/45"><span>{currentFolder?.name || (folderId === ALL_FOLDERS ? (category === "all" ? "全部资产" : categoryLabel(category)) : "根目录内容")}</span><span>{assetsQuery.data?.total || 0} 项已确认</span></div>
+                    <div className="mb-2 flex items-center justify-between text-xs text-foreground/45"><span>已确认资产 · {currentFolder?.name || (folderId === ALL_FOLDERS ? (category === "all" ? "全部资产" : categoryLabel(category)) : "根目录内容")}</span><span>{assetsQuery.data?.total || 0} 项</span></div>
                     {assetsQuery.isLoading ? <WorkspaceState icon="assets" compact title="正在读取资产" description="按当前目录、分类和关键词加载这一页。" /> : visibleAssets.length ? <><div className="project-assets-grid assets-library-grid">{visibleAssets.map((asset) => asset.category === "character" ? <ProjectCharacterCard key={asset.id} asset={asset} folderItems={folderMoveItems} generating={generatingAssetIds.has(asset.id)} removing={(moveMutation.isPending && moveMutation.variables?.id === asset.id) || (unlinkMutation.isPending && unlinkMutation.variables === asset.id)} onOpen={() => setPreviewAsset(asset)} onEdit={() => openCharacterEditor(asset)} onGenerate={() => generateMutation.mutate(asset)} onBindImages={() => openImages(asset)} onBindVoice={() => openVoice(asset)} onMove={(nextFolderId) => moveMutation.mutate({ id: asset.id, nextFolderId })} onRemove={() => unlinkMutation.mutate(asset.id)} /> : <MediaAssetCard key={asset.id} asset={asset} personalAsset={personalAssets.find((item) => item.id === asset.id)} folderItems={folderMoveItems} onOpen={() => setPreviewAsset(asset)} onMove={(nextFolderId) => moveMutation.mutate({ id: asset.id, nextFolderId })} onCategoryChange={(next) => categoryMutation.mutate({ id: asset.id, next })} onVersion={() => versionMutation.mutate(asset.id)} onRemove={() => unlinkMutation.mutate(asset.id)} loading={(moveMutation.isPending && moveMutation.variables?.id === asset.id) || (categoryMutation.isPending && categoryMutation.variables?.id === asset.id) || (versionMutation.isPending && versionMutation.variables === asset.id) || (unlinkMutation.isPending && unlinkMutation.variables === asset.id)} />)}</div><PaginationBar current={page} pageSize={pageSize} total={assetsQuery.data?.total || 0} itemLabel="项" pageSizeOptions={[20, 40, 80]} onChange={(nextPage, nextPageSize) => { setPage(nextPageSize !== pageSize ? 1 : nextPage); setPageSize(nextPageSize); }} /></> : childFolders.length || (showPendingCandidates && pendingCandidates.length) ? null : <WorkspaceState icon="assets" compact title={debouncedKeyword ? "没有找到匹配资产" : "这个文件夹还没有内容"} description={debouncedKeyword ? "换一个关键词，或调整左侧分类与目录筛选。" : "可以新建子文件夹、引用个人素材，或把画布产物归档到这里。"} />}
                 </div>
             </div>
