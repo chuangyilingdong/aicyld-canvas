@@ -62,6 +62,7 @@ import {
 import { buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, resolveShotAssetMentionPrompt } from "./workflow-shot-references";
 import { isProjectAssetVisualReference, linkedShotAssetReferences, parseShotAssetRoles, shotAssetRoleLabel } from "./shot-asset-roles";
 import { useSmartFilmWholeFilm } from "./use-smart-film-whole-film";
+import { SmartFilmStoryboardBoard, SmartFilmVideoBoard } from "./smart-film-production-board";
 import { ShotRevisionHistoryButton } from "./shot-revision-history-button"; import { ShotArtifactSelectButton } from "./shot-artifact-select-button"; import { ShotAssetConsistencyButton } from "./shot-asset-consistency-button"; import { ShotReviewActions } from "./shot-review-actions"; import { appendShotReworkInstruction } from "./shot-review";
 import {
     AssetLibrary,
@@ -810,6 +811,43 @@ export default function WorkflowProductionWorkbench(props: Props) {
         }
     };
 
+    const generateSmartFilmStoryboardShot = async (shot: ProjectShot) => {
+        if (submittingShotIds.has(shot.id) || batchProgress) return;
+        const shotIndex = shots.findIndex((item) => item.id === shot.id);
+        const context = buildShotAssetReferenceContext(detail, shot.id);
+        const values = shotEditorValues(detail, shot, shotIndex, context);
+        const model = detail.project.defaultImageModel || effectiveConfig.imageModel || effectiveConfig.model;
+        if (!model || !isAiConfigReady(effectiveConfig, model)) {
+            message.warning("请先配置可用的图片模型");
+            return;
+        }
+        setSubmittingShotIds((current) => new Set(current).add(shot.id));
+        try {
+            const productionStep = await ensureProductionStep();
+            const generation = generationConfigForShot({
+                effectiveConfig,
+                capability: "image",
+                requestedModel: model,
+                context,
+                values,
+                aspectRatio,
+                resolution,
+                imageQuality,
+            });
+            await submitShotGeneration({ shot, values, context, productionStep, model: generation.model, config: generation.config, persistRevision: false });
+            await onRefresh();
+            message.success(`镜头 ${shotIndex + 1} 分镜图任务已提交`);
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "分镜图生成失败");
+        } finally {
+            setSubmittingShotIds((current) => {
+                const next = new Set(current);
+                next.delete(shot.id);
+                return next;
+            });
+        }
+    };
+
     useEffect(() => {
         const resumeSmartFilm = detail.project.type === "smart-film-auto";
         if (batchProgress || submittingShotIds.size) return;
@@ -824,6 +862,44 @@ export default function WorkflowProductionWorkbench(props: Props) {
     const stageCopy = productionStageCopy[activeStage as "storyboard" | "previz" | "video"];
     const selectedShotSubmitting = submittingShotIds.has(selectedShot?.id || "");
     const unconfirmedSmartFilmShots = ["smart-film", "smart-film-auto"].includes(detail.project.type) ? shots.filter((shot) => shot.status !== "confirmed") : [];
+
+    if (smartWholeFilm && activeStage === "storyboard") {
+        return <div className="h-full min-h-0">
+            <SmartFilmStoryboardBoard
+                detail={detail}
+                shots={shots}
+                readyCount={readyStoryboardCount}
+                pendingPromptCount={unconfirmedSmartFilmShots.length}
+                busy={Boolean(batchProgress) || submittingShotIds.size > 0}
+                submittingShotIds={submittingShotIds}
+                onConfirmPrompts={() => void confirmStoryboardPrompts()}
+                onGenerateAll={() => void generateAllArtifacts()}
+                onGenerateShot={(shot) => void generateSmartFilmStoryboardShot(shot)}
+                onPreviewImage={setImagePreviewArtifact}
+                onNext={() => navigate(`/projects/${projectId}/workflow/${unitId}/video`)}
+            />
+            <AppModal flush open={Boolean(imagePreviewArtifact?.resourceId)} title="分镜图预览" footer={null} centered width="min(960px, calc(100vw - 32px))" onCancel={() => setImagePreviewArtifact(null)}>
+                {imagePreviewArtifact?.resourceId ? <img className="workflow-image-preview-modal" src={resourceFileUrl(imagePreviewArtifact.resourceId)} alt="分镜图大图" /> : null}
+            </AppModal>
+        </div>;
+    }
+
+    if (smartWholeFilm && activeStage === "video") {
+        return <SmartFilmVideoBoard
+            detail={detail}
+            shots={shots}
+            readyCount={readyStoryboardCount}
+            targetSeconds={Number(smartFilmBatch?.config.targetDurationSeconds || 0)}
+            generating={smartFilmGenerating}
+            latestResourceId={latestSmartWholeFilm?.resourceId}
+            onBack={() => navigate(`/projects/${projectId}/workflow/${unitId}/storyboard`)}
+            onGenerate={() => void generateSmartWholeFilm(
+                (input) => confirmCanvasGenerationTaskQuote(modal, input, { title: "确认生成整片视频", description: `将使用 ${shots.length} 张已确认分镜图生成 1 条完整视频；本步骤不会生成分镜图。` }),
+                message.error,
+            )}
+            onDownload={() => latestSmartWholeFilm?.resourceId && window.open(resourceFileUrl(latestSmartWholeFilm.resourceId), "_blank", "noopener,noreferrer")}
+        />;
+    }
 
     if (!selectedShot) {
         return <div className="workflow-empty-shot"><EmptyState size="compact" title="当前章节还没有分镜" description="推荐先用 AI 根据章节内容生成分镜，也可以手动新增。" action={<div className="flex flex-wrap items-center justify-center gap-2"><Button type="primary" icon={<Sparkles className="size-4" />} onClick={() => navigate(`/projects/${projectId}/chapters/${unitId}`)}>AI 生成分镜</Button><Button icon={<Plus className="size-4" />} loading={addingShot} onClick={onAddShot}>手动新增</Button></div>} /></div>;
