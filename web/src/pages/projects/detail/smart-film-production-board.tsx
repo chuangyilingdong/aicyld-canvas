@@ -62,9 +62,8 @@ export function SmartFilmStoryboardBoard({ detail, shots, readyCount, busy, subm
                                     {ready ? <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[var(--fs-micro)] text-emerald-500">分镜图已生成</span> : shot.status === "confirmed" ? <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[var(--fs-micro)] text-emerald-500">提示词已确认</span> : <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[var(--fs-micro)] text-amber-500">提示词待确认</span>}
                                 </div>
                                 <p className="mt-1 text-xs leading-5 text-foreground/55">{readablePrompt(revision?.plotDescription || shot.description || "尚未填写镜头画面", assetTitles)}</p>
-                                <div className="mt-2 grid gap-2 xl:grid-cols-[minmax(0,1fr)_220px]">
+                                <div className="mt-2">
                                     <PromptBlock label="分镜画面提示词（图片）" value={readablePrompt(imagePrompt, assetTitles)} />
-                                    <PromptBlock label="镜头语言" value={[revision?.shotSize, revision?.cameraAngle, revision?.cameraMovement].filter(Boolean).join(" · ") || "自动"} />
                                 </div>
                             </div>
 
