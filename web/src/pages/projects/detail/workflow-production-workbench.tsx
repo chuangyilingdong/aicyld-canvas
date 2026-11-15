@@ -9,7 +9,6 @@ import { StatusBadge } from "@/components/ui/base/badges";
 import { AppModal } from "@/components/ui/product/app-modal/app-modal";
 import { Box, CheckCircle2, ChevronLeft, ChevronRight, Download, Film, Layers3, List, Maximize2, Play, Plus, RefreshCcw, Save, SlidersHorizontal, Sparkles, Trash2, WandSparkles, X } from "lucide-react";
 import { Link, useNavigate, useSearchParams } from "react-router";
-
 import { CanvasResourceMentionTextarea } from "@/components/canvas/canvas-resource-mention-textarea";
 import { AssetLibraryPickerModal, type AssetLibraryPickerItem } from "@/components/assets/asset-library-picker-modal";
 import { usePersonalAssetLibrary } from "@/hooks/use-personal-asset-library";
@@ -63,6 +62,7 @@ import {
 import { buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, resolveShotAssetMentionPrompt } from "./workflow-shot-references";
 import { isProjectAssetVisualReference, linkedShotAssetReferences, parseShotAssetRoles, shotAssetRoleLabel } from "./shot-asset-roles";
 import { useSmartFilmWholeFilm } from "./use-smart-film-whole-film";
+import { ShotRevisionHistoryButton } from "./shot-revision-history-button";
 import {
     AssetLibrary,
     WorkflowDisclosure,
@@ -902,7 +902,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                             {customShotTitle(watchedTitle || selectedShot.title, shotIndex) ? <h2>{customShotTitle(watchedTitle || selectedShot.title, shotIndex)}</h2> : null}
                             <StatusBadge tone={saveShot.isPending ? "loading" : editorDirty ? "warning" : selectedShot.status === "confirmed" ? "success" : "neutral"} label={saveShot.isPending ? "保存中" : editorDirty ? "有未保存修改" : selectedShot.status === "confirmed" ? "提示词已确认" : revision ? "待确认提示词" : "草稿"} className="m-0" />
                         </div>
-                        <div className="flex items-center gap-1"><span className="mr-1 text-[var(--fs-micro)] text-foreground/45">{shotIndex + 1} / {shots.length}</span><Button type="text" size="small" icon={<ChevronLeft className="size-4" />} disabled={shotIndex <= 0} onClick={() => selectRelativeShot(-1)} aria-label="上一个镜头" /><Button type="text" size="small" icon={<ChevronRight className="size-4" />} disabled={shotIndex >= shots.length - 1} onClick={() => selectRelativeShot(1)} aria-label="下一个镜头" /></div>
+                        <div className="flex items-center gap-1"><span className="mr-1 text-[var(--fs-micro)] text-foreground/45">{shotIndex + 1} / {shots.length}</span><ShotRevisionHistoryButton detail={detail} shot={selectedShot} projectId={projectId} unitId={unitId} disabled={editorDirty || saveShot.isPending || deleteShot.isPending || Boolean(batchProgress)} onRestored={async () => { setEditorDirty(false); await onRefresh(); }} /><Button type="text" size="small" icon={<ChevronLeft className="size-4" />} disabled={shotIndex <= 0} onClick={() => selectRelativeShot(-1)} aria-label="上一个镜头" /><Button type="text" size="small" icon={<ChevronRight className="size-4" />} disabled={shotIndex >= shots.length - 1} onClick={() => selectRelativeShot(1)} aria-label="下一个镜头" /></div>
                     </header>
                     {smartWholeFilm && activeStage === "video" ? (
                         <section className="workflow-smart-film-panel">
