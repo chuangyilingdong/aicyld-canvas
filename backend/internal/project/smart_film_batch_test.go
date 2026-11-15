@@ -1032,6 +1032,26 @@ func TestSmartFilmAssetConfirmationQueuesStoryboardPrompts(t *testing.T) {
 	if stillRunning.StoryboardStatus != SmartFilmProductionStageStatusRunning {
 		t.Fatalf("repeated asset confirmation reset a running storyboard: %+v", stillRunning)
 	}
+
+	noMissingRun := model.SmartFilmProductionRun{
+		ID: "no-missing-run", UserID: "user-1", BatchID: "no-missing-batch", ScriptID: "no-missing-script",
+		IdempotencyKey: "no-missing-key", Status: SmartFilmProductionRunStatusReady, CurrentStep: SmartFilmProductionStepAssets,
+		ProjectID: "no-missing-project", UnitID: "no-missing-unit",
+		AssetStatus: SmartFilmProductionStageStatusReady, StoryboardStatus: SmartFilmProductionStageStatusWaiting,
+		ControlStatus: SmartFilmProductionControlActive, Revision: 1, CreatedAt: now, UpdatedAt: now,
+	}
+	if err := db.Create(&noMissingRun).Error; err != nil {
+		t.Fatal(err)
+	}
+	checkpointed, err := svc.CheckpointSmartFilmProductionRun("user-1", noMissingRun.BatchID, noMissingRun.ID, SmartFilmProductionStageCheckpointRequest{
+		Stage: SmartFilmProductionStepAssets, Status: SmartFilmProductionStageStatusConfirmed,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checkpointed.AssetStatus != SmartFilmProductionStageStatusConfirmed || checkpointed.StoryboardStatus != SmartFilmProductionStageStatusQueued || checkpointed.CurrentStep != SmartFilmProductionStepStoryboard {
+		t.Fatalf("asset checkpoint without missing assets did not queue storyboard: %+v", checkpointed)
+	}
 }
 
 func TestSmartFilmScriptDeleteRemovesOrphanProductionRun(t *testing.T) {
@@ -1185,10 +1205,15 @@ func TestSmartFilmScriptRejectsStaleScriptRevision(t *testing.T) {
 }
 
 func TestSmartFilmAssetExtractionWorkItemIsQueuedForWorker(t *testing.T) {
-	svc, _ := newTestService(t, &recordingWorkflows{})
+	svc, db := newTestService(t, &recordingWorkflows{})
+	now := time.Now()
+	resource := model.Resource{ID: "uploaded-reference", UserID: "user-1", Kind: "image", Status: model.ResourceStatusReady, MimeType: "image/png", CreatedAt: now, UpdatedAt: now}
+	if err := db.Create(&resource).Error; err != nil {
+		t.Fatal(err)
+	}
 	created, err := svc.CreateSmartFilmBatch("user-1", CreateSmartFilmBatchRequest{
-		Title: "后台提取", SourceText: "想法",
-		Config: SmartFilmBatchConfig{DefaultTextModel: "channel-1::text-model"},
+		Title: "后台提取", SourceText: "想法", InputAssetIDs: []string{resource.ID},
+		Config: SmartFilmBatchConfig{DefaultTextModel: "channel-1::text-model", InputAssetRoles: map[string]string{resource.ID: "product"}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1215,7 +1240,7 @@ func TestSmartFilmAssetExtractionWorkItemIsQueuedForWorker(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(items) != 1 || items[0].RunID != runID || items[0].TextModel != "channel-1::text-model" || items[0].ScriptContent != "独立正文" {
+	if len(items) != 1 || items[0].RunID != runID || items[0].TextModel != "channel-1::text-model" || items[0].ScriptContent != "独立正文" || len(items[0].ExistingAssets) != 1 || items[0].ExistingAssets[0].Title != "产品参考" {
 		t.Fatalf("asset work items = %+v", items)
 	}
 }

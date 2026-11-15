@@ -23,8 +23,8 @@ func defaultPromptDefinitions() []PromptOperationDefinition {
 	return []PromptOperationDefinition{
 		{
 			Operation: OperationChapterAssetsExtract, Label: "章节角色、场景与道具提取", Category: "角色", OutputType: "json", SchemaKey: "chapter-assets/v1",
-			Description:    "从章节正文提取角色、实际发生剧情的场景和影响剧情的道具，分别进入资产待确认列表。",
-			Variables:      []PromptTemplateVariable{{Label: "项目名称", Placeholder: "{{项目名称}}"}, {Label: "章节名称", Placeholder: "{{章节名称}}"}, {Label: "项目画风", Placeholder: "{{项目画风}}"}},
+			Description:    "从章节正文提取角色、实际发生剧情的场景和影响剧情的道具，排除项目已有资产后进入待确认列表。",
+			Variables:      []PromptTemplateVariable{{Label: "项目名称", Placeholder: "{{项目名称}}"}, {Label: "章节名称", Placeholder: "{{章节名称}}"}, {Label: "项目画风", Placeholder: "{{项目画风}}"}, {Label: "已有资产", Placeholder: "{{已有资产}}"}},
 			DefaultContent: `你是短剧资产导演。按章节事实提取角色、场景和道具。同一身份的别名合并，不编造正文未出现的资产；未明确的视觉信息写“正文未明确”。角色包含剧情定位、稳定外貌服装体态、性格、一致性提示、三视图提示及语言、声音年龄、音色。场景描述空间布局、环境和光照；道具描述材质、形状及剧情用途。无对应资产时返回空数组。`,
 		},
 		{
@@ -130,6 +130,8 @@ func protectedPromptContext(operation string, values map[string]string) string {
 		return strings.Join([]string{
 			fmt.Sprintf("【任务】\n从短剧项目《%s》的章节“%s”提取角色、场景和道具。", values["项目名称"], values["章节名称"]),
 			"【项目画风】\n" + values["项目画风"],
+			"【已有资产】\n" + promptValueOr(values["已有资产"], "[]"),
+			"【去重要求】\n已有资产是用户已经提供或确认的视觉参考。不要再次输出与已有资产表示同一实体的角色、场景或道具；只为剧本中缺失的实体生成候选。名称不同但可判断为同一实体时也不得重复输出。",
 			"【章节正文】\n" + values["章节正文"],
 			"【受保护输出契约】\n" + promptOutputContract(operation),
 		}, "\n\n")
@@ -148,6 +150,13 @@ func protectedPromptContext(operation string, values map[string]string) string {
 	default:
 		return ""
 	}
+}
+
+func promptValueOr(value string, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
 }
 
 func promptOutputContract(operation string) string {

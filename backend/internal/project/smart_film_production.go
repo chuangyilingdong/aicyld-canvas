@@ -59,6 +59,15 @@ func (s *Service) CheckpointSmartFilmProductionRun(userID, batchID, runID string
 	if err != nil {
 		return SmartFilmProductionRunView{}, err
 	}
+	if stage == SmartFilmProductionStepAssets && status == SmartFilmProductionStageStatusConfirmed && run.ProjectID != "" && run.UnitID != "" {
+		if err := s.repo.MarkSmartFilmAssetStageConfirmed(run.ProjectID, run.UnitID); err != nil {
+			return SmartFilmProductionRunView{}, err
+		}
+		run, err = s.repo.SmartFilmProductionRunForUser(userID, batchID, runID)
+		if err != nil {
+			return SmartFilmProductionRunView{}, err
+		}
+	}
 	return smartFilmProductionRunView(*run), nil
 }
 
@@ -287,9 +296,11 @@ func (s *Service) SmartFilmAssetExtractionWorkItems(limit int) ([]SmartFilmAsset
 			}
 		}
 		textModel, textConfig, snapshotErr := s.smartFilmTextStageConfig(config, batch)
+		existingAssets, _ := s.smartFilmStoryboardAssets(run.UserID, run.ProjectID)
 		items = append(items, SmartFilmAssetExtractionWorkItem{
 			RunID: run.ID, Attempts: run.Attempts, UserID: run.UserID, BatchID: run.BatchID, ScriptID: run.ScriptID,
 			ProjectID: run.ProjectID, UnitID: run.UnitID, ProjectName: project.Name, ProjectStyle: stylePrompt,
+			ExistingAssets: existingAssets,
 			ScriptTitle: script.Title, ScriptContent: script.Content,
 			TextModel: textModel, TextConfig: textConfig, LogicalModelID: stringValue(textConfig["logicalModelId"]), ConfigurationError: errorText(snapshotErr),
 			AssetTaskID: run.AssetTaskID, AssetStatus: run.AssetStatus,

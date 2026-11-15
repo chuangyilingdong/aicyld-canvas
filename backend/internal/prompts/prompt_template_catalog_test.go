@@ -57,6 +57,16 @@ func TestRenderShortDramaTemplateSubstitutesVariables(t *testing.T) {
 	}
 }
 
+func TestChapterAssetPromptCarriesExistingAssetsAndDedupRule(t *testing.T) {
+	protected := protectedPromptContext(OperationChapterAssetsExtract, map[string]string{
+		"项目名称": "咖啡短片", "章节名称": "办公室", "项目画风": "写实电影感", "章节正文": "林夏拿起咖啡杯。",
+		"已有资产": `[{"title":"产品参考","category":"prop"}]`,
+	})
+	if !strings.Contains(protected, `"title":"产品参考"`) || !strings.Contains(protected, "不要再次输出与已有资产表示同一实体") || !strings.Contains(protected, "chapter-assets/v1") {
+		t.Fatalf("chapter asset prompt missing existing asset context or dedup rule: %q", protected)
+	}
+}
+
 func TestValidatePromptTemplateResultShortDramaOutline(t *testing.T) {
 	ok := `{"title":"夜灯","synopsis":"租客发现房东不是人","chapters":[{"title":"入住","content":"林夏搬进旧公寓。"}]}`
 	if err := ValidatePromptTemplateResult(OperationShortDramaOutline, map[string]interface{}{"text": "```json\n" + ok + "\n```"}); err != nil {

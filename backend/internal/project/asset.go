@@ -513,6 +513,9 @@ func (s *Service) ConfirmProjectAssetCandidate(userID string, projectID string, 
 		if assetErr != nil {
 			return AssetSummary{}, assetErr
 		}
+		if existing.Category != candidate.Category {
+			return AssetSummary{}, kernel.BadAuthRequest("只能关联同分类的已有资产")
+		}
 		asset = *existing
 	}
 	candidate.Status = "confirmed"

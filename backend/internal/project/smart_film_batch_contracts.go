@@ -247,6 +247,7 @@ type SmartFilmAssetExtractionWorkItem struct {
 	UnitID             string
 	ProjectName        string
 	ProjectStyle       string
+	ExistingAssets     []SmartFilmStoryboardAsset
 	ScriptTitle        string
 	ScriptContent      string
 	TextModel          string

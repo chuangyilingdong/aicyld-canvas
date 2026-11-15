@@ -328,7 +328,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
                 queryClient.invalidateQueries({ queryKey: ["project", detail.project.id, "asset-candidates"] }),
                 queryClient.invalidateQueries({ queryKey: ["project", detail.project.id, "assets"] }),
             ]);
-            done(variables.targetAssetId ? `候选信息已归并到${label}新版本` : `${label}已创建`);
+            done(variables.targetAssetId ? `${label}已关联到已有素材` : `${label}已创建`);
         },
         onError: failed("资产确认失败"),
     });
@@ -634,6 +634,9 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
                                     const confirming = confirmingCandidateId === candidate.id;
                                     const generatingImage = generatingCandidateId === candidate.id;
                                     const isCharacter = candidate.category === "character";
+                                    const matchingExistingAssets = !isCharacter
+                                        ? detail.assets.filter((asset) => asset.category === candidate.category && asset.mediaType === "image")
+                                        : [];
                                     return (
                                         <article key={candidate.id} className="flex min-h-28 items-center gap-3 rounded-lg bg-surface-active p-3">
                                             <span className="grid size-16 shrink-0 place-items-center overflow-hidden rounded-md bg-foreground/[.045] text-foreground/25">
@@ -650,6 +653,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
                                                 {!isCharacter && !candidate.previewResourceId ? <div className="mt-1 text-[var(--fs-tiny)] leading-4 text-foreground/38">请先生成资产图。未生成资产图的内容不能绑定镜头或参与分镜生图。</div> : null}
                                                 <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1">
                                                     <Button type="text" size="small" icon={<Pencil className="size-3.5" />} disabled={Boolean(generatingCandidateId)} onClick={() => { setCandidatePromptEditing(candidate); setCandidatePromptDraft(assetCandidatePromptValue(candidate)); }}>修改提示词</Button>
+                                                    {matchingExistingAssets.length ? <Dropdown trigger={["click"]} menu={{ items: matchingExistingAssets.map((asset) => ({ key: asset.id, label: asset.title })), onClick: ({ key }) => confirmMutation.mutate({ candidateId: candidate.id, targetAssetId: key }) }}><Button type="text" size="small" disabled={Boolean(confirmingCandidateId) || Boolean(generatingCandidateId)}>使用已有素材<ChevronDown className="size-3" /></Button></Dropdown> : null}
                                                     {!isCharacter ? <Button type="text" size="small" icon={<Sparkles className="size-3.5" />} loading={generatingImage} disabled={Boolean(generatingCandidateId) && !generatingImage} onClick={() => candidateImageMutation.mutate(candidate)}>{candidate.previewResourceId ? "重新生成资产图" : "生成资产图"}</Button> : null}
                                                     {candidate.previews?.length ? <Button type="text" size="small" icon={<ImageIcon className="size-3.5" />} disabled={Boolean(generatingCandidateId)} onClick={() => setCandidateHistoryId(candidate.id)}>历史 {candidate.previews.filter((preview) => preview.status !== "deleted").length}</Button> : null}
                                                     <Button type="text" size="small" icon={<Check className="size-3.5" />} loading={confirming} disabled={(Boolean(confirmingCandidateId) && !confirming) || Boolean(generatingCandidateId) || (!isCharacter && !candidate.previewResourceId)} onClick={() => confirmMutation.mutate({ candidateId: candidate.id })}>{isCharacter ? "确认角色设定" : candidate.previewResourceId ? "确认资产图" : "需先生成资产图"}</Button>

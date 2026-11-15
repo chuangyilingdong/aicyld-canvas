@@ -169,6 +169,7 @@ func (w *Worker) submitAssetExtraction(item localproject.SmartFilmAssetExtractio
 	if channelID != "" {
 		config["channelId"] = channelID
 	}
+	existingAssetsJSON, _ := json.Marshal(item.ExistingAssets)
 	input := map[string]any{
 		"mode": "text", "prompt": "章节资产提取", "config": config,
 		"metadata": map[string]any{
@@ -182,6 +183,7 @@ func (w *Worker) submitAssetExtraction(item localproject.SmartFilmAssetExtractio
 				"项目名称": item.ProjectName,
 				"章节名称": item.ScriptTitle,
 				"项目画风": DefaultString(item.ProjectStyle, "项目尚未指定画风，保持视觉描述中性、可执行。"),
+				"已有资产": string(existingAssetsJSON),
 				"章节正文": item.ScriptContent,
 			},
 		},
