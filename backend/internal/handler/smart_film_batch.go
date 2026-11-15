@@ -239,6 +239,20 @@ func RegisterSmartFilmBatchRoutes(r *gin.RouterGroup, owners workspaceOwners, pr
 		ok(c, gin.H{"run": run})
 	})
 
+	r.GET("/projects/:id/production-run", func(c *gin.Context) {
+		user, err := currentUser(c, owners)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		run, err := projects.SmartFilmProductionRunForProject(user.ID, c.Param("id"))
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"run": run})
+	})
+
 	r.POST("/smart-film-batches/:id/production-runs/:runId/start", func(c *gin.Context) {
 		user, err := currentUser(c, owners)
 		if err != nil {

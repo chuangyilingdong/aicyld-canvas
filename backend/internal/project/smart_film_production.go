@@ -119,6 +119,14 @@ func (s *Service) StartSmartFilmProductionStage(userID, batchID, runID string, r
 	return smartFilmProductionRunView(*run), nil
 }
 
+func (s *Service) SmartFilmProductionRunForProject(userID, projectID string) (SmartFilmProductionRunView, error) {
+	run, err := s.repo.SmartFilmProductionRunForProject(userID, projectID)
+	if err != nil {
+		return SmartFilmProductionRunView{}, err
+	}
+	return smartFilmProductionRunView(*run), nil
+}
+
 func (s *Service) ControlSmartFilmBatch(userID, batchID string, req SmartFilmBatchControlRequest) (SmartFilmBatchView, error) {
 	action := strings.TrimSpace(req.Action)
 	if action != "pause" && action != "resume" {

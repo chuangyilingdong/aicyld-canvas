@@ -1018,6 +1018,10 @@ func TestSmartFilmAssetConfirmationQueuesStoryboardPrompts(t *testing.T) {
 	if queued.AssetStatus != SmartFilmProductionStageStatusConfirmed || queued.StoryboardStatus != SmartFilmProductionStageStatusQueued || queued.CurrentStep != SmartFilmProductionStepStoryboard || queued.Status != SmartFilmProductionRunStatusReady {
 		t.Fatalf("asset confirmation did not queue storyboard prompts: %+v", queued)
 	}
+	projectRun, err := svc.SmartFilmProductionRunForProject(run.UserID, run.ProjectID)
+	if err != nil || projectRun.ID != run.ID || projectRun.AssetStatus != SmartFilmProductionStageStatusConfirmed {
+		t.Fatalf("project run lookup = %+v, %v", projectRun, err)
+	}
 
 	if err := db.Model(&model.SmartFilmProductionRun{}).Where("id = ?", run.ID).Update("storyboard_status", SmartFilmProductionStageStatusRunning).Error; err != nil {
 		t.Fatal(err)
