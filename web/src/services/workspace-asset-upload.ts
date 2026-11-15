@@ -1,4 +1,4 @@
-import { normalizeAssetCategory } from "@/lib/asset-category";
+import { normalizeAssetCategory, type AssetCategory } from "@/lib/asset-category";
 import { readImageMeta } from "@/lib/image-utils";
 import { uploadImage } from "@/services/image-storage";
 import { uploadMediaFile } from "@/services/file-storage";
@@ -7,29 +7,33 @@ import { useAssetStore } from "@/stores/use-asset-store";
 import { startOperation } from "@/stores/use-operation-progress";
 
 /** A picker submission owns its batch until settlement, independently of React views. */
-export async function uploadWorkspaceAssetFiles(files: File[], folderId: string) {
+export async function uploadWorkspaceAssetFiles(files: File[], folderId: string, options: { category?: AssetCategory } = {}) {
     const media = files.filter((file) => file.type.startsWith("image/") || file.type.startsWith("video/") || file.type.startsWith("audio/"));
     if (!media.length) throw new Error("请选择图片、视频或音频文件");
     let cursor = 0;
     let completed = 0;
     let failed = 0;
-    const addedAssetIds: string[] = [];
+    const trackedAssets: Array<{ id: string; kind: "image" | "video" | "audio"; storageKey: string }> = [];
     const progress = startOperation("添加素材", { totalFiles: media.length, detail: "正在读取并保存素材" });
     const worker = async () => {
         while (cursor < media.length) {
             const file = media[cursor++];
             try {
-                const common = { title: file.name.replace(/\.[^.]+$/, ""), category: folderId.startsWith("builtin:") ? normalizeAssetCategory(folderId.slice(8)) : "material" as const, folderId: folderId.startsWith("builtin:") ? undefined : folderId || undefined, tags: [], source: "批量上传", metadata: { source: "manual-batch" } };
+                const category = options.category || (folderId.startsWith("builtin:") ? normalizeAssetCategory(folderId.slice(8)) : "material" as const);
+                const common = { title: file.name.replace(/\.[^.]+$/, ""), category, folderId: folderId.startsWith("builtin:") ? undefined : folderId || undefined, tags: [], source: "批量上传", metadata: { source: "manual-batch" } };
                 if (file.type.startsWith("video/")) {
                     const uploaded = await uploadMediaFile(file, "video");
-                    addedAssetIds.push(useAssetStore.getState().addAsset({ ...common, kind: "video", coverUrl: uploaded.preview?.url || "", data: { url: uploaded.url, storageKey: uploaded.storageKey, width: uploaded.width || 0, height: uploaded.height || 0, durationMs: uploaded.durationMs, hasAudio: uploaded.hasAudio, bytes: uploaded.bytes, mimeType: uploaded.mimeType } }));
+                    const id = useAssetStore.getState().addAsset({ ...common, kind: "video", coverUrl: uploaded.preview?.url || "", data: { url: uploaded.url, storageKey: uploaded.storageKey, width: uploaded.width || 0, height: uploaded.height || 0, durationMs: uploaded.durationMs, hasAudio: uploaded.hasAudio, bytes: uploaded.bytes, mimeType: uploaded.mimeType } });
+                    trackedAssets.push({ id, kind: "video", storageKey: uploaded.storageKey });
                 } else if (file.type.startsWith("audio/")) {
                     const uploaded = await uploadMediaFile(file, "audio");
-                    addedAssetIds.push(useAssetStore.getState().addAsset({ ...common, kind: "audio", coverUrl: "", data: { url: uploaded.url, storageKey: uploaded.storageKey, durationMs: uploaded.durationMs, bytes: uploaded.bytes, mimeType: uploaded.mimeType } }));
+                    const id = useAssetStore.getState().addAsset({ ...common, kind: "audio", coverUrl: "", data: { url: uploaded.url, storageKey: uploaded.storageKey, durationMs: uploaded.durationMs, bytes: uploaded.bytes, mimeType: uploaded.mimeType } });
+                    trackedAssets.push({ id, kind: "audio", storageKey: uploaded.storageKey });
                 } else {
                     const uploaded = await uploadImage(file);
                     const meta = await readImageMeta(uploaded.url).catch(() => ({ width: uploaded.width, height: uploaded.height }));
-                    addedAssetIds.push(useAssetStore.getState().addAsset({ ...common, kind: "image", coverUrl: uploaded.url, data: { dataUrl: uploaded.url, storageKey: uploaded.storageKey, width: meta.width || uploaded.width, height: meta.height || uploaded.height, bytes: uploaded.bytes, mimeType: uploaded.mimeType } }));
+                    const id = useAssetStore.getState().addAsset({ ...common, kind: "image", coverUrl: uploaded.url, data: { dataUrl: uploaded.url, storageKey: uploaded.storageKey, width: meta.width || uploaded.width, height: meta.height || uploaded.height, bytes: uploaded.bytes, mimeType: uploaded.mimeType } });
+                    trackedAssets.push({ id, kind: "image", storageKey: uploaded.storageKey });
                 }
                 completed += 1;
             } catch (error) {
@@ -49,6 +53,10 @@ export async function uploadWorkspaceAssetFiles(files: File[], folderId: string)
     }
     if (failed || persistenceError) progress.fail("已添加 " + completed + " 个，" + (failed ? failed + " 个未完成" : "素材记录待重试"));
     else progress.done("已添加 " + completed + " 个素材");
+    const liveAssets = useAssetStore.getState().assets;
+    const addedAssetIds = trackedAssets.map((tracked) => liveAssets.find((asset) => asset.id === tracked.id)?.id
+        || liveAssets.find((asset) => asset.kind === tracked.kind && asset.data.storageKey === tracked.storageKey)?.id
+        || tracked.id);
     return { completed, failed, persistenceError, addedAssetIds };
     } catch (error) { progress.dismiss(); throw error; }
 }

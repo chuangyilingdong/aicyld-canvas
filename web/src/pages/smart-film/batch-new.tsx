@@ -8,7 +8,7 @@ import { CachedResourceImage } from "@/components/cached-resource-image";
 import { CanvasStylePickerModal, type CanvasStylePreset } from "@/components/canvas/canvas-style-picker-modal";
 import { ModelPicker } from "@/components/model-picker";
 import { WorkspacePage } from "@/components/layout/workspace-page";
-import { ASSET_CATEGORY_LABELS, normalizeAssetCategory } from "@/lib/asset-category";
+import { ASSET_CATEGORY_LABELS, normalizeAssetCategory, type AssetCategory } from "@/lib/asset-category";
 import { createStyleProfileSnapshot, serializeStyleProfile } from "@/lib/canvas/style-profile";
 import type { SmartFilmScriptReference } from "@/lib/canvas/smart-film-scripts";
 import { uploadWorkspaceAssetFiles } from "@/services/workspace-asset-upload";
@@ -22,12 +22,12 @@ import "./smart-film.css";
 import "./smart-film-batch.css";
 
 const MAX_BATCH_PRODUCT_IMAGES = 12;
-const REFERENCE_ROLE_OPTIONS: Array<{ value: SmartFilmReferenceRole; label: string }> = [
-    { value: "product", label: "产品" },
-    { value: "scene", label: "场景" },
-    { value: "character", label: "人物" },
-    { value: "prop", label: "道具" },
-    { value: "other", label: "其他" },
+type BatchReferenceRole = Exclude<SmartFilmReferenceRole, "other">;
+const REFERENCE_ROLE_OPTIONS: Array<{ value: BatchReferenceRole; label: string; category: AssetCategory }> = [
+    { value: "product", label: "产品", category: "prop" },
+    { value: "scene", label: "场景", category: "environment" },
+    { value: "character", label: "人物", category: "character" },
+    { value: "prop", label: "道具", category: "prop" },
 ];
 
 export default function SmartFilmBatchNewPage() {
@@ -37,26 +37,31 @@ export default function SmartFilmBatchNewPage() {
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const assets = useAssetStore((state) => state.assets);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const pendingUploadRoleRef = useRef<BatchReferenceRole>("product");
     const [idea, setIdea] = useState("");
     const [productAssetIds, setProductAssetIds] = useState<string[]>([]);
-    const [referenceRoles, setReferenceRoles] = useState<Record<string, SmartFilmReferenceRole>>({});
-    const [newReferenceRole, setNewReferenceRole] = useState<SmartFilmReferenceRole>("product");
+    const [referenceRoles, setReferenceRoles] = useState<Record<string, BatchReferenceRole>>({});
     const [scriptCount, setScriptCount] = useState<number | null>(3);
     const [aspectRatio, setAspectRatio] = useState("9:16");
     const [selectedStyle, setSelectedStyle] = useState<CanvasStylePreset | null>(null);
     const [stylePickerOpen, setStylePickerOpen] = useState(false);
     const [assetPickerOpen, setAssetPickerOpen] = useState(false);
+    const [pickerRole, setPickerRole] = useState<BatchReferenceRole>("product");
     const [budgetPoints, setBudgetPoints] = useState<number | null>(0);
     const [textModel, setTextModel] = useState("");
     const [imageModel, setImageModel] = useState("");
     const [videoModel, setVideoModel] = useState("");
-    const [uploading, setUploading] = useState(false);
+    const [uploadingRole, setUploadingRole] = useState<BatchReferenceRole | null>(null);
     const [generating, setGenerating] = useState(false);
     const [status, setStatus] = useState("");
     const productAssets = productAssetIds.flatMap((id) => {
         const asset = assets.find((item) => item.id === id && item.kind === "image");
         return asset ? [asset as ImageAsset] : [];
     });
+    const referenceAssetsByRole = Object.fromEntries(REFERENCE_ROLE_OPTIONS.map((option) => [
+        option.value,
+        productAssets.filter((asset) => (referenceRoles[asset.id] || "prop") === option.value),
+    ])) as Record<BatchReferenceRole, ImageAsset[]>;
     const productPickerItems = useMemo<AssetLibraryPickerItem[]>(() => assets
         .filter((asset) => asset.kind === "image" && asset.status !== "archived")
         .map((asset) => ({
@@ -70,7 +75,7 @@ export default function SmartFilmBatchNewPage() {
             folderId: asset.folderId,
         })), [assets]);
 
-    const addProductImages = async (files: File[]) => {
+    const addProductImages = async (role: BatchReferenceRole, files: File[]) => {
         if (!files.length) return;
         const remaining = MAX_BATCH_PRODUCT_IMAGES - productAssetIds.length;
         if (remaining <= 0) {
@@ -79,18 +84,19 @@ export default function SmartFilmBatchNewPage() {
         }
         const accepted = files.slice(0, remaining);
         if (accepted.length < files.length) message.warning(`参考图最多 ${MAX_BATCH_PRODUCT_IMAGES} 张，已忽略超出部分`);
-        setUploading(true);
+        setUploadingRole(role);
         try {
-            const result = await uploadWorkspaceAssetFiles(accepted, "");
+            const category = REFERENCE_ROLE_OPTIONS.find((option) => option.value === role)?.category || "prop";
+            const result = await uploadWorkspaceAssetFiles(accepted, "", { category });
             if (result.addedAssetIds.length) {
                 setProductAssetIds((current) => [...new Set([...current, ...result.addedAssetIds])].slice(0, MAX_BATCH_PRODUCT_IMAGES));
-                setReferenceRoles((current) => ({ ...current, ...Object.fromEntries(result.addedAssetIds.map((id) => [id, newReferenceRole])) }));
+                setReferenceRoles((current) => ({ ...current, ...Object.fromEntries(result.addedAssetIds.map((id) => [id, role])) }));
             }
             if (result.failed) message.warning(`${result.failed} 张参考图上传失败`);
         } catch (error) {
             message.error(error instanceof Error ? error.message : "参考图上传失败");
         } finally {
-            setUploading(false);
+            setUploadingRole(null);
             if (fileInputRef.current) fileInputRef.current.value = "";
         }
     };
@@ -144,7 +150,7 @@ export default function SmartFilmBatchNewPage() {
                 idea: sourceText,
                 references: productAssets.map((asset) => ({
                     title: asset.title,
-                    role: referenceRoles[asset.id] || "other",
+                    role: referenceRoles[asset.id] || "prop",
                 })) satisfies SmartFilmScriptReference[],
                 count: resolvedScriptCount,
                 config: { ...effectiveConfig, model: resolvedTextModel, textModel: resolvedTextModel, imageModel: resolvedImageModel, videoModel: resolvedVideoModel },
@@ -181,39 +187,39 @@ export default function SmartFilmBatchNewPage() {
                 <section className="smart-film-batch-section">
                     <div className="smart-film-batch-section-title"><span>01</span><div><strong>想法与参考素材</strong><small>可上传产品、场景、人物、道具等参考图，后续会进入独立项目的资产提取</small></div></div>
                     <Input.TextArea value={idea} onChange={(event) => setIdea(event.target.value)} autoSize={{ minRows: 5, maxRows: 10 }} placeholder="例如：为这款便携咖啡机做 3 条不同角度的独立短视频，分别突出办公室、露营和早晨通勤。" />
-                    <div className="smart-film-reference-role-row">
-                        <span>本次添加类型</span>
-                        <Select value={newReferenceRole} onChange={setNewReferenceRole} options={REFERENCE_ROLE_OPTIONS} disabled={generating || uploading} />
-                        <small>上传或从素材库选择后仍可逐张调整类型。</small>
+                    <div className="smart-film-reference-groups">
+                        {REFERENCE_ROLE_OPTIONS.map((option) => {
+                            const roleAssets = referenceAssetsByRole[option.value] || [];
+                            const uploading = uploadingRole === option.value;
+                            return (
+                                <section className="smart-film-reference-group" key={option.value}>
+                                    <header>
+                                        <div><strong>{option.label}</strong><small>{roleAssets.length ? `已添加 ${roleAssets.length} 张` : "可选，不添加也可以继续"}</small></div>
+                                        <div className="smart-film-reference-group-actions">
+                                            <button type="button" disabled={Boolean(uploadingRole) || generating} onClick={() => { pendingUploadRoleRef.current = option.value; fileInputRef.current?.click(); }}>
+                                                {uploading ? <LoaderCircle className="size-3.5 animate-spin" /> : <ImagePlus className="size-3.5" />}
+                                                {uploading ? "正在上传" : `添加${option.label}`}
+                                            </button>
+                                            <button type="button" disabled={generating} onClick={() => { setPickerRole(option.value); setAssetPickerOpen(true); }}>
+                                                <Library className="size-3.5" />素材库
+                                            </button>
+                                        </div>
+                                    </header>
+                                    <div className="smart-film-product-grid">
+                                        {roleAssets.map((asset) => (
+                                            <div className="smart-film-product-card" key={asset.id}>
+                                                <CachedResourceImage storageKey={asset.data.storageKey} src={asset.data.dataUrl} alt={asset.title} eager />
+                                                <span title={asset.title}>{asset.title}</span>
+                                                <button type="button" aria-label={`移除 ${asset.title}`} onClick={() => { setProductAssetIds((current) => current.filter((id) => id !== asset.id)); setReferenceRoles((current) => { const next = { ...current }; delete next[asset.id]; return next; }); }}><Trash2 className="size-3.5" /></button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </section>
+                            );
+                        })}
                     </div>
-                    <div className="smart-film-product-grid">
-                        {productAssets.map((asset) => (
-                            <div className="smart-film-product-card" key={asset.id}>
-                                <CachedResourceImage storageKey={asset.data.storageKey} src={asset.data.dataUrl} alt={asset.title} eager />
-                                <Select
-                                    className="smart-film-product-role"
-                                    size="small"
-                                    value={referenceRoles[asset.id] || "other"}
-                                    options={REFERENCE_ROLE_OPTIONS}
-                                    onChange={(role) => setReferenceRoles((current) => ({ ...current, [asset.id]: role }))}
-                                    disabled={generating}
-                                    aria-label={`${asset.title} 的参考类型`}
-                                />
-                                <span title={asset.title}>{asset.title}</span>
-                                <button type="button" aria-label={`移除 ${asset.title}`} onClick={() => { setProductAssetIds((current) => current.filter((id) => id !== asset.id)); setReferenceRoles((current) => { const next = { ...current }; delete next[asset.id]; return next; }); }}><Trash2 className="size-3.5" /></button>
-                            </div>
-                        ))}
-                        <button className="smart-film-product-add" type="button" disabled={uploading || generating} onClick={() => fileInputRef.current?.click()}>
-                            {uploading ? <LoaderCircle className="size-5 animate-spin" /> : <ImagePlus className="size-5" />}
-                            <span>{uploading ? "正在上传" : "添加参考图"}</span>
-                        </button>
-                        <button className="smart-film-product-add" type="button" disabled={generating} onClick={() => setAssetPickerOpen(true)}>
-                            <Library className="size-5" />
-                            <span>从素材库选择</span>
-                        </button>
-                    </div>
-                    <small className="smart-film-product-hint">最多 {MAX_BATCH_PRODUCT_IMAGES} 张；支持产品、场景、人物和道具图片。</small>
-                    <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/avif" multiple hidden onChange={(event) => void addProductImages(Array.from(event.target.files || []))} />
+                    <small className="smart-film-product-hint">参考图合计最多 {MAX_BATCH_PRODUCT_IMAGES} 张；每类都可以添加 0 张或多张。</small>
+                    <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/avif" multiple hidden onChange={(event) => void addProductImages(pendingUploadRoleRef.current, Array.from(event.target.files || []))} />
                 </section>
 
                 <section className="smart-film-batch-section">
@@ -245,7 +251,7 @@ export default function SmartFilmBatchNewPage() {
 
                 <div className="smart-film-batch-submit">
                     <div><strong>确认后生成独立剧本候选</strong><span>每条剧本都可以单独重新生成、修改和选择是否制作。</span></div>
-                    <Button type="primary" size="large" loading={generating || uploading} icon={<Sparkles className="size-4" />} onClick={() => void createBatch()}>
+                    <Button type="primary" size="large" loading={generating || Boolean(uploadingRole)} icon={<Sparkles className="size-4" />} onClick={() => void createBatch()}>
                         {generating ? status || "正在生成" : `生成 ${scriptCount || 0} 条剧本`}
                     </Button>
                 </div>
@@ -266,21 +272,24 @@ export default function SmartFilmBatchNewPage() {
                 items={productPickerItems}
                 mediaKinds={["image"]}
                 categoryLabels={{ all: "全部图片", ...ASSET_CATEGORY_LABELS }}
-                initialSelectedIds={productAssetIds}
+                initialSelectedIds={productAssetIds.filter((id) => referenceRoles[id] === pickerRole)}
                 multiple
                 eyebrow="参考素材"
-                title="从素材库选择参考图"
-                confirmLabel={(count) => `使用已选参考图${count ? `（${count}）` : ""}`}
+                title={`选择${REFERENCE_ROLE_OPTIONS.find((option) => option.value === pickerRole)?.label || "参考"}图`}
+                confirmLabel={(count) => `使用已选${count ? ` ${count} 张` : "图片"}`}
                 emptyTitle="素材库还没有可用图片"
                 emptyDescription="先上传参考图，或返回素材库整理图片后重试。"
                 footerNote={`参考图最多 ${MAX_BATCH_PRODUCT_IMAGES} 张，只会使用当前账号拥有的图片。`}
                 onClose={() => setAssetPickerOpen(false)}
                 onConfirm={async (ids) => {
                     if (ids.length > MAX_BATCH_PRODUCT_IMAGES) throw new Error(`参考图最多 ${MAX_BATCH_PRODUCT_IMAGES} 张`);
-                    setProductAssetIds([...new Set(ids)].slice(0, MAX_BATCH_PRODUCT_IMAGES));
+                    const otherRoleIds = productAssetIds.filter((id) => referenceRoles[id] !== pickerRole);
+                    const nextIds = [...new Set([...otherRoleIds, ...ids])].slice(0, MAX_BATCH_PRODUCT_IMAGES);
+                    setProductAssetIds(nextIds);
                     setReferenceRoles((current) => {
-                        const next: Record<string, SmartFilmReferenceRole> = {};
-                        ids.slice(0, MAX_BATCH_PRODUCT_IMAGES).forEach((id) => { next[id] = current[id] || newReferenceRole; });
+                        const selected = new Set(ids);
+                        const next: Record<string, BatchReferenceRole> = {};
+                        nextIds.forEach((id) => { next[id] = selected.has(id) ? pickerRole : current[id] || "prop"; });
                         return next;
                     });
                     setAssetPickerOpen(false);

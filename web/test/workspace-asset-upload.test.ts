@@ -2,12 +2,15 @@ import { afterEach, expect, mock, test } from "bun:test";
 import { setActiveUserScope } from "@/lib/user-scope";
 
 const writes: Array<{ title: string; folderId: string }> = [];
+type StoredMockAsset = { id: string; title: string; folderId?: string; category: string; kind: string; data: { storageKey: string } };
+let storeAssets: StoredMockAsset[] = [];
 let uploads: string[] = [];
 let release: () => void;
 let gate: Promise<void>;
 let persistCount = 0;
 let persistError: Error | undefined;
 let failedName = "";
+let persistHook: (() => void) | undefined;
 function resetGate() { gate = new Promise<void>((resolve) => { release = resolve; }); }
 resetGate();
 mock.module("@/services/image-storage", () => ({ uploadImage: async () => { throw new Error("unused"); } }));
@@ -17,11 +20,19 @@ mock.module("@/services/file-storage", () => ({ uploadMediaFile: async (file: Fi
     if (file.name === failedName) throw new Error("upload failed");
     return { url: file.name, storageKey: `resource:${file.name}`, bytes: 1, mimeType: "video/mp4" };
 } }));
-mock.module("@/services/workspace-asset-repository", () => ({ persistWorkspaceAssetChanges: async () => { persistCount++; if (persistError) throw persistError; } }));
-mock.module("@/stores/use-asset-store", () => ({ useAssetStore: { getState: () => ({ addAsset: (asset: { title: string; folderId: string }) => { writes.push(asset); return `asset-${writes.length}`; } }) } }));
+mock.module("@/services/workspace-asset-repository", () => ({ persistWorkspaceAssetChanges: async () => { persistCount++; if (persistError) throw persistError; persistHook?.(); } }));
+mock.module("@/stores/use-asset-store", () => ({ useAssetStore: { getState: () => ({
+    assets: storeAssets,
+    addAsset: (asset: Omit<StoredMockAsset, "id">) => {
+        writes.push(asset);
+        const id = `asset-${writes.length}`;
+        storeAssets.push({ ...asset, id });
+        return id;
+    },
+}) } }));
 const { uploadWorkspaceAssetFiles } = await import("@/services/workspace-asset-upload");
 const files = (prefix: string, count: number) => Array.from({ length: count }, (_, i) => new File(["x"], `${prefix}${i}.mp4`, { type: "video/mp4" }));
-afterEach(() => { writes.length = 0; uploads = []; persistCount = 0; persistError = undefined; failedName = ""; resetGate(); });
+afterEach(() => { writes.length = 0; storeAssets = []; uploads = []; persistCount = 0; persistError = undefined; failedName = ""; persistHook = undefined; resetGate(); });
 
 test("six-file batch settles exactly once while another picker batch starts", async () => {
     setActiveUserScope("upload-owner");
@@ -56,4 +67,16 @@ test("persistence failure is reported separately from completed uploads", async 
     const pending = uploadWorkspaceAssetFiles(files("saved", 1), "");
     release();
     expect(await pending).toEqual({ completed: 1, failed: 0, persistenceError: persistError, addedAssetIds: ["asset-1"] });
+});
+
+test("returns canonical asset ids after persistence replaces a local draft id", async () => {
+    setActiveUserScope("upload-canonical");
+    persistHook = () => {
+        storeAssets = storeAssets.map((asset) => ({ ...asset, id: `canonical-${asset.id}` }));
+    };
+    const pending = uploadWorkspaceAssetFiles(files("canonical", 1), "", { category: "environment" });
+    release();
+    const result = await pending;
+    expect(result.addedAssetIds).toEqual(["canonical-asset-1"]);
+    expect(storeAssets[0]?.category).toBe("environment");
 });
