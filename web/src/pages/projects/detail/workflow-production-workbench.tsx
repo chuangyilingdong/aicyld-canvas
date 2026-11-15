@@ -1025,10 +1025,21 @@ export default function WorkflowProductionWorkbench(props: Props) {
                         />
                     </header>
                     <div className="workflow-preview-scroll thin-scrollbar">
-                        {previewTab === "latest" ? <LatestPreview artifact={previewArtifact} emptyText={stageCopy.empty} onPreviewImage={setImagePreviewArtifact} /> : <ArtifactHistory artifacts={artifacts} activeId={previewArtifact?.id} onSelect={(artifact) => { setPreviewArtifactId(artifact.id); setPreviewTab("latest"); }} />}
-                        <div className="workflow-preview-summary"><div className="flex items-center justify-between gap-2"><span className="text-xs font-medium">当前产物</span><ArtifactStatus artifact={newestArtifact} compact /></div><div className="mt-1 text-[var(--fs-micro)] text-foreground/45">{newestArtifact ? generationCapability === "video" ? `镜头时长 ${formatDuration(selectedShot.durationMs)} · ${formatVideoResolutionLabel(resolution)} · v${newestArtifact.version}` : `镜头计划时长 ${formatDuration(selectedShot.durationMs)} · 图片质量 ${imageQuality.toUpperCase()} · v${newestArtifact.version}` : "当前镜头还没有生成产物"}</div></div>
-                        <div className="workflow-preview-actions"><ShotArtifactSelectButton projectId={projectId} shot={selectedShot} artifact={previewArtifact} onSelected={(artifact) => { setPreviewArtifactId(artifact.id); setPreviewTab("latest"); void onRefresh(); }} /><Button icon={<RefreshCcw className="size-3.5" />} loading={selectedShotSubmitting || shotTask?.status === "queued" || shotTask?.status === "running"} onClick={() => void generateArtifact()}>重新生成</Button><Button icon={<Download className="size-3.5" />} disabled={!previewArtifact?.resourceId} onClick={() => previewArtifact?.resourceId && void downloadArtifact(previewArtifact, selectedShot.title, message.error)}>下载{activeStage === "video" ? "视频" : "图片"}</Button></div>
-                        <ArtifactHistory artifacts={artifacts.slice(0, 4)} activeId={previewArtifact?.id} onSelect={(artifact) => setPreviewArtifactId(artifact.id)} compact />
+                        {smartWholeFilm && activeStage === "video" ? (
+                            <div className="rounded-lg border border-border/70 bg-foreground/[.025] p-4 text-xs leading-5 text-foreground/52">
+                                <strong className="block text-sm text-foreground/78">整片视频是项目级产物</strong>
+                                <p className="mt-2">智能整片模式不再按镜头生成视频，右侧不会出现逐镜视频产物。</p>
+                                <p className="mt-2">请使用左侧“生成整片视频”。它会使用全部 {shots.length} 张已确认分镜图生成 1 条完整视频。</p>
+                                <p className="mt-2 text-foreground/40">分镜图已就绪 {readyStoryboardCount}/{shots.length} 张。</p>
+                            </div>
+                        ) : (
+                            <>
+                                {previewTab === "latest" ? <LatestPreview artifact={previewArtifact} emptyText={stageCopy.empty} onPreviewImage={setImagePreviewArtifact} /> : <ArtifactHistory artifacts={artifacts} activeId={previewArtifact?.id} onSelect={(artifact) => { setPreviewArtifactId(artifact.id); setPreviewTab("latest"); }} />}
+                                <div className="workflow-preview-summary"><div className="flex items-center justify-between gap-2"><span className="text-xs font-medium">当前产物</span><ArtifactStatus artifact={newestArtifact} compact /></div><div className="mt-1 text-[var(--fs-micro)] text-foreground/45">{newestArtifact ? generationCapability === "video" ? `镜头时长 ${formatDuration(selectedShot.durationMs)} · ${formatVideoResolutionLabel(resolution)} · v${newestArtifact.version}` : `镜头计划时长 ${formatDuration(selectedShot.durationMs)} · 图片质量 ${imageQuality.toUpperCase()} · v${newestArtifact.version}` : "当前镜头还没有生成产物"}</div></div>
+                                <div className="workflow-preview-actions"><ShotArtifactSelectButton projectId={projectId} shot={selectedShot} artifact={previewArtifact} onSelected={(artifact) => { setPreviewArtifactId(artifact.id); setPreviewTab("latest"); void onRefresh(); }} /><Button icon={<RefreshCcw className="size-3.5" />} loading={selectedShotSubmitting || shotTask?.status === "queued" || shotTask?.status === "running"} onClick={() => void generateArtifact()}>重新生成</Button><Button icon={<Download className="size-3.5" />} disabled={!previewArtifact?.resourceId} onClick={() => previewArtifact?.resourceId && void downloadArtifact(previewArtifact, selectedShot.title, message.error)}>下载{activeStage === "video" ? "视频" : "图片"}</Button></div>
+                                <ArtifactHistory artifacts={artifacts.slice(0, 4)} activeId={previewArtifact?.id} onSelect={(artifact) => setPreviewArtifactId(artifact.id)} compact />
+                            </>
+                        )}
                     </div>
                 </aside>
             </div>
@@ -1074,7 +1085,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                 }}
             />
 
-            <ShotTimeline activeStage={activeStage} detail={detail} shots={shots} selectedShotId={selectedShot.id} submittingShotIds={submittingShotIds} onSelectShot={requestShotSelection} onAddShot={requestAddShot} addingShot={addingShot} />
+            <ShotTimeline activeStage={activeStage} smartWholeFilm={smartWholeFilm} detail={detail} shots={shots} selectedShotId={selectedShot.id} submittingShotIds={submittingShotIds} onSelectShot={requestShotSelection} onAddShot={requestAddShot} addingShot={addingShot} />
         </div>
     );
 }
@@ -1181,8 +1192,8 @@ function ArtifactHistory({ artifacts, activeId, onSelect, compact = false }: { a
     return <section className={`workflow-history ${compact ? "is-compact" : ""}`}><div className="workflow-history-title">历史版本</div>{artifacts.map((artifact) => <button key={artifact.id} type="button" className={artifact.id === activeId ? "is-active" : ""} onClick={() => onSelect(artifact)}>{artifact.resourceId ? artifact.type === "video" ? <video src={resourceFileUrl(artifact.resourceId)} muted preload="metadata" /> : <img src={resourceFileUrl(artifact.resourceId)} alt="" loading="lazy" /> : <span className="workflow-history-placeholder"><Layers3 /></span>}<span className="min-w-0 flex-1"><strong>v{artifact.version}{artifact.selected ? " · 当前" : ""}</strong><small>{new Date(artifact.createdAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</small></span><ArtifactStatus artifact={artifact} compact /></button>)}</section>;
 }
 
-function ShotTimeline({ activeStage, detail, shots, selectedShotId, submittingShotIds, onSelectShot, onAddShot, addingShot }: { activeStage: ShortDramaWorkflowStage; detail: ProjectDetail; shots: ProjectShot[]; selectedShotId: string; submittingShotIds: Set<string>; onSelectShot: (id: string) => void; onAddShot: () => void; addingShot: boolean }) {
-    const artifactType = artifactTypeForStage(activeStage);
+function ShotTimeline({ activeStage, smartWholeFilm, detail, shots, selectedShotId, submittingShotIds, onSelectShot, onAddShot, addingShot }: { activeStage: ShortDramaWorkflowStage; smartWholeFilm: boolean; detail: ProjectDetail; shots: ProjectShot[]; selectedShotId: string; submittingShotIds: Set<string>; onSelectShot: (id: string) => void; onAddShot: () => void; addingShot: boolean }) {
+    const artifactType = smartWholeFilm && activeStage === "video" ? "storyboard" : artifactTypeForStage(activeStage);
     const latestTaskByShotId = useMemo(() => {
         const tasks = new Map<string, GenerationTask>();
         for (const task of detail.tasks || []) {
