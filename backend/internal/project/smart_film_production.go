@@ -309,7 +309,7 @@ func (s *Service) SmartFilmAssetExtractionWorkItems(limit int) ([]SmartFilmAsset
 			RunID: run.ID, Attempts: run.Attempts, UserID: run.UserID, BatchID: run.BatchID, ScriptID: run.ScriptID,
 			ProjectID: run.ProjectID, UnitID: run.UnitID, ProjectName: project.Name, ProjectStyle: stylePrompt,
 			ExistingAssets: existingAssets,
-			ScriptTitle: script.Title, ScriptContent: script.Content,
+			ScriptTitle:    script.Title, ScriptContent: script.Content,
 			TextModel: textModel, TextConfig: textConfig, LogicalModelID: stringValue(textConfig["logicalModelId"]), ConfigurationError: errorText(snapshotErr),
 			AssetTaskID: run.AssetTaskID, AssetStatus: run.AssetStatus,
 		})
@@ -427,6 +427,9 @@ func smartFilmAssetHasVisualReference(asset AssetSummary) bool {
 		return true
 	}
 	if asset.Character == nil {
+		return false
+	}
+	if asset.Character.VisualStatus != "ready" {
 		return false
 	}
 	for _, representation := range asset.Character.Representations {

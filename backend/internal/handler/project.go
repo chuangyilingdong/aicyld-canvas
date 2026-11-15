@@ -664,6 +664,19 @@ func RegisterProjectRoutes(r *gin.RouterGroup, owners workspaceOwners, projects 
 		}
 		ok(c, character)
 	})
+	r.POST("/projects/:id/characters/:assetId/confirm-visual", func(c *gin.Context) {
+		user, err := currentUser(c, owners)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		character, err := projects.ConfirmProjectCharacterVisual(user.ID, c.Param("id"), c.Param("assetId"))
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, character)
+	})
 	r.PUT("/projects/:id/characters/:assetId/voice", func(c *gin.Context) {
 		user, err := currentUser(c, owners)
 		if err != nil {
@@ -1013,6 +1026,7 @@ func parsePositiveQueryInt(value string, fallback int) (int, error) {
 	}
 	return parsed, nil
 }
+
 // parsePaginationQuery 统一解析列表分页参数。
 // 缺省值由具体接口声明；显式传入非正整数属于请求错误，不能悄悄变成服务层默认值，
 // 否则客户端的协议问题会被掩盖，分页行为也会随服务层实现变化。

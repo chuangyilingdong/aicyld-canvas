@@ -613,6 +613,10 @@ export function replaceProjectCharacterRepresentations(projectId: string, assetI
     return http.put<ProjectCharacterDetail>(`/projects/${encodeURIComponent(projectId)}/characters/${encodeURIComponent(assetId)}/representations`, { representations });
 }
 
+export function confirmProjectCharacterVisual(projectId: string, assetId: string) {
+    return http.post<ProjectCharacterDetail>(`/projects/${encodeURIComponent(projectId)}/characters/${encodeURIComponent(assetId)}/confirm-visual`, {});
+}
+
 export function bindProjectCharacterVoice(projectId: string, assetId: string, input: { voiceProfileId?: string; sampleResourceId?: string; voiceName?: string; instructions?: string }) {
     return http.put<ProjectCharacterDetail>(`/projects/${encodeURIComponent(projectId)}/characters/${encodeURIComponent(assetId)}/voice`, input);
 }

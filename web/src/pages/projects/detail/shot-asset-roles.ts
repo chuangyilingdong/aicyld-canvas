@@ -30,6 +30,7 @@ export function linkedShotAssetReferences(references: ShotAssetReference[]) {
 
 export function isProjectAssetVisualReference(asset: ProjectAsset) {
     if (asset.mediaType === "image" && asset.storageKey) return true;
+    if (asset.character?.visualStatus === "pending_confirmation") return false;
     return Boolean(asset.character?.representations.some((representation) => representation.mediaType.startsWith("image") && representation.resourceId));
 }
 

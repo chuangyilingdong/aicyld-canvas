@@ -49,6 +49,19 @@ describe("shot asset roles", () => {
                 voiceStatus: "missing",
             },
         } as ProjectAsset)).toBe(true);
+        expect(isProjectAssetVisualReference({
+            id: "character-pending",
+            title: "待确认角色",
+            mediaType: "entity",
+            character: {
+                versionId: "v2",
+                version: 2,
+                definition: {},
+                representations: [{ id: "rep-2", resourceId: "resource-character-2", mediaType: "image/png", role: "primary" }],
+                visualStatus: "pending_confirmation",
+                voiceStatus: "missing",
+            },
+        } as ProjectAsset)).toBe(false);
         expect(isProjectAssetVisualReference({ id: "character-text", title: "文本角色", mediaType: "entity", character: { versionId: "v1", version: 1, definition: {}, representations: [], visualStatus: "missing", voiceStatus: "missing" } } as ProjectAsset)).toBe(false);
     });
 

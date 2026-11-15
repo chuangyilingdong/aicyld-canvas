@@ -162,11 +162,11 @@ func (s *Service) BindCharacterTurnaround(userID, projectID, assetID, taskID, re
 	if err != nil || resource.Kind != "image" || resource.Status != model.ResourceStatusReady {
 		return kernel.BadAuthRequest("三视图任务生成的图片资源不可用")
 	}
-	sheetMetadata, err := json.Marshal(map[string]any{"prompt": prompt, "source": "character_turnaround"})
+	sheetMetadata, err := json.Marshal(map[string]any{"prompt": prompt, "source": "character_turnaround", "confirmation": "pending_confirmation"})
 	if err != nil {
 		return fmt.Errorf("序列化三视图表现元数据失败：%w", err)
 	}
-	primaryMetadata, err := json.Marshal(map[string]any{"source": "turnaround_sheet"})
+	primaryMetadata, err := json.Marshal(map[string]any{"source": "character_turnaround", "role": "primary", "confirmation": "pending_confirmation"})
 	if err != nil {
 		return fmt.Errorf("序列化角色主表现元数据失败：%w", err)
 	}
@@ -177,6 +177,53 @@ func (s *Service) BindCharacterTurnaround(userID, projectID, assetID, taskID, re
 	}
 	_, err = s.createNextCharacterVersion(userID, projectID, asset, asset.Title, "", representations, nil, false)
 	return err
+}
+
+func (s *Service) ConfirmProjectCharacterVisual(userID, projectID, assetID string) (CharacterDetail, error) {
+	if _, err := s.Active(userID, projectID); err != nil {
+		return CharacterDetail{}, err
+	}
+	asset, err := s.repo.ProjectCharacterAsset(userID, projectID, strings.TrimSpace(assetID))
+	if err != nil {
+		return CharacterDetail{}, err
+	}
+	current, err := s.repo.AssetVersion(asset.PrimaryVersionID)
+	if err != nil {
+		return CharacterDetail{}, err
+	}
+	stored, err := s.repo.AssetRepresentations(current.ID)
+	if err != nil {
+		return CharacterDetail{}, err
+	}
+	now := time.Now()
+	operationID := kernel.NewID()
+	representations := make([]model.AssetRepresentation, 0, len(stored))
+	pending := false
+	hasVisual := false
+	for _, representation := range stored {
+		if strings.HasPrefix(representation.MediaType, "image") && strings.TrimSpace(representation.ResourceID) != "" {
+			hasVisual = true
+		}
+		if characterRepresentationNeedsConfirmation(representation) {
+			pending = true
+		}
+		metadata := confirmedCharacterRepresentationMetadata(representation.MetadataJSON)
+		representations = append(representations, model.AssetRepresentation{
+			ID: kernel.NewID(), TaskID: operationID, AssetVersionID: current.ID,
+			ResourceID: representation.ResourceID, MediaType: representation.MediaType, Role: representation.Role,
+			MetadataJSON: metadata, CreatedAt: now,
+		})
+	}
+	if !hasVisual {
+		return CharacterDetail{}, kernel.BadAuthRequest("角色还没有可确认的三视图")
+	}
+	if !pending {
+		return s.ProjectCharacter(userID, projectID, asset.ID)
+	}
+	if _, err := s.createNextCharacterVersion(userID, projectID, asset, asset.Title, "", representations, nil, false); err != nil {
+		return CharacterDetail{}, err
+	}
+	return s.ProjectCharacter(userID, projectID, asset.ID)
 }
 
 func (s *Service) CharacterTurnaroundBound(taskID string) (bool, error) {
@@ -388,12 +435,18 @@ func (s *Service) characterCard(userID string, asset *model.Asset) (CharacterCar
 	}
 	representations := make([]CharacterRepresentationSummary, 0, len(stored))
 	roles := make(map[string]bool, len(stored))
+	pendingVisualConfirmation := false
 	for _, representation := range stored {
 		representations = append(representations, CharacterRepresentationSummary{ID: representation.ID, ResourceID: representation.ResourceID, MediaType: representation.MediaType, Role: representation.Role})
 		roles[representation.Role] = true
+		if characterRepresentationNeedsConfirmation(representation) {
+			pendingVisualConfirmation = true
+		}
 	}
 	visualStatus := "missing"
-	if roles["turnaround_sheet"] || (roles["front"] && roles["side"] && roles["back"]) {
+	if pendingVisualConfirmation {
+		visualStatus = "pending_confirmation"
+	} else if roles["turnaround_sheet"] || (roles["front"] && roles["side"] && roles["back"]) {
 		visualStatus = "ready"
 	} else if len(representations) > 0 {
 		visualStatus = "partial"
@@ -413,6 +466,38 @@ func (s *Service) characterCard(userID string, asset *model.Asset) (CharacterCar
 		return CharacterCardSummary{}, bindingErr
 	}
 	return CharacterCardSummary{VersionID: version.ID, Version: version.Version, Definition: definition, Representations: representations, Voice: voice, VisualStatus: visualStatus, VoiceStatus: voiceStatus}, nil
+}
+
+func characterRepresentationNeedsConfirmation(representation model.AssetRepresentation) bool {
+	metadata := map[string]any{}
+	if json.Unmarshal([]byte(representation.MetadataJSON), &metadata) != nil {
+		return false
+	}
+	return strings.TrimSpace(textMetadataValue(metadata["source"])) == "character_turnaround" &&
+		strings.TrimSpace(textMetadataValue(metadata["confirmation"])) != "confirmed"
+}
+
+func confirmedCharacterRepresentationMetadata(metadataJSON string) string {
+	metadata := map[string]any{}
+	if strings.TrimSpace(metadataJSON) != "" {
+		if err := json.Unmarshal([]byte(metadataJSON), &metadata); err != nil {
+			return metadataJSON
+		}
+	}
+	if strings.TrimSpace(textMetadataValue(metadata["source"])) != "character_turnaround" {
+		return metadataJSON
+	}
+	metadata["confirmation"] = "confirmed"
+	encoded, err := json.Marshal(metadata)
+	if err != nil {
+		return metadataJSON
+	}
+	return string(encoded)
+}
+
+func textMetadataValue(value any) string {
+	text, _ := value.(string)
+	return text
 }
 
 func normalizedCharacterDefinition(value map[string]any) (json.RawMessage, error) {

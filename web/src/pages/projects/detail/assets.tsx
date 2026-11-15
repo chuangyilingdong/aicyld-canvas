@@ -20,6 +20,7 @@ import { ownedResourceIdFromMediaRef, resourceFileUrl, resourceIdFromStorageKey 
 import { uploadMediaFile } from "@/services/file-storage";
 import {
     bindProjectCharacterVoice,
+    confirmProjectCharacterVisual,
     confirmProjectAssetCandidate,
     createProjectAssetFolder,
     createProjectAssetVersion,
@@ -213,6 +214,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
         ...externalAssetSources.items.filter((item) => item.external?.item.kind === "image"),
     ], [externalAssetSources.items, imageAssets]);
     const characterAssets = assets.filter((asset) => asset.category === "character" && asset.character);
+    const pendingCharacterVisualCount = assets.filter((asset) => asset.character?.visualStatus === "pending_confirmation").length;
     const currentFolder = assetFolders.find((folder) => folder.id === folderId);
     const childFolders = folderId === ALL_FOLDERS ? [] : assetFolders.filter((folder) => (folder.parentId || "") === folderId);
     const visibleAssets = assets;
@@ -419,8 +421,23 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
             });
             return getProjectCharacter(detail.project.id, asset.id);
         },
-        onSuccess: (result) => { syncPersonalCharacterProjection(result.asset); done("三视图已生成并绑定到新角色版本"); },
+        onSuccess: async (result) => {
+            syncPersonalCharacterProjection(result.asset);
+            await queryClient.invalidateQueries({ queryKey: ["project", detail.project.id, "assets"] });
+            refreshProject();
+            message.success("三视图已生成，请确认角色形象");
+        },
         onError: failed("三视图生成失败"),
+    });
+    const confirmCharacterVisualMutation = useMutation({
+        mutationFn: (asset: ProjectAsset) => confirmProjectCharacterVisual(detail.project.id, asset.id),
+        onSuccess: async (result) => {
+            syncPersonalCharacterProjection(result.asset);
+            await queryClient.invalidateQueries({ queryKey: ["project", detail.project.id, "assets"] });
+            refreshProject();
+            message.success("角色形象已确认");
+        },
+        onError: failed("角色形象确认失败"),
     });
     const bindImagesMutation = useMutation({
         mutationFn: async ({ selectedAssetId }: { selectedAssetId: string }) => {
@@ -521,7 +538,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
                         <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[var(--fs-label)] text-foreground/48">
                             <span className="inline-flex items-center gap-1.5"><UserRound className="size-3.5" />{characterAssetCount} 个角色</span>
                             <span className="inline-flex items-center gap-1.5"><Box className="size-3.5" />{mediaAssetCount} 项媒体</span>
-                            {(candidatesQuery.data?.total || 0) ? <span className="inline-flex items-center gap-1.5 text-foreground/55"><Sparkles className="size-3.5" />{candidatesQuery.data?.total || 0} 个待确认</span> : null}
+                            {((candidatesQuery.data?.total || 0) + pendingCharacterVisualCount) ? <span className="inline-flex items-center gap-1.5 text-foreground/55"><Sparkles className="size-3.5" />{(candidatesQuery.data?.total || 0) + pendingCharacterVisualCount} 个待确认</span> : null}
                         </div>
                     </div>
                 </div>
@@ -536,7 +553,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
                     projectId={detail.project.id}
                     batchId={detail.project.batchId}
                     unitId={detail.units.slice().sort((left, right) => left.position - right.position)[0]?.id || ""}
-                    pendingCount={pendingCountQuery.data?.total || 0}
+                    pendingCount={(pendingCountQuery.data?.total || 0) + pendingCharacterVisualCount}
                     pendingLoading={pendingCountQuery.isLoading}
                     hasAssets={totalAssetCount > 0}
                     analysisRunning={assetAnalysis.running}
@@ -609,7 +626,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
                         </section>
                     ) : null}
                     <div className="mb-2 flex items-center justify-between text-xs text-foreground/45"><span>已确认资产 · {currentFolder?.name || (folderId === ALL_FOLDERS ? (category === "all" ? "全部资产" : categoryLabel(category)) : "根目录内容")}</span><span>{assetsQuery.data?.total || 0} 项</span></div>
-                    {assetsQuery.isLoading ? <WorkspaceState icon="assets" compact title="正在读取资产" description="按当前目录、分类和关键词加载这一页。" /> : visibleAssets.length ? <><div className="project-assets-grid assets-library-grid">{visibleAssets.map((asset) => asset.category === "character" ? <ProjectCharacterCard key={asset.id} asset={asset} folderItems={folderMoveItems} generating={generatingAssetIds.has(asset.id)} removing={(moveMutation.isPending && moveMutation.variables?.id === asset.id) || (unlinkMutation.isPending && unlinkMutation.variables === asset.id)} onOpen={() => setPreviewAsset(asset)} onEdit={() => openCharacterEditor(asset)} onGenerate={() => generateMutation.mutate(asset)} onBindImages={() => openImages(asset)} onBindVoice={() => openVoice(asset)} onMove={(nextFolderId) => moveMutation.mutate({ id: asset.id, nextFolderId })} onRemove={() => unlinkMutation.mutate(asset.id)} /> : <MediaAssetCard key={asset.id} asset={asset} personalAsset={personalAssets.find((item) => item.id === asset.id)} folderItems={folderMoveItems} onOpen={() => setPreviewAsset(asset)} onMove={(nextFolderId) => moveMutation.mutate({ id: asset.id, nextFolderId })} onCategoryChange={(next) => categoryMutation.mutate({ id: asset.id, next })} onVersion={() => versionMutation.mutate(asset.id)} onRemove={() => unlinkMutation.mutate(asset.id)} loading={(moveMutation.isPending && moveMutation.variables?.id === asset.id) || (categoryMutation.isPending && categoryMutation.variables?.id === asset.id) || (versionMutation.isPending && versionMutation.variables === asset.id) || (unlinkMutation.isPending && unlinkMutation.variables === asset.id)} />)}</div><PaginationBar current={page} pageSize={pageSize} total={assetsQuery.data?.total || 0} itemLabel="项" pageSizeOptions={[20, 40, 80]} onChange={(nextPage, nextPageSize) => { setPage(nextPageSize !== pageSize ? 1 : nextPage); setPageSize(nextPageSize); }} /></> : childFolders.length || (showPendingCandidates && pendingCandidates.length) ? null : <WorkspaceState icon="assets" compact title={debouncedKeyword ? "没有找到匹配资产" : "这个文件夹还没有内容"} description={debouncedKeyword ? "换一个关键词，或调整左侧分类与目录筛选。" : "可以新建子文件夹、引用个人素材，或把画布产物归档到这里。"} />}
+                    {assetsQuery.isLoading ? <WorkspaceState icon="assets" compact title="正在读取资产" description="按当前目录、分类和关键词加载这一页。" /> : visibleAssets.length ? <><div className="project-assets-grid assets-library-grid">{visibleAssets.map((asset) => asset.category === "character" ? <ProjectCharacterCard key={asset.id} asset={asset} folderItems={folderMoveItems} generating={generatingAssetIds.has(asset.id)} confirming={confirmCharacterVisualMutation.isPending && confirmCharacterVisualMutation.variables?.id === asset.id} removing={(moveMutation.isPending && moveMutation.variables?.id === asset.id) || (unlinkMutation.isPending && unlinkMutation.variables === asset.id)} onOpen={() => setPreviewAsset(asset)} onEdit={() => openCharacterEditor(asset)} onGenerate={() => generateMutation.mutate(asset)} onConfirmVisual={() => confirmCharacterVisualMutation.mutate(asset)} onBindImages={() => openImages(asset)} onBindVoice={() => openVoice(asset)} onMove={(nextFolderId) => moveMutation.mutate({ id: asset.id, nextFolderId })} onRemove={() => unlinkMutation.mutate(asset.id)} /> : <MediaAssetCard key={asset.id} asset={asset} personalAsset={personalAssets.find((item) => item.id === asset.id)} folderItems={folderMoveItems} onOpen={() => setPreviewAsset(asset)} onMove={(nextFolderId) => moveMutation.mutate({ id: asset.id, nextFolderId })} onCategoryChange={(next) => categoryMutation.mutate({ id: asset.id, next })} onVersion={() => versionMutation.mutate(asset.id)} onRemove={() => unlinkMutation.mutate(asset.id)} loading={(moveMutation.isPending && moveMutation.variables?.id === asset.id) || (categoryMutation.isPending && categoryMutation.variables?.id === asset.id) || (versionMutation.isPending && versionMutation.variables === asset.id) || (unlinkMutation.isPending && unlinkMutation.variables === asset.id)} />)}</div><PaginationBar current={page} pageSize={pageSize} total={assetsQuery.data?.total || 0} itemLabel="项" pageSizeOptions={[20, 40, 80]} onChange={(nextPage, nextPageSize) => { setPage(nextPageSize !== pageSize ? 1 : nextPage); setPageSize(nextPageSize); }} /></> : childFolders.length || (showPendingCandidates && pendingCandidates.length) ? null : <WorkspaceState icon="assets" compact title={debouncedKeyword ? "没有找到匹配资产" : "这个文件夹还没有内容"} description={debouncedKeyword ? "换一个关键词，或调整左侧分类与目录筛选。" : "可以新建子文件夹、引用个人素材，或把画布产物归档到这里。"} />}
                 </div>
             </div>
 

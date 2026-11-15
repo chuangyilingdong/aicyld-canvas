@@ -305,12 +305,17 @@ func (s *Service) assetVersionHasVisualReference(userID string, version *model.A
 	if err != nil {
 		return false, err
 	}
+	hasVisual := false
+	pendingConfirmation := false
 	for _, representation := range representations {
 		if strings.HasPrefix(representation.MediaType, "image") && strings.TrimSpace(representation.ResourceID) != "" {
-			return true, nil
+			hasVisual = true
+		}
+		if characterRepresentationNeedsConfirmation(representation) {
+			pendingConfirmation = true
 		}
 	}
-	return false, nil
+	return hasVisual && !pendingConfirmation, nil
 }
 
 func (s *Service) UnlinkShotAsset(userID string, projectID string, shotID string, referenceID string) error {
