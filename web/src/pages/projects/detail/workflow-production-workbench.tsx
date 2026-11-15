@@ -62,7 +62,7 @@ import {
 import { buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, resolveShotAssetMentionPrompt } from "./workflow-shot-references";
 import { isProjectAssetVisualReference, linkedShotAssetReferences, parseShotAssetRoles, shotAssetRoleLabel } from "./shot-asset-roles";
 import { useSmartFilmWholeFilm } from "./use-smart-film-whole-film";
-import { ShotRevisionHistoryButton } from "./shot-revision-history-button"; import { ShotArtifactSelectButton } from "./shot-artifact-select-button"; import { ShotAssetConsistencyButton } from "./shot-asset-consistency-button";
+import { ShotRevisionHistoryButton } from "./shot-revision-history-button"; import { ShotArtifactSelectButton } from "./shot-artifact-select-button"; import { ShotAssetConsistencyButton } from "./shot-asset-consistency-button"; import { ShotReviewActions } from "./shot-review-actions"; import { appendShotReworkInstruction } from "./shot-review";
 import {
     AssetLibrary,
     WorkflowDisclosure,
@@ -454,7 +454,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
         const referenceAudios = mode === "video" ? shotAssetReferenceContext.referenceAudios : [];
         const basePrompt = mode === "video"
             ? [input.values.videoPrompt || input.values.plotDescription, input.values.action, input.values.dialogue && `台词：${input.values.dialogue}`, input.values.continuityNotes, hasStoryboardReference ? "最后一张参考图是当前镜头分镜图，请保持人物位置、构图、场景关系和光线一致。" : ""].filter(Boolean).join("\n")
-            : [input.values.imagePrompt || input.values.plotDescription, input.values.action, "黑白分镜草图，清晰动作节拍，电影构图"].filter(Boolean).join("\n");
+            : [input.values.imagePrompt || input.values.plotDescription, input.values.action, input.values.continuityNotes, "黑白分镜草图，清晰动作节拍，电影构图"].filter(Boolean).join("\n");
         const resolvedPrompt = resolveShotAssetMentionPrompt(basePrompt, shotAssetReferenceContext, { dialogue: input.values.dialogue });
         const skillExecution = await skillRuntime.prepare({
             profile: "shortDrama",
@@ -902,7 +902,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                             {customShotTitle(watchedTitle || selectedShot.title, shotIndex) ? <h2>{customShotTitle(watchedTitle || selectedShot.title, shotIndex)}</h2> : null}
                             <StatusBadge tone={saveShot.isPending ? "loading" : editorDirty ? "warning" : selectedShot.status === "confirmed" ? "success" : "neutral"} label={saveShot.isPending ? "保存中" : editorDirty ? "有未保存修改" : selectedShot.status === "confirmed" ? "提示词已确认" : revision ? "待确认提示词" : "草稿"} className="m-0" />
                         </div>
-                        <div className="flex items-center gap-1"><span className="mr-1 text-[var(--fs-micro)] text-foreground/45">{shotIndex + 1} / {shots.length}</span><ShotAssetConsistencyButton detail={detail} shots={shots} disabled={Boolean(batchProgress)} onSelectShot={requestShotSelection} /><ShotRevisionHistoryButton detail={detail} shot={selectedShot} projectId={projectId} unitId={unitId} disabled={editorDirty || saveShot.isPending || deleteShot.isPending || Boolean(batchProgress)} onRestored={async () => { setEditorDirty(false); await onRefresh(); }} /><Button type="text" size="small" icon={<ChevronLeft className="size-4" />} disabled={shotIndex <= 0} onClick={() => selectRelativeShot(-1)} aria-label="上一个镜头" /><Button type="text" size="small" icon={<ChevronRight className="size-4" />} disabled={shotIndex >= shots.length - 1} onClick={() => selectRelativeShot(1)} aria-label="下一个镜头" /></div>
+                        <div className="flex items-center gap-1"><span className="mr-1 text-[var(--fs-micro)] text-foreground/45">{shotIndex + 1} / {shots.length}</span><ShotReviewActions projectId={projectId} shot={selectedShot} artifact={newestArtifact} disabled={Boolean(batchProgress) || selectedShotSubmitting} onReviewed={async () => { await onRefresh(); }} onRework={(note) => { form.setFieldValue("continuityNotes", appendShotReworkInstruction(form.getFieldValue("continuityNotes"), note)); setEditorDirty(true); void generateArtifact(); }} /><ShotAssetConsistencyButton detail={detail} shots={shots} disabled={Boolean(batchProgress)} onSelectShot={requestShotSelection} /><ShotRevisionHistoryButton detail={detail} shot={selectedShot} projectId={projectId} unitId={unitId} disabled={editorDirty || saveShot.isPending || deleteShot.isPending || Boolean(batchProgress)} onRestored={async () => { setEditorDirty(false); await onRefresh(); }} /><Button type="text" size="small" icon={<ChevronLeft className="size-4" />} disabled={shotIndex <= 0} onClick={() => selectRelativeShot(-1)} aria-label="上一个镜头" /><Button type="text" size="small" icon={<ChevronRight className="size-4" />} disabled={shotIndex >= shots.length - 1} onClick={() => selectRelativeShot(1)} aria-label="下一个镜头" /></div>
                     </header>
                     {smartWholeFilm && activeStage === "video" ? (
                         <section className="workflow-smart-film-panel">

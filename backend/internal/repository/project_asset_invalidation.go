@@ -22,7 +22,7 @@ func invalidateShotsReferencingAssetTx(tx *gorm.DB, projectID, assetID string, u
 	}
 	for _, shot := range shots {
 		if err := tx.Model(&model.Shot{}).Where("id = ? AND project_id = ?", shot.ID, projectID).
-			Updates(map[string]any{"status": "draft", "updated_at": updatedAt}).Error; err != nil {
+			Updates(map[string]any{"status": "draft", "review_status": "pending", "review_note": "", "review_revision_id": "", "reviewed_at": nil, "updated_at": updatedAt}).Error; err != nil {
 			return err
 		}
 		if err := tx.Model(&model.ShotArtifact{}).Where("shot_id = ? AND status NOT IN ?", shot.ID, []string{"failed", "stale"}).

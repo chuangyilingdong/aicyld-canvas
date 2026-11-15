@@ -41,4 +41,23 @@ func RegisterProjectShotArtifactRoutes(r *gin.RouterGroup, owners workspaceOwner
 		}
 		ok(c, gin.H{"artifact": artifact})
 	})
+	r.PATCH("/projects/:id/shots/:shotId/review", func(c *gin.Context) {
+		user, err := currentUser(c, owners)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 64<<10)
+		var req localproject.ReviewProjectShotRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			fail(c, http.StatusBadRequest, err)
+			return
+		}
+		shot, err := projects.ReviewProjectShot(user.ID, c.Param("id"), c.Param("shotId"), req)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"shot": shot})
+	})
 }

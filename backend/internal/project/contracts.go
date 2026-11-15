@@ -335,6 +335,12 @@ type ShotRevisionInput struct {
 	AssetRoles      []ShotAssetRole  `json:"assetRoles,omitempty"`
 }
 
+type ReviewProjectShotRequest struct {
+	Status             string `json:"status"`
+	Note               string `json:"note,omitempty"`
+	ExpectedRevisionID string `json:"expectedRevisionId"`
+}
+
 type ShotAssetRole struct {
 	AssetID   string `json:"assetId"`
 	VersionID string `json:"versionId,omitempty"`

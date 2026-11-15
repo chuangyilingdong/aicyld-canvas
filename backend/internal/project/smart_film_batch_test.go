@@ -869,6 +869,70 @@ func TestSelectShotArtifactOnlyUsesCurrentReadyRevision(t *testing.T) {
 	}
 }
 
+func TestReviewProjectShotBindsRevisionAndResetsWhenContentChanges(t *testing.T) {
+	svc, db := newTestService(t, &recordingWorkflows{})
+	project, err := svc.CreateProject("user-1", CreateProjectRequest{Name: "镜头审核", Type: "smart-film"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	unit, err := svc.CreateProjectUnit("user-1", project.ID, CreateProjectUnitRequest{Title: "独立视频", SourceText: "剧本"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shot, err := svc.CreateProjectShot("user-1", project.ID, CreateProjectShotRequest{
+		UnitID: unit.ID, Title: "镜头 1", Position: 0, DurationMs: 3000,
+		Revision: ShotRevisionInput{PlotDescription: "人物抬头", DurationMs: 3000},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	approved, err := svc.ReviewProjectShot("user-1", project.ID, shot.ID, ReviewProjectShotRequest{Status: "approved", ExpectedRevisionID: shot.CurrentRevisionID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if approved.ReviewStatus != "approved" || approved.ReviewRevisionID != shot.CurrentRevisionID || approved.ReviewedAt == nil {
+		t.Fatalf("approved shot = %+v", approved)
+	}
+	now := time.Now()
+	if err := svc.repo.CreateShotArtifact(&model.ShotArtifact{
+		ID: "review-artifact", ProjectID: project.ID, UnitID: unit.ID, ShotID: shot.ID, RevisionID: shot.CurrentRevisionID,
+		Type: "storyboard", ResourceID: "review-resource", Status: "ready", Selected: true, CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var afterArtifact model.Shot
+	if err := db.First(&afterArtifact, "id = ?", shot.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if afterArtifact.ReviewStatus != "pending" || afterArtifact.ReviewNote != "" || afterArtifact.ReviewedAt != nil {
+		t.Fatalf("review after artifact = %+v", afterArtifact)
+	}
+	if _, err := svc.ReviewProjectShot("user-1", project.ID, shot.ID, ReviewProjectShotRequest{Status: "rejected", ExpectedRevisionID: shot.CurrentRevisionID}); err == nil || !strings.Contains(err.Error(), "修改意见") {
+		t.Fatalf("reject without note error = %v", err)
+	}
+	rejected, err := svc.ReviewProjectShot("user-1", project.ID, shot.ID, ReviewProjectShotRequest{Status: "rejected", Note: "人物手部位置不对", ExpectedRevisionID: shot.CurrentRevisionID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rejected.ReviewStatus != "rejected" || rejected.ReviewNote != "人物手部位置不对" {
+		t.Fatalf("rejected shot = %+v", rejected)
+	}
+	saved, err := svc.CreateProjectShot("user-1", project.ID, CreateProjectShotRequest{
+		ID: shot.ID, UnitID: unit.ID, Title: shot.Title, Position: shot.Position, DurationMs: 3000,
+		Revision: ShotRevisionInput{PlotDescription: "人物抬头并看向镜头", DurationMs: 3000},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var afterRevision model.Shot
+	if err := db.First(&afterRevision, "id = ?", saved.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if afterRevision.ReviewStatus != "pending" || afterRevision.ReviewNote != "" || afterRevision.ReviewRevisionID != "" || afterRevision.ReviewedAt != nil {
+		t.Fatalf("review after revision = %+v", afterRevision)
+	}
+}
+
 func TestSmartFilmProductionRunCheckpointsAssetAndStoryboardStages(t *testing.T) {
 	svc, _ := newTestService(t, &recordingWorkflows{})
 	created, err := svc.CreateSmartFilmBatch("user-1", CreateSmartFilmBatchRequest{Title: "阶段记录", SourceText: "想法"})

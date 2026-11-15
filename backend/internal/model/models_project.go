@@ -372,17 +372,21 @@ type CanvasUnitLink struct {
 }
 
 type Shot struct {
-	ID                string    `json:"id" gorm:"primaryKey;size:36"`
-	ProjectID         string    `json:"projectId" gorm:"index;size:36;index:idx_shots_project_unit_position,priority:1"`
-	UnitID            string    `json:"unitId" gorm:"index;size:36;index:idx_shots_project_unit_position,priority:2"`
-	CurrentRevisionID string    `json:"currentRevisionId,omitempty" gorm:"index;size:36"`
-	Title             string    `json:"title" gorm:"size:240"`
-	Description       string    `json:"description" gorm:"type:text"`
-	Position          int       `json:"position" gorm:"index:idx_shots_project_unit_position,priority:3"`
-	DurationMs        int64     `json:"durationMs"`
-	Status            string    `json:"status" gorm:"index;size:24"`
-	CreatedAt         time.Time `json:"createdAt"`
-	UpdatedAt         time.Time `json:"updatedAt"`
+	ID                string     `json:"id" gorm:"primaryKey;size:36"`
+	ProjectID         string     `json:"projectId" gorm:"index;size:36;index:idx_shots_project_unit_position,priority:1"`
+	UnitID            string     `json:"unitId" gorm:"index;size:36;index:idx_shots_project_unit_position,priority:2"`
+	CurrentRevisionID string     `json:"currentRevisionId,omitempty" gorm:"index;size:36"`
+	Title             string     `json:"title" gorm:"size:240"`
+	Description       string     `json:"description" gorm:"type:text"`
+	Position          int        `json:"position" gorm:"index:idx_shots_project_unit_position,priority:3"`
+	DurationMs        int64      `json:"durationMs"`
+	Status            string     `json:"status" gorm:"index;size:24"`
+	ReviewStatus      string     `json:"reviewStatus" gorm:"index;size:24;not null;default:pending"`
+	ReviewNote        string     `json:"reviewNote" gorm:"type:text"`
+	ReviewRevisionID  string     `json:"reviewRevisionId,omitempty" gorm:"index;size:36"`
+	ReviewedAt        *time.Time `json:"reviewedAt,omitempty"`
+	CreatedAt         time.Time  `json:"createdAt"`
+	UpdatedAt         time.Time  `json:"updatedAt"`
 }
 
 // ShotRevision 保存可复现的分镜脚本版本；Shot 只保留稳定身份、排序和当前版本指针。

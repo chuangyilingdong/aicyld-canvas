@@ -168,6 +168,10 @@ export type ProjectShot = {
     position: number;
     durationMs: number;
     status: string;
+    reviewStatus?: "pending" | "approved" | "rejected" | string;
+    reviewNote?: string;
+    reviewRevisionId?: string;
+    reviewedAt?: string;
     createdAt: string;
     updatedAt: string;
 };
@@ -631,6 +635,10 @@ export function deleteProjectShot(projectId: string, shotId: string) {
 
 export function selectShotArtifact(projectId: string, shotId: string, artifactId: string) {
     return http.patch<{ artifact: ShotArtifact }>(`/projects/${encodeURIComponent(projectId)}/shots/${encodeURIComponent(shotId)}/artifacts/${encodeURIComponent(artifactId)}/select`);
+}
+
+export function reviewProjectShot(projectId: string, shotId: string, input: { status: "approved" | "rejected"; note?: string; expectedRevisionId: string }) {
+    return http.patch<{ shot: ProjectShot }>(`/projects/${encodeURIComponent(projectId)}/shots/${encodeURIComponent(shotId)}/review`, input);
 }
 
 export function replaceProjectUnitShots(

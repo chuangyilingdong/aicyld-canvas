@@ -15,7 +15,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion int64 = 43
+const CurrentSchemaVersion int64 = 44
 
 type localSchemaMigration struct {
 	Version   int64 `gorm:"primaryKey;autoIncrement:false"`
@@ -188,6 +188,7 @@ func canonicalLocalMigrations() []localMigration {
 			}
 			return backfillSmartFilmScripts(tx)
 		}},
+		{version: 44, name: "shot-review", apply: func(tx *gorm.DB) error { return tx.AutoMigrate(&model.Shot{}) }},
 	}
 }
 

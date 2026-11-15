@@ -1957,22 +1957,6 @@ func (r *Repository) ProjectShotArtifacts(projectID string) ([]model.ShotArtifac
 	return artifacts, err
 }
 
-func (r *Repository) CreateShotArtifact(artifact *model.ShotArtifact) error {
-	return r.db.Transaction(func(tx *gorm.DB) error {
-		var currentVersion int
-		if err := tx.Model(&model.ShotArtifact{}).Where("shot_id = ? AND type = ?", artifact.ShotID, artifact.Type).Select("COALESCE(MAX(version), 0)").Scan(&currentVersion).Error; err != nil {
-			return err
-		}
-		artifact.Version = currentVersion + 1
-		if artifact.Selected {
-			if err := tx.Model(&model.ShotArtifact{}).Where("shot_id = ? AND type = ?", artifact.ShotID, artifact.Type).Updates(map[string]any{"selected": false, "updated_at": artifact.UpdatedAt}).Error; err != nil {
-				return err
-			}
-		}
-		return tx.Create(artifact).Error
-	})
-}
-
 func (r *Repository) MarkShotArtifactsStale(shotID string, updatedAt time.Time) error {
 	return r.db.Model(&model.ShotArtifact{}).Where("shot_id = ? AND status NOT IN ?", shotID, []string{"failed", "stale"}).Updates(map[string]any{"status": "stale", "selected": false, "updated_at": updatedAt}).Error
 }

@@ -66,7 +66,7 @@ func (s *Service) CreateProjectShot(userID string, projectID string, req CreateP
 	if err != nil {
 		return model.Shot{}, err
 	}
-	shot := model.Shot{ID: shotID, ProjectID: projectID, UnitID: unitID, CurrentRevisionID: revision.ID, Title: title, Description: revision.PlotDescription, Position: req.Position, DurationMs: revision.DurationMs, Status: status, CreatedAt: now, UpdatedAt: updatedAt}
+	shot := model.Shot{ID: shotID, ProjectID: projectID, UnitID: unitID, CurrentRevisionID: revision.ID, Title: title, Description: revision.PlotDescription, Position: req.Position, DurationMs: revision.DurationMs, Status: status, ReviewStatus: "pending", CreatedAt: now, UpdatedAt: updatedAt}
 	if err := s.repo.SaveShotWithRevisionActive(userID, &shot, &revision, create, expectedRevisionID); err != nil {
 		return model.Shot{}, mapProjectWriteError(err)
 	}
@@ -118,7 +118,7 @@ func (s *Service) ReplaceProjectUnitShots(userID string, projectID string, unitI
 			return nil, err
 		}
 		revision.Version = 1
-		shots = append(shots, model.Shot{ID: shotID, ProjectID: projectID, UnitID: unitID, CurrentRevisionID: revision.ID, Title: title, Description: revision.PlotDescription, Position: position, DurationMs: revision.DurationMs, Status: "draft", CreatedAt: now, UpdatedAt: now})
+		shots = append(shots, model.Shot{ID: shotID, ProjectID: projectID, UnitID: unitID, CurrentRevisionID: revision.ID, Title: title, Description: revision.PlotDescription, Position: position, DurationMs: revision.DurationMs, Status: "draft", ReviewStatus: "pending", CreatedAt: now, UpdatedAt: now})
 		revisions = append(revisions, revision)
 		seenVersions := make(map[string]bool, len(input.AssetVersionIDs))
 		for _, rawVersionID := range input.AssetVersionIDs {
