@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm"
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/repository"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func TestGenerationStageLeaseAndCancellation(t *testing.T) {
@@ -30,6 +31,7 @@ func TestGenerationStageLeaseAndCancellation(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+			testutil.CloseDBOnCleanup(t, db)
 			if err != nil {
 				t.Fatal(err)
 			}

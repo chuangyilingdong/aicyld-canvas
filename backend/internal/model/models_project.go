@@ -250,6 +250,43 @@ type SmartFilmBatch struct {
 	UpdatedAt                 time.Time `json:"updatedAt" gorm:"index:idx_smart_film_batches_user_updated,priority:2"`
 }
 
+type SmartFilmScriptRecord struct {
+	ID        string    `json:"id" gorm:"primaryKey;size:36"`
+	UserID    string    `json:"userId" gorm:"index;size:36;index:idx_smart_film_scripts_batch_position,priority:1"`
+	BatchID   string    `json:"batchId" gorm:"index;size:36;index:idx_smart_film_scripts_batch_position,priority:2"`
+	Position  int       `json:"position" gorm:"index:idx_smart_film_scripts_batch_position,priority:3"`
+	Title     string    `json:"title" gorm:"index;size:240"`
+	Content   string    `json:"content" gorm:"type:text"`
+	Status    string    `json:"status" gorm:"index;size:32"`
+	ProjectID string    `json:"projectId,omitempty" gorm:"index;size:36"`
+	UnitID    string    `json:"unitId,omitempty" gorm:"index;size:36"`
+	TaskID    string    `json:"taskId,omitempty" gorm:"index;size:36"`
+	Error     string    `json:"error,omitempty" gorm:"type:text"`
+	Revision  int64     `json:"revision" gorm:"not null;default:1"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+func (SmartFilmScriptRecord) TableName() string { return "smart_film_scripts" }
+
+type SmartFilmScriptRevision struct {
+	ID        string    `json:"id" gorm:"primaryKey;size:36"`
+	ScriptID  string    `json:"scriptId" gorm:"index;size:36;uniqueIndex:idx_smart_film_script_revisions_version,priority:1"`
+	UserID    string    `json:"userId" gorm:"index;size:36"`
+	BatchID   string    `json:"batchId" gorm:"index;size:36"`
+	Version   int64     `json:"version" gorm:"uniqueIndex:idx_smart_film_script_revisions_version,priority:2"`
+	Title     string    `json:"title" gorm:"size:240"`
+	Content   string    `json:"content" gorm:"type:text"`
+	Status    string    `json:"status" gorm:"index;size:32"`
+	ProjectID string    `json:"projectId,omitempty" gorm:"index;size:36"`
+	UnitID    string    `json:"unitId,omitempty" gorm:"index;size:36"`
+	TaskID    string    `json:"taskId,omitempty" gorm:"index;size:36"`
+	Error     string    `json:"error,omitempty" gorm:"type:text"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+func (SmartFilmScriptRevision) TableName() string { return "smart_film_script_revisions" }
+
 // SmartFilmProductionRun is the durable receipt for turning one batch script
 // into an independent project. The idempotency key is derived from the batch,
 // script and script content so retries after a timeout cannot create a second
@@ -275,6 +312,8 @@ type SmartFilmProductionRun struct {
 	StoryboardTaskID     string     `json:"storyboardTaskId,omitempty" gorm:"size:36"`
 	StoryboardShotCount  int        `json:"storyboardShotCount"`
 	ControlStatus        string     `json:"controlStatus,omitempty" gorm:"index;size:24"`
+	ArchivedAt           *time.Time `json:"archivedAt,omitempty" gorm:"index"`
+	ArchiveReason        string     `json:"archiveReason,omitempty" gorm:"size:64"`
 	WorkerLeaseOwner     string     `json:"-" gorm:"index;size:120"`
 	WorkerLeaseUntil     *time.Time `json:"-" gorm:"index"`
 	Attempts             int        `json:"attempts"`
@@ -378,6 +417,23 @@ type ShotArtifact struct {
 	TaskID       string    `json:"taskId,omitempty" gorm:"index;size:36"`
 	Type         string    `json:"type" gorm:"index;size:40;uniqueIndex:idx_shot_artifacts_version,priority:2"`
 	Version      int       `json:"version" gorm:"uniqueIndex:idx_shot_artifacts_version,priority:3"`
+	ResourceID   string    `json:"resourceId,omitempty" gorm:"index;size:36"`
+	Status       string    `json:"status" gorm:"index;size:24"`
+	Selected     bool      `json:"selected" gorm:"index"`
+	MetadataJSON string    `json:"metadataJson" gorm:"type:text"`
+	CreatedAt    time.Time `json:"createdAt"`
+	UpdatedAt    time.Time `json:"updatedAt"`
+}
+
+// ProjectUnitArtifact stores project-level outputs such as a complete smart
+// film generated from all confirmed storyboard images.
+type ProjectUnitArtifact struct {
+	ID           string    `json:"id" gorm:"primaryKey;size:36"`
+	ProjectID    string    `json:"projectId" gorm:"index;size:36;uniqueIndex:idx_project_unit_artifacts_version,priority:1"`
+	UnitID       string    `json:"unitId" gorm:"index;size:36;uniqueIndex:idx_project_unit_artifacts_version,priority:2"`
+	TaskID       string    `json:"taskId,omitempty" gorm:"index;size:36"`
+	Type         string    `json:"type" gorm:"size:40;uniqueIndex:idx_project_unit_artifacts_version,priority:3"`
+	Version      int       `json:"version" gorm:"uniqueIndex:idx_project_unit_artifacts_version,priority:4"`
 	ResourceID   string    `json:"resourceId,omitempty" gorm:"index;size:36"`
 	Status       string    `json:"status" gorm:"index;size:24"`
 	Selected     bool      `json:"selected" gorm:"index"`

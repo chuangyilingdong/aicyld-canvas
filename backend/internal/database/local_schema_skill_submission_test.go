@@ -9,10 +9,12 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func TestSkillSubmissionMigrationGrandfathersExistingPublicSkills(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "skill-submissions.db")), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

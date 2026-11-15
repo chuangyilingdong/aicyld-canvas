@@ -20,6 +20,7 @@ import (
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 const tinyPNGDataURL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
@@ -444,6 +445,7 @@ func newIngestHarness(t *testing.T, quota asset.Quota) (*Ingestor, *asset.Servic
 func openIngestHarness(t *testing.T, dbPath, dataDir string, quota asset.Quota) (*Ingestor, *asset.Service, *repository.Repository, *gorm.DB, string) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(dbPath+"?_busy_timeout=5000&_foreign_keys=on"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

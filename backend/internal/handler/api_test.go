@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func TestRegisterCanvasAPIExposesOpenAPIAndProjects(t *testing.T) {
@@ -196,6 +197,7 @@ func TestRegisterCanvasAPIOmitsLegacyNodeMutationRoutes(t *testing.T) {
 func TestRegisterCanvasAPIDerivesLocalProfileFromService(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

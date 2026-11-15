@@ -7,6 +7,7 @@ import (
 	"gorm.io/gorm"
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/repository"
+	"infinite-canvas/backend/internal/testutil"
 	"testing"
 	"time"
 )
@@ -77,6 +78,7 @@ func TestRunningImageLeaseSurvivesDatabaseReopenWithoutCancellation(t *testing.T
 	dsn := db.Dialector.(*sqlite.Dialector).DSN
 	closeDB(t, db)
 	reopened, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, reopened)
 	if err != nil {
 		t.Fatal(err)
 	}

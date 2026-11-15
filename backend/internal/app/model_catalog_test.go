@@ -9,6 +9,7 @@ import (
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 // 前台模型目录为空时也必须发 models: []，不能因为 omitempty 丢掉字段：
@@ -60,6 +61,7 @@ func TestModelCatalogAlwaysSerializesCollectionsAsArrays(t *testing.T) {
 func newModelCatalogTestService(t *testing.T) (*Service, *gorm.DB) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

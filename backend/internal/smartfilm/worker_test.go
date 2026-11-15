@@ -18,10 +18,12 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func TestWorkerProcessSubmitsAndCompletesStoryboardWithEncryptedCustomConfig(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:"+kernel.NewID()+"?mode=memory&cache=shared"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,6 +43,13 @@ func TestWorkerProcessSubmitsAndCompletesStoryboardWithEncryptedCustomConfig(t *
 		t.Fatal(err)
 	}
 	if err := db.Create(&batch).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.SmartFilmScriptRecord{
+		ID: "process-script", UserID: project.UserID, BatchID: batch.ID, Position: 0, Title: "第一场",
+		Content: unit.SourceText, Status: localproject.SmartFilmScriptStatusAssetsExtracted,
+		ProjectID: project.ID, UnitID: unit.ID, Revision: 1, CreatedAt: now, UpdatedAt: now,
+	}).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Create(&run).Error; err != nil {
@@ -99,6 +108,9 @@ func TestWorkerProcessSubmitsAndCompletesStoryboardWithEncryptedCustomConfig(t *
 	if config["apiKey"] != "sk-worker-secret" || captured.LogicalModelID != "logical-text" {
 		t.Fatalf("captured custom config = %+v, logical = %q", config, captured.LogicalModelID)
 	}
+	if prompt, _ := captured.Input["prompt"].(string); !strings.Contains(prompt, "角色走进房间") || !strings.Contains(prompt, "只返回一个 JSON") {
+		t.Fatalf("storyboard prompt was not passed to the model: %q", prompt)
+	}
 	if err := worker.ProcessOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -115,6 +127,62 @@ func TestWorkerProcessSubmitsAndCompletesStoryboardWithEncryptedCustomConfig(t *
 	}
 }
 
+func TestWorkerAssetFailureKeepsTaskIDForRetry(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:"+kernel.NewID()+"?mode=memory&cache=shared"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	testutil.CloseDBOnCleanup(t, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.MigrateLocalSchema(db); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	project := model.Project{ID: "asset-failure-project", UserID: "asset-failure-user", Name: "资产失败", Type: "smart-film", Status: model.ProjectStatusActive, Revision: 1, CreatedAt: now, UpdatedAt: now}
+	unit := model.ProjectUnit{ID: "asset-failure-unit", ProjectID: project.ID, Kind: model.ProjectUnitKindChapter, Title: "第一场", SourceText: "角色走进房间。", Status: model.ProjectUnitStatusReady, Position: 0, CreatedAt: now, UpdatedAt: now}
+	scripts, _ := json.Marshal([]localproject.SmartFilmScript{{ID: "asset-failure-script", Title: "第一场", Content: unit.SourceText, Status: localproject.SmartFilmScriptStatusProjectCreated, ProjectID: project.ID, UnitID: unit.ID, CreatedAt: now, UpdatedAt: now}})
+	batch := model.SmartFilmBatch{ID: "asset-failure-batch", UserID: project.UserID, Title: "资产失败批次", SourceText: "想法", ConfigJSON: `{"defaultTextModel":"text-model"}`, ScriptsJSON: string(scripts), Status: "confirmed", Revision: 1, CreatedAt: now, UpdatedAt: now}
+	run := model.SmartFilmProductionRun{
+		ID: "asset-failure-run", UserID: project.UserID, BatchID: batch.ID, ScriptID: "asset-failure-script", IdempotencyKey: "asset-failure-key",
+		Status: localproject.SmartFilmProductionRunStatusReady, CurrentStep: localproject.SmartFilmProductionStepAssets,
+		ProjectID: project.ID, UnitID: unit.ID, AssetStatus: localproject.SmartFilmProductionStageStatusQueued,
+		AssetTaskID: "asset-failure-task", ControlStatus: localproject.SmartFilmProductionControlActive, Attempts: 1,
+		Revision: 1, CreatedAt: now, UpdatedAt: now,
+	}
+	task := model.Task{ID: "asset-failure-task", UserID: project.UserID, ProjectID: project.ID, Type: "canvas_text", Operation: assetExtractionOperation, Status: model.TaskStatusFailed, Error: "上游资产提取失败", CreatedAt: now, UpdatedAt: now}
+	for _, row := range []any{&project, &unit, &batch, &run, &task} {
+		if err := db.Create(row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Create(&model.SmartFilmScriptRecord{
+		ID: "asset-failure-script", UserID: project.UserID, BatchID: batch.ID, Position: 0, Title: "第一场",
+		Content: unit.SourceText, Status: localproject.SmartFilmScriptStatusProjectCreated,
+		ProjectID: project.ID, UnitID: unit.ID, Revision: 1, CreatedAt: now, UpdatedAt: now,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	repo := repository.New(db)
+	projects := localproject.New(repo, localproject.Dependencies{})
+	submitted := 0
+	worker := New(projects, repo, func(string, localtask.CreateRequest) (*model.Task, error) {
+		submitted++
+		return nil, errors.New("不应提交新任务")
+	}, nil)
+	if err := worker.ProcessOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := repo.SmartFilmProductionRunForUser(project.UserID, batch.ID, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.AssetStatus != localproject.SmartFilmProductionStageStatusAttention || stored.AssetTaskID != task.ID || stored.FailedStep != localproject.SmartFilmProductionStepAssets || stored.Error == "" {
+		t.Fatalf("failed asset run = %+v", stored)
+	}
+	if submitted != 0 {
+		t.Fatalf("submitted %d tasks after a failed asset result", submitted)
+	}
+}
+
 func TestSplitModelOption(t *testing.T) {
 	channel, model := SplitModelOption("channel-1::text-model")
 	if channel != "channel-1" || model != "text-model" {
@@ -123,6 +191,54 @@ func TestSplitModelOption(t *testing.T) {
 	channel, model = SplitModelOption("text-only")
 	if channel != "" || model != "text-only" {
 		t.Fatalf("plain split = %q/%q", channel, model)
+	}
+}
+
+func TestWorkerStoryboardUsesAttemptScopedOperationID(t *testing.T) {
+	var captured localtask.CreateRequest
+	worker := &Worker{SubmitTask: func(userID string, req localtask.CreateRequest) (*model.Task, error) {
+		captured = req
+		return &model.Task{ID: "task-1", UserID: userID}, nil
+	}}
+	item := localproject.SmartFilmStoryboardWorkItem{
+		RunID: "run-1", Attempts: 2, UserID: "user-1", ProjectID: "project-1", UnitID: "unit-1",
+		TextModel: "text-model", ShotCount: 1, ShotDurationSeconds: 5,
+	}
+	if _, err := worker.submitStoryboard(item); err != nil {
+		t.Fatal(err)
+	}
+	metadata := captured.Input["metadata"].(map[string]any)
+	if got := metadata["clientOperationId"]; got != "smart-film:storyboard:run-1:2" {
+		t.Fatalf("clientOperationId = %v", got)
+	}
+}
+
+func TestSmartFilmStageOperationIDKeepsInitialKeyStable(t *testing.T) {
+	if got := smartFilmStageOperationID("assets", "run-1", 1); got != "smart-film:assets:run-1" {
+		t.Fatalf("initial operation id = %q", got)
+	}
+	if got := smartFilmStageOperationID("assets", "run-1", 2); got != "smart-film:assets:run-1:2" {
+		t.Fatalf("retry operation id = %q", got)
+	}
+}
+
+func TestWorkerAssetExtractionCarriesChapterApplyOperation(t *testing.T) {
+	var captured localtask.CreateRequest
+	worker := &Worker{SubmitTask: func(_ string, req localtask.CreateRequest) (*model.Task, error) {
+		captured = req
+		return &model.Task{ID: "asset-task"}, nil
+	}}
+	_, err := worker.submitAssetExtraction(localproject.SmartFilmAssetExtractionWorkItem{
+		RunID: "asset-run", UserID: "asset-user", BatchID: "asset-batch", ScriptID: "asset-script",
+		ProjectID: "asset-project", UnitID: "asset-unit", ProjectName: "资产项目", ScriptTitle: "第一场",
+		ScriptContent: "角色走进房间。", TextModel: "text-model", TextConfig: map[string]any{"model": "text-model"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata, _ := captured.Input["metadata"].(map[string]any)
+	if metadata["operation"] != assetExtractionOperation {
+		t.Fatalf("asset extraction metadata = %+v", metadata)
 	}
 }
 
@@ -138,6 +254,7 @@ func TestDecodeAssetResultJSON(t *testing.T) {
 
 func TestWorkerStoryboardWritesShotsAndCheckpointsRun(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:"+kernel.NewID()+"?mode=memory&cache=shared"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,6 +282,13 @@ func TestWorkerStoryboardWritesShotsAndCheckpointsRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := db.Create(&batch).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.SmartFilmScriptRecord{
+		ID: "worker-script", UserID: project.UserID, BatchID: batch.ID, Position: 0, Title: "第一场",
+		Content: unit.SourceText, Status: localproject.SmartFilmScriptStatusAssetsExtracted,
+		ProjectID: project.ID, UnitID: unit.ID, Revision: 1, CreatedAt: now, UpdatedAt: now,
+	}).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Create(&run).Error; err != nil {

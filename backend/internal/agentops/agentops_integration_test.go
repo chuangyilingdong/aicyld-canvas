@@ -15,6 +15,7 @@ import (
 	"infinite-canvas/backend/internal/database"
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/repository"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 // 自包含集成回归：真实临时 SQLite + 真实领域写入，验证事务/幂等/CAS/能力边界。
@@ -32,6 +33,7 @@ func newHarness(t *testing.T) *harness {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "agentops.db")),
 		&gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatalf("打开临时库失败: %v", err)
 	}

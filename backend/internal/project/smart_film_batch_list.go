@@ -43,7 +43,7 @@ func (s *Service) DeleteSmartFilmBatchDraft(userID, batchID string) error {
 	if err != nil {
 		return err
 	}
-	scripts, err := smartFilmScripts(batch)
+		scripts, err := s.smartFilmScripts(batch)
 	if err != nil {
 		return err
 	}

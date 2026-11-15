@@ -13,6 +13,7 @@ import (
 	"infinite-canvas/backend/internal/database"
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/repository"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 // 按轮撤销用真实 SQLite 与真实画布写入验证：撤销必须是「写回旧文档的新版本」，
@@ -21,6 +22,7 @@ func newAssistantTurnService(t *testing.T) (*Service, string, int64) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "turns.db")),
 		&gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatalf("打开临时库失败: %v", err)
 	}

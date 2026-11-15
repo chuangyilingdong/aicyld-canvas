@@ -27,6 +27,7 @@ import { modelDisplayName, useConfigStore, useEffectiveConfig } from "@/stores/u
 import { storyboardRowsToProjectShots } from "./detail/chapter-storyboard-production";
 import { extractChapterAssets, generateChapterStoryboard } from "./detail/project-chapter-ai";
 import { sourceTypeLabel } from "./detail/shared";
+import { groupProjectsByBatch } from "./project-batch-groups";
 
 type ProjectForm = { name: string; aspectRatio: string; sourceType: string };
 
@@ -41,6 +42,7 @@ export default function ProjectsPage() {
     const [keyword, setKeyword] = useState("");
     const [status, setStatus] = useState<"all" | "active" | "archived">("all");
     const [sort, setSort] = useState<"updated" | "progress" | "name">("updated");
+    const [groupByBatch, setGroupByBatch] = useState(false);
     const [storyDraft, setStoryDraft] = useState("");
     const [createSource, setCreateSource] = useState<"blank" | "novel" | "text">("blank");
     const [selectedStyle, setSelectedStyle] = useState<CanvasStylePreset | null>(null);
@@ -429,6 +431,7 @@ export default function ProjectsPage() {
             });
     }, [allProjects, keyword, sort, status]);
     const totalProjectCount = query.data?.pages[0]?.total ?? allProjects.length;
+    const projectGroups = useMemo(() => groupProjectsByBatch(rows), [rows]);
     useEffect(() => {
         const node = loadMoreRef.current;
         if (!node || !query.hasNextPage || query.isError) return;
@@ -502,16 +505,32 @@ export default function ProjectsPage() {
                 </div>
                 </details>
             </details>
-            <CollectionToolbar active={Boolean(keyword || status !== "all" || sort !== "updated")} onReset={() => { setKeyword(""); setStatus("all"); setSort("updated"); }}>
+            <CollectionToolbar active={Boolean(keyword || status !== "all" || sort !== "updated" || groupByBatch)} onReset={() => { setKeyword(""); setStatus("all"); setSort("updated"); setGroupByBatch(false); }}>
                 <Input allowClear className="app-list-search" prefix={<Search className="size-4 text-foreground/40" />} value={keyword} placeholder="搜索项目、简介或画风" onChange={(event) => setKeyword(event.target.value)} />
                 <Select className="w-32" value={status} onChange={setStatus} options={[{ label: "全部状态", value: "all" }, { label: "进行中", value: "active" }, { label: "已归档", value: "archived" }]} />
                 <Select className="w-32" value={sort} onChange={setSort} options={[{ label: "最近更新", value: "updated" }, { label: "章节进度", value: "progress" }, { label: "项目名称", value: "name" }]} />
+                <Button type={groupByBatch ? "primary" : "default"} onClick={() => setGroupByBatch((value) => !value)}>按批次聚合</Button>
             </CollectionToolbar>
 
             {hasInitialError ? <WorkspaceErrorState description={query.error instanceof Error ? query.error.message : "项目列表加载失败"} onRetry={() => void query.refetch()} /> : null}
             {query.isLoading ? <WorkspaceLoadingState label="正在整理项目" detail="读取章节、画布与资产进度" /> : null}
             {!query.isLoading && !hasInitialError && rows.length ? (
-                <CollectionGrid className="library-grid project-library-grid">
+                groupByBatch ? <div className="space-y-5">
+                    {projectGroups.map((group) => (
+                        <section key={group.key} className="space-y-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/70 pb-2">
+                                <div className="flex items-center gap-2">
+                                    <strong className="text-sm">{group.batchId ? `批次 ${group.batchId.slice(0, 8)}` : "独立项目"}</strong>
+                                    <span className="text-xs text-foreground/45">{group.projects.length} 个项目</span>
+                                </div>
+                                {group.batchId ? <Link to={`/smart-film/batches/${group.batchId}`} className="inline-flex items-center gap-1 text-xs text-[var(--workspace-accent)] hover:underline">查看批次全部子项目<ArrowRight className="size-3.5" /></Link> : null}
+                            </div>
+                            <CollectionGrid className="library-grid project-library-grid">
+                                {group.projects.map((row) => <ProjectRow key={row.project.id} row={row} folders={foldersQuery.data?.folders || []} onDelete={() => modal.confirm({ title: "删除项目？", content: `项目章节、画布关联和素材归属将一并移除「${row.project.name}」，独立画布与素材库原始素材会保留。此操作不可撤销。`, okText: "删除项目", cancelText: "取消", okButtonProps: { danger: true }, onOk: () => deleteMutation.mutateAsync(row.project.id) })} onRename={() => { setRenameValue(row.project.name); setRenamingProject(row.project); }} onArchive={() => archiveMutation.mutate({ id: row.project.id, status: row.project.status === "archived" ? "active" : "archived" })} onDuplicate={async () => { await duplicateProject(row.project.id); await queryClient.invalidateQueries({ queryKey: ["projects"] }); message.success("项目副本已创建"); }} onMove={async (folderId) => { await moveProjectToFolder(row.project.id, folderId); await queryClient.invalidateQueries({ queryKey: ["projects"] }); message.success(folderId ? "项目已移动" : "项目已移出文件夹"); }} />)}
+                            </CollectionGrid>
+                        </section>
+                    ))}
+                </div> : <CollectionGrid className="library-grid project-library-grid">
                     {rows.map((row) => <ProjectRow key={row.project.id} row={row} folders={foldersQuery.data?.folders || []} onDelete={() => modal.confirm({ title: "删除项目？", content: `项目章节、画布关联和素材归属将一并移除「${row.project.name}」，独立画布与素材库原始素材会保留。此操作不可撤销。`, okText: "删除项目", cancelText: "取消", okButtonProps: { danger: true }, onOk: () => deleteMutation.mutateAsync(row.project.id) })} onRename={() => { setRenameValue(row.project.name); setRenamingProject(row.project); }} onArchive={() => archiveMutation.mutate({ id: row.project.id, status: row.project.status === "archived" ? "active" : "archived" })} onDuplicate={async () => { await duplicateProject(row.project.id); await queryClient.invalidateQueries({ queryKey: ["projects"] }); message.success("项目副本已创建"); }} onMove={async (folderId) => { await moveProjectToFolder(row.project.id, folderId); await queryClient.invalidateQueries({ queryKey: ["projects"] }); message.success(folderId ? "项目已移动" : "项目已移出文件夹"); }} />)}
                 </CollectionGrid>
             ) : null}

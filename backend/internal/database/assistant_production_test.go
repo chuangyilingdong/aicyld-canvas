@@ -5,12 +5,14 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 	"infinite-canvas/backend/internal/model"
+	"infinite-canvas/backend/internal/testutil"
 	"path/filepath"
 	"testing"
 )
 
 func TestProductionAuthorizationMigrationPreservesV19HistoryAndRequiresColumn(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "v19.db")), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +56,7 @@ func TestProductionAuthorizationMigrationPreservesV19HistoryAndRequiresColumn(t 
 	}
 	var after []localSchemaMigration
 	db.Order("version").Find(&after)
-	if len(after) != len(before)+22 || after[len(before)].Name != "assistant-production-authorization" || after[len(before)+1].Name != "skill-market-release-metadata" || after[len(before)+5].Name != "reconcile-preview-assistant-schema" || after[len(before)+6].Name != "task-recovery-outcome" || after[len(before)+7].Name != "task-beefapi-settlement" || after[len(before)+8].Name != "managed-media-query-identity" || after[len(before)+9].Name != "skill-market-review-submissions" || after[len(before)+10].Name != "canvas-onboarding-events" || after[len(before)+11].Name != "agent-operation-query-index" || after[len(before)+12].Name != "agent-operation-result-compression" || after[len(before)+13].Name != "canvas-media-asset-identity" || after[len(before)+14].Name != "smart-film-batches" || after[len(before)+15].Name != "asset-candidate-previews" || after[len(before)+16].Name != "smart-film-production-runs" || after[len(before)+17].Name != "smart-film-production-stages" || after[len(before)+18].Name != "smart-film-orchestration-controls" || after[len(before)+19].Name != "smart-film-project-source" || after[len(before)+20].Name != "smart-film-batch-budget" || after[len(before)+21].Name != "asset-candidate-preview-history" {
+	if len(after) != len(before)+24 || after[len(before)].Name != "assistant-production-authorization" || after[len(before)+1].Name != "skill-market-release-metadata" || after[len(before)+5].Name != "reconcile-preview-assistant-schema" || after[len(before)+6].Name != "task-recovery-outcome" || after[len(before)+7].Name != "task-beefapi-settlement" || after[len(before)+8].Name != "managed-media-query-identity" || after[len(before)+9].Name != "skill-market-review-submissions" || after[len(before)+10].Name != "canvas-onboarding-events" || after[len(before)+11].Name != "agent-operation-query-index" || after[len(before)+12].Name != "agent-operation-result-compression" || after[len(before)+13].Name != "canvas-media-asset-identity" || after[len(before)+14].Name != "smart-film-batches" || after[len(before)+15].Name != "asset-candidate-previews" || after[len(before)+16].Name != "smart-film-production-runs" || after[len(before)+17].Name != "smart-film-production-stages" || after[len(before)+18].Name != "smart-film-orchestration-controls" || after[len(before)+19].Name != "smart-film-project-source" || after[len(before)+20].Name != "smart-film-batch-budget" || after[len(before)+21].Name != "asset-candidate-preview-history" || after[len(before)+22].Name != "project-unit-artifacts" || after[len(before)+23].Name != "smart-film-production-run-archive" {
 		t.Fatal("migration identity changed")
 	}
 	for i, row := range before {

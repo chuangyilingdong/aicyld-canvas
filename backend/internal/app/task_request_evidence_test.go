@@ -17,6 +17,7 @@ import (
 	"infinite-canvas/backend/internal/generation"
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/repository"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func TestReferenceRecoveryEvidenceSurvivesSQLiteAndDiagnosticZIP(t *testing.T) {
@@ -53,6 +54,7 @@ func TestReferenceRecoveryEvidenceSurvivesSQLiteAndDiagnosticZIP(t *testing.T) {
 	task := model.Task{ID: "owned-failed", UserID: "owner", Status: model.TaskStatusFailed, FailureDiagnostics: recorder.snapshot(false), CreatedAt: now, UpdatedAt: now}
 	captureTaskFailureDiagnostics(&task, uploadErr, "unknown")
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,6 +144,7 @@ func TestTaskRequestEvidenceHTTPToRestoredList(t *testing.T) {
 			}
 			captureTaskFailureDiagnostics(&task, err, tc.source)
 			db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+			testutil.CloseDBOnCleanup(t, db)
 			if err != nil {
 				t.Fatal(err)
 			}

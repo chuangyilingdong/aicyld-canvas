@@ -19,6 +19,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 type crashStore struct {
@@ -54,6 +55,7 @@ func newSQLitePluginEnv(t *testing.T) (string, Store, *repository.Repository) {
 	t.Helper()
 	dataDir := t.TempDir()
 	db, err := gorm.Open(sqlite.Open(filepath.Join(dataDir, "app.db")), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

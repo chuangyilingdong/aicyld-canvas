@@ -7,6 +7,7 @@ import (
 	"gorm.io/gorm"
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/repository"
+	"infinite-canvas/backend/internal/testutil"
 	"io"
 	"mime/multipart"
 	"net/http/httptest"
@@ -35,6 +36,7 @@ func TestAgentLargeSkillInstruction(t *testing.T) {
 func agentSkillFixture(t *testing.T) (*Service, *gorm.DB) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "skills.sqlite")), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

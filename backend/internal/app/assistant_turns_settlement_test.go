@@ -13,6 +13,7 @@ import (
 	"infinite-canvas/backend/internal/database"
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/repository"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 // 结算与归属的边界回归：
@@ -25,6 +26,7 @@ func TestFinalizeKeepsSnapshotWhenReceiptQueryFails(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "turns.db")
 	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,6 +67,7 @@ func TestFinalizeKeepsSnapshotWhenReceiptQueryFails(t *testing.T) {
 		t.Fatal("回执查询失败时结算必须返回错误，而不是静默当成没有改动")
 	}
 	reopenedDB, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	testutil.CloseDBOnCleanup(t, reopenedDB)
 	if err != nil {
 		t.Fatal(err)
 	}

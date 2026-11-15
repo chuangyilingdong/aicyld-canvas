@@ -9,6 +9,7 @@ import (
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 type nopQuota struct{}
@@ -85,6 +86,7 @@ func newTestDomain(t *testing.T) (*Service, *repository.Repository, string) {
 	t.Helper()
 	dataDir := t.TempDir()
 	db, err := gorm.Open(sqlite.Open(filepath.Join(dataDir, "meta.db")+"?_busy_timeout=5000&_foreign_keys=on"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

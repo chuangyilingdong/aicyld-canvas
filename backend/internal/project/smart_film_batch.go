@@ -12,6 +12,7 @@ import (
 	"infinite-canvas/backend/internal/kernel"
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/prompts"
+	"infinite-canvas/backend/internal/repository"
 
 	"gorm.io/gorm"
 )
@@ -22,6 +23,7 @@ const (
 	smartFilmBatchStatusPartiallyConfirmed = "partially_confirmed"
 	smartFilmScriptLimit                   = 10
 	smartFilmInputAssetLimit               = 12
+	smartFilmArchiveReasonRegenerated      = "script_regenerated"
 )
 
 var smartFilmAspectRatios = map[string]struct{}{
@@ -51,11 +53,12 @@ func (s *Service) CreateSmartFilmBatch(userID string, req CreateSmartFilmBatchRe
 	}
 	inputAssetIDs := normalizeSmartFilmInputAssetIDs(req.InputAssetIDs)
 	if len(inputAssetIDs) > smartFilmInputAssetLimit {
-		return SmartFilmBatchView{}, kernel.BadAuthRequest(fmt.Sprintf("产品参考图最多 %d 张", smartFilmInputAssetLimit))
+		return SmartFilmBatchView{}, kernel.BadAuthRequest(fmt.Sprintf("参考图最多 %d 张", smartFilmInputAssetLimit))
 	}
 	if err := s.validateSmartFilmInputAssets(userID, inputAssetIDs); err != nil {
 		return SmartFilmBatchView{}, err
 	}
+	config.InputAssetRoles = filterSmartFilmInputAssetRoles(config.InputAssetRoles, inputAssetIDs)
 	if req.BudgetPoints < 0 {
 		return SmartFilmBatchView{}, kernel.BadAuthRequest("批次预算不能为负数")
 	}
@@ -107,7 +110,7 @@ func (s *Service) SaveSmartFilmBatchScripts(userID, batchID string, req SaveSmar
 	if err != nil {
 		return SmartFilmBatchView{}, err
 	}
-	existing, err := smartFilmScripts(batch)
+	existing, err := s.smartFilmScripts(batch)
 	if err != nil {
 		return SmartFilmBatchView{}, err
 	}
@@ -154,104 +157,31 @@ func (s *Service) SaveSmartFilmBatchScripts(userID, batchID string, req SaveSmar
 		}
 		scripts = append(scripts, script)
 	}
-	updated, err := s.repo.UpdateSmartFilmBatch(userID, batchID, req.ExpectedRevision, map[string]any{
-		"scripts_json": mustJSON(scripts),
-		"status":       smartFilmBatchStatus(scripts),
-	})
-	if err != nil {
-		return SmartFilmBatchView{}, mapProjectWriteError(err)
+	records := make([]model.SmartFilmScriptRecord, 0, len(scripts))
+	for index, script := range scripts {
+		records = append(records, smartFilmScriptRecord(script, userID, batchID, index))
 	}
-	return s.smartFilmBatchResponse(*updated)
-}
-
-func (s *Service) UpdateSmartFilmBatchScript(userID, batchID, scriptID string, req UpdateSmartFilmBatchScriptRequest) (SmartFilmBatchView, error) {
-	if req.ExpectedRevision <= 0 {
-		return SmartFilmBatchView{}, kernel.BadAuthRequest("请刷新后再修改剧本")
-	}
-	batch, err := s.repo.SmartFilmBatchForUser(userID, batchID)
-	if err != nil {
-		return SmartFilmBatchView{}, err
-	}
-	if batch.Revision != req.ExpectedRevision {
-		return SmartFilmBatchView{}, kernel.WrapAppError(kernel.CodeConflict, "批次已发生变化，请刷新后重试", nil)
-	}
-	scripts, err := smartFilmScripts(batch)
-	if err != nil {
-		return SmartFilmBatchView{}, err
-	}
-	index := smartFilmScriptIndex(scripts, scriptID)
-	if index < 0 {
-		return SmartFilmBatchView{}, kernel.BadAuthRequest("剧本不存在，请刷新后重试")
-	}
-	title := strings.TrimSpace(req.Title)
-	content := strings.TrimSpace(req.Content)
-	if title == "" || content == "" {
-		return SmartFilmBatchView{}, kernel.BadAuthRequest("剧本标题和正文不能为空")
-	}
-	if len([]rune(content)) > 30000 {
-		return SmartFilmBatchView{}, kernel.BadAuthRequest("单条剧本不能超过 30000 个字符")
-	}
-	nextStatus := strings.TrimSpace(req.Status)
-	if nextStatus == "" {
-		nextStatus = scripts[index].Status
-		if scripts[index].ProjectID == "" {
-			nextStatus = SmartFilmScriptStatusDraft
+	var updated *model.SmartFilmBatch
+	err = s.repo.Transaction(func(txRepo *repository.Repository) error {
+		var updateErr error
+		updated, updateErr = txRepo.UpdateSmartFilmBatch(userID, batchID, req.ExpectedRevision, map[string]any{
+			"scripts_json": "[]",
+			"status":       smartFilmBatchStatus(scripts),
+		})
+		if updateErr != nil {
+			return mapProjectWriteError(updateErr)
 		}
-	}
-	if !validSmartFilmScriptStatus(nextStatus) {
-		return SmartFilmBatchView{}, kernel.BadAuthRequest("剧本状态无效")
-	}
-	scripts[index].Title = truncateSmartFilmText(title, 240)
-	scripts[index].Content = content
-	scripts[index].Status = nextStatus
-	scripts[index].Error = ""
-	if taskID := strings.TrimSpace(req.TaskID); taskID != "" {
-		scripts[index].TaskID = taskID
-	}
-	scripts[index].UpdatedAt = time.Now()
-	updated, err := s.repo.UpdateSmartFilmBatch(userID, batchID, req.ExpectedRevision, map[string]any{
-		"scripts_json": mustJSON(scripts),
-		"status":       smartFilmBatchStatus(scripts),
-	})
-	if err != nil {
-		return SmartFilmBatchView{}, mapProjectWriteError(err)
-	}
-	return s.smartFilmBatchResponse(*updated)
-}
-
-func (s *Service) DeleteSmartFilmBatchScript(userID, batchID, scriptID string, expectedRevision int64) (SmartFilmBatchView, error) {
-	if expectedRevision <= 0 {
-		return SmartFilmBatchView{}, kernel.BadAuthRequest("请刷新后再删除剧本")
-	}
-	batch, err := s.repo.SmartFilmBatchForUser(userID, batchID)
-	if err != nil {
-		return SmartFilmBatchView{}, err
-	}
-	scripts, err := smartFilmScripts(batch)
-	if err != nil {
-		return SmartFilmBatchView{}, err
-	}
-	next := make([]SmartFilmScript, 0, len(scripts))
-	found := false
-	for _, script := range scripts {
-		if script.ID == scriptID {
-			found = true
-			if script.ProjectID != "" {
-				return SmartFilmBatchView{}, kernel.BadAuthRequest("已经创建视频项目的剧本不能删除")
-			}
-			continue
+		if err := txRepo.UpsertSmartFilmScripts(userID, batchID, records); err != nil {
+			return err
 		}
-		next = append(next, script)
-	}
-	if !found {
-		return SmartFilmBatchView{}, kernel.BadAuthRequest("剧本不存在，请刷新后重试")
-	}
-	updated, err := s.repo.UpdateSmartFilmBatch(userID, batchID, expectedRevision, map[string]any{
-		"scripts_json": mustJSON(next),
-		"status":       smartFilmBatchStatus(next),
+		ids := make([]string, 0, len(records))
+		for _, record := range records {
+			ids = append(ids, record.ID)
+		}
+		return txRepo.DeleteSmartFilmScriptsNotIn(userID, batchID, ids)
 	})
 	if err != nil {
-		return SmartFilmBatchView{}, mapProjectWriteError(err)
+		return SmartFilmBatchView{}, err
 	}
 	return s.smartFilmBatchResponse(*updated)
 }
@@ -268,13 +198,16 @@ func (s *Service) ConfirmSmartFilmBatchScripts(userID, batchID string, req Confi
 	if err != nil {
 		return SmartFilmBatchView{}, err
 	}
-	scripts, err := smartFilmScripts(batch)
+	scripts, err := s.smartFilmScripts(batch)
 	if err != nil {
 		return SmartFilmBatchView{}, err
 	}
 	config, err := smartFilmBatchConfig(batch)
 	if err != nil {
 		return SmartFilmBatchView{}, err
+	}
+	if config.ProductionMode == "" {
+		return SmartFilmBatchView{}, kernel.BadAuthRequest("请先为选中的剧本设置分镜策略")
 	}
 	inputAssetIDs, err := smartFilmInputAssetIDs(batch)
 	if err != nil {
@@ -439,15 +372,16 @@ func (s *Service) ConfirmSmartFilmBatchScripts(userID, batchID string, req Confi
 				case 1:
 					unitID = units[0].ID
 				default:
-					return kernel.BadAuthRequest("项目已有多个章节，无法自动恢复产品图关联，请先清理多余章节")
+					return kernel.BadAuthRequest("项目已有多个章节，无法自动恢复参考图关联，请先清理多余章节")
 				}
 			}
 
 			linkedAssetIDs := make([]string, 0, len(inputAssetIDs))
 			for _, assetID := range inputAssetIDs {
 				activeStep = SmartFilmProductionStepAssetLink
+				category, title := smartFilmInputAssetLink(config.InputAssetRoles[assetID])
 				if _, linkErr := txService.LinkProjectAsset(userID, projectID, LinkProjectAssetRequest{
-					AssetID: assetID, Category: string(model.AssetCategoryProp), Source: AssetSourceUploaded, Title: "产品参考",
+					AssetID: assetID, Category: string(category), Source: AssetSourceUploaded, Title: title,
 				}); linkErr != nil {
 					return linkErr
 				}
@@ -488,9 +422,16 @@ func (s *Service) ConfirmSmartFilmBatchScripts(userID, batchID string, req Confi
 		}
 
 		activeStep = SmartFilmProductionStepBatch
+		records := make([]model.SmartFilmScriptRecord, 0, len(scripts))
+		for index, script := range scripts {
+			records = append(records, smartFilmScriptRecord(script, userID, batchID, index))
+		}
+		if err := txRepo.UpsertSmartFilmScripts(userID, batchID, records); err != nil {
+			return err
+		}
 		var updateErr error
 		updated, updateErr = txRepo.UpdateSmartFilmBatch(userID, batchID, req.ExpectedRevision, map[string]any{
-			"scripts_json": mustJSON(scripts),
+			"scripts_json": "[]",
 			"status":       smartFilmBatchStatus(scripts),
 		})
 		if updateErr != nil {
@@ -541,7 +482,7 @@ func (s *Service) EnsureSmartFilmVideoTaskAllowed(userID, projectID string, inpu
 	return nil
 }
 
-func smartFilmBatchView(batch model.SmartFilmBatch) (SmartFilmBatchView, error) {
+func (s *Service) smartFilmBatchView(batch model.SmartFilmBatch) (SmartFilmBatchView, error) {
 	inputAssetIDs, err := smartFilmInputAssetIDs(&batch)
 	if err != nil {
 		return SmartFilmBatchView{}, err
@@ -550,7 +491,7 @@ func smartFilmBatchView(batch model.SmartFilmBatch) (SmartFilmBatchView, error) 
 	if err != nil {
 		return SmartFilmBatchView{}, err
 	}
-	scripts, err := smartFilmScripts(&batch)
+	scripts, err := s.smartFilmScripts(&batch)
 	if err != nil {
 		return SmartFilmBatchView{}, err
 	}
@@ -580,7 +521,7 @@ func (w smartFilmTransactionWorkflows) PrepareDefault(projectID string) (Workflo
 }
 
 func (s *Service) smartFilmBatchResponse(batch model.SmartFilmBatch) (SmartFilmBatchView, error) {
-	view, err := smartFilmBatchView(batch)
+	view, err := s.smartFilmBatchView(batch)
 	if err != nil {
 		return SmartFilmBatchView{}, err
 	}
@@ -632,7 +573,8 @@ func smartFilmProductionRunView(run model.SmartFilmProductionRun) SmartFilmProdu
 		Resources: resources, FailedStep: run.FailedStep, Error: run.Error,
 		RecoverableAction: run.RecoverableAction, AssetStatus: run.AssetStatus, AssetTaskID: run.AssetTaskID,
 		AssetCount: run.AssetCount, StoryboardStatus: run.StoryboardStatus, StoryboardTaskID: run.StoryboardTaskID,
-		StoryboardShotCount: run.StoryboardShotCount, ControlStatus: controlStatus, Attempts: run.Attempts, Revision: run.Revision,
+		StoryboardShotCount: run.StoryboardShotCount, ControlStatus: controlStatus, Attempts: run.Attempts,
+		ArchivedAt: run.ArchivedAt, ArchiveReason: run.ArchiveReason, Revision: run.Revision,
 		CreatedAt: run.CreatedAt, UpdatedAt: run.UpdatedAt,
 	}
 }
@@ -694,41 +636,67 @@ func normalizeSmartFilmBatchConfig(config SmartFilmBatchConfig) (SmartFilmBatchC
 	config.DefaultTextModel = strings.TrimSpace(config.DefaultTextModel)
 	config.DefaultImageModel = strings.TrimSpace(config.DefaultImageModel)
 	config.DefaultVideoModel = strings.TrimSpace(config.DefaultVideoModel)
+	roles, err := normalizeSmartFilmInputAssetRoles(config.InputAssetRoles)
+	if err != nil {
+		return SmartFilmBatchConfig{}, err
+	}
+	config.InputAssetRoles = roles
+	config.ProductionMode = strings.TrimSpace(config.ProductionMode)
+	if config.ProductionMode == "" && config.ShotCount > 0 {
+		config.ProductionMode = SmartFilmProductionModeFixed
+	}
 	if config.ScriptCount <= 0 {
 		config.ScriptCount = 3
 	}
 	if config.ScriptCount > smartFilmScriptLimit {
 		return SmartFilmBatchConfig{}, kernel.BadAuthRequest(fmt.Sprintf("一次最多生成 %d 条剧本", smartFilmScriptLimit))
 	}
-	if config.ShotCount <= 0 {
-		config.ShotCount = 6
-	}
-	if config.ShotCount > 200 {
-		return SmartFilmBatchConfig{}, kernel.BadAuthRequest("分镜数量不能超过 200")
-	}
-	if config.ShotDurationSeconds <= 0 {
-		config.ShotDurationSeconds = 5
-	}
-	if config.ShotDurationSeconds > 60 {
-		return SmartFilmBatchConfig{}, kernel.BadAuthRequest("单镜时长不能超过 60 秒")
-	}
-	durations := make([]float64, 0, len(config.ShotDurationsSeconds))
-	for _, duration := range config.ShotDurationsSeconds {
-		if duration <= 0 || duration > 60 {
-			return SmartFilmBatchConfig{}, kernel.BadAuthRequest("逐镜时长必须在 1–60 秒之间")
+	switch config.ProductionMode {
+	case "":
+		config.ShotCount = 0
+		config.ShotDurationSeconds = 0
+		config.ShotDurationsSeconds = nil
+		config.TargetDurationSeconds = 0
+	case SmartFilmProductionModeFixed:
+		if config.ShotCount <= 0 || config.ShotCount > 200 {
+			return SmartFilmBatchConfig{}, kernel.BadAuthRequest("固定分镜模式的镜头数量必须在 1–200 之间")
 		}
-		durations = append(durations, duration)
-	}
-	if len(durations) > 0 && len(durations) != config.ShotCount {
-		return SmartFilmBatchConfig{}, kernel.BadAuthRequest("逐镜时长数量必须与分镜数量一致")
-	}
-	if len(durations) == 0 {
-		durations = make([]float64, config.ShotCount)
-		for index := range durations {
-			durations[index] = config.ShotDurationSeconds
+		durations := make([]float64, 0, len(config.ShotDurationsSeconds))
+		for _, duration := range config.ShotDurationsSeconds {
+			if duration <= 0 || duration > 60 {
+				return SmartFilmBatchConfig{}, kernel.BadAuthRequest("逐镜时长必须在 1–60 秒之间")
+			}
+			durations = append(durations, duration)
 		}
+		if len(durations) > 0 && len(durations) != config.ShotCount {
+			return SmartFilmBatchConfig{}, kernel.BadAuthRequest("逐镜时长数量必须与分镜数量一致")
+		}
+		if len(durations) == 0 {
+			defaultDuration := config.ShotDurationSeconds
+			if defaultDuration <= 0 {
+				defaultDuration = 5
+			}
+			if defaultDuration > 60 {
+				return SmartFilmBatchConfig{}, kernel.BadAuthRequest("单镜时长不能超过 60 秒")
+			}
+			durations = make([]float64, config.ShotCount)
+			for index := range durations {
+				durations[index] = defaultDuration
+			}
+		}
+		config.ShotDurationsSeconds = durations
+		config.ShotDurationSeconds = durations[0]
+		config.TargetDurationSeconds = 0
+	case SmartFilmProductionModeSmart:
+		if config.TargetDurationSeconds <= 0 || config.TargetDurationSeconds > 3600 {
+			return SmartFilmBatchConfig{}, kernel.BadAuthRequest("智能分镜模式的总视频时长必须在 1–3600 秒之间")
+		}
+		config.ShotCount = 0
+		config.ShotDurationSeconds = 0
+		config.ShotDurationsSeconds = nil
+	default:
+		return SmartFilmBatchConfig{}, kernel.BadAuthRequest("分镜策略只支持固定分镜或智能整片")
 	}
-	config.ShotDurationsSeconds = durations
 	return config, nil
 }
 
@@ -744,10 +712,10 @@ func (s *Service) validateSmartFilmInputAssets(userID string, assetIDs []string)
 	for _, asset := range assets {
 		ownedAssets[asset.ID] = asset
 		if asset.Kind != "image" {
-			return kernel.BadAuthRequest(fmt.Sprintf("产品参考图“%s”不是图片素材", asset.Title))
+			return kernel.BadAuthRequest(fmt.Sprintf("参考图“%s”不是图片素材", asset.Title))
 		}
 		if asset.Status == model.AssetVersionStatusArchived {
-			return kernel.BadAuthRequest(fmt.Sprintf("产品参考图“%s”已归档，请重新选择", asset.Title))
+			return kernel.BadAuthRequest(fmt.Sprintf("参考图“%s”已归档，请重新选择", asset.Title))
 		}
 	}
 	missing := make([]string, 0, len(assetIDs))
@@ -767,32 +735,47 @@ func (s *Service) validateSmartFilmInputAssets(userID string, assetIDs []string)
 	for _, resource := range resources {
 		ownedResources[resource.ID] = resource
 		if resource.Kind != "image" {
-			return kernel.BadAuthRequest("产品参考图必须是图片资源")
+			return kernel.BadAuthRequest("参考图必须是图片资源")
 		}
 		if resource.Status != model.ResourceStatusReady {
-			return kernel.BadAuthRequest("产品参考图尚未就绪，请稍后重试")
+			return kernel.BadAuthRequest("参考图尚未就绪，请稍后重试")
 		}
 	}
 	for _, assetID := range missing {
 		if _, ok := ownedResources[assetID]; !ok {
-			return kernel.BadAuthRequest("产品参考图不存在或不属于当前用户")
+			return kernel.BadAuthRequest("参考图不存在或不属于当前用户")
 		}
 	}
 	return nil
 }
 
-func smartFilmScripts(batch *model.SmartFilmBatch) ([]SmartFilmScript, error) {
-	if strings.TrimSpace(batch.ScriptsJSON) == "" {
-		return []SmartFilmScript{}, nil
-	}
-	var scripts []SmartFilmScript
-	if err := json.Unmarshal([]byte(batch.ScriptsJSON), &scripts); err != nil {
+func (s *Service) smartFilmScripts(batch *model.SmartFilmBatch) ([]SmartFilmScript, error) {
+	records, err := s.repo.SmartFilmScriptsForBatch(batch.UserID, batch.ID)
+	if err != nil {
 		return nil, err
 	}
-	if scripts == nil {
-		scripts = []SmartFilmScript{}
+	scripts := make([]SmartFilmScript, 0, len(records))
+	for _, record := range records {
+		scripts = append(scripts, smartFilmScriptView(record))
 	}
 	return scripts, nil
+}
+
+func smartFilmScriptView(record model.SmartFilmScriptRecord) SmartFilmScript {
+	return SmartFilmScript{
+		ID: record.ID, Title: record.Title, Content: record.Content, Status: record.Status,
+		ProjectID: record.ProjectID, UnitID: record.UnitID, TaskID: record.TaskID, Error: record.Error,
+		Revision: record.Revision, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt,
+	}
+}
+
+func smartFilmScriptRecord(script SmartFilmScript, userID, batchID string, position int) model.SmartFilmScriptRecord {
+	return model.SmartFilmScriptRecord{
+		ID: script.ID, UserID: userID, BatchID: batchID, Position: position,
+		Title: script.Title, Content: script.Content, Status: script.Status,
+		ProjectID: script.ProjectID, UnitID: script.UnitID, TaskID: script.TaskID, Error: script.Error,
+		Revision: script.Revision, CreatedAt: script.CreatedAt, UpdatedAt: script.UpdatedAt,
+	}
 }
 
 func smartFilmInputAssetIDs(batch *model.SmartFilmBatch) ([]string, error) {
@@ -849,6 +832,13 @@ func smartFilmBatchStatus(scripts []SmartFilmScript) string {
 		return smartFilmBatchStatusConfirmed
 	}
 	return smartFilmBatchStatusPartiallyConfirmed
+}
+
+func mapSmartFilmScriptWriteError(err error) error {
+	if errors.Is(err, repository.ErrProjectRevisionConflict) {
+		return kernel.WrapAppError(kernel.CodeConflict, "剧本已被其他操作修改，请刷新后重试", nil)
+	}
+	return mapProjectWriteError(err)
 }
 
 func validSmartFilmScriptStatus(status string) bool {

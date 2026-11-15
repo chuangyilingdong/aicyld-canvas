@@ -15,6 +15,7 @@ import (
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/operations"
 	"infinite-canvas/backend/internal/repository"
+	"infinite-canvas/backend/internal/testutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -167,6 +168,7 @@ func TestNativeHistoryPinCapDedupAndDatabaseReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	reopened, err := gorm.Open(sqlite.Open(file), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, reopened)
 	if err != nil {
 		t.Fatal(err)
 	}

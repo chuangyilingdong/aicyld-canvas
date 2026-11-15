@@ -17,6 +17,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 // TestGenerationDeliveryProgressIsProjectedWhileDownloading drives a slow
@@ -57,6 +58,7 @@ func TestGenerationDeliveryProgressIsProjectedWhileDownloading(t *testing.T) {
 
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "delivery-progress.db")),
 		&gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

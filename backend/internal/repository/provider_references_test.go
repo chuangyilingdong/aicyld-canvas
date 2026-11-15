@@ -9,11 +9,13 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func newProviderReferenceRepo(t *testing.T) *Repository {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open("file:provider-references-"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

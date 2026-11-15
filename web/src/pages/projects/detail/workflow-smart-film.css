@@ -1,0 +1,68 @@
+.workflow-smart-film-panel {
+    display: grid;
+    gap: 18px;
+    align-content: start;
+    min-height: 360px;
+    padding: 28px;
+}
+
+.workflow-smart-film-copy {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    border: 1px solid color-mix(in srgb, var(--workspace-accent) 24%, transparent);
+    border-radius: 18px;
+    background: color-mix(in srgb, var(--workspace-accent) 7%, transparent);
+    padding: 18px;
+}
+
+.workflow-smart-film-icon {
+    display: grid;
+    width: 42px;
+    height: 42px;
+    flex: 0 0 42px;
+    place-items: center;
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--workspace-accent) 14%, transparent);
+    color: var(--workspace-accent);
+}
+
+.workflow-smart-film-copy strong,
+.workflow-smart-film-copy p,
+.workflow-smart-film-copy small {
+    display: block;
+}
+
+.workflow-smart-film-copy strong {
+    font-size: 16px;
+    font-weight: 680;
+}
+
+.workflow-smart-film-copy p {
+    max-width: 760px;
+    margin: 5px 0 0;
+    color: color-mix(in srgb, var(--foreground) 56%, transparent);
+    font-size: 12px;
+    line-height: 1.75;
+}
+
+.workflow-smart-film-copy small {
+    margin-top: 8px;
+    color: color-mix(in srgb, var(--foreground) 42%, transparent);
+    font-size: 10px;
+}
+
+.workflow-smart-film-video {
+    width: 100%;
+    max-width: 820px;
+    max-height: 460px;
+    border-radius: 16px;
+    background: #000;
+}
+
+.workflow-smart-film-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+}

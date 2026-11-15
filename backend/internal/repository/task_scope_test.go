@@ -11,6 +11,7 @@ import (
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func taskScopeDSN(path string) string {
@@ -26,6 +27,7 @@ func newTaskScopeRepo(t *testing.T) (*Repository, *gorm.DB) {
 func newTaskScopeRepoAt(t *testing.T, path string) (*Repository, *gorm.DB, string) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(taskScopeDSN(path)), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,6 +67,7 @@ func reopenTaskScopeRepo(t *testing.T, db *gorm.DB, path string) (*Repository, *
 		t.Fatal(err)
 	}
 	reopened, err := gorm.Open(sqlite.Open(taskScopeDSN(path)), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, reopened)
 	if err != nil {
 		t.Fatal(err)
 	}

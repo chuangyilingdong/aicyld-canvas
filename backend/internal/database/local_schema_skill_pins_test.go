@@ -4,6 +4,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"infinite-canvas/backend/internal/model"
+	"infinite-canvas/backend/internal/testutil"
 	"path/filepath"
 	"testing"
 )
@@ -11,6 +12,7 @@ import (
 func TestV13WorkspaceSkillPinMigrationPreservesRounds(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "v13-copy.sqlite")
 	db, err := gorm.Open(sqlite.Open(file), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,6 +37,7 @@ func TestV13WorkspaceSkillPinMigrationPreservesRounds(t *testing.T) {
 	sqlDB, _ := db.DB()
 	sqlDB.Close()
 	db, err = gorm.Open(sqlite.Open(file), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -9,6 +9,7 @@ import (
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func TestIsSupportedVoiceSampleMimeType(t *testing.T) {
@@ -32,6 +33,7 @@ func TestIsSupportedVoiceSampleMimeType(t *testing.T) {
 
 func TestBindProjectCharacterVoiceWithSampleResource(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:"+newID()+"?mode=memory&cache=shared"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

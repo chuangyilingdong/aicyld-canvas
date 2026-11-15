@@ -21,6 +21,7 @@ import (
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func TestNormalizeSingleByteRange(t *testing.T) {
@@ -262,6 +263,7 @@ func TestBeefAPILocalVideoReferenceHydratesInlineForFlatRequest(t *testing.T) {
 func newResourceTestService(t *testing.T) *Service {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -299,6 +301,7 @@ func TestResourceDomainMemoizesConcurrentFirstCallers(t *testing.T) {
 
 func TestNewServiceResourceDomainKeepsWiredPointer(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

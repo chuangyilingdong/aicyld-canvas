@@ -15,7 +15,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion int64 = 41
+const CurrentSchemaVersion int64 = 43
 
 type localSchemaMigration struct {
 	Version   int64 `gorm:"primaryKey;autoIncrement:false"`
@@ -55,7 +55,7 @@ func LocalModels() []any {
 		&model.ProjectAssetLink{}, &model.ProjectAssetFolder{}, &model.ProjectAssetCandidate{}, &model.ProjectAssetCandidatePreview{},
 		&model.VoiceProfile{}, &model.CharacterVoiceBinding{},
 		&model.Project{}, &model.SmartFilmBatch{}, &model.SmartFilmProductionRun{}, &model.ProjectFolder{}, &model.StyleProfile{}, &model.ProjectUnit{}, &model.CanvasUnitLink{},
-		&model.Shot{}, &model.ShotRevision{}, &model.ShotArtifact{}, &model.ShotAssetReference{},
+		&model.Shot{}, &model.ShotRevision{}, &model.ShotArtifact{}, &model.ShotAssetReference{}, &model.ProjectUnitArtifact{},
 		&model.WorkflowTemplateVersion{}, &model.WorkflowInstance{}, &model.WorkflowStepInstance{}, &model.WorkflowStepTask{}, &model.ProductionTaskLink{},
 		&model.CanvasProject{}, &model.CanvasSnapshot{}, &model.CanvasSnapshotResource{}, &model.AgentOpRecord{}, &model.CanvasOnboardingEvent{},
 		&model.AssistantTurn{},
@@ -181,7 +181,74 @@ func canonicalLocalMigrations() []localMigration {
 		}},
 		{version: 40, name: "smart-film-batch-budget", apply: func(tx *gorm.DB) error { return tx.AutoMigrate(&model.SmartFilmBatch{}) }},
 		{version: 41, name: "asset-candidate-preview-history", apply: migrateAssetCandidatePreviewHistory},
+		{version: 42, name: "project-unit-artifacts", apply: func(tx *gorm.DB) error { return tx.AutoMigrate(&model.ProjectUnitArtifact{}) }},
+		{version: 43, name: "smart-film-production-run-archive", apply: func(tx *gorm.DB) error {
+			if err := tx.AutoMigrate(&model.SmartFilmProductionRun{}, &model.SmartFilmScriptRecord{}, &model.SmartFilmScriptRevision{}); err != nil {
+				return err
+			}
+			return backfillSmartFilmScripts(tx)
+		}},
 	}
+}
+
+func backfillSmartFilmScripts(tx *gorm.DB) error {
+	type legacyScript struct {
+		ID        string    `json:"id"`
+		Title     string    `json:"title"`
+		Content   string    `json:"content"`
+		Status    string    `json:"status"`
+		ProjectID string    `json:"projectId"`
+		UnitID    string    `json:"unitId"`
+		TaskID    string    `json:"taskId"`
+		Error     string    `json:"error"`
+		CreatedAt time.Time `json:"createdAt"`
+		UpdatedAt time.Time `json:"updatedAt"`
+	}
+	var batches []model.SmartFilmBatch
+	if err := tx.Where("scripts_json <> '' AND scripts_json <> '[]'").Find(&batches).Error; err != nil {
+		return err
+	}
+	for _, batch := range batches {
+		var scripts []legacyScript
+		if err := json.Unmarshal([]byte(batch.ScriptsJSON), &scripts); err != nil {
+			return fmt.Errorf("批次 %s 的剧本 JSON 无法迁移: %w", batch.ID, err)
+		}
+		for index, script := range scripts {
+			if strings.TrimSpace(script.ID) == "" {
+				continue
+			}
+			createdAt := script.CreatedAt
+			if createdAt.IsZero() {
+				createdAt = batch.CreatedAt
+			}
+			updatedAt := script.UpdatedAt
+			if updatedAt.IsZero() {
+				updatedAt = createdAt
+			}
+			record := model.SmartFilmScriptRecord{
+				ID: script.ID, UserID: batch.UserID, BatchID: batch.ID, Position: index,
+				Title: script.Title, Content: script.Content, Status: script.Status,
+				ProjectID: script.ProjectID, UnitID: script.UnitID, TaskID: script.TaskID,
+				Error: script.Error, Revision: 1, CreatedAt: createdAt, UpdatedAt: updatedAt,
+			}
+			if err := tx.Create(&record).Error; err != nil {
+				return err
+			}
+			revision := model.SmartFilmScriptRevision{
+				ID: kernel.NewID(), ScriptID: record.ID, UserID: record.UserID, BatchID: record.BatchID,
+				Version: 1, Title: record.Title, Content: record.Content, Status: record.Status,
+				ProjectID: record.ProjectID, UnitID: record.UnitID, TaskID: record.TaskID,
+				Error: record.Error, CreatedAt: createdAt,
+			}
+			if err := tx.Create(&revision).Error; err != nil {
+				return err
+			}
+		}
+		if err := tx.Model(&model.SmartFilmBatch{}).Where("id = ?", batch.ID).Update("scripts_json", "[]").Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func migrateAssetCandidatePreviewHistory(tx *gorm.DB) error {

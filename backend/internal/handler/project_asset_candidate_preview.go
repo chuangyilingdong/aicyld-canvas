@@ -11,6 +11,25 @@ import (
 )
 
 func RegisterProjectAssetCandidatePreviewRoutes(r *gin.RouterGroup, owners workspaceOwners, projects *localproject.Service) {
+	r.PATCH("/projects/:id/asset-candidates/:candidateId", func(c *gin.Context) {
+		user, err := currentUser(c, owners)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 256<<10)
+		var req localproject.UpdateProjectAssetCandidateDetailsRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			fail(c, http.StatusBadRequest, err)
+			return
+		}
+		candidate, err := projects.UpdateProjectAssetCandidateDetails(user.ID, c.Param("id"), c.Param("candidateId"), req)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"candidate": candidate})
+	})
 	r.PATCH("/projects/:id/asset-candidates/:candidateId/preview", func(c *gin.Context) {
 		user, err := currentUser(c, owners)
 		if err != nil {

@@ -10,6 +10,7 @@ import (
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func TestRuntimeConcurrencySettingPersistsAndChannelOverrideWins(t *testing.T) {
@@ -17,6 +18,7 @@ func TestRuntimeConcurrencySettingPersistsAndChannelOverrideWins(t *testing.T) {
 	t.Setenv("CANVAS_WORKER_CONCURRENCY", "3")
 	t.Setenv("CANVAS_CHANNEL_CONCURRENCY", "3")
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

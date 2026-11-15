@@ -15,6 +15,7 @@ import (
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/repository"
 	localtask "infinite-canvas/backend/internal/task"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func TestTaskRetryHandlerPreservesStructuredErrors(t *testing.T) {
@@ -35,6 +36,7 @@ func TestTaskRetryHandlerPreservesStructuredErrors(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "retry-errors.db")),
 				&gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+			testutil.CloseDBOnCleanup(t, db)
 			if err != nil {
 				t.Fatal(err)
 			}

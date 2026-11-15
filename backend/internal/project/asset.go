@@ -376,6 +376,30 @@ func (s *Service) SelectProjectAssetCandidatePreview(userID, projectID, candidat
 	return *candidate, nil
 }
 
+func (s *Service) UpdateProjectAssetCandidateDetails(userID, projectID, candidateID string, req UpdateProjectAssetCandidateDetailsRequest) (model.ProjectAssetCandidate, error) {
+	if req.ExpectedRevision <= 0 {
+		return model.ProjectAssetCandidate{}, kernel.BadAuthRequest("请刷新后再保存资产提示词")
+	}
+	if req.Details == nil {
+		return model.ProjectAssetCandidate{}, kernel.BadAuthRequest("资产提示词不能为空")
+	}
+	encoded, err := json.Marshal(req.Details)
+	if err != nil || len(encoded) > 256<<10 {
+		return model.ProjectAssetCandidate{}, kernel.BadAuthRequest("资产提示词格式无效或内容过大")
+	}
+	if _, err := s.Active(userID, projectID); err != nil {
+		return model.ProjectAssetCandidate{}, err
+	}
+	if err := s.repo.UpdateProjectAssetCandidateDetailsActive(userID, projectID, candidateID, string(encoded), req.ExpectedRevision, time.Now()); err != nil {
+		return model.ProjectAssetCandidate{}, mapProjectWriteError(err)
+	}
+	candidate, err := s.repo.ProjectAssetCandidate(projectID, candidateID)
+	if err != nil {
+		return model.ProjectAssetCandidate{}, err
+	}
+	return *candidate, nil
+}
+
 func (s *Service) DeleteProjectAssetCandidatePreview(userID, projectID, candidateID, previewID string, expectedRevision int64) (model.ProjectAssetCandidate, error) {
 	if expectedRevision <= 0 {
 		return model.ProjectAssetCandidate{}, kernel.BadAuthRequest("请刷新后再删除资产图")

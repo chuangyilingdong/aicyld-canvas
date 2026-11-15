@@ -16,6 +16,7 @@ import (
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 type testHost struct {
@@ -56,6 +57,7 @@ func (h *testHost) RecordActivity(string, string, int) {}
 func newLibraryFixture(t *testing.T) (*Library, *gorm.DB) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open("file:"+filepath.Join(t.TempDir(), "library.db")+"?_busy_timeout=5000&_journal_mode=WAL&_txlock=immediate"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

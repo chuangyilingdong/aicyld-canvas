@@ -20,6 +20,7 @@ import (
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/operations"
 	"infinite-canvas/backend/internal/repository"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 type lockOrderFixture struct {
@@ -36,6 +37,7 @@ func newLockOrderFixture(t *testing.T) *lockOrderFixture {
 	t.Cleanup(cancel)
 	dsn := filepath.Join(t.TempDir(), "lock-order.db") + "?_busy_timeout=5000&_journal_mode=WAL&_foreign_keys=on"
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

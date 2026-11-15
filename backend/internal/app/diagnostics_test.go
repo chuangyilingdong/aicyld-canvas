@@ -15,10 +15,12 @@ import (
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func TestUpdateLogsExportOnlyFromLocalWorkspace(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,6 +66,7 @@ func TestUpdateLogsExportOnlyFromLocalWorkspace(t *testing.T) {
 
 func TestExportDiagnosticBundleAdapterRejectsForeignTask(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:diagnostics-adapter-ownership?mode=memory&cache=shared"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

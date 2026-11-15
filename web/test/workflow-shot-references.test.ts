@@ -27,6 +27,30 @@ describe("workflow shot asset references", () => {
         expect(() => resolveShotAssetMentionPrompt("跟随 @[asset:missing]", context)).toThrow("未绑定到当前镜头");
     });
 
+    test("rejects text-only asset mentions before image generation", () => {
+        const value = detail();
+        value.assets.push({
+            id: "asset-prop-text",
+            title: "旧怀表",
+            mediaType: "text",
+            category: "prop",
+            status: "confirmed",
+            primaryVersionId: "version-prop-text",
+            versionCount: 1,
+            usages: [],
+            position: 3,
+            updatedAt: "2026-08-29T00:00:04Z",
+        } satisfies ProjectAsset);
+        value.shotReferences = [
+            ...(value.shotReferences || []),
+            { id: "reference-prop-text", shotId: "shot-1", assetVersionId: "version-prop-text", role: "reference", status: "linked", createdAt: "2026-08-29T00:00:04Z" },
+        ];
+
+        const context = buildShotAssetReferenceContext(value, "shot-1");
+        expect(context.mentionReferences.map((reference) => reference.assetId)).not.toContain("asset-prop-text");
+        expect(() => resolveShotAssetMentionPrompt("特写 @[asset:asset-prop-text]", context)).toThrow("未绑定到当前镜头");
+    });
+
     test("adds bound assets as editable mention tokens without duplicating existing mentions", () => {
         const context = buildShotAssetReferenceContext(detail(), "shot-1");
         const prompt = ensureShotAssetMentionPrompt("让 @[asset:asset-character] 走近镜头", context.mentionReferences);

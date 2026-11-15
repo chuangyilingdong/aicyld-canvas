@@ -8,6 +8,7 @@ import (
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 // SQLite serializes time.Time using the value's own offset (e.g.
@@ -15,6 +16,7 @@ import (
 // A raw text comparison then drops rows that fall inside the instant range.
 func TestDiagnosticWindowMatchesLocalOffsetTimestamps(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:diag-window-offset?mode=memory&cache=shared"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,6 +67,7 @@ func TestDiagnosticWindowMatchesLocalOffsetTimestamps(t *testing.T) {
 // exported, otherwise the failure the user is reporting is missing.
 func TestDiagnosticWindowIncludesTasksUpdatedInsideWindow(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:diag-window-updated?mode=memory&cache=shared"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -22,6 +22,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func metadataRouteFixture(t *testing.T) (*gin.Engine, *gorm.DB, *model.Resource) {
@@ -29,6 +30,7 @@ func metadataRouteFixture(t *testing.T) (*gin.Engine, *gorm.DB, *model.Resource)
 	gin.SetMode(gin.TestMode)
 	dir := t.TempDir()
 	db, err := gorm.Open(sqlite.Open(filepath.Join(dir, "meta.db")), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

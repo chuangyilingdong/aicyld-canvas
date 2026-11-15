@@ -22,6 +22,7 @@ import (
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 type unendedTurnTrace struct{ stamp time.Time }
@@ -42,6 +43,7 @@ func TestDurableModelResponseInterruptionsSurviveOfflineBundleWithoutInventingTu
 			const sessionID = "durable:11111111-2222-3333-4444-555555555555"
 			const turnID = "112233445566778899aabbcc"
 			db, err := gorm.Open(sqlite.Open(filepath.Join(dir, "workspace.db")), &gorm.Config{})
+			testutil.CloseDBOnCleanup(t, db)
 			if err != nil {
 				t.Fatal(err)
 			}

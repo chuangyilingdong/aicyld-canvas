@@ -22,6 +22,7 @@ import (
 	"infinite-canvas/backend/internal/operations"
 	"infinite-canvas/backend/internal/repository"
 	localtask "infinite-canvas/backend/internal/task"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 // Opt-in real-media acceptance fixture: source bytes are existing coffee shots,
@@ -40,6 +41,7 @@ func TestIntegratedCoffeeFilmBusinessOperations(t *testing.T) {
 		t.Fatal("refuse to overwrite an earlier acceptance database")
 	}
 	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

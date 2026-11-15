@@ -17,9 +17,10 @@ import (
 )
 
 const (
-	defaultInterval = 3 * time.Second
-	defaultLease    = 5 * time.Minute
-	workerID        = "smart-film-worker"
+	defaultInterval          = 3 * time.Second
+	defaultLease             = 5 * time.Minute
+	workerID                 = "smart-film-worker"
+	assetExtractionOperation = "chapter_character_breakdown"
 )
 
 // Worker advances durable smart-film production stages. The same queue/lease
@@ -92,7 +93,8 @@ func (w *Worker) ProcessOnce(ctx context.Context) error {
 		if item.AssetTaskID != "" {
 			if err := w.pollAssetExtraction(item); err != nil {
 				_ = w.checkpoint(item, localproject.SmartFilmProductionStageCheckpointRequest{
-					Stage: localproject.SmartFilmProductionStepAssets, Status: localproject.SmartFilmProductionStageStatusAttention, Error: err.Error(),
+					Stage: localproject.SmartFilmProductionStepAssets, Status: localproject.SmartFilmProductionStageStatusAttention,
+					TaskID: item.AssetTaskID, Error: err.Error(),
 				})
 			}
 			continue
@@ -172,7 +174,8 @@ func (w *Worker) submitAssetExtraction(item localproject.SmartFilmAssetExtractio
 			"domainProjectId":         item.ProjectID,
 			"chapterId":               item.UnitID,
 			"source":                  "smart-film-batch-worker",
-			"clientOperationId":       fmt.Sprintf("smart-film:assets:%s", item.RunID),
+			"operation":               assetExtractionOperation,
+			"clientOperationId":       smartFilmStageOperationID("assets", item.RunID, item.Attempts),
 			"promptTemplateOperation": prompts.OperationChapterAssetsExtract,
 			"promptTemplateVariables": map[string]string{
 				"项目名称": item.ProjectName,
@@ -292,20 +295,22 @@ func (w *Worker) submitStoryboard(item localproject.SmartFilmStoryboardWorkItem)
 		config["channelId"] = channelID
 	}
 	assetsJSON, _ := json.Marshal(item.Assets)
+	prompt := storyboardPrompt(item, assetsJSON)
 	input := map[string]any{
-		"mode": "text", "prompt": "短剧分镜规划", "config": config,
+		"mode": "text", "prompt": prompt, "config": config,
 		"canvasAssets": item.Assets,
 		"requirements": "只使用当前项目已确认资产；每个镜头只绑定实际出现在画面中的角色、场景和道具。",
 		"shotCount":    item.ShotCount, "shotDurationSeconds": item.ShotDurationSeconds,
-		"shotDurationsSeconds": item.ShotDurationsSeconds,
+		"shotDurationsSeconds":  item.ShotDurationsSeconds,
+		"targetDurationSeconds": item.TargetDurationSeconds,
 		"metadata": map[string]any{
 			"domainProjectId": item.ProjectID, "chapterId": item.UnitID,
-			"source": "smart-film-batch-worker", "clientOperationId": fmt.Sprintf("smart-film:storyboard:%s", item.RunID),
+			"source": "smart-film-batch-worker", "clientOperationId": smartFilmStageOperationID("storyboard", item.RunID, item.Attempts),
 		},
 	}
 	return w.SubmitTask(item.UserID, localtask.CreateRequest{
 		ProjectID: item.ProjectID, Type: "canvas_text", Operation: "storyboard",
-		Prompt: storyboardPrompt(item, assetsJSON), Model: modelName, LogicalModelID: item.LogicalModelID, Input: input,
+		Prompt: prompt, Model: modelName, LogicalModelID: item.LogicalModelID, Input: input,
 	})
 }
 
@@ -459,7 +464,10 @@ func storyboardPrompt(item localproject.SmartFilmStoryboardWorkItem, assetsJSON 
 	}
 	countRule := fmt.Sprintf("严格输出 %d 个镜头", item.ShotCount)
 	if item.ShotCount <= 0 {
-		countRule = "按完整覆盖剧情的需要输出镜头"
+		countRule = "根据剧情节奏和整片目标时长智能决定镜头数量"
+	}
+	if item.TargetDurationSeconds > 0 && item.ShotCount <= 0 {
+		durationRule = fmt.Sprintf("整片目标总时长约 %.1f 秒；请合理拆分镜头，单镜头时长不得超过视频模型能力上限", item.TargetDurationSeconds)
 	}
 	return strings.Join([]string{
 		"你是影视分镜导演和 AI 视频提示词专家。只基于本条独立剧本创作，不要引用其他批次或项目内容。",
@@ -611,6 +619,13 @@ func SplitModelOption(value string) (string, string) {
 		return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
 	}
 	return "", value
+}
+
+func smartFilmStageOperationID(stage, runID string, attempt int) string {
+	if attempt <= 1 {
+		return fmt.Sprintf("smart-film:%s:%s", stage, runID)
+	}
+	return fmt.Sprintf("smart-film:%s:%s:%d", stage, runID, attempt)
 }
 
 func DecodeJSONObject(value string) (map[string]any, error) {

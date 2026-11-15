@@ -20,6 +20,7 @@ import (
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func TestAppearanceDefaultsPreserveBuiltInBrand(t *testing.T) {
@@ -510,6 +511,7 @@ func writeAppearanceResourceFixtures(t *testing.T, dataDir string, resources []m
 func newAppearanceTestService(t *testing.T) (*Service, *gorm.DB, string, *model.User) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open("file:"+newID()+"?mode=memory&cache=shared"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

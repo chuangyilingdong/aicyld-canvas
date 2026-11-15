@@ -12,6 +12,7 @@ import (
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func TestVideoTaskTimeoutHasFiveMinuteSafetyFloor(t *testing.T) {
@@ -104,6 +105,7 @@ func TestOnlyResumableNewAPIChannel2VideoDeadlinesStayRunning(t *testing.T) {
 
 func TestResumableVideoDeadlineUsesResolvedSystemChannelProtocol(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:"+kernel.NewID()+"?mode=memory&cache=shared"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,6 +165,7 @@ func TestRuntimePolicyRejectsSingleFileAboveAccountCapacity(t *testing.T) {
 
 func TestRuntimePolicySaveAndResetTakeEffectImmediately(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,6 +194,7 @@ func TestRuntimePolicySaveAndResetTakeEffectImmediately(t *testing.T) {
 
 func TestRuntimePolicyBackfillsRecycleBinRetentionForLegacyJSON(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

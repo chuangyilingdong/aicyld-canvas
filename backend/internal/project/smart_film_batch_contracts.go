@@ -15,6 +15,7 @@ const (
 	SmartFilmProductionRunStatusNeedsAttention = "needs_attention"
 	SmartFilmProductionRunStatusFailed         = "failed"
 	SmartFilmProductionRunStatusSkipped        = "skipped"
+	SmartFilmProductionRunStatusArchived       = "archived"
 	SmartFilmProductionStageStatusPending      = "pending"
 	SmartFilmProductionStageStatusWaiting      = "waiting"
 	SmartFilmProductionStageStatusQueued       = "queued"
@@ -33,22 +34,29 @@ const (
 	SmartFilmProductionStepAssets            = "assets"
 	SmartFilmProductionStepStoryboard        = "storyboard"
 	SmartFilmProductionStepCompleted         = "completed"
+	SmartFilmProductionStepArchived          = "archived"
 	SmartFilmProductionActionRetry           = "retry_confirm"
 	SmartFilmProductionActionRetryAssets     = "retry_assets"
 	SmartFilmProductionActionRetryStoryboard = "retry_storyboard"
+
+	SmartFilmProductionModeFixed = "fixed"
+	SmartFilmProductionModeSmart = "smart"
 )
 
 type SmartFilmBatchConfig struct {
-	AspectRatio          string    `json:"aspectRatio"`
-	StylePresetID        string    `json:"stylePresetId,omitempty"`
-	StyleProfileJSON     string    `json:"styleProfileJson,omitempty"`
-	DefaultTextModel     string    `json:"defaultTextModel,omitempty"`
-	DefaultImageModel    string    `json:"defaultImageModel,omitempty"`
-	DefaultVideoModel    string    `json:"defaultVideoModel,omitempty"`
-	ScriptCount          int       `json:"scriptCount"`
-	ShotCount            int       `json:"shotCount"`
-	ShotDurationSeconds  float64   `json:"shotDurationSeconds"`
-	ShotDurationsSeconds []float64 `json:"shotDurationsSeconds,omitempty"`
+	AspectRatio           string            `json:"aspectRatio"`
+	StylePresetID         string            `json:"stylePresetId,omitempty"`
+	StyleProfileJSON      string            `json:"styleProfileJson,omitempty"`
+	DefaultTextModel      string            `json:"defaultTextModel,omitempty"`
+	DefaultImageModel     string            `json:"defaultImageModel,omitempty"`
+	DefaultVideoModel     string            `json:"defaultVideoModel,omitempty"`
+	InputAssetRoles       map[string]string `json:"inputAssetRoles,omitempty"`
+	ProductionMode        string            `json:"productionMode,omitempty"`
+	ScriptCount           int               `json:"scriptCount"`
+	ShotCount             int               `json:"shotCount"`
+	ShotDurationSeconds   float64           `json:"shotDurationSeconds"`
+	ShotDurationsSeconds  []float64         `json:"shotDurationsSeconds,omitempty"`
+	TargetDurationSeconds float64           `json:"targetDurationSeconds,omitempty"`
 }
 
 type SmartFilmOrchestrationConfig struct {
@@ -66,6 +74,7 @@ type SmartFilmScript struct {
 	UnitID    string    `json:"unitId,omitempty"`
 	TaskID    string    `json:"taskId,omitempty"`
 	Error     string    `json:"error,omitempty"`
+	Revision  int64     `json:"revision"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }
@@ -95,6 +104,9 @@ type SmartFilmProductionRunView struct {
 	StoryboardShotCount int                          `json:"storyboardShotCount"`
 	ControlStatus       string                       `json:"controlStatus"`
 	Attempts            int                          `json:"attempts"`
+	RetryReusedTask     bool                         `json:"retryReusedTask,omitempty"`
+	ArchivedAt          *time.Time                   `json:"archivedAt,omitempty"`
+	ArchiveReason       string                       `json:"archiveReason,omitempty"`
 	Revision            int64                        `json:"revision"`
 	CreatedAt           time.Time                    `json:"createdAt"`
 	UpdatedAt           time.Time                    `json:"updatedAt"`
@@ -146,6 +158,14 @@ type UpdateSmartFilmBatchBudgetRequest struct {
 	BudgetPoints int `json:"budgetPoints"`
 }
 
+type UpdateSmartFilmBatchProductionConfigRequest struct {
+	ProductionMode        string    `json:"productionMode"`
+	ShotCount             int       `json:"shotCount,omitempty"`
+	ShotDurationsSeconds  []float64 `json:"shotDurationsSeconds,omitempty"`
+	TargetDurationSeconds float64   `json:"targetDurationSeconds,omitempty"`
+	ExpectedRevision      int64     `json:"expectedRevision"`
+}
+
 type SmartFilmBatchCostItem struct {
 	Key     string `json:"key"`
 	Label   string `json:"label"`
@@ -179,11 +199,12 @@ type SaveSmartFilmBatchScriptsRequest struct {
 }
 
 type UpdateSmartFilmBatchScriptRequest struct {
-	Title            string `json:"title"`
-	Content          string `json:"content"`
-	Status           string `json:"status,omitempty"`
-	TaskID           string `json:"taskId,omitempty"`
-	ExpectedRevision int64  `json:"expectedRevision"`
+	Title                  string `json:"title"`
+	Content                string `json:"content"`
+	Status                 string `json:"status,omitempty"`
+	TaskID                 string `json:"taskId,omitempty"`
+	ExpectedRevision       int64  `json:"expectedRevision"`
+	ExpectedScriptRevision int64  `json:"expectedScriptRevision,omitempty"`
 }
 
 type DeleteSmartFilmBatchScriptRequest struct {
@@ -218,6 +239,7 @@ type SmartFilmProductionRunControlRequest struct {
 
 type SmartFilmAssetExtractionWorkItem struct {
 	RunID              string
+	Attempts           int
 	UserID             string
 	BatchID            string
 	ScriptID           string
@@ -246,26 +268,28 @@ type SmartFilmStoryboardAsset struct {
 }
 
 type SmartFilmStoryboardWorkItem struct {
-	RunID                string
-	UserID               string
-	BatchID              string
-	ScriptID             string
-	ProjectID            string
-	UnitID               string
-	ProjectName          string
-	ProjectStyle         string
-	ProjectRevision      int64
-	ScriptTitle          string
-	ScriptContent        string
-	TextModel            string
-	TextConfig           map[string]any
-	LogicalModelID       string
-	ConfigurationError   string
-	ShotCount            int
-	ShotDurationSeconds  float64
-	ShotDurationsSeconds []float64
-	Assets               []SmartFilmStoryboardAsset
-	ExistingShotIDs      []string
-	StoryboardTaskID     string
-	StoryboardStatus     string
+	RunID                 string
+	Attempts              int
+	UserID                string
+	BatchID               string
+	ScriptID              string
+	ProjectID             string
+	UnitID                string
+	ProjectName           string
+	ProjectStyle          string
+	ProjectRevision       int64
+	ScriptTitle           string
+	ScriptContent         string
+	TextModel             string
+	TextConfig            map[string]any
+	LogicalModelID        string
+	ConfigurationError    string
+	ShotCount             int
+	ShotDurationSeconds   float64
+	ShotDurationsSeconds  []float64
+	TargetDurationSeconds float64
+	Assets                []SmartFilmStoryboardAsset
+	ExistingShotIDs       []string
+	StoryboardTaskID      string
+	StoryboardStatus      string
 }

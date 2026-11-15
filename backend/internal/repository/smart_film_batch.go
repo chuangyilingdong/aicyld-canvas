@@ -80,8 +80,28 @@ func cloneSmartFilmBatchFields(fields map[string]any) map[string]any {
 
 func (r *Repository) SmartFilmProductionRunsForBatch(userID, batchID string) ([]model.SmartFilmProductionRun, error) {
 	var runs []model.SmartFilmProductionRun
-	err := r.db.Where("user_id = ? AND batch_id = ?", userID, batchID).Order("created_at asc, id asc").Find(&runs).Error
+	err := r.db.Where("user_id = ? AND batch_id = ? AND status <> ?", userID, batchID, "archived").Order("created_at asc, id asc").Find(&runs).Error
 	return runs, err
+}
+
+func (r *Repository) ArchiveUnprojectedSmartFilmProductionRunsForScript(userID, batchID, scriptID, reason string) (int64, error) {
+	now := time.Now()
+	result := r.db.Model(&model.SmartFilmProductionRun{}).
+		Where("user_id = ? AND batch_id = ? AND script_id = ? AND status <> ? AND (project_id = '' OR project_id IS NULL)", userID, batchID, scriptID, "archived").
+		Updates(map[string]any{
+			"status": "archived", "current_step": "archived", "archive_reason": reason,
+			"archived_at": now, "worker_lease_owner": "", "worker_lease_until": nil,
+			"revision": gorm.Expr("revision + 1"), "updated_at": now,
+		})
+	return result.RowsAffected, result.Error
+}
+
+func (r *Repository) DeleteOrphanSmartFilmProductionRunsForScript(userID, batchID, scriptID string) (int64, error) {
+	result := r.db.Where(
+		"user_id = ? AND batch_id = ? AND script_id = ? AND (project_id = '' OR project_id IS NULL OR NOT EXISTS (SELECT 1 FROM projects p WHERE p.id = smart_film_production_runs.project_id AND p.user_id = smart_film_production_runs.user_id))",
+		userID, batchID, scriptID,
+	).Delete(&model.SmartFilmProductionRun{})
+	return result.RowsAffected, result.Error
 }
 
 func (r *Repository) SmartFilmProductionRunForUser(userID, batchID, runID string) (*model.SmartFilmProductionRun, error) {

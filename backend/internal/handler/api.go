@@ -99,6 +99,7 @@ func registerShortDramaRoutes(r *gin.RouterGroup, svc *app.Service) {
 	RegisterSmartFilmBatchRoutes(r, svc, svc.ProjectService())
 	RegisterProjectAssetCandidatePreviewRoutes(r, svc, svc.ProjectService())
 	RegisterProjectRoutes(r, svc, svc.ProjectService(), svc)
+	RegisterProjectUnitArtifactRoutes(r, svc, svc.ProjectService())
 }
 
 func RegisterOpenAPIRoutes(api *gin.RouterGroup) {

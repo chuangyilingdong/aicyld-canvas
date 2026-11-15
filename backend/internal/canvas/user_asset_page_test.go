@@ -9,10 +9,12 @@ import (
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func TestUserAssetsPageBelongsToCanvasContract(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:canvas-asset-page?mode=memory&cache=shared"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

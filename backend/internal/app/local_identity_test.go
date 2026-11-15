@@ -13,11 +13,13 @@ import (
 	"infinite-canvas/backend/internal/database"
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/repository"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func TestLocalIdentityWrappersKeepExternalUserJSON(t *testing.T) {
 	dir := t.TempDir()
 	db, err := gorm.Open(sqlite.Open(filepath.Join(dir, "identity.db")), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,6 +77,7 @@ func TestLocalIdentityUnavailableWithoutRepository(t *testing.T) {
 func TestEnsureWorkspaceUserCreatesIndependentHostedWorkspace(t *testing.T) {
 	dir := t.TempDir()
 	db, err := gorm.Open(sqlite.Open(filepath.Join(dir, "hosted-identity.db")), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

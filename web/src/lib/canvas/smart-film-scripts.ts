@@ -3,6 +3,11 @@ export type GeneratedSmartFilmScript = {
     content: string;
 };
 
+export type SmartFilmScriptReference = {
+    title: string;
+    role: "product" | "scene" | "character" | "prop" | "other";
+};
+
 export function parseGeneratedSmartFilmScripts(answer: string): GeneratedSmartFilmScript[] {
     const cleaned = answer.replace(/```json/gi, "").replace(/```/g, "").trim();
     const jsonScripts = parseJSONScripts(cleaned);
@@ -69,34 +74,64 @@ function parseJSONScripts(value: string): GeneratedSmartFilmScript[] {
 
 export function smartFilmScriptPrompt(input: {
     idea: string;
-    productTitles: string[];
+    references: SmartFilmScriptReference[];
     count: number;
-    shotCount: number;
-    shotDurationSeconds: number;
+    shotCount?: number;
+    shotDurationSeconds?: number;
     existingTitles?: string[];
     regenerateIndex?: number;
 }) {
-    const productBlock = input.productTitles.length
-        ? `用户提供的产品参考图：${input.productTitles.join("、")}。剧本必须围绕这些产品，后续会用原图锁定产品外观。`
-        : "用户本次没有上传产品参考图，请根据文字想法保持产品描述具体、可执行。";
+    const referenceBlock = smartFilmReferenceBlock(input.references);
     const avoid = input.existingTitles?.length
         ? `不要重复以下已有剧本的标题和核心创意：${input.existingTitles.join("、")}。`
         : "";
     const target = input.regenerateIndex
         ? `只生成第 ${input.regenerateIndex} 条替代剧本，仍然输出 1 条。`
         : `生成 ${input.count} 条互不依赖、互不连续的独立短视频剧本。每条都会单独进入一个视频项目，不能写成前后集。`;
+    const productionHint = input.shotCount && input.shotCount > 0
+        ? `每条视频预计 ${input.shotCount} 个镜头${input.shotDurationSeconds && input.shotDurationSeconds > 0 ? `，单镜约 ${input.shotDurationSeconds} 秒` : ""}。`
+        : "分镜数量和时长将在剧本确认后设置，本轮只需要写出完整、可拆分的独立剧本。";
     return [
         "你是短视频导演和商业内容编剧。请把用户想法拆成可直接进入资产提取、分镜和视频生成的独立剧本。",
         "",
         `用户想法：${input.idea}`,
-        productBlock,
+        referenceBlock,
         target,
-        `每条视频预计 ${input.shotCount} 个镜头，单镜约 ${input.shotDurationSeconds} 秒。`,
-        "每条剧本都必须有完整开头钩子、产品展示、卖点证明、情绪推进和明确结尾。",
+        productionHint,
+        "每条剧本都必须有完整开头钩子、核心对象或产品展示、卖点证明、情绪推进和明确结尾。",
         "不同剧本必须使用不同创意角度，不能只是替换同义词。",
         avoid,
         "",
         "只返回严格 JSON，不要 Markdown，不要解释：",
         '{"scripts":[{"title":"不超过 24 字的标题","content":"完整剧本正文，包含画面、动作、台词或旁白、产品卖点和结尾"}]}',
     ].filter(Boolean).join("\n");
+}
+
+function smartFilmReferenceBlock(references: SmartFilmScriptReference[]) {
+    if (!references.length) {
+        return "用户本次没有上传参考素材，请根据文字想法保持人物、场景、道具和产品描述具体、可执行。";
+    }
+    const labels: Record<SmartFilmScriptReference["role"], string> = {
+        product: "产品参考",
+        scene: "场景参考",
+        character: "人物参考",
+        prop: "道具参考",
+        other: "其他参考",
+    };
+    const grouped = new Map<SmartFilmScriptReference["role"], string[]>();
+    references.forEach((reference) => {
+        const title = reference.title.trim();
+        if (!title) return;
+        grouped.set(reference.role, [...(grouped.get(reference.role) || []), title]);
+    });
+    const lines = (Object.keys(labels) as SmartFilmScriptReference["role"][])
+        .flatMap((role) => grouped.has(role) ? [`${labels[role]}：${grouped.get(role)!.join("、")}`] : []);
+    if (!lines.length) {
+        return "用户本次没有上传参考素材，请根据文字想法保持人物、场景、道具和产品描述具体、可执行。";
+    }
+    return [
+        "用户提供的参考素材如下，请按素材类型使用，不要把所有参考图都写成产品：",
+        ...lines,
+        "产品参考作为展示主体时必须保持外观一致；人物、场景和道具参考分别用于锁定角色身份、环境和关键物件，后续会用对应原图生成资产。",
+    ].join("\n");
 }

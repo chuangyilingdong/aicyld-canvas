@@ -9,6 +9,7 @@ import (
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func TestStyleProfileCreateAndUpdateOwnsIdentityAndRevision(t *testing.T) {
@@ -71,6 +72,7 @@ func TestStyleProfileMutationsRejectOtherUsers(t *testing.T) {
 func newStyleProfileTestService(t *testing.T) *Service {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

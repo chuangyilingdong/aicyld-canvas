@@ -9,6 +9,8 @@ import (
 	"infinite-canvas/backend/internal/kernel"
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/prompts"
+
+	"gorm.io/gorm"
 )
 
 func (s *Service) CheckpointSmartFilmProductionRun(userID, batchID, runID string, req SmartFilmProductionStageCheckpointRequest) (SmartFilmProductionRunView, error) {
@@ -69,6 +71,9 @@ func (s *Service) StartSmartFilmProductionStage(userID, batchID, runID string, r
 	if err != nil {
 		return SmartFilmProductionRunView{}, err
 	}
+	if run.Status == SmartFilmProductionRunStatusArchived {
+		return SmartFilmProductionRunView{}, kernel.BadAuthRequest("已归档的生产运行不能启动阶段")
+	}
 	if run.ControlStatus == SmartFilmProductionControlSkipped || run.Status == SmartFilmProductionRunStatusSkipped {
 		return SmartFilmProductionRunView{}, kernel.BadAuthRequest("已跳过的项目不能启动生产阶段")
 	}
@@ -123,7 +128,11 @@ func (s *Service) ControlSmartFilmProductionRun(userID, batchID, runID string, r
 	if err != nil {
 		return SmartFilmProductionRunView{}, err
 	}
+	if run.Status == SmartFilmProductionRunStatusArchived {
+		return SmartFilmProductionRunView{}, kernel.BadAuthRequest("已归档的生产运行不能继续操作")
+	}
 	fields := map[string]any{}
+	retryReusedTask := false
 	switch action {
 	case "pause":
 		fields["control_status"] = SmartFilmProductionControlPaused
@@ -138,7 +147,7 @@ func (s *Service) ControlSmartFilmProductionRun(userID, batchID, runID string, r
 		fields["current_step"] = SmartFilmProductionRunStatusSkipped
 		fields["worker_lease_owner"] = ""
 		fields["worker_lease_until"] = nil
-	case "retry":
+	case "retry", "regenerate":
 		stage := strings.TrimSpace(req.Stage)
 		if stage == "" {
 			stage = run.FailedStep
@@ -166,10 +175,42 @@ func (s *Service) ControlSmartFilmProductionRun(userID, batchID, runID string, r
 		fields["recoverable_action"] = ""
 		fields["worker_lease_owner"] = ""
 		fields["worker_lease_until"] = nil
-		if stage == SmartFilmProductionStepAssets {
-			fields["asset_status"] = SmartFilmProductionStageStatusQueued
+		taskID, taskStatus := "", SmartFilmProductionStageStatusQueued
+		if action == "retry" {
+			if stage == SmartFilmProductionStepAssets {
+				taskID, taskStatus, err = s.smartFilmRetryTask(userID, run.AssetTaskID)
+			} else {
+				taskID, taskStatus, err = s.smartFilmRetryTask(userID, run.StoryboardTaskID)
+			}
+		}
+		if err != nil {
+			return SmartFilmProductionRunView{}, err
+		}
+		if taskID != "" {
+			retryReusedTask = true
+			// Reuse a paid result instead of submitting and charging for it again.
+			if stage == SmartFilmProductionStepAssets {
+				fields["asset_task_id"] = taskID
+				fields["asset_status"] = taskStatus
+			} else {
+				fields["storyboard_task_id"] = taskID
+				fields["storyboard_status"] = taskStatus
+			}
 		} else {
-			fields["storyboard_status"] = SmartFilmProductionStageStatusQueued
+			// Failed or missing tasks must not be polled forever. The new attempt
+			// changes the Worker operation identity for the next submission.
+			nextAttempt := run.Attempts + 1
+			if nextAttempt < 2 {
+				nextAttempt = 2
+			}
+			fields["attempts"] = nextAttempt
+			if stage == SmartFilmProductionStepAssets {
+				fields["asset_task_id"] = ""
+				fields["asset_status"] = SmartFilmProductionStageStatusQueued
+			} else {
+				fields["storyboard_task_id"] = ""
+				fields["storyboard_status"] = SmartFilmProductionStageStatusQueued
+			}
 		}
 	default:
 		return SmartFilmProductionRunView{}, kernel.BadAuthRequest("项目控制动作无效")
@@ -178,7 +219,33 @@ func (s *Service) ControlSmartFilmProductionRun(userID, batchID, runID string, r
 	if err != nil {
 		return SmartFilmProductionRunView{}, mapProjectWriteError(err)
 	}
-	return smartFilmProductionRunView(*updated), nil
+	view := smartFilmProductionRunView(*updated)
+	view.RetryReusedTask = retryReusedTask
+	return view, nil
+}
+
+func (s *Service) smartFilmRetryTask(userID, taskID string) (string, string, error) {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return "", SmartFilmProductionStageStatusQueued, nil
+	}
+	task, err := s.repo.TaskForUser(userID, taskID)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return "", SmartFilmProductionStageStatusQueued, nil
+	}
+	if err != nil {
+		return "", "", err
+	}
+	switch task.Status {
+	case model.TaskStatusQueued:
+		return task.ID, SmartFilmProductionStageStatusQueued, nil
+	case model.TaskStatusRunning:
+		return task.ID, SmartFilmProductionStageStatusRunning, nil
+	case model.TaskStatusSucceeded:
+		return task.ID, SmartFilmProductionStageStatusQueued, nil
+	default:
+		return "", SmartFilmProductionStageStatusQueued, nil
+	}
 }
 
 func (s *Service) SmartFilmAssetExtractionWorkItems(limit int) ([]SmartFilmAssetExtractionWorkItem, error) {
@@ -192,7 +259,7 @@ func (s *Service) SmartFilmAssetExtractionWorkItems(limit int) ([]SmartFilmAsset
 		if batchErr != nil {
 			continue
 		}
-		scripts, scriptErr := smartFilmScripts(batch)
+		scripts, scriptErr := s.smartFilmScripts(batch)
 		if scriptErr != nil {
 			continue
 		}
@@ -221,7 +288,7 @@ func (s *Service) SmartFilmAssetExtractionWorkItems(limit int) ([]SmartFilmAsset
 		}
 		textModel, textConfig, snapshotErr := s.smartFilmTextStageConfig(config, batch)
 		items = append(items, SmartFilmAssetExtractionWorkItem{
-			RunID: run.ID, UserID: run.UserID, BatchID: run.BatchID, ScriptID: run.ScriptID,
+			RunID: run.ID, Attempts: run.Attempts, UserID: run.UserID, BatchID: run.BatchID, ScriptID: run.ScriptID,
 			ProjectID: run.ProjectID, UnitID: run.UnitID, ProjectName: project.Name, ProjectStyle: stylePrompt,
 			ScriptTitle: script.Title, ScriptContent: script.Content,
 			TextModel: textModel, TextConfig: textConfig, LogicalModelID: stringValue(textConfig["logicalModelId"]), ConfigurationError: errorText(snapshotErr),
@@ -242,7 +309,7 @@ func (s *Service) SmartFilmStoryboardWorkItems(limit int) ([]SmartFilmStoryboard
 		if batchErr != nil {
 			continue
 		}
-		scripts, scriptErr := smartFilmScripts(batch)
+		scripts, scriptErr := s.smartFilmScripts(batch)
 		if scriptErr != nil {
 			continue
 		}
@@ -293,12 +360,13 @@ func (s *Service) SmartFilmStoryboardWorkItems(limit int) ([]SmartFilmStoryboard
 			existingIDs = append(existingIDs, shot.ID)
 		}
 		items = append(items, SmartFilmStoryboardWorkItem{
-			RunID: run.ID, UserID: run.UserID, BatchID: run.BatchID, ScriptID: run.ScriptID,
+			RunID: run.ID, Attempts: run.Attempts, UserID: run.UserID, BatchID: run.BatchID, ScriptID: run.ScriptID,
 			ProjectID: run.ProjectID, UnitID: run.UnitID, ProjectName: project.Name, ProjectStyle: stylePrompt,
 			ProjectRevision: project.Revision, ScriptTitle: scripts[index].Title, ScriptContent: unit.SourceText,
 			TextModel: textModel, TextConfig: textConfig, LogicalModelID: stringValue(textConfig["logicalModelId"]), ConfigurationError: errorText(snapshotErr),
 			ShotCount: config.ShotCount, ShotDurationSeconds: config.ShotDurationSeconds,
-			ShotDurationsSeconds: config.ShotDurationsSeconds, Assets: assets, ExistingShotIDs: existingIDs,
+			ShotDurationsSeconds: config.ShotDurationsSeconds, TargetDurationSeconds: config.TargetDurationSeconds,
+			Assets: assets, ExistingShotIDs: existingIDs,
 			StoryboardTaskID: run.StoryboardTaskID, StoryboardStatus: run.StoryboardStatus,
 		})
 	}

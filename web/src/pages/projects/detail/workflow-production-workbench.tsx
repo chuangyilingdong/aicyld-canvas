@@ -40,9 +40,11 @@ import {
     type ProjectShot,
     type ShotAssetReference,
     type ShotArtifact,
+    type ShotRevision,
     type WorkflowStep,
 } from "@/services/api/projects";
 import { resourceFileUrl } from "@/services/api/resources";
+import { confirmCanvasGenerationTaskQuote } from "@/components/canvas/canvas-billing-confirmation";
 import { skillRuntime } from "@/services/skill-runtime";
 import { uploadWorkspaceAssetFiles } from "@/services/workspace-asset-upload";
 import { ASSET_CATEGORIES, ASSET_CATEGORY_LABELS, defaultAssetCategoryForKind, normalizeAssetCategory, type AssetCategory } from "@/lib/asset-category";
@@ -59,6 +61,8 @@ import {
     type ShortDramaWorkflowStage,
 } from "./workflow-shared";
 import { buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, resolveShotAssetMentionPrompt } from "./workflow-shot-references";
+import { linkedShotAssetReferences, parseShotAssetRoles, shotAssetRoleLabel } from "./shot-asset-roles";
+import { useSmartFilmWholeFilm } from "./use-smart-film-whole-film";
 import {
     AssetLibrary,
     WorkflowDisclosure,
@@ -76,6 +80,7 @@ import {
     shotNeedsGeneration,
     withStoryboardVideoReference,
 } from "./workflow-production-helpers";
+import "./workflow-smart-film.css";
 
 type Props = {
     activeStage: ShortDramaWorkflowStage;
@@ -128,6 +133,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
     const activeShotIdRef = useRef(selectedShot?.id || "");
     activeShotIdRef.current = selectedShot?.id || "";
     const shots = useMemo(() => (detail.shots || []).filter((item) => item.unitId === unitId).slice().sort((left, right) => left.position - right.position), [detail.shots, unitId]);
+    const { smartWholeFilm, smartFilmGenerating, latestSmartWholeFilm, readyStoryboardCount, smartFilmBatch, generateSmartWholeFilm } = useSmartFilmWholeFilm(detail, projectId, unitId, shots);
     const shotIndex = selectedShot ? shots.findIndex((item) => item.id === selectedShot.id) : -1;
     const revision = currentRevision(detail, selectedShot);
     const artifactType = artifactTypeForStage(activeStage);
@@ -603,6 +609,10 @@ export default function WorkflowProductionWorkbench(props: Props) {
 
     const generateArtifact = async () => {
         if (!selectedShot || submittingShotIds.has(selectedShot.id) || batchProgress) return;
+        if (smartWholeFilm && activeStage === "video") {
+            message.warning("当前项目使用智能整片模式，请使用上方的整片视频生成入口");
+            return;
+        }
         const promptGate = smartFilmPromptGate({ detail, stage: activeStage, shots: [selectedShot], selectedShot, editorDirty });
         if (promptGate) {
             message.warning(promptGate);
@@ -642,6 +652,10 @@ export default function WorkflowProductionWorkbench(props: Props) {
 
     const generateAllArtifacts = async (options?: { automatic?: boolean }) => {
         if (batchProgress || submittingShotIds.size) return;
+        if (smartWholeFilm && activeStage === "video") {
+            message.warning("当前项目使用智能整片模式，请使用整片视频生成入口");
+            return;
+        }
         const promptGate = smartFilmPromptGate({ detail, stage: activeStage, shots, selectedShot, editorDirty });
         if (promptGate) {
             message.warning(promptGate);
@@ -890,7 +904,27 @@ export default function WorkflowProductionWorkbench(props: Props) {
                         </div>
                         <div className="flex items-center gap-1"><span className="mr-1 text-[var(--fs-micro)] text-foreground/45">{shotIndex + 1} / {shots.length}</span><Button type="text" size="small" icon={<ChevronLeft className="size-4" />} disabled={shotIndex <= 0} onClick={() => selectRelativeShot(-1)} aria-label="上一个镜头" /><Button type="text" size="small" icon={<ChevronRight className="size-4" />} disabled={shotIndex >= shots.length - 1} onClick={() => selectRelativeShot(1)} aria-label="下一个镜头" /></div>
                     </header>
-                    <Form form={form} layout="vertical" className="workflow-shot-form" onValuesChange={() => setEditorDirty(true)} onFinish={(values) => saveShot.mutate({ values })}>
+                    {smartWholeFilm && activeStage === "video" ? (
+                        <section className="workflow-smart-film-panel">
+                            <div className="workflow-smart-film-copy">
+                                <span className="workflow-smart-film-icon"><Film className="size-5" /></span>
+                                <div>
+                                    <strong>智能整片</strong>
+                                    <p>当前批次采用智能分镜策略。确认全部 {shots.length} 张分镜图后，将按顺序合成一个约 {smartFilmBatch?.config.targetDurationSeconds || 0} 秒的完整视频，不再逐镜生成。</p>
+                                    <small>分镜图已就绪 {readyStoryboardCount}/{shots.length} 张</small>
+                                </div>
+                            </div>
+                            {latestSmartWholeFilm?.resourceId ? <video className="workflow-smart-film-video" src={resourceFileUrl(latestSmartWholeFilm.resourceId)} controls preload="metadata" /> : null}
+                            <div className="workflow-smart-film-actions">
+                                <Button icon={<Download className="size-4" />} disabled={!latestSmartWholeFilm?.resourceId} onClick={() => latestSmartWholeFilm?.resourceId && window.open(resourceFileUrl(latestSmartWholeFilm.resourceId), "_blank", "noopener,noreferrer")}>下载整片</Button>
+                                <Button type="primary" icon={<Sparkles className="size-4" />} loading={smartFilmGenerating} disabled={readyStoryboardCount !== shots.length || !shots.length} onClick={() => void generateSmartWholeFilm(
+                                    (input) => confirmCanvasGenerationTaskQuote(modal, input, { title: "确认生成智能整片", description: `将使用 ${shots.length} 张分镜图生成完整视频。` }),
+                                    message.error,
+                                )}>{latestSmartWholeFilm ? "重新生成整片" : "生成智能整片"}</Button>
+                            </div>
+                        </section>
+                    ) : null}
+                    {!(smartWholeFilm && activeStage === "video") ? <Form form={form} layout="vertical" className="workflow-shot-form" onValuesChange={() => setEditorDirty(true)} onFinish={(values) => saveShot.mutate({ values })}>
                         <div className="workflow-shot-form-scroll thin-scrollbar">
                             <div className="workflow-form-section-heading"><span>镜头脚本</span><small>先写清镜头里发生什么，再调整生成参数</small></div>
                             <Form.Item name="title" label="镜头名称" rules={[{ required: true, message: "请输入镜头名称" }]}><Input placeholder="用一句话概括这个镜头" /></Form.Item>
@@ -898,6 +932,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                             <BoundAssets
                                 detail={detail}
                                 shotId={selectedShot.id}
+                                revision={revision}
                                 changing={changeAssetBinding.isPending || bindPickedAssets.isPending}
                                 onUnlink={(reference) => changeAssetBinding.mutate({ reference })}
                                 onAdd={(category) => setAssetPickerTarget({ mode: "add", category })}
@@ -971,7 +1006,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                         <footer className="workflow-editor-actions">
                             <div className="flex items-center gap-2"><Button danger icon={<Trash2 className="size-4" />} loading={deleteShot.isPending} disabled={saveShot.isPending || selectedShotSubmitting || Boolean(batchProgress) || changeAssetBinding.isPending} onClick={requestDeleteShot}>删除镜头</Button><Button htmlType="submit" icon={<Save className="size-4" />} loading={saveShot.isPending} disabled={!editorDirty || deleteShot.isPending || Boolean(batchProgress)}>保存脚本</Button>{activeStage === "storyboard" ? <Button icon={<CheckCircle2 className="size-4" />} disabled={deleteShot.isPending || selectedShotSubmitting || Boolean(batchProgress)} onClick={() => void confirmStoryboardPrompts()}>确认全部提示词{unconfirmedSmartFilmShots.length ? `（${unconfirmedSmartFilmShots.length} 待确认）` : ""}</Button> : null}<Button icon={<Layers3 className="size-4" />} loading={Boolean(batchProgress)} disabled={deleteShot.isPending || selectedShotSubmitting || Boolean(batchProgress)} onClick={() => void generateAllArtifacts()}>{batchProgress ? batchProgress.phase === "waiting" ? `生成中 ${batchProgress.done}/${batchProgress.total}` : `提交中 ${batchProgress.done}/${batchProgress.total}` : `补齐全部${stageCopy.label}`}</Button><Button type="primary" icon={<Play className="size-4" />} loading={selectedShotSubmitting || shotTask?.status === "queued" || shotTask?.status === "running"} disabled={deleteShot.isPending || Boolean(batchProgress)} onClick={() => void generateArtifact()}>{selectedShotSubmitting ? `${stageCopy.action}（正在提交）` : shotTask?.status === "queued" || shotTask?.status === "running" ? `${stageCopy.action}（已运行${shotTaskElapsed}）` : shotTask?.status === "failed" ? `${stageCopy.action}（上次失败，可重试）` : shotTask?.status === "succeeded" && !newestArtifact ? `${stageCopy.action}（已完成，正在同步）` : newestArtifact ? `${stageCopy.action}（已生成）` : stageCopy.action}</Button></div>
                         </footer>
-                    </Form>
+                    </Form> : null}
                 </section>
 
                 <aside className="workflow-preview-panel">
@@ -1069,16 +1104,18 @@ function ShotLibrary({ detail, shots, selectedShotId, onSelectShot }: { detail: 
     return <div className="workflow-simple-list">{shots.map((shot, index) => { const video = currentArtifact(detail, shot.id, "video"); return <button key={shot.id} type="button" className={shot.id === selectedShotId ? "is-active" : ""} onClick={() => onSelectShot(shot.id)}><span>{formatShotOrdinal(index)}</span><span className="min-w-0 flex-1"><strong>{customShotTitle(shot.title, index) || "未命名"}</strong><small>{formatDuration(shot.durationMs)}</small></span><ArtifactStatus artifact={video} compact /></button>; })}</div>;
 }
 
-function BoundAssets({ detail, shotId, changing, onUnlink, onAdd, onReplace }: {
+function BoundAssets({ detail, shotId, revision, changing, onUnlink, onAdd, onReplace }: {
     detail: ProjectDetail;
     shotId: string;
+    revision?: ShotRevision;
     changing: boolean;
     onUnlink: (reference: ShotAssetReference) => void;
     onAdd: (category: AssetCategory) => void;
     onReplace: (reference: ShotAssetReference, category: AssetCategory) => void;
 }) {
-    const references = (detail.shotReferences || []).filter((item) => item.shotId === shotId);
+    const references = linkedShotAssetReferences((detail.shotReferences || []).filter((item) => item.shotId === shotId));
     const assetByVersionId = useMemo(() => new Map(detail.assets.filter((asset) => asset.primaryVersionId).map((asset) => [asset.primaryVersionId as string, asset])), [detail.assets]);
+    const roleByAssetId = useMemo(() => new Map(parseShotAssetRoles(revision?.assetRolesJson).map((role) => [role.assetId, role.role])), [revision?.assetRolesJson]);
     return (
         <div className="workflow-bound-assets">
             <div className="workflow-bound-assets-heading">
@@ -1100,10 +1137,11 @@ function BoundAssets({ detail, shotId, changing, onUnlink, onAdd, onReplace }: {
                         const asset = reference.asset || assetByVersionId.get(reference.assetVersionId);
                         const title = asset?.title || "历史资产版本";
                         const category = normalizeAssetCategory(asset?.category, "other");
+                        const roleLabel = shotAssetRoleLabel(asset ? roleByAssetId.get(asset.id) : undefined, category);
                         const previewUrl = asset ? assetPreviewUrl(asset) : "";
                         return <div key={reference.id} className="workflow-bound-asset-chip">
                             <span className="workflow-bound-asset-preview">{previewUrl ? <Image src={previewUrl} alt={`${title}预览`} width={40} height={40} loading="lazy" preview={{ mask: "预览" }} /> : <Box aria-hidden />}</span>
-                            <span className="workflow-bound-asset-copy"><em>{asset ? assetCategoryLabel(asset.category) : "历史"}</em><strong title={title}>{title}</strong></span>
+                            <span className="workflow-bound-asset-copy"><em>{asset ? roleLabel : "历史"}</em><strong title={title}>{title}</strong></span>
                             <button type="button" disabled={changing} aria-label={`替换 ${title}`} title="替换资产" onClick={() => onReplace(reference, category)}><RefreshCcw aria-hidden /></button>
                             <button type="button" disabled={changing} aria-label={`取消引用 ${title}`} onClick={() => onUnlink(reference)}><X aria-hidden /></button>
                         </div>;

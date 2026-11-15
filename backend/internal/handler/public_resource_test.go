@@ -17,6 +17,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func TestSignedPublicResourceRouteServesLocalResourceAndRejectsInvalidSignature(t *testing.T) {
@@ -24,6 +25,7 @@ func TestSignedPublicResourceRouteServesLocalResourceAndRejectsInvalidSignature(
 	t.Setenv("CANVAS_PUBLIC_BASE_URL", "https://8.134.120.22")
 	dataDir := t.TempDir()
 	db, err := gorm.Open(sqlite.Open(filepath.Join(dataDir, "public-resource.db")), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

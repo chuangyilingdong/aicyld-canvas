@@ -12,6 +12,7 @@ import (
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func TestTaskAdmissionWithinCreationTransactionRollsBack(t *testing.T) {
@@ -47,6 +48,7 @@ func TestTaskAdmissionWithinCreationTransactionRollsBack(t *testing.T) {
 func newAdmissionRepo(t *testing.T) (*Repository, *gorm.DB) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "admission.db")+"?_busy_timeout=5000&_journal_mode=WAL&_foreign_keys=on"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

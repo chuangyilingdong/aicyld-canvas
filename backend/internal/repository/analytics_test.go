@@ -10,6 +10,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 type sqlCaptureLogger struct {
@@ -18,6 +19,7 @@ type sqlCaptureLogger struct {
 
 func TestAPICallLogRecordTypeFiltersListAndExport(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:api-log-record-types?mode=memory&cache=shared"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,6 +69,7 @@ func (l *sqlCaptureLogger) Trace(_ context.Context, _ time.Time, query func() (s
 
 func TestQueryAPICallLogsSearchesFailureFields(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:api-log-error-search?mode=memory&cache=shared"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,6 +108,7 @@ func TestQueryAPICallLogsSearchesFailureFields(t *testing.T) {
 
 func TestQueryAPICallLogsHidesInternalPollStages(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:api-log-visible-stages?mode=memory&cache=shared"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

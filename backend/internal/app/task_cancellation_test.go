@@ -10,10 +10,12 @@ import (
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func TestCancelTaskCancelsRunningTask(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:"+newID()+"?mode=memory&cache=shared"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,6 +54,7 @@ func TestCancelTaskCancelsRunningTask(t *testing.T) {
 
 func TestCancelTaskCancelsQueuedTask(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:"+newID()+"?mode=memory&cache=shared"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,6 +86,7 @@ func TestCancelTaskCancelsQueuedTask(t *testing.T) {
 
 func TestCancelTaskLocalModeCancelsQueuedTask(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:"+newID()+"?mode=memory&cache=shared"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,6 +108,7 @@ func TestCancelTaskLocalModeCancelsQueuedTask(t *testing.T) {
 
 func TestCancelTaskRejectsTaskWithProviderRequestID(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:"+newID()+"?mode=memory&cache=shared"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

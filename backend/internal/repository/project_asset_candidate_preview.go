@@ -13,6 +13,24 @@ func visibleCandidatePreviews(db *gorm.DB) *gorm.DB {
 	return db.Where("status <> ?", "deleted").Order("created_at desc, id desc")
 }
 
+func (r *Repository) UpdateProjectAssetCandidateDetailsActive(userID, projectID, candidateID, detailsJSON string, expectedRevision int64, now time.Time) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if _, err := requireActiveProjectTx(tx, userID, projectID); err != nil {
+			return err
+		}
+		result := tx.Model(&model.ProjectAssetCandidate{}).
+			Where("id = ? AND project_id = ? AND status = ?", candidateID, projectID, "pending_confirmation").
+			Updates(map[string]any{"details_json": detailsJSON, "updated_at": now})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return gorm.ErrInvalidData
+		}
+		return bumpProjectRevisionCASTx(tx, projectID, expectedRevision, now)
+	})
+}
+
 func (r *Repository) UpsertProjectAssetCandidatePreviewActive(userID, projectID, candidateID string, expectedRevision int64, preview model.ProjectAssetCandidatePreview, selectPreview bool, now time.Time) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		if _, err := requireActiveProjectTx(tx, userID, projectID); err != nil {

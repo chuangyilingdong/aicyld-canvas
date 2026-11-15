@@ -17,11 +17,13 @@ import (
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func newDeletionDomain(t *testing.T) (*Service, *gorm.DB, string) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open("file:"+kernel.NewID()+"?mode=memory&cache=shared&_busy_timeout=5000"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -442,6 +444,7 @@ func TestDeleteAndAdmissionDoNotDropQueuedTaskMaterial(t *testing.T) {
 	dataDir := t.TempDir()
 	dsn := filepath.Join(dataDir, "race.db") + "?_busy_timeout=5000&_journal_mode=WAL&_foreign_keys=on"
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -634,6 +637,7 @@ func TestDeleteAssetAndResourcesConcurrentRestoreKeepsActiveAsset(t *testing.T) 
 	dataDir := t.TempDir()
 	dsn := filepath.Join(dataDir, "restore-race.db") + "?_busy_timeout=5000&_journal_mode=WAL&_foreign_keys=on"
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -11,10 +11,12 @@ import (
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func TestSaveTaskCompletionDiskFullPreservesOriginalTask(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,6 +100,7 @@ func TestValidateTaskStorageQuotaRejectsHistoryGrowth(t *testing.T) {
 
 func TestUserStorageUsageCountsPersistedPayloads(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,6 +131,7 @@ func TestUserStorageUsageCountsPersistedPayloads(t *testing.T) {
 
 func TestSaveTaskCompletionPersistsRelatedRowsTogether(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

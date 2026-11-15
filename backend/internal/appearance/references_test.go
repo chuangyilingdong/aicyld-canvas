@@ -9,10 +9,12 @@ import (
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func TestReferencedIDsFailClosedOnInvalidJSON(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:appearance-refs-invalid?mode=memory&cache=shared"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,6 +38,7 @@ func TestReferencedIDsFailClosedOnInvalidJSON(t *testing.T) {
 
 func TestReferencedIDsOnlyMatchBoundAssets(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:appearance-refs-bound?mode=memory&cache=shared"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,6 +67,7 @@ func TestReferencedIDsOnlyMatchBoundAssets(t *testing.T) {
 
 func TestIdentityFallsBackWhenDocumentIsInvalid(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:appearance-identity-invalid?mode=memory&cache=shared"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,6 +85,7 @@ func TestIdentityFallsBackWhenDocumentIsInvalid(t *testing.T) {
 
 func TestPublicRejectsInvalidJSON(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:appearance-public-invalid?mode=memory&cache=shared"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

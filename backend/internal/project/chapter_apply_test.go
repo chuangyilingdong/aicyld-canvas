@@ -15,6 +15,7 @@ import (
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func TestChapterApplyReceiptSamePayloadReplayDoesNotOverwriteLaterEdits(t *testing.T) {
@@ -668,6 +669,7 @@ func assertNoChapterApplyReceipt(t *testing.T, db *gorm.DB, userID, taskID strin
 func openFileProjectService(t *testing.T, path string) (*Service, *gorm.DB) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(path+"?_busy_timeout=5000&_journal_mode=WAL"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

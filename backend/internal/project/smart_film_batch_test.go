@@ -2,14 +2,17 @@ package project
 
 import (
 	"encoding/hex"
-	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 
 	"infinite-canvas/backend/internal/billing"
+	"infinite-canvas/backend/internal/kernel"
 	"infinite-canvas/backend/internal/model"
+	"infinite-canvas/backend/internal/repository"
 	localtask "infinite-canvas/backend/internal/task"
+
+	"gorm.io/gorm"
 )
 
 func TestSmartFilmBatchEncryptsOrchestrationConfigSnapshot(t *testing.T) {
@@ -52,6 +55,25 @@ func TestSmartFilmBatchEncryptsOrchestrationConfigSnapshot(t *testing.T) {
 	}
 }
 
+func configureSmartFilmBatchFixed(t *testing.T, svc *Service, batch *SmartFilmBatchView, shotCount int) {
+	t.Helper()
+	if shotCount <= 0 {
+		shotCount = 1
+	}
+	durations := make([]float64, shotCount)
+	for index := range durations {
+		durations[index] = 5
+	}
+	updated, err := svc.UpdateSmartFilmBatchProductionConfig("user-1", batch.ID, UpdateSmartFilmBatchProductionConfigRequest{
+		ProductionMode: SmartFilmProductionModeFixed, ShotCount: shotCount,
+		ShotDurationsSeconds: durations, ExpectedRevision: batch.Revision,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	*batch = updated
+}
+
 func TestSmartFilmBatchValidatesInputAssetsAndPerShotConfig(t *testing.T) {
 	svc, db := newTestService(t, &recordingWorkflows{})
 	now := time.Now()
@@ -68,13 +90,13 @@ func TestSmartFilmBatchValidatesInputAssetsAndPerShotConfig(t *testing.T) {
 		Title: "配置完整", SourceText: "产品短视频", InputAssetIDs: []string{ownedAsset.ID},
 		Config: SmartFilmBatchConfig{
 			AspectRatio: "16:9", StylePresetID: "", ScriptCount: 3, ShotCount: 2,
-			ShotDurationSeconds: 5, ShotDurationsSeconds: []float64{4, 7},
+			ShotDurationSeconds: 5, ShotDurationsSeconds: []float64{4, 7}, InputAssetRoles: map[string]string{ownedAsset.ID: "product"},
 		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if created.Config.AspectRatio != "16:9" || len(created.Config.ShotDurationsSeconds) != 2 || created.Config.ShotDurationsSeconds[1] != 7 {
+	if created.Config.AspectRatio != "16:9" || len(created.Config.ShotDurationsSeconds) != 2 || created.Config.ShotDurationsSeconds[1] != 7 || created.Config.InputAssetRoles[ownedAsset.ID] != "product" {
 		t.Fatalf("created config = %+v", created.Config)
 	}
 
@@ -96,6 +118,7 @@ func TestSmartFilmBatchValidatesInputAssetsAndPerShotConfig(t *testing.T) {
 		{name: "non image", req: CreateSmartFilmBatchRequest{Title: "类型", SourceText: "类型", InputAssetIDs: []string{videoAsset.ID}}},
 		{name: "aspect ratio", req: CreateSmartFilmBatchRequest{Title: "画幅", SourceText: "画幅", Config: SmartFilmBatchConfig{AspectRatio: "4:3"}}},
 		{name: "duration count", req: CreateSmartFilmBatchRequest{Title: "时长", SourceText: "时长", Config: SmartFilmBatchConfig{ShotCount: 2, ShotDurationsSeconds: []float64{4}}}},
+		{name: "asset role", req: CreateSmartFilmBatchRequest{Title: "类型", SourceText: "类型", InputAssetIDs: []string{ownedAsset.ID}, Config: SmartFilmBatchConfig{InputAssetRoles: map[string]string{ownedAsset.ID: "invalid"}}}},
 	}
 	for _, testCase := range cases {
 		if _, err := svc.CreateSmartFilmBatch("user-1", testCase.req); err == nil {
@@ -104,7 +127,48 @@ func TestSmartFilmBatchValidatesInputAssetsAndPerShotConfig(t *testing.T) {
 	}
 }
 
-func TestSmartFilmBatchPauseResumeSkipAndRetryPreserveTask(t *testing.T) {
+func TestSmartFilmBatchDefersShotStrategyUntilAfterScripts(t *testing.T) {
+	svc, _ := newTestService(t, &recordingWorkflows{})
+	created, err := svc.CreateSmartFilmBatch("user-1", CreateSmartFilmBatchRequest{Title: "先剧本后分镜", SourceText: "一个完整的产品故事"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Config.ProductionMode != "" || created.Config.ShotCount != 0 {
+		t.Fatalf("new batch unexpectedly fixed shot strategy: %+v", created.Config)
+	}
+	saved, err := svc.SaveSmartFilmBatchScripts("user-1", created.ID, SaveSmartFilmBatchScriptsRequest{
+		ExpectedRevision: created.Revision,
+		Scripts:          []SmartFilmScriptInput{{Title: "候选剧本", Content: "完整剧本正文"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.ConfirmSmartFilmBatchScripts("user-1", saved.ID, ConfirmSmartFilmBatchScriptsRequest{
+		ExpectedRevision: saved.Revision, ScriptIDs: []string{saved.Scripts[0].ID},
+	}); err == nil {
+		t.Fatal("confirm accepted a batch without shot strategy")
+	}
+	configured, err := svc.UpdateSmartFilmBatchProductionConfig("user-1", saved.ID, UpdateSmartFilmBatchProductionConfigRequest{
+		ProductionMode: SmartFilmProductionModeSmart, TargetDurationSeconds: 30, ExpectedRevision: saved.Revision,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if configured.Config.ProductionMode != SmartFilmProductionModeSmart || configured.Config.TargetDurationSeconds != 30 || configured.Config.ShotCount != 0 {
+		t.Fatalf("smart production config = %+v", configured.Config)
+	}
+	confirmed, err := svc.ConfirmSmartFilmBatchScripts("user-1", configured.ID, ConfirmSmartFilmBatchScriptsRequest{
+		ExpectedRevision: configured.Revision, ScriptIDs: []string{configured.Scripts[0].ID},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if confirmed.Scripts[0].ProjectID == "" {
+		t.Fatal("configured smart batch did not create a project")
+	}
+}
+
+func TestSmartFilmBatchPauseResumeSkipAndRecoveryTaskBehavior(t *testing.T) {
 	svc, db := newTestService(t, &recordingWorkflows{})
 	created, err := svc.CreateSmartFilmBatch("user-1", CreateSmartFilmBatchRequest{Title: "控制", SourceText: "想法"})
 	if err != nil {
@@ -117,6 +181,7 @@ func TestSmartFilmBatchPauseResumeSkipAndRetryPreserveTask(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	configureSmartFilmBatchFixed(t, svc, &saved, 1)
 	confirmed, err := svc.ConfirmSmartFilmBatchScripts("user-1", saved.ID, ConfirmSmartFilmBatchScriptsRequest{
 		ExpectedRevision: saved.Revision, ScriptIDs: []string{saved.Scripts[0].ID},
 	})
@@ -124,6 +189,7 @@ func TestSmartFilmBatchPauseResumeSkipAndRetryPreserveTask(t *testing.T) {
 		t.Fatal(err)
 	}
 	runID := confirmed.ProductionRuns[0].ID
+	initialAttempts := confirmed.ProductionRuns[0].Attempts
 	paused, err := svc.ControlSmartFilmBatch("user-1", saved.ID, SmartFilmBatchControlRequest{Action: "pause"})
 	if err != nil || !paused.Paused {
 		t.Fatalf("pause batch = %+v, %v", paused, err)
@@ -159,12 +225,45 @@ func TestSmartFilmBatchPauseResumeSkipAndRetryPreserveTask(t *testing.T) {
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
+	if err := db.Create(&model.Task{ID: "existing-task", UserID: "user-1", Type: "canvas_text", Status: model.TaskStatusFailed, CreatedAt: time.Now(), UpdatedAt: time.Now()}).Error; err != nil {
+		t.Fatal(err)
+	}
 	retried, err := svc.ControlSmartFilmProductionRun("user-1", saved.ID, runID, SmartFilmProductionRunControlRequest{Action: "retry", Stage: SmartFilmProductionStepAssets})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if retried.AssetTaskID != "existing-task" || retried.AssetStatus != SmartFilmProductionStageStatusQueued || retried.Status != SmartFilmProductionRunStatusReady {
+	if retried.AssetTaskID != "" || retried.AssetStatus != SmartFilmProductionStageStatusQueued || retried.Status != SmartFilmProductionRunStatusReady || retried.Attempts <= initialAttempts || retried.RetryReusedTask {
 		t.Fatalf("retried run = %+v", retried)
+	}
+	if err := db.Create(&model.Task{ID: "reusable-storyboard", UserID: "user-1", Type: "canvas_text", Status: model.TaskStatusSucceeded, CreatedAt: time.Now(), UpdatedAt: time.Now()}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&model.SmartFilmProductionRun{}).Where("id = ?", runID).Updates(map[string]any{
+		"status": SmartFilmProductionRunStatusNeedsAttention, "asset_status": SmartFilmProductionStageStatusConfirmed,
+		"storyboard_status": SmartFilmProductionStageStatusAttention, "storyboard_task_id": "reusable-storyboard",
+		"failed_step": SmartFilmProductionStepStoryboard,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	reused, err := svc.ControlSmartFilmProductionRun("user-1", saved.ID, runID, SmartFilmProductionRunControlRequest{Action: "retry", Stage: SmartFilmProductionStepStoryboard})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reused.StoryboardTaskID != "reusable-storyboard" || reused.StoryboardStatus != SmartFilmProductionStageStatusQueued || reused.Attempts != retried.Attempts || !reused.RetryReusedTask {
+		t.Fatalf("reused storyboard run = %+v", reused)
+	}
+	if err := db.Model(&model.SmartFilmProductionRun{}).Where("id = ?", runID).Updates(map[string]any{
+		"status": SmartFilmProductionRunStatusNeedsAttention, "storyboard_status": SmartFilmProductionStageStatusAttention,
+		"failed_step": SmartFilmProductionStepStoryboard,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	regenerated, err := svc.ControlSmartFilmProductionRun("user-1", saved.ID, runID, SmartFilmProductionRunControlRequest{Action: "regenerate", Stage: SmartFilmProductionStepStoryboard})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if regenerated.StoryboardTaskID != "" || regenerated.StoryboardStatus != SmartFilmProductionStageStatusQueued || regenerated.Attempts <= reused.Attempts || regenerated.RetryReusedTask {
+		t.Fatalf("regenerated storyboard run = %+v", regenerated)
 	}
 	skipped, err := svc.ControlSmartFilmProductionRun("user-1", saved.ID, runID, SmartFilmProductionRunControlRequest{Action: "skip"})
 	if err != nil || skipped.ControlStatus != SmartFilmProductionControlSkipped || skipped.Status != SmartFilmProductionRunStatusSkipped {
@@ -299,6 +398,7 @@ func TestSmartFilmBatchListFiltersAndDeletesDraft(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	configureSmartFilmBatchFixed(t, svc, &saved, 1)
 	if _, err := svc.ConfirmSmartFilmBatchScripts("user-1", confirmed.ID, ConfirmSmartFilmBatchScriptsRequest{
 		ExpectedRevision: saved.Revision, ScriptIDs: []string{saved.Scripts[0].ID},
 	}); err != nil {
@@ -397,6 +497,7 @@ func TestSmartFilmBatchConfirmRejectsStaleRevisionBeforeCreatingProjects(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
+	configureSmartFilmBatchFixed(t, svc, &saved, 1)
 	if _, err := svc.ConfirmSmartFilmBatchScripts("user-1", saved.ID, ConfirmSmartFilmBatchScriptsRequest{
 		ExpectedRevision: saved.Revision + 1,
 		ScriptIDs:        []string{saved.Scripts[0].ID},
@@ -434,6 +535,7 @@ func TestSmartFilmBatchConfirmRollsBackAllResourcesAndLeavesRecoverableRun(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
+	configureSmartFilmBatchFixed(t, svc, &saved, 1)
 	if _, err := svc.ConfirmSmartFilmBatchScripts("user-1", saved.ID, ConfirmSmartFilmBatchScriptsRequest{
 		ExpectedRevision: saved.Revision, ScriptIDs: []string{saved.Scripts[0].ID},
 	}); err == nil {
@@ -484,12 +586,15 @@ func TestSmartFilmBatchConfirmRecoversProjectWithoutUnit(t *testing.T) {
 	partial[0].ProjectID = project.ID
 	partial[0].Status = SmartFilmScriptStatusNeedsAttention
 	partial[0].Error = "项目已创建，但章节创建失败"
-	scriptsJSON, err := json.Marshal(partial)
-	if err != nil {
+	configureSmartFilmBatchFixed(t, svc, &saved, 1)
+	if err := db.Model(&model.SmartFilmBatch{}).Where("id = ?", saved.ID).Updates(map[string]any{
+		"revision": saved.Revision + 1,
+	}).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Model(&model.SmartFilmBatch{}).Where("id = ?", saved.ID).Updates(map[string]any{
-		"scripts_json": string(scriptsJSON), "revision": saved.Revision + 1,
+	if err := db.Model(&model.SmartFilmScriptRecord{}).Where("id = ?", partial[0].ID).Updates(map[string]any{
+		"project_id": project.ID, "status": SmartFilmScriptStatusNeedsAttention,
+		"error": "项目已创建，但章节创建失败", "revision": gorm.Expr("revision + 1"),
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -613,6 +718,7 @@ func TestSmartFilmProductionRunCheckpointsAssetAndStoryboardStages(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
+	configureSmartFilmBatchFixed(t, svc, &saved, 1)
 	confirmed, err := svc.ConfirmSmartFilmBatchScripts("user-1", saved.ID, ConfirmSmartFilmBatchScriptsRequest{
 		ExpectedRevision: saved.Revision, ScriptIDs: []string{saved.Scripts[0].ID},
 	})
@@ -661,6 +767,156 @@ func TestSmartFilmProductionRunCheckpointsAssetAndStoryboardStages(t *testing.T)
 	}
 }
 
+func TestSmartFilmScriptDeleteRemovesOrphanProductionRun(t *testing.T) {
+	svc, db := newTestService(t, &recordingWorkflows{})
+	created, err := svc.CreateSmartFilmBatch("user-1", CreateSmartFilmBatchRequest{Title: "孤立运行", SourceText: "想法"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := svc.SaveSmartFilmBatchScripts("user-1", created.ID, SaveSmartFilmBatchScriptsRequest{
+		ExpectedRevision: created.Revision,
+		Scripts:          []SmartFilmScriptInput{{Title: "待删除剧本", Content: "待删除正文"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	scriptID := saved.Scripts[0].ID
+	run := model.SmartFilmProductionRun{
+		ID: kernel.NewID(), UserID: "user-1", BatchID: saved.ID, ScriptID: scriptID,
+		IdempotencyKey: kernel.NewID(), Status: SmartFilmProductionRunStatusNeedsAttention,
+		CurrentStep: SmartFilmProductionStepProject, FailedStep: SmartFilmProductionStepProject,
+		ControlStatus: SmartFilmProductionControlActive, Revision: 1, CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	if err := db.Create(&run).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.DeleteSmartFilmBatchScript("user-1", saved.ID, scriptID, saved.Revision); err != nil {
+		t.Fatal(err)
+	}
+	var count int64
+	if err := db.Model(&model.SmartFilmProductionRun{}).Where("id = ?", run.ID).Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("orphan production run survived script deletion: %d", count)
+	}
+}
+
+func TestSmartFilmScriptRegenerationArchivesOldUnprojectedRun(t *testing.T) {
+	svc, db := newTestService(t, &recordingWorkflows{})
+	created, err := svc.CreateSmartFilmBatch("user-1", CreateSmartFilmBatchRequest{Title: "重新生成", SourceText: "想法"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := svc.SaveSmartFilmBatchScripts("user-1", created.ID, SaveSmartFilmBatchScriptsRequest{
+		ExpectedRevision: created.Revision,
+		Scripts:          []SmartFilmScriptInput{{Title: "旧剧本", Content: "旧正文"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	scriptID := saved.Scripts[0].ID
+	run := model.SmartFilmProductionRun{
+		ID: kernel.NewID(), UserID: "user-1", BatchID: saved.ID, ScriptID: scriptID,
+		IdempotencyKey: kernel.NewID(), Status: SmartFilmProductionRunStatusNeedsAttention,
+		CurrentStep: SmartFilmProductionStepProject, FailedStep: SmartFilmProductionStepProject,
+		ControlStatus: SmartFilmProductionControlActive, Revision: 1, CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	if err := db.Create(&run).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.UpdateSmartFilmBatchScript("user-1", saved.ID, scriptID, UpdateSmartFilmBatchScriptRequest{
+		Title: "新剧本", Content: "新正文", Status: SmartFilmScriptStatusDraft, ExpectedRevision: saved.Revision,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var stored model.SmartFilmProductionRun
+	if err := db.First(&stored, "id = ?", run.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != SmartFilmProductionRunStatusArchived || stored.CurrentStep != SmartFilmProductionStepArchived || stored.ArchiveReason != smartFilmArchiveReasonRegenerated || stored.ArchivedAt == nil {
+		t.Fatalf("archived run = %+v", stored)
+	}
+	active, err := svc.repo.SmartFilmProductionRunsForBatch("user-1", saved.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(active) != 0 {
+		t.Fatalf("archived run leaked into active batch response: %+v", active)
+	}
+	if _, err := svc.ControlSmartFilmProductionRun("user-1", saved.ID, run.ID, SmartFilmProductionRunControlRequest{Action: "resume"}); err == nil {
+		t.Fatal("archived production run accepted a control action")
+	}
+}
+
+func TestSmartFilmScriptTableKeepsVersionsAndSupportsFilters(t *testing.T) {
+	svc, db := newTestService(t, &recordingWorkflows{})
+	created, err := svc.CreateSmartFilmBatch("user-1", CreateSmartFilmBatchRequest{Title: "独立剧本表", SourceText: "想法"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := svc.SaveSmartFilmBatchScripts("user-1", created.ID, SaveSmartFilmBatchScriptsRequest{
+		ExpectedRevision: created.Revision,
+		Scripts:          []SmartFilmScriptInput{{Title: "旧标题", Content: "旧正文"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := saved.Scripts[0]
+	updated, err := svc.UpdateSmartFilmBatchScript("user-1", saved.ID, script.ID, UpdateSmartFilmBatchScriptRequest{
+		Title: "新标题", Content: "新正文", Status: SmartFilmScriptStatusDraft,
+		ExpectedRevision: saved.Revision, ExpectedScriptRevision: script.Revision,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Scripts[0].Revision != script.Revision+1 || updated.Scripts[0].Content != "新正文" {
+		t.Fatalf("updated script = %+v", updated.Scripts[0])
+	}
+	var revisions []model.SmartFilmScriptRevision
+	if err := db.Where("script_id = ?", script.ID).Order("version asc").Find(&revisions).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(revisions) != 2 || revisions[1].Content != "新正文" || revisions[1].Version != 2 {
+		t.Fatalf("script revisions = %+v", revisions)
+	}
+	found, total, err := svc.repo.QuerySmartFilmScripts("user-1", repository.SmartFilmScriptFilter{Title: "新标", Status: SmartFilmScriptStatusDraft})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 1 || len(found) != 1 || found[0].ID != script.ID {
+		t.Fatalf("script query = %+v total=%d", found, total)
+	}
+}
+
+func TestSmartFilmScriptRejectsStaleScriptRevision(t *testing.T) {
+	svc, _ := newTestService(t, &recordingWorkflows{})
+	created, err := svc.CreateSmartFilmBatch("user-1", CreateSmartFilmBatchRequest{Title: "并发控制", SourceText: "想法"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := svc.SaveSmartFilmBatchScripts("user-1", created.ID, SaveSmartFilmBatchScriptsRequest{
+		ExpectedRevision: created.Revision,
+		Scripts:          []SmartFilmScriptInput{{Title: "并发剧本", Content: "正文"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.UpdateSmartFilmBatchScript("user-1", saved.ID, saved.Scripts[0].ID, UpdateSmartFilmBatchScriptRequest{
+		Title: "过期修改", Content: "不应写入", Status: SmartFilmScriptStatusDraft,
+		ExpectedRevision: saved.Revision, ExpectedScriptRevision: saved.Scripts[0].Revision + 10,
+	}); err == nil {
+		t.Fatal("stale script revision was accepted")
+	}
+	current, err := svc.smartFilmScripts(&model.SmartFilmBatch{ID: saved.ID, UserID: "user-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current[0].Content != "正文" || current[0].Title != "并发剧本" {
+		t.Fatalf("stale update changed script: %+v", current[0])
+	}
+}
+
 func TestSmartFilmAssetExtractionWorkItemIsQueuedForWorker(t *testing.T) {
 	svc, _ := newTestService(t, &recordingWorkflows{})
 	created, err := svc.CreateSmartFilmBatch("user-1", CreateSmartFilmBatchRequest{
@@ -677,6 +933,7 @@ func TestSmartFilmAssetExtractionWorkItemIsQueuedForWorker(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	configureSmartFilmBatchFixed(t, svc, &saved, 1)
 	confirmed, err := svc.ConfirmSmartFilmBatchScripts("user-1", saved.ID, ConfirmSmartFilmBatchScriptsRequest{
 		ExpectedRevision: saved.Revision, ScriptIDs: []string{saved.Scripts[0].ID},
 	})

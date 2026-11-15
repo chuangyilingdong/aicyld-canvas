@@ -1,10 +1,10 @@
 {
-  "appLines": 11143,
+  "appLines": 11130,
   "largeFiles": {
     "backend/internal/handler/project.go": 1029,
     "backend/internal/protocol/manifest.go": 1653,
     "backend/internal/provider/workflow/mapping.go": 1049,
-    "backend/internal/repository/project_mutate.go": 1348,
+    "backend/internal/repository/project_mutate.go": 1336,
     "backend/internal/repository/repository.go": 2332,
     "web/src/components/canvas/canvas-timeline-dialog.tsx": 1010,
     "web/src/components/canvas/director/canvas-director-workbench.tsx": 2230,
@@ -16,7 +16,7 @@
     "web/src/pages/canvas/project.tsx": 2055,
     "web/src/pages/canvas/use-canvas-upload.ts": 1094,
     "web/src/pages/create/index.tsx": 1243,
-    "web/src/pages/projects/detail/workflow-production-workbench.tsx": 1215,
+    "web/src/pages/projects/detail/workflow-production-workbench.tsx": 1209,
     "web/src/services/local-workspace-repository.ts": 1212,
     "web/src/stores/use-config-store.ts": 1219,
     "web/src/styles/globals.css": 21598,
@@ -24,5 +24,5 @@
   },
   "modelLiterals": 605,
   "handlersUsingAppService": 8,
-  "sourceTextTests": 145
+  "sourceTextTests": 144
 }

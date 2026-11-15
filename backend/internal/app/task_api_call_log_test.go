@@ -11,10 +11,12 @@ import (
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func TestVideoPollLogSchedulesNextCheckThirtySecondsLater(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:provider-poll-schedule?mode=memory&cache=shared"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,6 +54,7 @@ func TestVideoPollLogSchedulesNextCheckThirtySecondsLater(t *testing.T) {
 
 func TestEnsureFailedProviderAttemptLoggedFillsPreflightGapOnce(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:provider-preflight-log?mode=memory&cache=shared"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,6 +113,7 @@ func TestEnsureFailedProviderAttemptLoggedFillsPreflightGapOnce(t *testing.T) {
 
 func TestEnsureFailedProviderAttemptLoggedDoesNotDuplicateHTTPLog(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:provider-http-log-dedup?mode=memory&cache=shared"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

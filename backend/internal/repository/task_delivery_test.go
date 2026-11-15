@@ -10,6 +10,7 @@ import (
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func TestUpsertGenerationDeliverySurvivesSQLiteReopen(t *testing.T) {
@@ -17,6 +18,7 @@ func TestUpsertGenerationDeliverySurvivesSQLiteReopen(t *testing.T) {
 	open := func() (*gorm.DB, *Repository) {
 		t.Helper()
 		db, err := gorm.Open(sqlite.Open(path+"?_journal_mode=WAL&_busy_timeout=5000"), &gorm.Config{})
+		testutil.CloseDBOnCleanup(t, db)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -72,6 +74,7 @@ func TestUpsertGenerationDeliverySurvivesSQLiteReopen(t *testing.T) {
 func TestCommitOwnedGenerationDeliveryPreservesEditedMetadata(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "delivery-preserve.db")
 	db, err := gorm.Open(sqlite.Open(path+"?_journal_mode=WAL&_busy_timeout=5000"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,6 +112,7 @@ func TestCommitOwnedGenerationDeliveryPreservesEditedMetadata(t *testing.T) {
 func TestCommitOwnedGenerationDeliveryRejectsForeignAsset(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "delivery-foreign.db")
 	db, err := gorm.Open(sqlite.Open(path+"?_journal_mode=WAL&_busy_timeout=5000"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

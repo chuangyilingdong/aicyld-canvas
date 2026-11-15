@@ -10,10 +10,12 @@ import (
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func TestMigrateCanvasMediaAssetIdentityArchivesDuplicatesAndRewritesReferences(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:"+t.TempDir()+"/asset-identity.db?mode=memory&cache=shared"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

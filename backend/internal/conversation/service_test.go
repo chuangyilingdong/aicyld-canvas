@@ -16,6 +16,7 @@ import (
 	"infinite-canvas/backend/internal/conversation"
 	"infinite-canvas/backend/internal/database"
 	"infinite-canvas/backend/internal/repository"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func TestConversationKeepsLongTextAndHistoryWithinWorkspaceDocumentBound(t *testing.T) {
@@ -47,6 +48,7 @@ func openConversationFixture(t *testing.T) (*gorm.DB, string, *conversation.Serv
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "workspace.db")
 	db, err := gorm.Open(sqlite.Open(path+"?_busy_timeout=5000&_journal_mode=WAL"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,6 +71,7 @@ func openConversationFixture(t *testing.T) (*gorm.DB, string, *conversation.Serv
 func reopenConversationFixture(t *testing.T, path string) (*gorm.DB, *conversation.Service) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(path+"?_busy_timeout=5000&_journal_mode=WAL"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

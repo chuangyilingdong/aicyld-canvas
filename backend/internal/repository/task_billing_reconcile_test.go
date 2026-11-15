@@ -9,6 +9,7 @@ import (
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func addTaskBillingColumns(t *testing.T, db *gorm.DB) {
@@ -26,6 +27,7 @@ func addTaskBillingColumns(t *testing.T, db *gorm.DB) {
 
 func TestStaleReservedTasksAndSafeFailureGuards(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -21,6 +21,7 @@ import (
 	"infinite-canvas/backend/internal/generation"
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/repository"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func imageSubmissionFixture(t *testing.T, multipartBody bool) (*Service, *gorm.DB, model.Task, *model.ImageSubmission, []byte) {
@@ -238,6 +239,7 @@ func TestImageSubmissionDiskRestartReplaysOneGenerationAndCompletesOnce(t *testi
 		t.Fatal(err)
 	}
 	reopened, err := database.Open(database.Config{Driver: "sqlite", DSN: databasePath})
+	testutil.CloseDBOnCleanup(t, reopened)
 	if err != nil {
 		t.Fatal(err)
 	}

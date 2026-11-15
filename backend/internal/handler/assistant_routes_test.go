@@ -24,6 +24,7 @@ import (
 	"infinite-canvas/backend/internal/database"
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/repository"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 // 内置助手对外只有这一条链路：页面 → 同源后端 → 宿主。
@@ -53,6 +54,7 @@ func newAssistantTestEnv(t *testing.T, host func(env *assistantTestEnv) http.Han
 	gin.SetMode(gin.TestMode)
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "assistant.db")),
 		&gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

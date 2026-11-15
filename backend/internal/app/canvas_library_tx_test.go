@@ -16,6 +16,7 @@ import (
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func TestHostedCanvasDrawingWriteDoesNotDeadlockOnSingleSQLiteConn(t *testing.T) {
@@ -131,6 +132,7 @@ func TestHostedCanvasDrawingAboveEightMiBRejectedWhenQuotaInsufficient(t *testin
 func newHostedCanvasLibraryService(t *testing.T) *Service {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "canvas-library.db")), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -188,8 +188,16 @@ export type ShotRevision = {
     negativePrompt: string;
     continuityNotes: string;
     actionBeatsJson: string;
+    assetRolesJson?: string;
     createdBy?: string;
     createdAt: string;
+};
+
+export type ShotAssetRole = {
+    assetId: string;
+    versionId?: string;
+    title?: string;
+    role: string;
 };
 
 export type ShotArtifact = {
@@ -222,6 +230,7 @@ export type ShotRevisionInput = {
     negativePrompt?: string;
     continuityNotes?: string;
     actionBeats?: Array<Record<string, unknown>>;
+    assetRoles?: ShotAssetRole[];
 };
 
 export type ShotAssetReference = {
@@ -358,6 +367,21 @@ export type ProjectAssetCandidatePage = {
     hasMore: boolean;
 };
 
+export type ProjectUnitArtifact = {
+    id: string;
+    projectId: string;
+    unitId: string;
+    taskId?: string;
+    type: string;
+    version: number;
+    resourceId?: string;
+    status: string;
+    selected: boolean;
+    metadataJson: string;
+    createdAt: string;
+    updatedAt: string;
+};
+
 export function listProjects(): Promise<{ projects: ProjectSummary[] }>;
 export function listProjects(params: { page: number; pageSize: number }): Promise<ProjectListPage>;
 export function listProjects(params?: { page: number; pageSize: number }) {
@@ -418,6 +442,14 @@ export function listProjectAssetCandidates(projectId: string, options: { page?: 
         category: options.category || undefined,
         q: options.query || undefined,
     } }).then((page) => ({ ...page, candidates: page.candidates.map(normalizeProjectAssetCandidate) }));
+}
+
+export function listProjectUnitArtifacts(projectId: string, unitId: string, signal?: AbortSignal) {
+    return http.get<{ artifacts: ProjectUnitArtifact[] }>(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/artifacts`, { signal });
+}
+
+export function registerProjectUnitArtifact(projectId: string, unitId: string, input: { taskId: string; resourceId: string; type?: string; metadataJson?: string }) {
+    return http.post<{ artifact: ProjectUnitArtifact }>(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/artifacts`, input);
 }
 
 function normalizeProjectAsset(asset: ProjectAsset): ProjectAsset {
@@ -662,6 +694,11 @@ export function updateProjectAssetCandidatePreview(projectId: string, candidateI
     expectedRevision: number;
 }) {
     return http.patch<{ candidate: ProjectAssetCandidate }>(`/projects/${encodeURIComponent(projectId)}/asset-candidates/${encodeURIComponent(candidateId)}/preview`, input)
+        .then((result) => ({ candidate: normalizeProjectAssetCandidate(result.candidate) }));
+}
+
+export function updateProjectAssetCandidateDetails(projectId: string, candidateId: string, input: { details: Record<string, unknown>; expectedRevision: number }) {
+    return http.patch<{ candidate: ProjectAssetCandidate }>(`/projects/${encodeURIComponent(projectId)}/asset-candidates/${encodeURIComponent(candidateId)}`, input)
         .then((result) => ({ candidate: normalizeProjectAssetCandidate(result.candidate) }));
 }
 

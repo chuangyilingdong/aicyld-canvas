@@ -15,6 +15,7 @@ import (
 	"infinite-canvas/backend/internal/database"
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/repository"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func TestDBRuntimeVideoRestartRecovery(t *testing.T) {
@@ -211,6 +212,7 @@ func dbRuntimeRequest(mode, base string) CreateTaskRequest {
 func openDBRuntimeMatrix(t *testing.T, dir string) (*Service, *gorm.DB) {
 	t.Helper()
 	db, err := database.Open(database.Config{DataDir: dir})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

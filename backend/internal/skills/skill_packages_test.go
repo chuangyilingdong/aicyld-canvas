@@ -18,6 +18,7 @@ import (
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func TestArchiveFromMarkdownInfersMetadata(t *testing.T) {
@@ -110,6 +111,7 @@ func TestParseGitHubSkillURL(t *testing.T) {
 
 func TestEnsureSkillPackagesMigratesAndRefreshesBuiltinSkills(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:"+kernel.NewID()+"?mode=memory&cache=shared"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

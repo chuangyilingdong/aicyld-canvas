@@ -23,6 +23,7 @@ import (
 	"infinite-canvas/backend/internal/operations"
 	"infinite-canvas/backend/internal/repository"
 	"infinite-canvas/backend/internal/skills"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func TestSkillScriptProposalApprovalAndSessionAlwaysAllow(t *testing.T) {
@@ -31,6 +32,7 @@ func TestSkillScriptProposalApprovalAndSessionAlwaysAllow(t *testing.T) {
 	}
 	dir := t.TempDir()
 	db, err := gorm.Open(sqlite.Open(filepath.Join(dir, "ops-script.sqlite")), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +46,7 @@ func TestSkillScriptProposalApprovalAndSessionAlwaysAllow(t *testing.T) {
 	var zipBuf bytes.Buffer
 	zw := zip.NewWriter(&zipBuf)
 	for name, content := range map[string]string{
-		"SKILL.md":       "---\nname: 脚本审批测试\ndescription: 验证脚本确认与本对话始终允许\n---\n运行 scripts/echo.js",
+		"SKILL.md":        "---\nname: 脚本审批测试\ndescription: 验证脚本确认与本对话始终允许\n---\n运行 scripts/echo.js",
 		"scripts/echo.js": "console.log('ECHO:' + process.argv.slice(2).join(','));",
 	} {
 		f, err := zw.Create(name)
@@ -150,14 +152,14 @@ func TestSkillScriptProposalApprovalAndSessionAlwaysAllow(t *testing.T) {
 		t.Fatal("expected empty turnID to be rejected by ProposeOrRunSkillScript")
 	}
 	if err := operations.UpsertSkillScriptProposal(db, "owner", operations.SkillScriptProposal{
-		ProposalID: "sp-no-turn",
-		TurnID:     "",
-		CanvasID:   "canvas-1",
-		SkillID:    pin.SkillID,
-		VersionID:  pin.VersionID,
+		ProposalID:  "sp-no-turn",
+		TurnID:      "",
+		CanvasID:    "canvas-1",
+		SkillID:     pin.SkillID,
+		VersionID:   pin.VersionID,
 		ContentHash: pin.ContentHash,
-		ScriptPath: "scripts/echo.js",
-		Status:     "pending",
+		ScriptPath:  "scripts/echo.js",
+		Status:      "pending",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -174,8 +176,8 @@ func TestSkillScriptRunOperationAuthorizationAndIdempotentReplay(t *testing.T) {
 	var zipBuf bytes.Buffer
 	zw := zip.NewWriter(&zipBuf)
 	for name, content := range map[string]string{
-		"SKILL.md":          "---\nname: 计数器脚本\ndescription: 验证 opId 幂等与权限边界\n---\n运行 scripts/count.js",
-		"scripts/count.js":  "const fs=require('fs'),p=require('path');const f=p.join(process.env.BEEFTV_OUTPUT_DIR,'count.txt');const n=fs.existsSync(f)?Number(fs.readFileSync(f,'utf8'))+1:1;fs.writeFileSync(f,String(n));console.log('COUNT:'+n);",
+		"SKILL.md":         "---\nname: 计数器脚本\ndescription: 验证 opId 幂等与权限边界\n---\n运行 scripts/count.js",
+		"scripts/count.js": "const fs=require('fs'),p=require('path');const f=p.join(process.env.BEEFTV_OUTPUT_DIR,'count.txt');const n=fs.existsSync(f)?Number(fs.readFileSync(f,'utf8'))+1:1;fs.writeFileSync(f,String(n));console.log('COUNT:'+n);",
 	} {
 		f, err := zw.Create(name)
 		if err != nil {
@@ -294,4 +296,3 @@ func mustMarshalRaw(t *testing.T, v any) []byte {
 	}
 	return b
 }
-

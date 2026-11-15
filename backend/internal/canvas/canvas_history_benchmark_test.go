@@ -14,6 +14,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 // Generate a fixed document in memory; the benchmark never opens a workspace.
@@ -102,6 +103,7 @@ func BenchmarkCanvasSave(b *testing.B) {
 			b.Run(fmt.Sprintf("nodes_%d/%s", count, scenario), func(b *testing.B) {
 				before := canvasHistoryBenchmarkProject(b, count)
 				db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+				testutil.CloseDBOnCleanup(b, db)
 				if err != nil {
 					b.Fatal(err)
 				}

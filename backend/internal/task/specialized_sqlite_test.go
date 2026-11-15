@@ -24,6 +24,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 type sqlitePersist struct{ repo *repository.Repository }
@@ -53,6 +54,7 @@ func (p sqliteOwnedMedia) Resource(userID, id string) (*model.Resource, error) {
 func specializedSQLite(t *testing.T, extra func(*Dependencies, *drainRuntime)) (*Service, *gorm.DB, *drainRuntime) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "specialized.db")+"?_busy_timeout=5000&_journal_mode=WAL&_foreign_keys=on"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

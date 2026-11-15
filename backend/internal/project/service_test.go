@@ -13,6 +13,7 @@ import (
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 type recordingWorkflows struct {
@@ -47,12 +48,15 @@ func (r *recordingWorkflows) PrepareDefault(projectID string) (WorkflowSeed, err
 func newTestService(t *testing.T, workflows Workflows) (*Service, *gorm.DB) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open("file:"+kernel.NewID()+"?mode=memory&cache=shared"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := db.AutoMigrate(
 		&model.Project{},
 		&model.SmartFilmBatch{},
+		&model.SmartFilmScriptRecord{},
+		&model.SmartFilmScriptRevision{},
 		&model.SmartFilmProductionRun{},
 		&model.ProjectFolder{},
 		&model.ProjectUnit{},
@@ -75,6 +79,7 @@ func newTestService(t *testing.T, workflows Workflows) (*Service, *gorm.DB) {
 		&model.ShotRevision{},
 		&model.ShotArtifact{},
 		&model.ShotAssetReference{},
+		&model.ProjectUnitArtifact{},
 		&model.WorkflowTemplateVersion{},
 		&model.WorkflowInstance{},
 		&model.WorkflowStepInstance{},

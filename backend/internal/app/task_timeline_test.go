@@ -14,6 +14,7 @@ import (
 
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/repository"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func newTimelineTaskTestService(t *testing.T) (*Service, *gorm.DB) {
@@ -21,6 +22,7 @@ func newTimelineTaskTestService(t *testing.T) (*Service, *gorm.DB) {
 	// 每个测试独立的 sqlite 内存库，避免共享缓存串库。
 	dsn := fmt.Sprintf("file:%s_%d?mode=memory&cache=shared", t.Name(), time.Now().UnixNano())
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	t.Helper()
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)

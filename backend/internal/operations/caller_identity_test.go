@@ -17,6 +17,7 @@ import (
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/operations"
 	"infinite-canvas/backend/internal/repository"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 type harness struct {
@@ -31,6 +32,7 @@ func newHarness(t *testing.T) *harness {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "operations.db")),
 		&gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

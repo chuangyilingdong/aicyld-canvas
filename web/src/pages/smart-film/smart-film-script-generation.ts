@@ -1,13 +1,13 @@
-import { parseGeneratedSmartFilmScripts, smartFilmScriptPrompt, type GeneratedSmartFilmScript } from "@/lib/canvas/smart-film-scripts";
+import { parseGeneratedSmartFilmScripts, smartFilmScriptPrompt, type GeneratedSmartFilmScript, type SmartFilmScriptReference } from "@/lib/canvas/smart-film-scripts";
 import { runBackendGenerationTask } from "@/services/api/generation-task";
 import type { AiConfig } from "@/stores/use-config-store";
 
 export type SmartFilmScriptGenerationInput = {
     idea: string;
-    productTitles: string[];
+    references: SmartFilmScriptReference[];
     count: number;
-    shotCount: number;
-    shotDurationSeconds: number;
+    shotCount?: number;
+    shotDurationSeconds?: number;
     config: AiConfig;
     batchId?: string;
     existingTitles?: string[];

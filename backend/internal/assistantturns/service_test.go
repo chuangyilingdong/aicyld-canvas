@@ -20,6 +20,7 @@ import (
 	"infinite-canvas/backend/internal/database"
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/repository"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 type testCanvasFactory struct {
@@ -64,6 +65,7 @@ func openTurnFixture(t *testing.T) *turnFixture {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "workspace.db")
 	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,6 +145,7 @@ func (fx *turnFixture) receipt(t *testing.T, turnID, opID, op string, payload ma
 func (fx *turnFixture) reopen(t *testing.T) *turnFixture {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(fx.path), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

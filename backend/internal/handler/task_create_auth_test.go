@@ -19,12 +19,14 @@ import (
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/repository"
 	localtask "infinite-canvas/backend/internal/task"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func TestRegisteredClientCannotCreatePaidTasksWithDesktopHeaders(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "task-create-auth.db")),
 		&gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,6 +151,7 @@ func TestHostedTaskCreateStillAllowsWorkspaceOwnerWithoutDesktopTrust(t *testing
 	gin.SetMode(gin.TestMode)
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "task-create-hosted.db")),
 		&gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,6 +181,7 @@ func TestRegisteredClientCannotRetryPaidTasksWithDesktopHeaders(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "task-retry-auth.db")),
 		&gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,6 +260,7 @@ func TestHostedTaskRetryStillAllowsWorkspaceOwnerWithoutDesktopTrust(t *testing.
 	gin.SetMode(gin.TestMode)
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "task-retry-hosted.db")),
 		&gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

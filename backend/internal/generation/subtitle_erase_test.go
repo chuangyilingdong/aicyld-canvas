@@ -23,6 +23,7 @@ import (
 	"infinite-canvas/backend/internal/mediatools"
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/repository"
+	"infinite-canvas/backend/internal/testutil"
 	"infinite-canvas/backend/internal/topaz"
 )
 
@@ -448,6 +449,7 @@ func TestManagedEnvelopeSubtitleEraseCancelAndReconcile(t *testing.T) {
 	defer srv.Close()
 
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "cancel.db")+"?_busy_timeout=5000"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

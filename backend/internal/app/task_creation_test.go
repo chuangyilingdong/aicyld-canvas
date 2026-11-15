@@ -13,6 +13,7 @@ import (
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func TestTaskInputUsesWorkflowProvider(t *testing.T) {
@@ -41,6 +42,7 @@ func TestTaskInputUsesWorkflowProvider(t *testing.T) {
 
 func TestCreateTaskReplaysSameClientOperationAndRejectsDifferentContent(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:"+newID()+"?mode=memory&cache=shared"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,6 +103,7 @@ func TestCreateTaskReplaysSameClientOperationAndRejectsDifferentContent(t *testi
 
 func TestCreateTaskRejectsCrossTypeRetryFromDepthCapture(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:"+newID()+"?mode=memory&cache=shared"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,6 +126,7 @@ func TestCreateTaskRejectsCrossTypeRetryFromDepthCapture(t *testing.T) {
 
 func TestResolveTaskModelSelectionAllowsExplicitSystemChannelWhenFrontendModelsEnabled(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:"+newID()+"?mode=memory&cache=shared"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,6 +212,7 @@ func TestResolveTaskModelSelectionStillRequiresLogicalModelWithoutExplicitSystem
 
 func TestCreateTaskPersistsAuthoritativeSystemChannelSelection(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "admit.db")+"?_journal_mode=WAL&_busy_timeout=5000"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

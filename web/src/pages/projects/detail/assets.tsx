@@ -38,6 +38,7 @@ import {
     unbindProjectCharacterVoice,
     unlinkProjectAsset,
     updateProjectAssetCategory,
+    updateProjectAssetCandidateDetails,
     updateProjectAssetFolder,
     updateProjectAssetCandidatePreview,
     updateProjectCharacter,
@@ -95,6 +96,8 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
     const [addOpen, setAddOpen] = useState(false);
     const [editorAsset, setEditorAsset] = useState<ProjectAsset | "new" | null>(null);
     const [candidateHistoryId, setCandidateHistoryId] = useState("");
+    const [candidatePromptEditing, setCandidatePromptEditing] = useState<ProjectAssetCandidate | null>(null);
+    const [candidatePromptDraft, setCandidatePromptDraft] = useState("");
     const [imageAsset, setImageAsset] = useState<ProjectAsset | null>(null);
     const externalAssetSources = useExternalAssetSources(addOpen || Boolean(imageAsset));
     const [voiceAsset, setVoiceAsset] = useState<ProjectAsset | null>(null);
@@ -325,6 +328,24 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
         onError: failed("资产确认失败"),
     });
     const confirmingCandidateId = confirmMutation.isPending ? confirmMutation.variables?.candidateId || "" : "";
+    const updateCandidatePromptMutation = useMutation({
+        mutationFn: async ({ candidate, prompt }: { candidate: ProjectAssetCandidate; prompt: string }) => {
+            const latest = await getProjectCore(detail.project.id);
+            let details: Record<string, unknown> = {};
+            try { details = JSON.parse(candidate.detailsJson || "{}") as Record<string, unknown>; } catch { details = {}; }
+            details.prompt = prompt.trim();
+            return updateProjectAssetCandidateDetails(detail.project.id, candidate.id, { details, expectedRevision: latest.project.revision });
+        },
+        onSuccess: async () => {
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: ["project", detail.project.id, "asset-candidates"] }),
+                queryClient.invalidateQueries({ queryKey: ["project", detail.project.id] }),
+            ]);
+            setCandidatePromptEditing(null);
+            message.success("资产提示词已保存");
+        },
+        onError: failed("保存资产提示词失败"),
+    });
     const candidateImageMutation = useMutation({
         mutationFn: async (candidate: ProjectAssetCandidate) => {
             const model = effectiveConfig.imageModel || effectiveConfig.model;
@@ -935,6 +956,16 @@ function syncPersonalCharacterProjection(asset: ProjectAsset) {
     useAssetStore.getState().replaceAssets([projected, ...current.filter((item) => item.id !== asset.id)]);
 }
 function MediaIcon({ kind }: { kind: string }) { if (kind === "image") return <ImageIcon className="size-10" />; if (kind === "video") return <Video className="size-10" />; if (kind === "audio") return <Music2 className="size-10" />; if (kind === "model") return <Box className="size-10" />; return <FileText className="size-10" />; }
+
+function assetCandidatePromptPreview(candidate: ProjectAssetCandidate) {
+    try {
+        const details = JSON.parse(candidate.detailsJson || "{}") as Record<string, unknown>;
+        const value = details.prompt || details.description || details.appearance || details.consistencyPrompt;
+        return typeof value === "string" && value.trim() ? value.trim() : "等待补充资产提示词";
+    } catch {
+        return "等待补充资产提示词";
+    }
+}
 
 function assetCandidateImagePrompt(candidate: ProjectAssetCandidate, projectStyle: string) {
     let details: Record<string, unknown> = {};

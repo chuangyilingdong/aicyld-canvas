@@ -1,6 +1,7 @@
 import { http } from "@/services/api/request";
 
 export type SmartFilmScriptStatus = "draft" | "project_created" | "assets_extracted" | "storyboard_ready" | "needs_attention" | "failed";
+export type SmartFilmReferenceRole = "product" | "scene" | "character" | "prop" | "other";
 
 export type SmartFilmBatchConfig = {
     aspectRatio: string;
@@ -9,10 +10,13 @@ export type SmartFilmBatchConfig = {
     defaultTextModel?: string;
     defaultImageModel?: string;
     defaultVideoModel?: string;
+    inputAssetRoles?: Record<string, SmartFilmReferenceRole>;
+    productionMode?: "" | "fixed" | "smart";
     scriptCount: number;
-    shotCount: number;
-    shotDurationSeconds: number;
+    shotCount?: number;
+    shotDurationSeconds?: number;
     shotDurationsSeconds?: number[];
+    targetDurationSeconds?: number;
 };
 
 export type SmartFilmScript = {
@@ -24,6 +28,7 @@ export type SmartFilmScript = {
     unitId?: string;
     taskId?: string;
     error?: string;
+    revision: number;
     createdAt: string;
     updatedAt: string;
 };
@@ -33,7 +38,7 @@ export type SmartFilmProductionRun = {
     batchId: string;
     scriptId: string;
     idempotencyKey: string;
-    status: "pending" | "ready" | "needs_attention" | "failed" | "skipped";
+    status: "pending" | "ready" | "needs_attention" | "failed" | "skipped" | "archived";
     currentStep: string;
     resources: {
         projectId?: string;
@@ -51,6 +56,9 @@ export type SmartFilmProductionRun = {
     storyboardShotCount: number;
     controlStatus: "active" | "paused" | "skipped";
     attempts: number;
+    retryReusedTask?: boolean;
+    archivedAt?: string;
+    archiveReason?: string;
     revision: number;
     createdAt: string;
     updatedAt: string;
@@ -121,6 +129,16 @@ export function updateSmartFilmBatchBudget(batchId: string, budgetPoints: number
     return http.patch<{ batch: SmartFilmBatch }>(`/smart-film-batches/${encodeURIComponent(batchId)}/budget`, { budgetPoints });
 }
 
+export function updateSmartFilmBatchProductionConfig(batchId: string, input: {
+    productionMode: "fixed" | "smart";
+    shotCount?: number;
+    shotDurationsSeconds?: number[];
+    targetDurationSeconds?: number;
+    expectedRevision: number;
+}) {
+    return http.patch<{ batch: SmartFilmBatch }>(`/smart-film-batches/${encodeURIComponent(batchId)}/production-config`, input);
+}
+
 export type SmartFilmBatchCostItem = {
     key: string;
     label: string;
@@ -155,6 +173,7 @@ export function updateSmartFilmBatchScript(batchId: string, scriptId: string, in
     status?: SmartFilmScriptStatus;
     taskId?: string;
     expectedRevision: number;
+    expectedScriptRevision?: number;
 }) {
     return http.patch<{ batch: SmartFilmBatch }>(
         `/smart-film-batches/${encodeURIComponent(batchId)}/scripts/${encodeURIComponent(scriptId)}`,
@@ -200,7 +219,7 @@ export function controlSmartFilmBatch(batchId: string, action: "pause" | "resume
     return http.patch<{ batch: SmartFilmBatch }>(`/smart-film-batches/${encodeURIComponent(batchId)}/control`, { action });
 }
 
-export function controlSmartFilmProductionRun(batchId: string, runId: string, action: "pause" | "resume" | "skip" | "retry", stage?: "assets" | "storyboard") {
+export function controlSmartFilmProductionRun(batchId: string, runId: string, action: "pause" | "resume" | "skip" | "retry" | "regenerate", stage?: "assets" | "storyboard") {
     return http.patch<{ run: SmartFilmProductionRun }>(
         `/smart-film-batches/${encodeURIComponent(batchId)}/production-runs/${encodeURIComponent(runId)}/control`,
         { action, ...(stage ? { stage } : {}) },

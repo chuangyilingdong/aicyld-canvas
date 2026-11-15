@@ -22,6 +22,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 type captureTaskPort struct {
@@ -83,6 +84,7 @@ func (c *captureTaskPort) CreateTask(userID string, req localtask.CreateRequest)
 func TestSpecializedRoutesBindLocalExecutorRequests(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "specialized-routes.db")), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -14,6 +14,7 @@ import { listProjectAssetsPage, type ProjectAsset, type ProjectAssetCandidate, t
 import { resourceFileUrl, resourceIdFromStorageKey } from "@/services/api/resources";
 import type { AiConfig } from "@/stores/use-config-store";
 import { ensureShotAssetMentionPrompt, buildShotAssetReferenceContext, type ShotAssetReferenceContext } from "./workflow-shot-references";
+import { activeShotAssetRoles, parseShotAssetRoles } from "./shot-asset-roles";
 import { assetCategoryLabel, currentArtifact, currentRevision } from "./workflow-shared";
 
 export type ShotEditorValues = Omit<ShotRevisionInput, "durationMs"> & {
@@ -133,6 +134,7 @@ export function revisionInput(values: ShotEditorValues): ShotRevisionInput {
         videoPrompt: values.videoPrompt,
         negativePrompt: values.negativePrompt,
         continuityNotes: values.continuityNotes,
+        assetRoles: values.assetRoles,
     };
 }
 
@@ -192,6 +194,11 @@ export function currentBgmArtifact(detail: ProjectDetail, unitId: string) {
 
 export function shotEditorValues(detail: ProjectDetail, shot: ProjectShot, index: number, context: ReturnType<typeof buildShotAssetReferenceContext>): ShotEditorValues {
     const shotRevision = currentRevision(detail, shot);
+    const assetRoles = activeShotAssetRoles(
+        parseShotAssetRoles(shotRevision?.assetRolesJson),
+        (detail.shotReferences || []).filter((reference) => reference.shotId === shot.id),
+        detail.assets || [],
+    );
     return {
         title: normalizeDefaultShotTitle(shot.title, index),
         plotDescription: shotRevision?.plotDescription || shot.description || "",
@@ -205,6 +212,7 @@ export function shotEditorValues(detail: ProjectDetail, shot: ProjectShot, index
         videoPrompt: ensureShotAssetMentionPrompt(shotRevision?.videoPrompt || "", context.mentionReferences),
         negativePrompt: shotRevision?.negativePrompt || "",
         continuityNotes: shotRevision?.continuityNotes || "",
+        assetRoles,
     };
 }
 

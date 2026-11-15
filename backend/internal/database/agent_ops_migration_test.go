@@ -9,11 +9,13 @@ import (
 	"infinite-canvas/backend/internal/agentops"
 	"infinite-canvas/backend/internal/database"
 	"infinite-canvas/backend/internal/model"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func TestVersionTwoWorkspaceAddsDurableAgentOperations(t *testing.T) {
 	config := database.Config{Driver: "sqlite", DSN: filepath.Join(t.TempDir(), "existing-v2.db")}
 	db, err := database.Open(config)
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,6 +67,7 @@ func TestVersionTwoWorkspaceAddsDurableAgentOperations(t *testing.T) {
 		t.Fatal(err)
 	}
 	db, err = database.Open(config)
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

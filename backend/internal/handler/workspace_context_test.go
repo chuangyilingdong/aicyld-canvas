@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 // This catches regressions where request ownership silently falls back to a
@@ -46,6 +47,7 @@ func TestWorkspaceMiddlewareInjectsStableContext(t *testing.T) {
 func TestCurrentUserResolvesWorkspaceOwnerWithoutCookie(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,6 +84,7 @@ func TestCurrentUserResolvesWorkspaceOwnerWithoutCookie(t *testing.T) {
 func TestCurrentUserResolvesLocalOwnerWithoutWorkspaceMiddleware(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

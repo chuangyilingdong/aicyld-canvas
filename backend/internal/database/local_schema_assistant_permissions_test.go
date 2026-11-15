@@ -4,12 +4,14 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"infinite-canvas/backend/internal/model"
+	"infinite-canvas/backend/internal/testutil"
 	"path/filepath"
 	"testing"
 )
 
 func TestV14PermissionMigrationPreservesOpenTurnAndUnknownColumns(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "v14.db")), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

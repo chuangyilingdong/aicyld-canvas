@@ -14,6 +14,7 @@ import (
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func TestExportRecordsKeepFailureEvidenceAndLocalReason(t *testing.T) {
@@ -42,6 +43,7 @@ func TestExportRecordsKeepFailureEvidenceAndLocalReason(t *testing.T) {
 
 func TestExportIncludesIndependentEnvironmentEvidence(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:diagnostics-environment?mode=memory&cache=shared"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,6 +79,7 @@ func TestExportIncludesIndependentEnvironmentEvidence(t *testing.T) {
 
 func TestExportRedactsSensitiveValuesFromFixture(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:diagnostics-test?mode=memory&cache=shared"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,6 +126,7 @@ func TestExportRedactsSensitiveValuesFromFixture(t *testing.T) {
 
 func TestExportRedactsModelConfigSummary(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:diagnostics-config?mode=memory&cache=shared"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,6 +180,7 @@ func (s stubModelConfig) ReadLocalModelConfig() ([]byte, error) { return s.body,
 
 func TestExportRejectsForeignTaskFixture(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:diagnostics-ownership-test?mode=memory&cache=shared"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

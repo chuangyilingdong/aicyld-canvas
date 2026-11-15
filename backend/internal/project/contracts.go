@@ -185,6 +185,11 @@ type UpdateProjectAssetCandidatePreviewRequest struct {
 	ExpectedRevision int64  `json:"expectedRevision"`
 }
 
+type UpdateProjectAssetCandidateDetailsRequest struct {
+	Details          map[string]any `json:"details"`
+	ExpectedRevision int64          `json:"expectedRevision"`
+}
+
 type SelectProjectAssetCandidatePreviewRequest struct {
 	ExpectedRevision int64 `json:"expectedRevision"`
 }
@@ -201,6 +206,13 @@ type UpdateProjectAssetFolderRequest struct {
 	ParentID *string `json:"parentId"`
 	Style    *string `json:"style"`
 	Theme    *string `json:"theme"`
+}
+
+type RegisterProjectUnitArtifactRequest struct {
+	TaskID       string `json:"taskId"`
+	ResourceID   string `json:"resourceId"`
+	Type         string `json:"type"`
+	MetadataJSON string `json:"metadataJson,omitempty"`
 }
 
 type CreateProjectCharacterRequest struct {

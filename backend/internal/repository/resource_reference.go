@@ -287,6 +287,20 @@ func (r *Repository) ResourceReferenceSnapshot(userID string, excludingAssetID s
 		}
 	}
 
+	if r.db.Migrator().HasTable(&model.ProjectUnitArtifact{}) {
+		var unitArtifacts []joinedRepresentation
+		if err := r.db.Table("project_unit_artifacts").
+			Select("project_unit_artifacts.id, projects.name AS title, project_unit_artifacts.resource_id").
+			Joins("JOIN projects ON projects.id = project_unit_artifacts.project_id").
+			Where("projects.user_id = ? AND project_unit_artifacts.resource_id IN ?", userID, resourceIDs).
+			Scan(&unitArtifacts).Error; err != nil {
+			return snapshot, err
+		}
+		for _, artifact := range unitArtifacts {
+			snapshot.Direct = append(snapshot.Direct, ResourceDirectReference{Kind: "智能整片", ID: artifact.ID, Title: artifact.Title, ResourceID: artifact.ResourceID})
+		}
+	}
+
 	var voices []model.VoiceProfile
 	if err := r.db.Where("user_id = ? AND sample_resource_id IN ?", userID, resourceIDs).Find(&voices).Error; err != nil {
 		return snapshot, err

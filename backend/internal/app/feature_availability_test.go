@@ -10,6 +10,7 @@ import (
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func TestFeatureAvailabilityDefaultsToDisableFrontendModels(t *testing.T) {
@@ -160,6 +161,7 @@ func TestCreateTaskDoesNotClassifyCustomChannelAsMissingSystemModel(t *testing.T
 func newLocalFeatureAvailabilityTestService(t *testing.T) (*Service, *gorm.DB) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,6 +177,7 @@ func newLocalFeatureAvailabilityTestService(t *testing.T) (*Service, *gorm.DB) {
 func newFeatureAvailabilityTestService(t *testing.T) (*Service, *gorm.DB) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

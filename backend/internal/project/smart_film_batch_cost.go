@@ -91,10 +91,18 @@ func (s *Service) SmartFilmBatchCost(userID, batchID string) (SmartFilmBatchCost
 			if len(config.ShotDurationsSeconds) > 0 {
 				duration = config.ShotDurationsSeconds[0]
 			}
-			videoConfig["videoSeconds"] = fmt.Sprintf("%.0f", duration)
 			shotCount := config.ShotCount
+			videoLabel := "镜头视频 · " + project.Name
+			if config.ProductionMode == SmartFilmProductionModeSmart {
+				duration = config.TargetDurationSeconds
+				shotCount = 1
+				videoLabel = "智能整片 · " + project.Name
+			}
+			videoConfig["videoSeconds"] = fmt.Sprintf("%.0f", duration)
 			if shots, shotsErr := s.repo.ProjectUnitShots(run.ProjectID, run.UnitID); shotsErr == nil && len(shots) > 0 {
-				shotCount = len(shots)
+				if config.ProductionMode != SmartFilmProductionModeSmart {
+					shotCount = len(shots)
+				}
 			}
 			videoReq := localtask.CreateRequest{
 				Type: "canvas_video", Operation: "image_to_video", Prompt: "镜头视频", Model: modelName,
@@ -102,7 +110,7 @@ func (s *Service) SmartFilmBatchCost(userID, batchID string) (SmartFilmBatchCost
 				Input: map[string]any{"mode": "video", "prompt": "镜头视频", "config": videoConfig,
 					"metadata": map[string]any{"source": "smart-film-cost-estimate", "videoEditOperation": "image_to_video"}},
 			}
-			if err := addQuote("video:"+run.ID, "镜头视频 · "+project.Name, "video", shotCount, videoReq); err != nil {
+			if err := addQuote("video:"+run.ID, videoLabel, "video", shotCount, videoReq); err != nil {
 				return SmartFilmBatchCostView{}, err
 			}
 		}

@@ -12,10 +12,12 @@ import (
 	"gorm.io/gorm"
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/repository"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func TestCachedTextReplayIsolatesUsersCursorsAndCopies(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:"+newID()+"?mode=memory&cache=shared"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,6 +77,7 @@ func TestCachedTextReplayIsolatesUsersCursorsAndCopies(t *testing.T) {
 
 func TestRuntimeConcurrencyCacheDoesNotCacheAuthoritativePolicy(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,6 +127,7 @@ func TestRuntimeConcurrencyCacheDoesNotCacheAuthoritativePolicy(t *testing.T) {
 
 func TestRouteCatalogFailureStormAndInvalidatedStaleSnapshot(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

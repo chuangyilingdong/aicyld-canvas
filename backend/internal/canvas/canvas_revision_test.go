@@ -16,6 +16,7 @@ import (
 
 	"infinite-canvas/backend/internal/kernel"
 	"infinite-canvas/backend/internal/model"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func TestCanvasSaveRevisionContract(t *testing.T) {
@@ -155,6 +156,7 @@ func newCanvasHistoryTestService(t *testing.T) *Service {
 			ParameterizedQueries:      true,
 		}),
 	})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,6 +199,7 @@ func migrateUploadSettlementTables(t *testing.T, db *gorm.DB) {
 func mustOpenSQLite(t *testing.T, path string) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

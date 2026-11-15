@@ -66,6 +66,28 @@
     gap: 10px;
 }
 
+.smart-film-reference-role-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 9px;
+    border: 1px solid color-mix(in srgb, var(--foreground) 8%, transparent);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--foreground) 2.5%, transparent);
+    padding: 9px 11px;
+}
+
+.smart-film-reference-role-row > span {
+    color: color-mix(in srgb, var(--foreground) 55%, transparent);
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.smart-film-reference-role-row > small {
+    color: color-mix(in srgb, var(--foreground) 40%, transparent);
+    font-size: 10px;
+}
+
 .smart-film-product-card,
 .smart-film-product-add {
     position: relative;
@@ -109,6 +131,21 @@
     border-radius: 999px;
     background: rgb(0 0 0 / 62%);
     color: white;
+}
+
+.smart-film-product-role {
+    position: absolute !important;
+    top: 6px;
+    left: 6px;
+    z-index: 2;
+    width: 66px;
+}
+
+.smart-film-product-role .ant-select-selector {
+    border-color: rgb(255 255 255 / 16%) !important;
+    background: rgb(0 0 0 / 58%) !important;
+    color: white !important;
+    font-size: 10px !important;
 }
 
 .smart-film-product-add {
@@ -314,6 +351,94 @@
     font-size: 11px;
 }
 
+.smart-film-production-config {
+    display: grid;
+    gap: 14px;
+    border: 1px solid color-mix(in srgb, var(--workspace-accent) 24%, transparent);
+    border-radius: 18px;
+    background: color-mix(in srgb, var(--workspace-accent) 5%, var(--background));
+    padding: 16px;
+}
+
+.smart-film-production-config-head,
+.smart-film-production-config-foot,
+.smart-film-production-duration-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.smart-film-production-config-head strong,
+.smart-film-production-config-head span,
+.smart-film-production-duration-heading strong,
+.smart-film-production-duration-heading span {
+    display: block;
+}
+
+.smart-film-production-config-head strong,
+.smart-film-production-duration-heading strong {
+    font-size: 13px;
+    font-weight: 650;
+}
+
+.smart-film-production-config-head span,
+.smart-film-production-duration-heading span,
+.smart-film-production-mode-row > p,
+.smart-film-production-smart p,
+.smart-film-production-config-foot > span {
+    margin: 3px 0 0;
+    color: color-mix(in srgb, var(--foreground) 46%, transparent);
+    font-size: 11px;
+    line-height: 1.7;
+}
+
+.smart-film-production-mode-row {
+    display: grid;
+    grid-template-columns: minmax(280px, 0.9fr) minmax(0, 1.1fr);
+    align-items: end;
+    gap: 14px;
+}
+
+.smart-film-production-mode-row label,
+.smart-film-production-fixed > label,
+.smart-film-production-smart label {
+    display: grid;
+    gap: 7px;
+}
+
+.smart-film-production-mode-row label > span,
+.smart-film-production-fixed > label > span,
+.smart-film-production-smart label > span {
+    color: color-mix(in srgb, var(--foreground) 48%, transparent);
+    font-size: 11px;
+}
+
+.smart-film-production-fixed,
+.smart-film-production-smart {
+    display: grid;
+    gap: 12px;
+    border: 1px solid color-mix(in srgb, var(--foreground) 8%, transparent);
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--foreground) 2.5%, transparent);
+    padding: 14px;
+}
+
+.smart-film-production-fixed > label,
+.smart-film-production-smart label {
+    max-width: 240px;
+}
+
+.smart-film-production-config-foot {
+    align-items: center;
+    border-top: 1px solid color-mix(in srgb, var(--foreground) 8%, transparent);
+    padding-top: 12px;
+}
+
+.smart-film-production-config-foot > span {
+    margin: 0;
+}
+
 .smart-film-batch-empty {
     padding: 40px 20px;
     border: 1px dashed color-mix(in srgb, var(--foreground) 14%, transparent);
@@ -452,8 +577,25 @@
 
 .smart-film-script-actions {
     display: flex;
+    flex-wrap: wrap;
     align-items: flex-start;
     gap: 6px;
+}
+
+.smart-film-recovery-hint {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    margin-top: 7px;
+    color: color-mix(in srgb, var(--foreground) 48%, transparent);
+    font-size: 10px;
+    line-height: 1.6;
+}
+
+.smart-film-recovery-hint span::before {
+    content: "·";
+    margin-right: 4px;
+    color: var(--workspace-accent);
 }
 
 .smart-film-script-empty {
@@ -479,9 +621,15 @@
     }
     .smart-film-batch-submit,
     .smart-film-batch-toolbar,
-    .smart-film-batch-style-row {
+    .smart-film-batch-style-row,
+    .smart-film-production-config-head,
+    .smart-film-production-config-foot,
+    .smart-film-production-duration-heading {
         align-items: flex-start;
         flex-direction: column;
+    }
+    .smart-film-production-mode-row {
+        grid-template-columns: 1fr;
     }
     .smart-film-script-actions {
         flex-wrap: wrap;

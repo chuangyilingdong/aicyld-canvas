@@ -10,10 +10,12 @@ import (
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func TestNewLocalKeepsLocalBoundaries(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,6 +50,7 @@ func TestNewLocalKeepsLocalBoundaries(t *testing.T) {
 
 func TestLocalFeatureAvailabilityDoesNotReadHostedSettings(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,6 +75,7 @@ func TestLocalFeatureAvailabilityDoesNotReadHostedSettings(t *testing.T) {
 
 func TestLocalTaskListReturnsLocalTaskSummary(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,6 +101,7 @@ func TestLocalTaskListReturnsLocalTaskSummary(t *testing.T) {
 
 func TestLocalServiceSkipsHostedActivityAnalytics(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,6 +123,7 @@ func TestLocalServiceSkipsHostedActivityAnalytics(t *testing.T) {
 
 func TestLocalTaskListReturnsSafeActionableFailure(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

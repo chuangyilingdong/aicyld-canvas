@@ -19,6 +19,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 // TestGenerationDeliveryResumesCutArtifactAndBindsNode reproduces the paid
@@ -72,6 +73,7 @@ func TestGenerationDeliveryResumesCutArtifactAndBindsNode(t *testing.T) {
 
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "delivery-resume.db")),
 		&gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

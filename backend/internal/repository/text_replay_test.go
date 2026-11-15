@@ -8,11 +8,13 @@ import (
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 // 验证 text-replay 闭环：text_replay 任务可写增量，完成后置为 succeeded 并写入最终正文。
 func TestTextReplayLifecycle(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:text-replay-lifecycle?mode=memory&cache=shared"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

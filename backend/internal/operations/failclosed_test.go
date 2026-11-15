@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm/logger"
 
 	"infinite-canvas/backend/internal/database"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func TestNilStoreFailsClosedWithoutPanic(t *testing.T) {
@@ -42,6 +43,7 @@ func (nilDomainBinder) BindDomain(*gorm.DB) Domain { return nil }
 func TestMissingDomainBinderFailsClosed(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "failclosed.db")),
 		&gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -16,6 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func TestInternalChannelsRequiresServerTokenAndRedactsSecrets(t *testing.T) {
@@ -96,6 +97,7 @@ func TestInternalCanvasSettingsReadAndUpdate(t *testing.T) {
 	t.Cleanup(func() { canvas.SetEffectiveCanvasDocumentLimitMB(canvas.DefaultCanvasDocumentLimitMB) })
 	gin.SetMode(gin.TestMode)
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

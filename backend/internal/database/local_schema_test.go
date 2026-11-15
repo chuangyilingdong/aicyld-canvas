@@ -445,7 +445,7 @@ func TestAssistantTurnsMigrationFromPreviewV9(t *testing.T) {
 	if err := db.Order("version").Find(&ledger).Error; err != nil {
 		t.Fatal(err)
 	}
-	if ledger[len(ledger)-1].Version != CurrentSchemaVersion || ledger[len(ledger)-1].Name != "asset-candidate-preview-history" {
+	if ledger[len(ledger)-1].Version != CurrentSchemaVersion || ledger[len(ledger)-1].Name != "smart-film-production-run-archive" {
 		t.Fatalf("current identity: %+v", ledger[len(ledger)-1])
 	}
 	foundV10 := false

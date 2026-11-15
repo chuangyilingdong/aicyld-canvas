@@ -19,6 +19,7 @@ import (
 	"infinite-canvas/backend/internal/operations"
 	"infinite-canvas/backend/internal/repository"
 	"infinite-canvas/backend/internal/skills"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func TestSkillScriptAutoRunSettingReplacesProposalConfirmation(t *testing.T) {
@@ -27,6 +28,7 @@ func TestSkillScriptAutoRunSettingReplacesProposalConfirmation(t *testing.T) {
 	}
 	dir := t.TempDir()
 	db, err := gorm.Open(sqlite.Open(filepath.Join(dir, "ops-script-setting.sqlite")), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

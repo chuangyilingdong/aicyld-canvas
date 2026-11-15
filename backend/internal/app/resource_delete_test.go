@@ -13,6 +13,7 @@ import (
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func TestCollectOwnedAssetDocumentReferences(t *testing.T) {
@@ -512,6 +513,7 @@ func newResourceDeletionTestService(t *testing.T) (*Service, *gorm.DB, string) {
 	// Cleanup schedules the outbox worker asynchronously. Keep the in-memory
 	// fixture tolerant of the worker briefly overlapping the assertions below.
 	db, err := gorm.Open(sqlite.Open("file:"+newID()+"?mode=memory&cache=shared&_busy_timeout=5000"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
 	if err != nil {
 		t.Fatal(err)
 	}

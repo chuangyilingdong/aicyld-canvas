@@ -16,6 +16,7 @@ import (
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/outbound"
 	"infinite-canvas/backend/internal/repository"
+	"infinite-canvas/backend/internal/testutil"
 )
 
 func TestVideoFailureStagesSurviveWorkerRefreshSQLiteAndDiagnosticZIP(t *testing.T) {
@@ -33,6 +34,7 @@ func TestVideoFailureStagesSurviveWorkerRefreshSQLiteAndDiagnosticZIP(t *testing
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+			testutil.CloseDBOnCleanup(t, db)
 			if err != nil {
 				t.Fatal(err)
 			}
