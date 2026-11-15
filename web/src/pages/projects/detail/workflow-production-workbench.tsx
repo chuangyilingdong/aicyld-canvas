@@ -909,18 +909,18 @@ export default function WorkflowProductionWorkbench(props: Props) {
                             <div className="workflow-smart-film-copy">
                                 <span className="workflow-smart-film-icon"><Film className="size-5" /></span>
                                 <div>
-                                    <strong>智能整片</strong>
-                                    <p>当前批次采用智能分镜策略。确认全部 {shots.length} 张分镜图后，将按顺序合成一个约 {smartFilmBatch?.config.targetDurationSeconds || 0} 秒的完整视频，不再逐镜生成。</p>
-                                    <small>分镜图已就绪 {readyStoryboardCount}/{shots.length} 张</small>
+                                    <strong>智能整片 · 视频生成</strong>
+                                    <p>这一步只生成视频，不生成分镜图。确认全部 {shots.length} 张分镜图后，将按顺序生成一个约 {smartFilmBatch?.config.targetDurationSeconds || 0} 秒的完整视频，不再逐镜生成视频。</p>
+                                    <small>分镜图已就绪 {readyStoryboardCount}/{shots.length} 张{readyStoryboardCount < shots.length ? `，还差 ${shots.length - readyStoryboardCount} 张；请先在下方逐镜生成并确认分镜图` : "，可以生成整片视频"}</small>
                                 </div>
                             </div>
                             {latestSmartWholeFilm?.resourceId ? <video className="workflow-smart-film-video" src={resourceFileUrl(latestSmartWholeFilm.resourceId)} controls preload="metadata" /> : null}
                             <div className="workflow-smart-film-actions">
-                                <Button icon={<Download className="size-4" />} disabled={!latestSmartWholeFilm?.resourceId} onClick={() => latestSmartWholeFilm?.resourceId && window.open(resourceFileUrl(latestSmartWholeFilm.resourceId), "_blank", "noopener,noreferrer")}>下载整片</Button>
+                                <Button icon={<Download className="size-4" />} disabled={!latestSmartWholeFilm?.resourceId} onClick={() => latestSmartWholeFilm?.resourceId && window.open(resourceFileUrl(latestSmartWholeFilm.resourceId), "_blank", "noopener,noreferrer")}>下载整片视频</Button>
                                 <Button type="primary" icon={<Sparkles className="size-4" />} loading={smartFilmGenerating} disabled={readyStoryboardCount !== shots.length || !shots.length} onClick={() => void generateSmartWholeFilm(
-                                    (input) => confirmCanvasGenerationTaskQuote(modal, input, { title: "确认生成智能整片", description: `将使用 ${shots.length} 张分镜图生成完整视频。` }),
+                                    (input) => confirmCanvasGenerationTaskQuote(modal, input, { title: "确认生成整片视频", description: `将使用 ${shots.length} 张已确认分镜图生成 1 条完整视频；本步骤不会生成分镜图。` }),
                                     message.error,
-                                )}>{latestSmartWholeFilm ? "重新生成整片" : "生成智能整片"}</Button>
+                                )}>{latestSmartWholeFilm ? "重新生成整片视频" : "生成整片视频"}</Button>
                             </div>
                         </section>
                     ) : null}
