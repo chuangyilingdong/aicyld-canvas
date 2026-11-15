@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { activeShotAssetRoles, isProjectAssetVisualReference, linkedShotAssetReferences, parseShotAssetRoles, shotAssetRoleLabel } from "../src/pages/projects/detail/shot-asset-roles";
-import { revisionInput, shotEditorValues } from "../src/pages/projects/detail/workflow-production-helpers";
+import { revisionInput, shotEditorValues, storyboardImageActionCue } from "../src/pages/projects/detail/workflow-production-helpers";
 import type { ProjectAsset, ProjectDetail, ProjectShot, ShotAssetReference } from "../src/services/api/projects";
 
 describe("shot asset roles", () => {
@@ -111,5 +111,21 @@ describe("shot asset roles", () => {
         } as ProjectDetail;
         const values = shotEditorValues(detail, shot, 0, { mentionReferences: [], referenceImages: [], referenceAudios: [], assetReferences: [], resolvedCharacterVersions: [] });
         expect(revisionInput(values).assetRoles).toEqual(roles);
+    });
+
+    test("keeps video timing beats out of static storyboard image prompts", () => {
+        const cue = storyboardImageActionCue([
+            "叙事意图：展示玩具被冷落",
+            "表演调度：暗黑沧龙保持静止，柜门从左滑开",
+            "时间节拍：0-0.8s 柜门拉开；0.8-1.6s 镜头推进；1.6-2.2s 定格",
+            "情绪：孤独、冷清",
+            "声音：柜门滑动声",
+        ].join("\n"));
+
+        expect(cue).toContain("表演调度：暗黑沧龙保持静止");
+        expect(cue).toContain("情绪：孤独、冷清");
+        expect(cue).not.toContain("时间节拍");
+        expect(cue).not.toContain("0.8-1.6s");
+        expect(cue).not.toContain("声音：");
     });
 });

@@ -70,7 +70,9 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
         }
         const storyboardPrompt = storyboardArtifacts.map(({ shot }, index) => {
             const revision = currentRevision(detail, shot);
-            return `第 ${index + 1} 镜：${revision?.videoPrompt || revision?.plotDescription || shot.description || shot.title}`;
+            const motion = [revision?.videoPrompt, revision?.action].filter(Boolean).join("\n");
+            const seconds = Math.max(0.5, shot.durationMs / 1000);
+            return `第 ${index + 1} 镜（计划 ${seconds} 秒，使用第 ${index + 1} 张分镜图）：${motion || revision?.plotDescription || shot.description || shot.title}`;
         }).join("\n");
         let taskId = "";
         const options: Parameters<typeof buildBackendGenerationTaskQuoteInput>[0] = {

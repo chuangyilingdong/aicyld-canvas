@@ -194,6 +194,14 @@ export function currentBgmArtifact(detail: ProjectDetail, unitId: string) {
     return artifacts.find((item) => item.selected) || artifacts[0];
 }
 
+export function storyboardImageActionCue(action: string) {
+    return action
+        .split("\n")
+        .filter((line) => !/^\s*(?:时间节拍|声音)\s*[：:]/.test(line))
+        .join("\n")
+        .trim();
+}
+
 export function shotEditorValues(detail: ProjectDetail, shot: ProjectShot, index: number, context: ReturnType<typeof buildShotAssetReferenceContext>): ShotEditorValues {
     const shotRevision = currentRevision(detail, shot);
     const assetRoles = activeShotAssetRoles(

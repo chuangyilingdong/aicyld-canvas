@@ -78,6 +78,7 @@ import {
     resolveNarrationAudioModel,
     shotEditorValues,
     shotNeedsGeneration,
+    storyboardImageActionCue,
     withStoryboardVideoReference,
 } from "./workflow-production-helpers";
 import "./workflow-smart-film.css";
@@ -454,7 +455,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
         const referenceAudios = mode === "video" ? shotAssetReferenceContext.referenceAudios : [];
         const basePrompt = mode === "video"
             ? [input.values.videoPrompt || input.values.plotDescription, input.values.action, input.values.dialogue && `台词：${input.values.dialogue}`, input.values.continuityNotes, hasStoryboardReference ? "最后一张参考图是当前镜头分镜图，请保持人物位置、构图、场景关系和光线一致。" : ""].filter(Boolean).join("\n")
-            : [input.values.imagePrompt || input.values.plotDescription, input.values.action, input.values.continuityNotes, "黑白分镜草图，清晰动作节拍，电影构图"].filter(Boolean).join("\n");
+            : [input.values.imagePrompt || input.values.plotDescription, storyboardImageActionCue(input.values.action || ""), input.values.continuityNotes, "电影分镜静帧，只表现一个关键瞬间；明确构图、景别、角色位置、场景和光线，不描述连续运动时间线"].filter(Boolean).join("\n");
         const resolvedPrompt = resolveShotAssetMentionPrompt(basePrompt, shotAssetReferenceContext, { dialogue: input.values.dialogue });
         const skillExecution = await skillRuntime.prepare({
             profile: "shortDrama",
@@ -928,7 +929,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                         <div className="workflow-shot-form-scroll thin-scrollbar">
                             <div className="workflow-form-section-heading"><span>镜头脚本</span><small>先写清镜头里发生什么，再调整生成参数</small></div>
                             <Form.Item name="title" label="镜头名称" rules={[{ required: true, message: "请输入镜头名称" }]}><Input placeholder="用一句话概括这个镜头" /></Form.Item>
-                            <Form.Item name="videoPrompt" label="视频提示词" rules={[{ required: true, message: "请输入视频提示词" }]}><ShotAssetMentionTextarea references={shotAssetReferenceContext.mentionReferences} /></Form.Item>
+                            <Form.Item name="videoPrompt" label="视频提示词（后续视频）" rules={[{ required: true, message: "请输入视频提示词" }]} extra="仅用于后续视频生成，不参与当前分镜图。"><ShotAssetMentionTextarea references={shotAssetReferenceContext.mentionReferences} /></Form.Item>
                             <BoundAssets
                                 detail={detail}
                                 shotId={selectedShot.id}
@@ -939,7 +940,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                                 onReplace={(reference, category) => setAssetPickerTarget({ mode: "replace", reference, category })}
                             />
                             <div className="workflow-form-grid">
-                                <Form.Item name="action" label="表演与动作"><Input.TextArea autoSize={{ minRows: 3, maxRows: 6 }} placeholder="按动作节拍描述人物表演、走位和物体运动" /></Form.Item>
+                                <Form.Item name="action" label="表演与动作 / 时间节拍" extra="时间节拍用于视频运动，不参与静态分镜图。"><Input.TextArea autoSize={{ minRows: 3, maxRows: 6 }} placeholder="按动作节拍描述人物表演、走位和物体运动" /></Form.Item>
                                 <Form.Item name="dialogue" label="对白 / 旁白"><Input.TextArea autoSize={{ minRows: 3, maxRows: 6 }} placeholder="填写对白、旁白或需要保留的声音信息" /></Form.Item>
                             </div>
                             <WorkflowDisclosure
@@ -997,7 +998,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                             >
                                 <div className="workflow-form-grid">
                                     <Form.Item name="plotDescription" label="镜头画面" rules={[{ required: true, message: "请输入镜头画面" }]}><ShotAssetMentionTextarea variant="scene" references={shotAssetReferenceContext.mentionReferences} /></Form.Item>
-                                    <Form.Item name="imagePrompt" label="画面提示词"><Input.TextArea autoSize={{ minRows: 3, maxRows: 6 }} placeholder="留空时根据镜头画面自动生成" /></Form.Item>
+                                    <Form.Item name="imagePrompt" label="分镜画面提示词（图片）" extra="用于当前静帧；留空时根据镜头画面和静态表演信息生成。"><Input.TextArea autoSize={{ minRows: 3, maxRows: 6 }} placeholder="描述这一帧的构图、景别、角色位置、场景和光线" /></Form.Item>
                                     <Form.Item name="negativePrompt" label="排除内容"><Input.TextArea autoSize={{ minRows: 2, maxRows: 4 }} placeholder="填写不希望出现的元素、动作或画面问题" /></Form.Item>
                                     <Form.Item name="continuityNotes" label="接戏备注"><Input.TextArea autoSize={{ minRows: 2, maxRows: 4 }} placeholder="记录人物位置、朝向、服装、道具及前后镜延续关系" /></Form.Item>
                                 </div>
