@@ -496,6 +496,7 @@
 
 .smart-film-batch-list-card {
     display: grid;
+    min-width: 0;
     gap: 14px;
     border: 1px solid color-mix(in srgb, var(--foreground) 9%, transparent);
     border-radius: 18px;
@@ -509,6 +510,15 @@
     align-items: flex-start;
     justify-content: space-between;
     gap: 12px;
+}
+
+.smart-film-batch-list-card-head > div {
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.smart-film-batch-list-card-head > .ant-tag {
+    flex: 0 0 auto;
 }
 
 .smart-film-batch-list-card h2 {
@@ -547,17 +557,24 @@
 }
 
 .smart-film-batch-list-card-foot {
-    align-items: center;
+    flex-wrap: wrap;
+    align-items: flex-start;
     border-top: 1px solid color-mix(in srgb, var(--foreground) 8%, transparent);
     padding-top: 12px;
 }
 
 .smart-film-batch-list-card-foot > span {
+    min-width: 0;
+    flex: 1 1 170px;
     overflow: hidden;
     color: color-mix(in srgb, var(--foreground) 42%, transparent);
     font-size: 10px;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.smart-film-batch-list-card-foot > div {
+    margin-left: auto;
 }
 
 .smart-film-script-list {
