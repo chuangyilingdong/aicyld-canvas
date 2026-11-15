@@ -3,7 +3,7 @@
 // 未知 op 或非法 payload 一律抛错（fail-closed），保证可回放、可撤销、可黄金文件测试。
 // 插件可经宿主 API register 自定义 op，与内建命令共用同一注册表与校验纪律。
 
-import type { SrtEntry, TimelineClip, TimelineProject, TimelineTrack, TimelineTrackKind } from "@/types/timeline";
+import type { SrtEntry, TimelineClip, TimelineDirectMedia, TimelineProject, TimelineTrack, TimelineTrackKind } from "@/types/timeline";
 
 export type EditCommand = { op: string; payload: unknown };
 export type CommandHandler = (state: TimelineProject, payload: unknown) => TimelineProject;
@@ -28,6 +28,14 @@ export type RemoveClipPayload = { id: string };
 export type SetClipPropertyPayload = {
     id: string;
     patch: Partial<Pick<TimelineClip, "title" | "text" | "volume" | "fadeInMs" | "fadeOutMs" | "subtitleEntryIndex">>;
+};
+/** 局部替换媒体源，保留片段在时间线上的起止位置；新素材必须覆盖现有时长。 */
+export type ReplaceClipMediaPayload = {
+    id: string;
+    nodeId: string;
+    directMedia: TimelineDirectMedia;
+    title?: string;
+    sourceDurationMs?: number;
 };
 export type AddSubtitlePayload = { clip: TimelineClip };
 export type RemoveSubtitlePayload = { id: string };
@@ -56,6 +64,7 @@ export const EDITOR_COMMAND_OPS = [
     "splitClip",
     "removeClip",
     "setClipProperty",
+    "replaceClipMedia",
     "addSubtitle",
     "removeSubtitle",
     "rebuildSubtitleClips",
@@ -203,6 +212,48 @@ function handleSetClipProperty(state: TimelineProject, payload: unknown): Timeli
     return withClips(state, state.clips.map((c) => (c.id === id ? updated : c)));
 }
 
+function handleReplaceClipMedia(state: TimelineProject, payload: unknown): TimelineProject {
+    const { id, nodeId, directMedia, title, sourceDurationMs } = payload as ReplaceClipMediaPayload;
+    if (typeof id !== "string" || id.length === 0) fail("replaceClipMedia", "id must be a non-empty string");
+    if (typeof nodeId !== "string" || nodeId.length === 0) fail("replaceClipMedia", "nodeId must be a non-empty string");
+    const current = findClipOrThrow("replaceClipMedia", state, id);
+    if (!["video", "audio", "image"].includes(current.kind)) {
+        fail("replaceClipMedia", `clip kind "${current.kind}" cannot be media-replaced`);
+    }
+    if (typeof directMedia !== "object" || directMedia === null || Array.isArray(directMedia)) {
+        fail("replaceClipMedia", "directMedia must be an object");
+    }
+    if (directMedia.kind !== current.kind) {
+        fail("replaceClipMedia", `replacement kind "${directMedia.kind}" does not match clip kind "${current.kind}"`);
+    }
+    if (typeof directMedia.id !== "string" || directMedia.id.length === 0) {
+        fail("replaceClipMedia", "directMedia.id must be a non-empty string");
+    }
+    if (typeof directMedia.title !== "string") fail("replaceClipMedia", "directMedia.title must be a string");
+    if (![directMedia.storageKey, directMedia.url, directMedia.dataUrl].some((value) => typeof value === "string" && value.trim())) {
+        fail("replaceClipMedia", "directMedia must include storageKey, url or dataUrl");
+    }
+    if (title !== undefined && typeof title !== "string") fail("replaceClipMedia", "title must be a string when provided");
+    if (sourceDurationMs !== undefined) {
+        if (!Number.isFinite(sourceDurationMs) || sourceDurationMs <= 0) {
+            fail("replaceClipMedia", "sourceDurationMs must be a positive finite number");
+        }
+        if (sourceDurationMs < current.durationMs) {
+            fail("replaceClipMedia", `replacement source duration ${sourceDurationMs}ms is shorter than clip duration ${current.durationMs}ms`);
+        }
+    }
+
+    const updated: TimelineClip = {
+        ...current,
+        nodeId,
+        directMedia,
+        sourceStartMs: 0,
+        ...(title !== undefined ? { title } : {}),
+        ...(sourceDurationMs !== undefined ? { sourceDurationMs } : {}),
+    };
+    return withClips(state, state.clips.map((clip) => (clip.id === id ? updated : clip)));
+}
+
 function handleAddSubtitle(state: TimelineProject, payload: unknown): TimelineProject {
     const { clip } = payload as AddSubtitlePayload;
     assertClipShape("addSubtitle", clip);
@@ -328,6 +379,7 @@ const BUILTIN_HANDLERS: ReadonlyArray<readonly [string, CommandHandler]> = [
     ["splitClip", handleSplitClip],
     ["removeClip", handleRemoveClip],
     ["setClipProperty", handleSetClipProperty],
+    ["replaceClipMedia", handleReplaceClipMedia],
     ["addSubtitle", handleAddSubtitle],
     ["removeSubtitle", handleRemoveSubtitle],
     ["addTrack", handleAddTrack],

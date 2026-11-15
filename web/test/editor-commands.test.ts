@@ -19,9 +19,9 @@ describe("editor command registry (golden file)", () => {
         });
     }
 
-    test("knownOps lists the 12 golden ops", () => {
+    test("knownOps lists the 13 golden ops", () => {
         expect(createEditorCommandRegistry().knownOps().sort()).toEqual(
-            ["addClip", "addSubtitle", "moveClip", "rebuildSubtitleClips", "removeClip", "removeSubtitle", "setClipProperty", "splitClip", "trimClip", "addTrack", "removeTrack", "setTrackFlag"].sort(),
+            ["addClip", "addSubtitle", "moveClip", "rebuildSubtitleClips", "removeClip", "removeSubtitle", "replaceClipMedia", "setClipProperty", "splitClip", "trimClip", "addTrack", "removeTrack", "setTrackFlag"].sort(),
         );
     });
 });
@@ -74,6 +74,41 @@ describe("editor command registry (fail-closed payload validation)", () => {
         expect(() => registry.apply(golden.base, { op: "trimClip", payload: { id: "clip-b", startMs: 0, durationMs: 1000, sourceStartMs: 7500 } })).toThrow(/exceeds sourceDurationMs/);
         expect(() => registry.apply(golden.base, { op: "trimClip", payload: { id: "clip-b", durationMs: 0 } })).toThrow(/positive/);
         expect(() => registry.apply(golden.base, { op: "trimClip", payload: { id: "nope", durationMs: 1000 } })).toThrow(/does not exist/);
+    });
+
+    test("replaceClipMedia preserves placement and rejects kind or duration mismatches", () => {
+        const replaced = registry.apply(golden.base, {
+            op: "replaceClipMedia",
+            payload: {
+                id: "clip-a",
+                nodeId: "asset:new",
+                title: "替换镜头",
+                sourceDurationMs: 12000,
+                directMedia: { id: "new", kind: "video", title: "替换镜头", storageKey: "resource:new-video" },
+            },
+        });
+        expect(replaced.clips.find((clip) => clip.id === "clip-a")).toMatchObject({
+            nodeId: "asset:new",
+            startMs: 0,
+            durationMs: 5000,
+            sourceStartMs: 0,
+            sourceDurationMs: 12000,
+            title: "替换镜头",
+            directMedia: { storageKey: "resource:new-video" },
+        });
+        expect(replaced.durationMs).toBe(golden.base.durationMs);
+        expect(() => registry.apply(golden.base, {
+            op: "replaceClipMedia",
+            payload: { id: "clip-a", nodeId: "asset:audio", directMedia: { id: "audio", kind: "audio", title: "音频", storageKey: "resource:audio" } },
+        })).toThrow(/does not match/);
+        expect(() => registry.apply(golden.base, {
+            op: "replaceClipMedia",
+            payload: { id: "clip-a", nodeId: "asset:short", sourceDurationMs: 1000, directMedia: { id: "short", kind: "video", title: "短片", storageKey: "resource:short" } },
+        })).toThrow(/shorter than clip duration/);
+        expect(() => registry.apply(golden.base, {
+            op: "replaceClipMedia",
+            payload: { id: "sub-1", nodeId: "asset:text", directMedia: { id: "text", kind: "text", title: "文本", storageKey: "resource:text" } },
+        })).toThrow(/cannot be media-replaced/);
     });
 
     test("splitClip rejects out-of-range split points", () => {

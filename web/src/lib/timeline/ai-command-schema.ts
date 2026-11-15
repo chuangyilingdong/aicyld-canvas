@@ -117,12 +117,12 @@ export function validateAiCommandBatch(project: TimelineProject, plan: AiCommand
 // ---------------------------------------------------------------------------
 
 /** AI 命令 schema 版本；提示词契约或解析规则变化时递增，用于 golden 测试和缓存失效对齐。 */
-export const AI_COMMAND_SCHEMA_VERSION = 1;
+export const AI_COMMAND_SCHEMA_VERSION = 2;
 
 /** 单次 AI 编辑最多允许的命令条数，防止一次模型输出造成不可控的大范围变更。 */
 export const AI_EDITING_MAX_COMMANDS = 8;
 
-/** 12 个黄金 op 的 LLM 可读 payload 契约；op 集合与注册表黄金同步（见测试）。 */
+/** 13 个黄金 op 的 LLM 可读 payload 契约；op 集合与注册表黄金同步（见测试）。 */
 export const AI_EDITING_OP_CATALOG: ReadonlyArray<{
     op: string;
     desc: string;
@@ -157,6 +157,11 @@ export const AI_EDITING_OP_CATALOG: ReadonlyArray<{
         op: "setClipProperty",
         desc: "修改片段属性（白名单）",
         payload: "{ id, patch: { title? | text? | volume? | fadeInMs? | fadeOutMs? | subtitleEntryIndex? }（至少一项） }",
+    },
+    {
+        op: "replaceClipMedia",
+        desc: "局部替换视频/音频/图片片段媒体，保留时间线位置",
+        payload: "{ id, nodeId, directMedia: { id, kind(与片段一致), title, storageKey|url|dataUrl }, title?, sourceDurationMs?(≥当前片段时长) }",
     },
     {
         op: "addSubtitle",

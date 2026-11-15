@@ -4,12 +4,12 @@
 // linkProjectAsset（后端按资源元数据合成资产记录）→ refreshAssets。
 
 import { useEffect, useRef, useState } from "react";
-import { Boxes, Check, ChevronDown, ChevronRight, Clapperboard, Film, FolderOpen, HardDrive, Image as ImageIcon, Loader2, Music2, Plus, X } from "lucide-react";
+import { ArrowLeftRight, Boxes, Check, ChevronDown, ChevronRight, Clapperboard, Film, FolderOpen, HardDrive, Image as ImageIcon, Loader2, Music2, Plus, X } from "lucide-react";
 
 import { useEditorHostContext, useEditorStoreContext } from "@/components/editor/editor-context";
 import { defaultAssetCategoryForKind } from "@/lib/asset-category";
 import { probeMediaDurationMs } from "@/lib/media-metadata";
-import { makeClipFromAsset } from "@/lib/timeline/asset-ingest";
+import { assetToClipKind, makeClipFromAsset } from "@/lib/timeline/asset-ingest";
 import { DEFAULT_AUDIO_TRACK_ID, DEFAULT_SUBTITLE_TRACK_ID, DEFAULT_VIDEO_TRACK_ID } from "@/lib/timeline/timeline-tracks";
 import { linkProjectAsset } from "@/services/api/projects";
 import { uploadResourceFile, type ResourceUploadMeta } from "@/services/api/resources";
@@ -213,13 +213,17 @@ function MediaPreview({ asset }: { asset: ProjectAsset }) {
  *  自带头部（标题+关闭）、可滚动内容区与固定底部操作；Esc 或关闭按钮退出。 */
 function AssetDetailSheet({
     asset,
-    added,
+    actionLabel,
     onAdd,
+    onReplace,
+    replaceBlockedReason,
     onClose,
 }: {
     asset: ProjectAsset;
-    added: boolean;
+    actionLabel: string;
     onAdd: () => void;
+    onReplace?: () => void;
+    replaceBlockedReason?: string;
     onClose: () => void;
 }) {
     const closeRef = useRef<HTMLButtonElement | null>(null);
@@ -284,18 +288,30 @@ function AssetDetailSheet({
                 ) : null}
             </div>
             <div className="border-t border-[var(--director-sequencer-border)] p-2">
+                {onReplace ? (
+                    <button
+                        type="button"
+                        disabled={Boolean(replaceBlockedReason) || Boolean(actionLabel)}
+                        title={replaceBlockedReason || "用该素材替换当前选中的同类型片段，保留时间线位置"}
+                        onClick={onReplace}
+                        className="mb-1.5 flex h-7 w-full items-center justify-center gap-1 rounded-md border border-[var(--director-sequencer-border)] text-[11px] font-medium text-[var(--director-dock-fg-strong)] transition-colors hover:bg-[var(--director-control-hover)] disabled:pointer-events-none disabled:opacity-45"
+                    >
+                        <ArrowLeftRight className="size-3.5" />
+                        替换选中片段
+                    </button>
+                ) : null}
                 <button
                     type="button"
-                    disabled={added}
+                    disabled={Boolean(actionLabel)}
                     onClick={onAdd}
                     className={`flex h-7 w-full items-center justify-center gap-1 rounded-md text-[11px] font-medium transition-colors ${
-                        added
+                        actionLabel
                             ? "bg-[var(--director-success-soft)] text-[var(--director-success)]"
                             : "bg-[var(--director-accent)] text-[var(--director-on-accent)] hover:bg-[var(--director-accent-hover)]"
                     }`}
                 >
-                    {added ? <Check className="size-3.5" /> : <Plus className="size-3.5" />}
-                    {added ? "已添加到时间线" : "添加到时间线"}
+                    {actionLabel ? <Check className="size-3.5" /> : <Plus className="size-3.5" />}
+                    {actionLabel || "添加到时间线"}
                 </button>
             </div>
         </div>
@@ -309,8 +325,8 @@ export function EditorAssetIngest() {
 
 function EditorAssetIngestSession() {
     const { projectId, assets, refreshAssets } = useEditorHostContext();
-    const { project, dispatch } = useEditorStoreContext();
-    const [added, setAdded] = useState<string | null>(null);
+    const { project, dispatch, selectedClipId } = useEditorStoreContext();
+    const [assetAction, setAssetAction] = useState<{ id: string; label: string } | null>(null);
     const [importing, setImporting] = useState(false);
     const [importError, setImportError] = useState<string | null>(null);
     const [importNote, setImportNote] = useState<string | null>(null);
@@ -481,8 +497,35 @@ function EditorAssetIngestSession() {
         });
         if (!clip) return;
         dispatch({ op: "addClip", payload: { clip } });
-        setAdded(asset.id);
-        setTimeout(() => setAdded(null), 1200);
+        setAssetAction({ id: asset.id, label: "已添加到时间线" });
+        setTimeout(() => setAssetAction(null), 1200);
+    };
+
+    const selectedClip = project.clips.find((clip) => clip.id === selectedClipId) ?? null;
+    const replaceSelected = (asset: ProjectAsset) => {
+        if (!selectedClip) return;
+        const kind = assetToClipKind(asset.mediaType);
+        if (!kind || kind !== selectedClip.kind || !["video", "audio", "image"].includes(kind)) return;
+        if (asset.durationMs && asset.durationMs < selectedClip.durationMs) return;
+        const replacement = makeClipFromAsset(asset, {
+            trackId: selectedClip.trackId,
+            startMs: selectedClip.startMs,
+            defaultDurationMs: selectedClip.durationMs,
+            id: selectedClip.id,
+        });
+        if (!replacement?.directMedia) return;
+        dispatch({
+            op: "replaceClipMedia",
+            payload: {
+                id: selectedClip.id,
+                nodeId: replacement.nodeId,
+                directMedia: replacement.directMedia,
+                title: replacement.title,
+                ...(asset.durationMs && asset.durationMs > 0 ? { sourceDurationMs: asset.durationMs } : {}),
+            },
+        });
+        setAssetAction({ id: asset.id, label: "已替换选中片段" });
+        setTimeout(() => setAssetAction(null), 1200);
     };
 
     const uploadedAssets = assets.filter((a) => a.source === SOURCE_UPLOADED);
@@ -609,7 +652,7 @@ function EditorAssetIngestSession() {
                                                             onClick={() => setExpandedId(expanded ? null : asset.id)}
                                                             title={asset.title || asset.storageKey}
                                                             className={`group flex w-full items-center gap-2 rounded-md px-1 py-[3px] text-left transition-colors ${
-                                                                added === asset.id ? "bg-[var(--director-accent)]/15" : "hover:bg-[var(--director-control-hover)]"
+                                                        assetAction?.id === asset.id ? "bg-[var(--director-accent)]/15" : "hover:bg-[var(--director-control-hover)]"
                                                             }`}
                                                         >
                                                             <AssetThumb asset={asset} />
@@ -642,9 +685,13 @@ function EditorAssetIngestSession() {
                 {expandedAsset ? (
                     <AssetDetailSheet
                         asset={expandedAsset}
-                        added={added === expandedAsset.id}
+                        actionLabel={assetAction?.id === expandedAsset.id ? assetAction.label : ""}
                         onClose={() => setExpandedId(null)}
                         onAdd={() => addToTimeline(expandedAsset)}
+                        onReplace={selectedClip && assetToClipKind(expandedAsset.mediaType) === selectedClip.kind && ["video", "audio", "image"].includes(selectedClip.kind) ? () => replaceSelected(expandedAsset) : undefined}
+                        replaceBlockedReason={selectedClip?.durationMs && expandedAsset.durationMs && expandedAsset.durationMs < selectedClip.durationMs
+                            ? `素材时长 ${formatDurationMs(expandedAsset.durationMs)}，短于选中片段的 ${formatDurationMs(selectedClip.durationMs)}`
+                            : undefined}
                     />
                 ) : null}
             </div>

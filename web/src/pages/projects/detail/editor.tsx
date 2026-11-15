@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
     AlertTriangle,
     Check,
@@ -14,9 +15,10 @@ import {
     Undo2,
     X,
 } from "lucide-react";
+import { useSearchParams } from "react-router";
 
 import type { ProjectAsset, ProjectDetail, ShotArtifact } from "@/services/api/projects";
-import { linkProjectAsset, listProjectAssets } from "@/services/api/projects";
+import { getProjectUnitWorkspace, linkProjectAsset, listProjectAssets } from "@/services/api/projects";
 import { useEditorSlots, type EditorSlotRegistration } from "@/lib/plugins/editor-slot-registry";
 import { pluginMayRenderEditorSlot } from "@/lib/plugins/plugin-permission-check";
 import { EditorStoreProvider } from "@/components/editor/editor-context";
@@ -25,22 +27,13 @@ import { useAppUpdateSafetyStore } from "@/stores/use-app-update-safety-store";
 import { registerDesktopUpdatePreparation } from "@/services/desktop-update-preparation";
 import { localForageStorageForScope } from "@/lib/localforage-storage";
 import { getActiveUserScope } from "@/lib/user-scope";
-import { normalizeTimelineProject } from "@/lib/timeline/timeline-tracks";
+import { resolveEditorTimeline } from "@/lib/timeline/editor-delivery-seed";
+import { buildDeliveryTimeline } from "@/lib/timeline/shot-sequence-timeline";
 import { formatTimelineTime } from "@/lib/timeline/timeline-view";
 import { useEditorStoreContext } from "@/components/editor/editor-context";
 import type { TimelineProject } from "@/types/timeline";
 
 const EDITOR_TIMELINE_KEY = "editor-timeline";
-
-/**
- * 为尚未产生本地时间线的项目建立一个可编辑的初始时间线。
- * 该时间线只写入当前用户与项目作用域的本地存储，不代表服务端已有成片数据。
- */
-function createEmptyEditorTimeline(): TimelineProject {
-    // 没有真实素材时返回空时间线，避免把不存在的 demo node 当成可剪辑资产。
-    // 用户添加素材后由编辑器命令创建轨道和片段；空项目不应被伪造为已有成片。
-    return normalizeTimelineProject({ version: 2, tracks: [], clips: [], durationMs: 0 });
-}
 
 /** 插槽堆叠：只渲染通过权限检查的插件贡献；无可用插件时显示明确的缺失能力提示。
  *  缺权限插件不渲染，改为一行诊断提示；无贡献时显示空态（停用插件可见）。 */
@@ -261,6 +254,22 @@ export default function ProjectEditorView({ detail }: { detail: ProjectDetail })
     const splitterRef = useRef<{ startY: number; startH: number } | null>(null);
     const scope = getActiveUserScope();
     const projectId = detail.project.id;
+    const [searchParams] = useSearchParams();
+    const seedFromDelivery = searchParams.get("source") === "delivery";
+    const requestedUnitId = searchParams.get("unitId") || "";
+    const seedUnitId = detail.units.some((unit) => unit.id === requestedUnitId)
+        ? requestedUnitId
+        : detail.units.slice().sort((left, right) => left.position - right.position)[0]?.id || "";
+    const deliveryQuery = useQuery({
+        queryKey: ["project", projectId, "editor-delivery-seed", seedUnitId],
+        queryFn: () => getProjectUnitWorkspace(projectId, seedUnitId),
+        enabled: seedFromDelivery && Boolean(seedUnitId),
+    });
+    const deliveryResourceKeys = useMemo(() => {
+        if (!seedFromDelivery || !deliveryQuery.data) return new Set<string>();
+        const built = buildDeliveryTimeline(deliveryQuery.data, seedUnitId, { aspectRatio: detail.project.aspectRatio });
+        return new Set(built.timeline.clips.flatMap((clip) => clip.directMedia?.storageKey ? [clip.directMedia.storageKey] : []));
+    }, [deliveryQuery.data, detail.project.aspectRatio, seedFromDelivery, seedUnitId]);
     const assetOwnerKey = JSON.stringify([scope, projectId]);
     const activeAssetOwnerKeyRef = useRef(assetOwnerKey);
     const assetRefreshSequenceRef = useRef(0);
@@ -363,28 +372,37 @@ export default function ProjectEditorView({ detail }: { detail: ProjectDetail })
         };
     }, [projectId, store]);
 
-    // 进入编辑器时只加载当前用户和项目作用域的本地时间线；没有真实数据时保持空时间线，禁止注入虚构片段。
+    // 本地手工时间线始终优先；首次从交付页进入时才用当前章节镜头自动铺轨。
     useEffect(() => {
+        if (seedFromDelivery && !deliveryQuery.isFetched) return;
         let cancelled = false;
         void (async () => {
             try {
                 const storage = localForageStorageForScope(scope);
                 const raw = await storage.getItem(`${EDITOR_TIMELINE_KEY}:${projectId}`);
-                let loaded = createEmptyEditorTimeline();
-                if (raw) {
+                const resolved = resolveEditorTimeline({
+                    storedRaw: typeof raw === "string" ? raw : null,
+                    delivery: seedFromDelivery ? deliveryQuery.data : undefined,
+                    unitId: seedUnitId,
+                    aspectRatio: detail.project.aspectRatio,
+                });
+                if (resolved.storedError) {
+                    // 本地历史数据属于读展示路径：坏记录不能阻塞编辑器启动。
+                    console.warn("读取编辑器本地时间线失败，已按可用数据回退", {
+                        projectId,
+                        storageKey: `${EDITOR_TIMELINE_KEY}:${projectId}`,
+                        error: resolved.storedError,
+                    });
+                }
+                if (!cancelled) store.getState().load(resolved.timeline);
+                if (resolved.source === "delivery") {
+                    // 交付页首次铺轨后立即落成本地草稿，避免导航参数丢失时又回填空时间线。
                     try {
-                        loaded = normalizeTimelineProject(JSON.parse(raw));
+                        await storage.setItem(`${EDITOR_TIMELINE_KEY}:${projectId}`, JSON.stringify(resolved.timeline));
                     } catch (error) {
-                        // 本地历史数据属于读展示路径：坏记录不能阻塞编辑器启动，
-                        // 但必须记录项目和存储键，后续可按键清理或迁移，而不是把坏数据伪装成有效时间线。
-                        console.warn("读取编辑器本地时间线失败，已使用空时间线", {
-                            projectId,
-                            storageKey: `${EDITOR_TIMELINE_KEY}:${projectId}`,
-                            error,
-                        });
+                        console.warn("交付时间线已载入，但本地草稿保存失败", { projectId, error });
                     }
                 }
-                if (!cancelled) store.getState().load(loaded);
             } catch (error) {
                 // IndexedDB/localforage 不可用时不写入空时间线，避免覆盖可能仍可恢复的本地数据。
                 console.error("读取编辑器本地时间线存储失败，保留编辑器初始状态", { projectId, error });
@@ -393,9 +411,9 @@ export default function ProjectEditorView({ detail }: { detail: ProjectDetail })
         return () => {
             cancelled = true;
         };
-    }, [scope, projectId, store]);
+    }, [scope, projectId, store, seedFromDelivery, seedUnitId, deliveryQuery.isFetched, deliveryQuery.data, detail.project.aspectRatio]);
 
-    // 画布产物自动同步：detail.shotArtifacts 中当前采用(storyboard/action_board/
+    // 画布产物自动同步：当前章节镜头产物中已采用(storyboard/action_board/
     // 分镜/导出成片，且 ready + 有资源)尚未作为素材进本项目时，自动
     // linkProjectAsset(source=canvas) 并入素材库 —— 剪辑器“素材选项”直接可用画布产物。
     // 后端幂等（已链接直接返回）；单个失败不阻塞其余资源，但会记录告警，
@@ -408,10 +426,13 @@ export default function ProjectEditorView({ detail }: { detail: ProjectDetail })
         syncedAssetOwnerKeyRef.current = assetOwnerKey;
         syncedCanvasResourcesRef.current.clear();
     }, [assetOwnerKey]);
-    const canvasSyncKeys = detail.shotArtifacts
+    const editorShotArtifacts = deliveryQuery.data?.shotArtifacts?.length
+        ? deliveryQuery.data.shotArtifacts
+        : detail.shotArtifacts;
+    const canvasSyncKeys = editorShotArtifacts
         .filter(
             (a): a is ShotArtifact & { resourceId: string } =>
-                a.selected &&
+                (a.selected || deliveryResourceKeys.has(`resource:${a.resourceId}`)) &&
                 a.status === "ready" &&
                 !!a.resourceId &&
                 ["storyboard", "action_board", "start_frame", "end_frame", "video", "delivery"].includes(a.type),

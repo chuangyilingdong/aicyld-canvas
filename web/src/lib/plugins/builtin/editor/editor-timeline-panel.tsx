@@ -721,7 +721,7 @@ function ClipItem({
     const isAudio = clip.kind === "audio";
     const left = clip.startMs * pxPerMs;
     const width = clip.durationMs * pxPerMs;
-    const label = clip.text || clip.nodeId || clip.id;
+    const label = clip.text || clip.title || clip.directMedia?.title || clip.nodeId || clip.id;
     const playheadInside = playheadMs >= clip.startMs && playheadMs <= clip.startMs + clip.durationMs;
 
     const razorSplitAt = (e: React.PointerEvent) => {

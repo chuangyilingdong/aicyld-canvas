@@ -18,6 +18,11 @@ export type DeliveryIssue =
 
 export type DeliveryTimelineInput = Pick<ProjectDetail, "shots" | "shotArtifacts" | "shotRevisions">;
 
+export type DeliveryTimelineOptions = {
+    /** 项目画幅；成片输出规格必须随项目走，不能落回时间线默认横屏。 */
+    aspectRatio?: string;
+};
+
 export type DeliveryTimeline = {
     timeline: TimelineProject;
     issues: DeliveryIssue[];
@@ -32,7 +37,7 @@ export type DeliveryTimeline = {
  * 任务完成（ffmpeg concat + libx264）。因此这里必须产出合法的 TimelineProject，
  * 而不是本地 ffmpeg.wasm 的步骤计划。
  */
-export function buildDeliveryTimeline(detail: DeliveryTimelineInput, unitId: string): DeliveryTimeline {
+export function buildDeliveryTimeline(detail: DeliveryTimelineInput, unitId: string, options: DeliveryTimelineOptions = {}): DeliveryTimeline {
     const shots = (detail.shots || [])
         .filter((shot) => !unitId || shot.unitId === unitId)
         .slice()
@@ -152,10 +157,28 @@ export function buildDeliveryTimeline(detail: DeliveryTimelineInput, unitId: str
     ];
 
     return {
-        timeline: { version: 2, tracks, clips, durationMs: cursor },
+        timeline: {
+            version: 2,
+            tracks,
+            clips,
+            durationMs: cursor,
+            output: deliveryOutputForAspectRatio(options.aspectRatio),
+        },
         issues,
         shotCount: shots.length,
     };
+}
+
+function deliveryOutputForAspectRatio(aspectRatio: string | undefined): NonNullable<TimelineProject["output"]> {
+    switch ((aspectRatio || "").trim()) {
+        case "16:9":
+            return { width: 1280, height: 720, fps: 30, sampleRate: 48_000, burnSubtitles: true };
+        case "1:1":
+            return { width: 720, height: 720, fps: 30, sampleRate: 48_000, burnSubtitles: true };
+        case "9:16":
+        default:
+            return { width: 720, height: 1280, fps: 30, sampleRate: 48_000, burnSubtitles: true };
+    }
 }
 
 /** 取镜头当前选中的视频产物；没有标记 selected 时退到版本号最高的一个。 */

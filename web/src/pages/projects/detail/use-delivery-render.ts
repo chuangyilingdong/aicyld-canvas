@@ -33,7 +33,10 @@ export function useDeliveryRender({ detail, projectId, unitId, deliveryStep, onR
     const [statusText, setStatusText] = useState("");
     const [error, setError] = useState("");
 
-    const { timeline, issues, shotCount } = useMemo(() => buildDeliveryTimeline(detail, unitId), [detail, unitId]);
+    const { timeline, issues, shotCount } = useMemo(
+        () => buildDeliveryTimeline(detail, unitId, { aspectRatio: detail.project.aspectRatio }),
+        [detail, unitId],
+    );
     const readyCount = shotCount - issues.length;
 
     const render = useCallback(async () => {
@@ -105,5 +108,6 @@ export function useDeliveryRender({ detail, projectId, unitId, deliveryStep, onR
         render,
         shotCount,
         statusText,
+        timeline,
     };
 }

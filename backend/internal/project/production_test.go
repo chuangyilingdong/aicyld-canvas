@@ -412,3 +412,40 @@ func TestMoveProjectAssetRejectsMissingFolderInsideTransaction(t *testing.T) {
 		t.Fatalf("missing folder move = %v, want not found", err)
 	}
 }
+
+func TestLinkProjectAssetReusesExistingMediaAssetForResource(t *testing.T) {
+	svc, db := newTestService(t, nil)
+	project := seedProject(t, db, model.Project{ID: "project-link-existing", UserID: "user-1", Name: "短剧"})
+	now := time.Now()
+	resource := model.Resource{ID: "resource-link-existing", UserID: "user-1", Kind: "video", Status: model.ResourceStatusReady, MimeType: "video/mp4", CreatedAt: now, UpdatedAt: now}
+	asset := model.Asset{
+		ID: "generated-asset-link-existing", UserID: "user-1", Kind: "video", Category: model.AssetCategoryMaterial,
+		Status: model.AssetVersionStatusConfirmed, Title: "已生成视频",
+		PayloadJSON: `{"data":{"storageKey":"resource:resource-link-existing","kind":"video"}}`, CreatedAt: now, UpdatedAt: now,
+	}
+	if err := db.Create(&resource).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&asset).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	linked, err := svc.LinkProjectAsset("user-1", project.ID, LinkProjectAssetRequest{AssetID: resource.ID, Title: "镜头视频", Source: AssetSourceCanvas})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if linked.ID != asset.ID {
+		t.Fatalf("linked asset id = %q, want existing media asset %q", linked.ID, asset.ID)
+	}
+	var link model.ProjectAssetLink
+	if err := db.First(&link, "project_id = ? AND asset_id = ?", project.ID, asset.ID).Error; err != nil {
+		t.Fatalf("existing media asset link missing: %v", err)
+	}
+	var duplicateCount int64
+	if err := db.Model(&model.Asset{}).Where("user_id = ? AND kind = ? AND status <> ? AND json_extract(payload_json, '$.data.storageKey') = ?", "user-1", "video", model.AssetVersionStatusArchived, "resource:resource-link-existing").Count(&duplicateCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if duplicateCount != 1 {
+		t.Fatalf("active media asset count = %d, want 1", duplicateCount)
+	}
+}

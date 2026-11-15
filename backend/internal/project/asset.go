@@ -74,6 +74,14 @@ func (s *Service) LinkProjectAsset(userID string, projectID string, req LinkProj
 		if err != nil {
 			return AssetSummary{}, err
 		}
+		storageKey := "resource:" + assetID
+		existing, lookupErr := s.repo.AssetsForUserMediaStorageKeys(userID, asset.Kind, []string{storageKey})
+		if lookupErr != nil {
+			return AssetSummary{}, lookupErr
+		}
+		if len(existing) > 0 {
+			asset = &existing[0]
+		}
 	}
 	category := model.AssetCategory(strings.TrimSpace(req.Category))
 	if category == "" {

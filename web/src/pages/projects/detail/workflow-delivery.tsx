@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef } from "react";
 import { App, Button } from "antd";
-import { Clock3, Download, Film, Layers3, PackageCheck, Sparkles } from "lucide-react";
-import { useSearchParams } from "react-router";
+import { Clock3, Download, Film, Layers3, PackageCheck, Scissors, Sparkles } from "lucide-react";
+import { useNavigate, useSearchParams } from "react-router";
 
 import type { ProjectDetail } from "@/services/api/projects";
 import { resourceFileUrl } from "@/services/api/resources";
 import type { TimelineRenderResult } from "@/services/api/timeline-tasks";
+import type { TimelineProject } from "@/types/timeline";
 
 import { MetricCard, StageHeading, formatDuration } from "./workflow-shared";
 import { useDeliveryRender } from "./use-delivery-render";
@@ -25,6 +26,7 @@ type Props = {
  */
 export function WorkflowDeliveryPanel({ detail, projectId, unitId, onRefresh }: Props) {
     const { message } = App.useApp();
+    const navigate = useNavigate();
     const [searchParams, setSearchParams] = useSearchParams();
     const autostartRef = useRef(false);
     const unit = detail.units.find((item) => item.id === unitId);
@@ -50,7 +52,7 @@ export function WorkflowDeliveryPanel({ detail, projectId, unitId, onRefresh }: 
         }
     }, [deliveryStep?.outputJson]);
 
-    const { durationMs, error, issues, phase, progress, readyCount, render, shotCount, statusText } = useDeliveryRender({
+    const { durationMs, error, issues, phase, progress, readyCount, render, shotCount, statusText, timeline } = useDeliveryRender({
         detail,
         projectId,
         unitId,
@@ -91,6 +93,8 @@ export function WorkflowDeliveryPanel({ detail, projectId, unitId, onRefresh }: 
                 <MetricCard icon={<Layers3 className="size-5" />} label="过期产物" value={String(staleCount)} />
             </div>
 
+            <DeliveryTimelineSummary timeline={timeline} />
+
             <MissingShotsNotice titles={issues.map((issue) => issue.title)} />
 
             <div className="mt-5 border-y border-border/70 py-5">
@@ -99,6 +103,7 @@ export function WorkflowDeliveryPanel({ detail, projectId, unitId, onRefresh }: 
                     unitTitle={unitTitle}
                     running={phase === "running"}
                     blocked={issues.length > 0 || shotCount === 0}
+                    onEditTimeline={() => navigate(`/projects/${projectId}/editor?unitId=${encodeURIComponent(unitId)}&source=delivery`)}
                     onRender={render}
                 />
                 <DeliveryRenderProgress running={phase === "running"} progress={progress} statusText={statusText} />
@@ -133,21 +138,79 @@ function MissingShotsNotice({ titles }: { titles: string[] }) {
     );
 }
 
-function DeliveryActions({ result, unitTitle, running, blocked, onRender }: {
+function DeliveryActions({ result, unitTitle, running, blocked, onEditTimeline, onRender }: {
     result?: TimelineRenderResult;
     unitTitle: string;
     running: boolean;
     blocked: boolean;
+    onEditTimeline: () => void;
     onRender: () => Promise<void>;
 }) {
     return (
         <div className="flex flex-wrap items-center gap-3">
+            <Button icon={<Scissors className="size-4" />} disabled={blocked} onClick={onEditTimeline}>
+                在编辑器中编排
+            </Button>
             <Button type="primary" icon={<Sparkles className="size-4" />} loading={running} disabled={blocked} onClick={() => void onRender()}>
                 {result ? "重新生成成片" : "一键成片"}
             </Button>
             <DownloadResources result={result} unitTitle={unitTitle} />
         </div>
     );
+}
+
+function DeliveryTimelineSummary({ timeline }: { timeline: TimelineProject }) {
+    const tracks = timeline.tracks
+        .filter((track) => timeline.clips.some((clip) => clip.trackId === track.id))
+        .slice()
+        .sort((left, right) => left.order - right.order);
+    if (!tracks.length || timeline.durationMs <= 0) return null;
+    const output = timeline.output;
+
+    return (
+        <section className="mt-5 rounded-xl border border-border/70 bg-surface p-4" aria-label="成片时间线预览">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                    <h3 className="text-sm font-semibold">成片时间线</h3>
+                    <p className="mt-1 text-xs text-foreground/48">视频、旁白、配乐与字幕已按镜头顺序铺轨；进入编辑器可裁剪并局部替换素材。</p>
+                </div>
+                <span className="text-[var(--fs-micro)] text-foreground/42">
+                    {formatDuration(timeline.durationMs)}{output ? ` · ${output.width}×${output.height}` : ""}
+                </span>
+            </div>
+            <div className="space-y-2">
+                {tracks.map((track) => {
+                    const clips = timeline.clips.filter((clip) => clip.trackId === track.id);
+                    return (
+                        <div key={track.id} className="grid grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-2">
+                            <span className="truncate text-[11px] text-foreground/55">{track.label || track.kind}</span>
+                            <div className="relative h-8 overflow-hidden rounded-md border border-border/60 bg-foreground/[.035]">
+                                {clips.map((clip) => (
+                                    <div
+                                        key={clip.id}
+                                        title={`${clip.title || clip.text || clip.id} · ${formatDuration(clip.durationMs)}`}
+                                        className={`absolute inset-y-0 overflow-hidden border-r border-black/15 px-1.5 text-[10px] leading-8 ${clipTrackTone(clip.kind)}`}
+                                        style={{
+                                            left: `${(clip.startMs / timeline.durationMs) * 100}%`,
+                                            width: `${Math.max(0.5, (clip.durationMs / timeline.durationMs) * 100)}%`,
+                                        }}
+                                    >
+                                        <span className="block truncate">{clip.title || clip.text || clip.kind}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+        </section>
+    );
+}
+
+function clipTrackTone(kind: TimelineProject["clips"][number]["kind"]) {
+    if (kind === "subtitle") return "bg-[color-mix(in_srgb,var(--status-warning)_22%,transparent)] text-foreground/75";
+    if (kind === "audio") return "bg-[color-mix(in_srgb,var(--status-success)_20%,transparent)] text-foreground/75";
+    return "bg-[color-mix(in_srgb,var(--workspace-accent)_20%,transparent)] text-foreground/80";
 }
 
 function DownloadResources({ result, unitTitle }: { result?: TimelineRenderResult; unitTitle: string }) {
