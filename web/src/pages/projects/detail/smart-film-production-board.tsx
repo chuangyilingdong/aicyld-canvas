@@ -1,5 +1,6 @@
 import { Button } from "antd";
 import { ArrowLeft, ArrowRight, CheckCircle2, Clapperboard, Download, Film, Image as ImageIcon, LoaderCircle, Sparkles, Video } from "lucide-react";
+import { useEffect, useState } from "react";
 
 import { resourceFileUrl } from "@/services/api/resources";
 import type { ProjectDetail, ProjectShot, ShotArtifact } from "@/services/api/projects";
@@ -92,6 +93,13 @@ export function SmartFilmVideoBoard({ detail, shots, readyCount, targetSeconds, 
     onDownload: () => void;
 }) {
     const allReady = shots.length > 0 && readyCount === shots.length;
+    const assetTitles = new Map(detail.assets.map((asset) => [asset.id, asset.title]));
+    const planSignature = shots.map((shot) => {
+        const revision = currentRevision(detail, shot);
+        return `${shot.id}:${shot.durationMs}:${revision?.videoPrompt || ""}:${revision?.action || ""}`;
+    }).join("|");
+    const [planConfirmed, setPlanConfirmed] = useState(false);
+    useEffect(() => setPlanConfirmed(false), [planSignature]);
     return (
         <section className="h-full min-h-0 overflow-y-auto px-4 py-4 thin-scrollbar">
             <header className="mb-4 flex flex-col gap-3 rounded-xl border border-border/70 bg-surface px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
@@ -101,30 +109,37 @@ export function SmartFilmVideoBoard({ detail, shots, readyCount, targetSeconds, 
                         <strong className="text-sm">生成整片视频</strong>
                         <span className="text-xs text-foreground/42">使用 {readyCount}/{shots.length} 张分镜图 · 目标 {formatDuration(targetSeconds * 1000)}</span>
                     </div>
-                    <p className="mt-1 text-xs leading-5 text-foreground/48">这一步只生成一条完整视频，不生成分镜图，也不逐镜生成视频。分镜图、镜头时长和动作节拍会共同作为视频生成依据。</p>
+                    <p className="mt-1 text-xs leading-5 text-foreground/48">请逐个核对参考图、视频提示词和时长；确认参考分镜后才能生成 1 条完整视频。本步骤不生成分镜图，也不逐镜生成视频。</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                     <Button icon={<ArrowLeft className="size-4" />} onClick={onBack}>返回分镜图</Button>
                     <Button icon={<Download className="size-4" />} disabled={!latestResourceId} onClick={onDownload}>下载整片视频</Button>
-                    <Button type="primary" icon={generating ? <LoaderCircle className="size-4 animate-spin" /> : <Video className="size-4" />} loading={generating} disabled={!allReady} onClick={onGenerate}>{latestResourceId ? "重新生成整片视频" : "生成整片视频"}</Button>
+                    <Button type={planConfirmed ? "default" : "primary"} icon={<CheckCircle2 className="size-4" />} disabled={!allReady || planConfirmed} onClick={() => setPlanConfirmed(true)}>{planConfirmed ? "已确认参考分镜" : "确认参考分镜"}</Button>
+                    <Button type={planConfirmed ? "primary" : "default"} icon={generating ? <LoaderCircle className="size-4 animate-spin" /> : <Video className="size-4" />} loading={generating} disabled={!allReady || !planConfirmed} onClick={onGenerate}>{latestResourceId ? "重新生成整片视频" : "生成整片视频"}</Button>
                 </div>
             </header>
 
             <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_360px]">
                 <div className="rounded-xl border border-border/70 bg-surface p-3">
-                    <div className="mb-2 flex items-center gap-2 text-xs font-medium"><Clapperboard className="size-4" />分镜顺序与计划时长</div>
+                    <div className="mb-2 flex items-center justify-between gap-2 text-xs font-medium"><span className="flex items-center gap-2"><Clapperboard className="size-4" />参考分镜清单</span><span className="text-foreground/38">每张参考图对应一条视频提示词和计划时长</span></div>
                     <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                         {shots.map((shot, index) => {
                             const artifact = currentArtifact(detail, shot.id, "storyboard");
+                            const revision = currentRevision(detail, shot);
                             return <div key={shot.id} className="overflow-hidden rounded-lg border border-border/60 bg-foreground/[.025]">
                                 <div className="aspect-video bg-foreground/[.04]">{artifact?.resourceId ? <img src={resourceFileUrl(artifact.resourceId)} alt={`${shot.title}分镜图`} className="h-full w-full object-cover" loading="lazy" /> : <span className="grid h-full place-items-center text-foreground/25"><ImageIcon className="size-6" /></span>}</div>
-                                <div className="flex items-center justify-between gap-2 px-2.5 py-2 text-xs"><strong>镜头 {String(index + 1).padStart(2, "0")}</strong><span className="text-foreground/45">计划 {formatDuration(shot.durationMs)}</span></div>
+                                <div className="px-2.5 py-2">
+                                    <div className="flex items-center justify-between gap-2 text-xs"><strong>镜头 {String(index + 1).padStart(2, "0")}</strong><span className="text-foreground/45">计划 {formatDuration(shot.durationMs)}</span></div>
+                                    <div className="mt-2 text-[var(--fs-micro)] font-medium text-foreground/38">视频提示词</div>
+                                    <p className="mt-1 whitespace-pre-wrap text-[var(--fs-tiny)] leading-5 text-foreground/58">{readablePrompt(revision?.videoPrompt || revision?.plotDescription || "尚未填写视频提示词", assetTitles)}</p>
+                                    {revision?.action ? <details className="mt-2 border-t border-border/50 pt-2"><summary className="cursor-pointer text-[var(--fs-micro)] text-foreground/38">动作与时间节拍</summary><p className="mt-1 whitespace-pre-wrap text-[var(--fs-tiny)] leading-5 text-foreground/50">{revision.action}</p></details> : null}
+                                </div>
                             </div>;
                         })}
                     </div>
                 </div>
                 <div className="flex min-h-56 items-center justify-center rounded-xl border border-border/70 bg-surface p-3">
-                    {latestResourceId ? <video src={resourceFileUrl(latestResourceId)} controls className="max-h-[420px] w-full rounded-lg" preload="metadata" /> : <div className="text-center text-foreground/38"><Film className="mx-auto size-10" /><p className="mt-2 text-xs">还没有生成整片视频</p><p className="mt-1 text-[var(--fs-tiny)] text-foreground/30">分镜图全部就绪后即可生成</p></div>}
+                    {latestResourceId ? <video src={resourceFileUrl(latestResourceId)} controls className="max-h-[420px] w-full rounded-lg" preload="metadata" /> : <div className="text-center text-foreground/38"><Film className="mx-auto size-10" /><p className="mt-2 text-xs">还没有生成整片视频</p><p className="mt-1 text-[var(--fs-tiny)] text-foreground/30">{planConfirmed ? "可以开始生成整片视频" : "先核对并确认参考分镜"}</p></div>}
                 </div>
             </div>
         </section>

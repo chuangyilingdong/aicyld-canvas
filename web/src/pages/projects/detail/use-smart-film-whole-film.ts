@@ -91,7 +91,7 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
             metadata: { source: "smart-film-whole-video", domainProjectId: projectId, unitId, artifactType: "smart_film" },
             onTaskUpdate: (task) => { taskId = task.id; },
         };
-        if (!(await confirmQuote(options))) return;
+        if (!(await confirmQuote(buildBackendGenerationTaskQuoteInput(options)))) return;
         setSmartFilmGenerating(true);
         try {
             const result = await runBackendGenerationTask(options);
