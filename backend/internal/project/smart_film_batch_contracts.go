@@ -262,6 +262,7 @@ type SmartFilmStoryboardAsset struct {
 	Title            string         `json:"title"`
 	Category         string         `json:"category"`
 	MediaType        string         `json:"mediaType"`
+	VisualReference  bool           `json:"visualReference"`
 	PrimaryVersionID string         `json:"primaryVersionId,omitempty"`
 	Prompt           string         `json:"prompt"`
 	Definition       map[string]any `json:"definition,omitempty"`

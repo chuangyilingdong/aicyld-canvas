@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { activeShotAssetRoles, linkedShotAssetReferences, parseShotAssetRoles, shotAssetRoleLabel } from "../src/pages/projects/detail/shot-asset-roles";
+import { activeShotAssetRoles, isProjectAssetVisualReference, linkedShotAssetReferences, parseShotAssetRoles, shotAssetRoleLabel } from "../src/pages/projects/detail/shot-asset-roles";
 import { revisionInput, shotEditorValues } from "../src/pages/projects/detail/workflow-production-helpers";
 import type { ProjectAsset, ProjectDetail, ProjectShot, ShotAssetReference } from "../src/services/api/projects";
 
@@ -30,6 +30,26 @@ describe("shot asset roles", () => {
             { id: "d", role: "reference", status: "deleted" },
         ] as ShotAssetReference[];
         expect(linkedShotAssetReferences(references).map((reference) => reference.id)).toEqual(["a", "b"]);
+    });
+
+    test("distinguishes visual reference assets from text-only settings", () => {
+        expect(isProjectAssetVisualReference({ id: "image", title: "产品图", mediaType: "image", storageKey: "resource:image-1" } as ProjectAsset)).toBe(true);
+        expect(isProjectAssetVisualReference({ id: "text", title: "场景设定", mediaType: "text" } as ProjectAsset)).toBe(false);
+        expect(isProjectAssetVisualReference({ id: "broken-image", title: "缺图", mediaType: "image" } as ProjectAsset)).toBe(false);
+        expect(isProjectAssetVisualReference({
+            id: "character",
+            title: "角色",
+            mediaType: "entity",
+            character: {
+                versionId: "v1",
+                version: 1,
+                definition: {},
+                representations: [{ id: "rep", resourceId: "resource-character", mediaType: "image/png", role: "primary" }],
+                visualStatus: "ready",
+                voiceStatus: "missing",
+            },
+        } as ProjectAsset)).toBe(true);
+        expect(isProjectAssetVisualReference({ id: "character-text", title: "文本角色", mediaType: "entity", character: { versionId: "v1", version: 1, definition: {}, representations: [], visualStatus: "missing", voiceStatus: "missing" } } as ProjectAsset)).toBe(false);
     });
 
     test("keeps multiple product roles only while their references are linked", () => {

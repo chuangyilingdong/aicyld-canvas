@@ -265,12 +265,22 @@ func (s *Service) LinkShotAsset(userID string, projectID string, shotID string, 
 		return model.ShotAssetReference{}, err
 	}
 	versionID := strings.TrimSpace(req.AssetVersionID)
-	if _, err := s.repo.AssetVersionForProject(projectID, versionID); err != nil {
+	version, err := s.repo.AssetVersionForProject(projectID, versionID)
+	if err != nil {
 		return model.ShotAssetReference{}, err
 	}
 	role := strings.TrimSpace(req.Role)
 	if !validShotAssetRole(role) {
 		return model.ShotAssetReference{}, kernel.BadAuthRequest("不支持的镜头素材用途")
+	}
+	if role != "output" {
+		visual, visualErr := s.assetVersionHasVisualReference(userID, version)
+		if visualErr != nil {
+			return model.ShotAssetReference{}, visualErr
+		}
+		if !visual {
+			return model.ShotAssetReference{}, kernel.BadAuthRequest("该资产没有资产图，只能作为文本设定，不能绑定为镜头视觉参考")
+		}
 	}
 	now := time.Now()
 	reference := model.ShotAssetReference{ID: kernel.NewID(), ShotID: shotID, AssetVersionID: versionID, Role: role, Status: "linked", CreatedAt: now}
@@ -278,6 +288,29 @@ func (s *Service) LinkShotAsset(userID string, projectID string, shotID string, 
 		return model.ShotAssetReference{}, mapProjectWriteError(err)
 	}
 	return reference, nil
+}
+
+func (s *Service) assetVersionHasVisualReference(userID string, version *model.AssetVersion) (bool, error) {
+	if version == nil {
+		return false, nil
+	}
+	asset, err := s.repo.AssetForUser(userID, version.AssetID)
+	if err != nil {
+		return false, err
+	}
+	if asset.Kind == "image" {
+		return true, nil
+	}
+	representations, err := s.repo.AssetRepresentations(version.ID)
+	if err != nil {
+		return false, err
+	}
+	for _, representation := range representations {
+		if strings.HasPrefix(representation.MediaType, "image") && strings.TrimSpace(representation.ResourceID) != "" {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (s *Service) UnlinkShotAsset(userID string, projectID string, shotID string, referenceID string) error {

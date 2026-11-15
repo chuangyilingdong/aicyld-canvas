@@ -705,6 +705,49 @@ func TestSmartFilmAssetBindingResetsConfirmedPrompt(t *testing.T) {
 	}
 }
 
+func TestTextOnlyProjectAssetCannotBeLinkedAsShotReference(t *testing.T) {
+	svc, db := newTestService(t, &recordingWorkflows{})
+	project, err := svc.CreateProject("user-1", CreateProjectRequest{Name: "文本资产门禁", Type: "smart-film"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	unit, err := svc.CreateProjectUnit("user-1", project.ID, CreateProjectUnitRequest{Title: "独立视频", SourceText: "剧本"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shot, err := svc.CreateProjectShot("user-1", project.ID, CreateProjectShotRequest{
+		UnitID: unit.ID, Title: "镜头 1", Position: 0, DurationMs: 3000,
+		Revision: ShotRevisionInput{PlotDescription: "角色推门进入房间", DurationMs: 3000},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	asset := model.Asset{
+		ID: "text-setting", UserID: "user-1", Kind: "text", Category: model.AssetCategoryProp,
+		Status: model.AssetVersionStatusConfirmed, PrimaryVersionID: "text-setting-v1", Title: "门窗设定",
+		PayloadJSON: `{}`, CreatedAt: now, UpdatedAt: now,
+	}
+	version := model.AssetVersion{
+		ID: asset.PrimaryVersionID, AssetID: asset.ID, Version: 1, Status: model.AssetVersionStatusConfirmed,
+		DefinitionJSON: `{"description":"木质推拉门"}`, CreatedAt: now, UpdatedAt: now,
+	}
+	link := model.ProjectAssetLink{ID: "text-setting-link", ProjectID: project.ID, AssetID: asset.ID, Position: 0, CreatedAt: now}
+	if err := db.Create(&asset).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&version).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&link).Error; err != nil {
+		t.Fatal(err)
+	}
+	_, err = svc.LinkShotAsset("user-1", project.ID, shot.ID, LinkShotAssetRequest{AssetVersionID: version.ID, Role: "reference"})
+	if err == nil || !strings.Contains(err.Error(), "文本设定") {
+		t.Fatalf("LinkShotAsset error = %v, want text-only rejection", err)
+	}
+}
+
 func TestSmartFilmProductionRunCheckpointsAssetAndStoryboardStages(t *testing.T) {
 	svc, _ := newTestService(t, &recordingWorkflows{})
 	created, err := svc.CreateSmartFilmBatch("user-1", CreateSmartFilmBatchRequest{Title: "阶段记录", SourceText: "想法"})

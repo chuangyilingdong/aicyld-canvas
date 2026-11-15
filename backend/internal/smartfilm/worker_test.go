@@ -213,6 +213,38 @@ func TestWorkerStoryboardUsesAttemptScopedOperationID(t *testing.T) {
 	}
 }
 
+func TestStoryboardRowAssetsIgnoresTextOnlySettings(t *testing.T) {
+	assets := []localproject.SmartFilmStoryboardAsset{
+		{ID: "text-setting", Title: "雨夜街角", Category: "environment", MediaType: "text", VisualReference: false, PrimaryVersionID: "text-v1", Prompt: "潮湿的街道和霓虹灯"},
+		{ID: "product-image", Title: "咖啡杯", Category: "prop", MediaType: "image", VisualReference: true, PrimaryVersionID: "image-v1", Prompt: "白色陶瓷咖啡杯"},
+	}
+	row := map[string]any{
+		"plotDescription": "雨夜街角，角色举起咖啡杯",
+		"assetRefs": []any{
+			map[string]any{"nodeId": "text-setting", "role": "environment"},
+			map[string]any{"nodeId": "product-image", "role": "prop"},
+		},
+	}
+	ids, versions, roles := storyboardRowAssets(row, assets)
+	if len(ids) != 1 || ids[0] != "product-image" || len(versions) != 1 || versions[0] != "image-v1" {
+		t.Fatalf("ids=%v versions=%v", ids, versions)
+	}
+	if len(roles) != 1 || roles[0].AssetID != "product-image" || roles[0].Role != "prop" {
+		t.Fatalf("roles=%+v", roles)
+	}
+}
+
+func TestSanitizeAssetMentionsDropsTextOnlyReferences(t *testing.T) {
+	prompt := "雨夜街角 @[asset:text-setting] 咖啡杯 @[asset:product-image]"
+	cleaned := sanitizeAssetMentions(prompt, []string{"product-image"})
+	if strings.Contains(cleaned, "@[asset:text-setting]") {
+		t.Fatalf("text-only mention remained: %q", cleaned)
+	}
+	if !strings.Contains(cleaned, "@[asset:product-image]") {
+		t.Fatalf("visual mention removed: %q", cleaned)
+	}
+}
+
 func TestSmartFilmStageOperationIDKeepsInitialKeyStable(t *testing.T) {
 	if got := smartFilmStageOperationID("assets", "run-1", 1); got != "smart-film:assets:run-1" {
 		t.Fatalf("initial operation id = %q", got)
@@ -310,8 +342,8 @@ func TestWorkerStoryboardWritesShotsAndCheckpointsRun(t *testing.T) {
 		ProjectID: project.ID, UnitID: unit.ID, ProjectRevision: project.Revision, ScriptTitle: "第一场", ScriptContent: unit.SourceText,
 		TextModel: "text-model", ShotCount: 1, ShotDurationSeconds: 5, ShotDurationsSeconds: []float64{7}, StoryboardTaskID: task.ID,
 		Assets: []localproject.SmartFilmStoryboardAsset{
-			{ID: productA.ID, Title: productA.Title, Category: string(productA.Category), MediaType: "image", PrimaryVersionID: versionA.ID, Prompt: "产品A外观"},
-			{ID: productB.ID, Title: productB.Title, Category: string(productB.Category), MediaType: "image", PrimaryVersionID: versionB.ID, Prompt: "产品B外观"},
+			{ID: productA.ID, Title: productA.Title, Category: string(productA.Category), MediaType: "image", VisualReference: true, PrimaryVersionID: versionA.ID, Prompt: "产品A外观"},
+			{ID: productB.ID, Title: productB.Title, Category: string(productB.Category), MediaType: "image", VisualReference: true, PrimaryVersionID: versionB.ID, Prompt: "产品B外观"},
 		},
 	}
 	if err := worker.pollStoryboard(item); err != nil {

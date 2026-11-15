@@ -28,6 +28,11 @@ export function linkedShotAssetReferences(references: ShotAssetReference[]) {
     return references.filter((reference) => reference.role === "reference" && reference.status === "linked");
 }
 
+export function isProjectAssetVisualReference(asset: ProjectAsset) {
+    if (asset.mediaType === "image" && asset.storageKey) return true;
+    return Boolean(asset.character?.representations.some((representation) => representation.mediaType.startsWith("image") && representation.resourceId));
+}
+
 export function activeShotAssetRoles(roles: ShotAssetRole[], references: ShotAssetReference[], assets: ProjectAsset[]) {
     const linked = linkedShotAssetReferences(references);
     const assetByVersionId = new Map(assets.filter((asset) => asset.primaryVersionId).map((asset) => [asset.primaryVersionId as string, asset]));

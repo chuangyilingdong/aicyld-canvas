@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -393,8 +394,8 @@ func (w *Worker) applyStoryboard(item localproject.SmartFilmStoryboardWorkItem, 
 		}
 		description := DefaultString(rowString(row["visualPrompt"]), plot)
 		assetIDs, assetVersions, assetRoles := storyboardRowAssets(row, item.Assets)
-		imagePrompt := withAssetMentions(rowString(row["imageGenerationPrompt"]), assetIDs)
-		videoPrompt := withAssetMentions(rowString(row["videoMotionPrompt"]), assetIDs)
+		imagePrompt := withAssetMentions(sanitizeAssetMentions(rowString(row["imageGenerationPrompt"]), assetIDs), assetIDs)
+		videoPrompt := withAssetMentions(sanitizeAssetMentions(rowString(row["videoMotionPrompt"]), assetIDs), assetIDs)
 		shots = append(shots, localproject.ReplaceProjectUnitShotInput{
 			CreateProjectShotRequest: localproject.CreateProjectShotRequest{
 				UnitID: item.UnitID, Title: fmt.Sprintf("镜头 %d", index+1), Description: description,
@@ -474,7 +475,7 @@ func storyboardPrompt(item localproject.SmartFilmStoryboardWorkItem, assetsJSON 
 		"【剧情】\n" + item.ScriptContent,
 		"【项目画风】\n" + DefaultString(item.ProjectStyle, "保持视觉描述中性、可执行。"),
 		"【当前已确认资产】\n" + string(assetsJSON),
-		"【执行约束】\n- " + durationRule + "\n- " + countRule + "\n- 每个镜头只绑定实际出现的角色、场景和道具；禁止把全部产品图无差别塞入每个镜头。\n- assetRefs 只能使用当前已确认资产中的 ID；没有相关资产时返回空数组。\n- 单镜头最多 2 名主要角色、1 个主运镜、一条主要动作链、3 个 timeBeats 和 3 个 mustHave。\n- dialogue 只写本镜头实际念出的台词或简短旁白。\n- 只返回一个 JSON 对象，不要 Markdown、代码块或解释。",
+		"【执行约束】\n- " + durationRule + "\n- " + countRule + "\n- visualReference=true 表示有资产图，可作为视觉参考；visualReference=false 只是文本设定，只能用于理解角色、场景和道具。\n- 每个镜头只绑定实际出现的角色、场景和道具；禁止把全部产品图无差别塞入每个镜头。\n- assetRefs 只能使用 visualReference=true 的资产 ID；没有相关视觉资产时返回空数组。\n- 禁止把 visualReference=false 的资产写入 assetRefs，也禁止在提示词里生成对应的 @[asset:*]。\n- 单镜头最多 2 名主要角色、1 个主运镜、一条主要动作链、3 个 timeBeats 和 3 个 mustHave。\n- dialogue 只写本镜头实际念出的台词或简短旁白。\n- 只返回一个 JSON 对象，不要 Markdown、代码块或解释。",
 		"【输出结构】\n" + `{"title":"string","rows":[{"shotNumber":1,"durationSeconds":5,"plotDescription":"","dialogue":"","characters":[],"narrativeIntent":"","viewerPOV":"","performanceBlocking":"","shotSize":"","emotion":"","lightingAndAtmosphere":"","audioEffects":"","camera":"","motion":"","timeBeats":"","imageGenerationPrompt":"","videoMotionPrompt":"","continuityOut":"","negativePrompt":"","mustHave":[],"optionalDetails":[],"assetRefs":[{"nodeId":"asset-id","role":"character","priority":100}]}]}`,
 	}, "\n\n")
 }
@@ -555,6 +556,22 @@ func withAssetMentions(prompt string, assetIDs []string) string {
 	return prompt + "\n\n" + strings.Join(mentions, " ")
 }
 
+var assetMentionPattern = regexp.MustCompile(`@\[asset:([^\]]+)\]`)
+
+func sanitizeAssetMentions(prompt string, assetIDs []string) string {
+	allowed := make(map[string]bool, len(assetIDs))
+	for _, assetID := range assetIDs {
+		allowed[strings.TrimSpace(assetID)] = true
+	}
+	return strings.TrimSpace(assetMentionPattern.ReplaceAllStringFunc(prompt, func(token string) string {
+		match := assetMentionPattern.FindStringSubmatch(token)
+		if len(match) == 2 && allowed[strings.TrimSpace(match[1])] {
+			return token
+		}
+		return ""
+	}))
+}
+
 func storyboardRowAssets(row map[string]any, assets []localproject.SmartFilmStoryboardAsset) ([]string, []string, []localproject.ShotAssetRole) {
 	byID := make(map[string]localproject.SmartFilmStoryboardAsset, len(assets))
 	for _, asset := range assets {
@@ -565,7 +582,7 @@ func storyboardRowAssets(row map[string]any, assets []localproject.SmartFilmStor
 	add := func(id string) {
 		id = strings.TrimSpace(id)
 		asset, ok := byID[id]
-		if !ok || seen[id] || len(selected) >= 6 {
+		if !ok || !asset.VisualReference || seen[id] || len(selected) >= 6 {
 			return
 		}
 		seen[id] = true

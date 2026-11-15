@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button, Input, Select } from "antd";
-import { Box, ChevronDown, ChevronLeft, ChevronRight, Image as ImageIcon, Search, Sparkles, UsersRound } from "lucide-react";
+import { Box, ChevronDown, ChevronLeft, ChevronRight, FileText, Image as ImageIcon, Search, Sparkles, UsersRound } from "lucide-react";
 
 import { EmptyState } from "@/components/ui/product/empty-state";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
@@ -14,7 +14,7 @@ import { listProjectAssetsPage, type ProjectAsset, type ProjectAssetCandidate, t
 import { resourceFileUrl, resourceIdFromStorageKey } from "@/services/api/resources";
 import type { AiConfig } from "@/stores/use-config-store";
 import { ensureShotAssetMentionPrompt, buildShotAssetReferenceContext, type ShotAssetReferenceContext } from "./workflow-shot-references";
-import { activeShotAssetRoles, parseShotAssetRoles } from "./shot-asset-roles";
+import { activeShotAssetRoles, isProjectAssetVisualReference, parseShotAssetRoles } from "./shot-asset-roles";
 import { assetCategoryLabel, currentArtifact, currentRevision } from "./workflow-shared";
 
 export type ShotEditorValues = Omit<ShotRevisionInput, "durationMs"> & {
@@ -39,13 +39,14 @@ export function WorkflowDisclosure({ icon, title, description, summary, classNam
     );
 }
 
-export function AssetLibrary({ detail, unitId, referenceByVersionId, changing, onToggle, onUseCandidate, confirmingCandidateId }: {
+export function AssetLibrary({ detail, unitId, referenceByVersionId, changing, onToggle, onUseCandidate, onManageCandidates, confirmingCandidateId }: {
     detail: ProjectDetail;
     unitId: string;
     referenceByVersionId: Map<string, ShotAssetReference>;
     changing: boolean;
     onToggle: (asset: ProjectAsset, reference?: ShotAssetReference) => void;
     onUseCandidate: (candidate: ProjectAssetCandidate) => void;
+    onManageCandidates: () => void;
     confirmingCandidateId?: string;
 }) {
     const [category, setCategory] = useState("all");
@@ -87,7 +88,7 @@ export function AssetLibrary({ detail, unitId, referenceByVersionId, changing, o
                             <div key={candidate.id} className="workflow-asset-row is-candidate">
                                 <span className="workflow-asset-thumb"><Sparkles className="size-4" /></span>
                                 <span className="min-w-0 flex-1"><strong>{candidate.name}</strong><small>{assetCategoryLabel(candidate.category)} · {assetCandidateDescription(candidate)}</small></span>
-                                <Button type="link" size="small" loading={confirmingCandidateId === candidate.id} disabled={changing} onClick={() => onUseCandidate(candidate)}>确认并使用</Button>
+                                <Button type="link" size="small" loading={confirmingCandidateId === candidate.id} disabled={changing} onClick={() => candidate.previewResourceId ? onUseCandidate(candidate) : onManageCandidates()}>{candidate.previewResourceId ? "确认并使用" : "去生成资产图"}</Button>
                             </div>
                         ))}
                     </div>
@@ -100,8 +101,9 @@ export function AssetLibrary({ detail, unitId, referenceByVersionId, changing, o
                         {assets.map((asset) => {
                             const reference = asset.primaryVersionId ? referenceByVersionId.get(asset.primaryVersionId) : undefined;
                             const active = Boolean(reference);
+                            const visualReference = isProjectAssetVisualReference(asset);
                             const previewUrl = assetPreviewUrl(asset);
-                            return <button key={asset.id} type="button" className={`workflow-asset-row ${active ? "is-active" : ""}`} disabled={changing || !asset.primaryVersionId} aria-pressed={active} onClick={() => onToggle(asset, reference)}><span className="workflow-asset-thumb">{previewUrl ? <img src={previewUrl} alt="" loading="lazy" /> : asset.category === "character" ? <UsersRound /> : asset.mediaType === "image" ? <ImageIcon /> : <Box />}</span><span className="min-w-0 flex-1"><strong>{asset.title}</strong><small>{active ? "已绑定 · 点击取消" : `${assetCategoryLabel(asset.category)} · v${Math.max(1, asset.versionCount)}`}</small></span>{active ? <span className="workflow-bound-dot" /> : null}</button>;
+                            return <button key={asset.id} type="button" className={`workflow-asset-row ${active ? "is-active" : ""}`} disabled={changing || !asset.primaryVersionId || !visualReference} aria-pressed={active} title={visualReference ? undefined : "仅文本设定，没有资产图，不能绑定镜头"} onClick={() => onToggle(asset, reference)}><span className="workflow-asset-thumb">{previewUrl ? <img src={previewUrl} alt="" loading="lazy" /> : asset.category === "character" ? <UsersRound /> : asset.mediaType === "image" ? <ImageIcon /> : visualReference ? <Box /> : <FileText />}</span><span className="min-w-0 flex-1"><strong>{asset.title}</strong><small>{active ? "已绑定 · 点击取消" : visualReference ? `${assetCategoryLabel(asset.category)} · v${Math.max(1, asset.versionCount)}` : "仅文本设定 · 不能绑定镜头"}</small></span>{active ? <span className="workflow-bound-dot" /> : null}</button>;
                         })}
                     </div>
                 </section>

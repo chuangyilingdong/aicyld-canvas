@@ -61,7 +61,7 @@ import {
     type ShortDramaWorkflowStage,
 } from "./workflow-shared";
 import { buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, resolveShotAssetMentionPrompt } from "./workflow-shot-references";
-import { linkedShotAssetReferences, parseShotAssetRoles, shotAssetRoleLabel } from "./shot-asset-roles";
+import { isProjectAssetVisualReference, linkedShotAssetReferences, parseShotAssetRoles, shotAssetRoleLabel } from "./shot-asset-roles";
 import { useSmartFilmWholeFilm } from "./use-smart-film-whole-film";
 import {
     AssetLibrary,
@@ -399,7 +399,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
         mutationFn: async (candidate: ProjectAssetCandidate) => {
             if (!selectedShot) throw new Error("请先选择镜头");
             const confirmed = await confirmProjectAssetCandidate(projectId, candidate.id);
-            if (!confirmed.asset.primaryVersionId) throw new Error("确认后的资产没有可绑定版本");
+            if (!confirmed.asset.primaryVersionId || !isProjectAssetVisualReference(confirmed.asset)) throw new Error("确认后的资产没有可用资产图，不能绑定为镜头视觉参考");
             await linkShotAsset(projectId, selectedShot.id, { assetVersionId: confirmed.asset.primaryVersionId, role: "reference" });
             return confirmed.asset;
         },
@@ -889,7 +889,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                         options={[{ value: "episodes", label: "章节" }, { value: "shots", label: "镜头" }, { value: "assets", label: "资产" }]}
                     />
                     <div className="workflow-library-scroll thin-scrollbar">
-                        {leftTab === "assets" ? <AssetLibrary detail={detail} unitId={unitId} referenceByVersionId={referenceByVersionId} changing={changeAssetBinding.isPending || useAssetCandidate.isPending} onToggle={(asset, reference) => changeAssetBinding.mutate({ asset, reference })} onUseCandidate={(candidate) => useAssetCandidate.mutate(candidate)} confirmingCandidateId={useAssetCandidate.isPending ? useAssetCandidate.variables?.id : undefined} /> : null}
+                        {leftTab === "assets" ? <AssetLibrary detail={detail} unitId={unitId} referenceByVersionId={referenceByVersionId} changing={changeAssetBinding.isPending || useAssetCandidate.isPending} onToggle={(asset, reference) => changeAssetBinding.mutate({ asset, reference })} onUseCandidate={(candidate) => useAssetCandidate.mutate(candidate)} onManageCandidates={() => navigate(`/projects/${projectId}/assets`)} confirmingCandidateId={useAssetCandidate.isPending ? useAssetCandidate.variables?.id : undefined} /> : null}
                         {leftTab === "episodes" ? <EpisodeLibrary detail={detail} activeUnitId={unitId} projectId={projectId} activeStage={activeStage} /> : null}
                         {leftTab === "shots" ? <ShotLibrary detail={detail} shots={shots} selectedShotId={selectedShot.id} onSelectShot={requestShotSelection} /> : null}
                     </div>

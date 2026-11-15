@@ -396,11 +396,26 @@ func (s *Service) smartFilmStoryboardAssets(userID, projectID string) ([]SmartFi
 			prompt = asset.Title
 		}
 		result = append(result, SmartFilmStoryboardAsset{
-			ID: asset.ID, Title: asset.Title, Category: string(asset.Category), MediaType: asset.MediaType,
+			ID: asset.ID, Title: asset.Title, Category: string(asset.Category), MediaType: asset.MediaType, VisualReference: smartFilmAssetHasVisualReference(asset),
 			PrimaryVersionID: asset.PrimaryVersionID, Prompt: truncateSmartFilmText(prompt, 1200), Definition: definition,
 		})
 	}
 	return result, nil
+}
+
+func smartFilmAssetHasVisualReference(asset AssetSummary) bool {
+	if asset.MediaType == "image" && strings.TrimSpace(asset.StorageKey) != "" {
+		return true
+	}
+	if asset.Character == nil {
+		return false
+	}
+	for _, representation := range asset.Character.Representations {
+		if strings.HasPrefix(representation.MediaType, "image") && strings.TrimSpace(representation.ResourceID) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) smartFilmTextStageConfig(config SmartFilmBatchConfig, batch *model.SmartFilmBatch) (string, map[string]any, error) {
