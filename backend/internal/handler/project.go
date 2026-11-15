@@ -881,6 +881,7 @@ func RegisterProjectRoutes(r *gin.RouterGroup, owners workspaceOwners, projects 
 		}
 		ok(c, gin.H{"shot": shot, "revision": revision})
 	})
+	RegisterProjectShotArtifactRoutes(r, owners, projects)
 	r.DELETE("/projects/:id/shots/:shotId", func(c *gin.Context) {
 		user, err := currentUser(c, owners)
 		if err != nil {
@@ -1012,7 +1013,6 @@ func parsePositiveQueryInt(value string, fallback int) (int, error) {
 	}
 	return parsed, nil
 }
-
 // parsePaginationQuery 统一解析列表分页参数。
 // 缺省值由具体接口声明；显式传入非正整数属于请求错误，不能悄悄变成服务层默认值，
 // 否则客户端的协议问题会被掩盖，分页行为也会随服务层实现变化。

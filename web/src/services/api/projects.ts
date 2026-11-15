@@ -625,6 +625,10 @@ export function deleteProjectShot(projectId: string, shotId: string) {
     return http.delete<{ deleted: boolean }>(`/projects/${encodeURIComponent(projectId)}/shots/${encodeURIComponent(shotId)}`);
 }
 
+export function selectShotArtifact(projectId: string, shotId: string, artifactId: string) {
+    return http.patch<{ artifact: ShotArtifact }>(`/projects/${encodeURIComponent(projectId)}/shots/${encodeURIComponent(shotId)}/artifacts/${encodeURIComponent(artifactId)}/select`);
+}
+
 export function replaceProjectUnitShots(
     projectId: string,
     unitId: string,

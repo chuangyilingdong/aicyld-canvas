@@ -334,6 +334,34 @@ func (s *Service) UnlinkShotAsset(userID string, projectID string, shotID string
 	return nil
 }
 
+func (s *Service) SelectShotArtifact(userID string, projectID string, shotID string, artifactID string) (model.ShotArtifact, error) {
+	if _, err := s.Active(userID, projectID); err != nil {
+		return model.ShotArtifact{}, err
+	}
+	shot, err := s.repo.ShotForProject(projectID, strings.TrimSpace(shotID))
+	if err != nil {
+		return model.ShotArtifact{}, err
+	}
+	artifact, err := s.repo.ShotArtifactForProject(projectID, strings.TrimSpace(artifactID))
+	if err != nil {
+		return model.ShotArtifact{}, err
+	}
+	if artifact.ShotID != shot.ID {
+		return model.ShotArtifact{}, kernel.NotFound("镜头产物不存在")
+	}
+	if artifact.Status != "ready" || strings.TrimSpace(artifact.ResourceID) == "" {
+		return model.ShotArtifact{}, kernel.BadAuthRequest("只有已生成的镜头产物可以设为当前")
+	}
+	if artifact.RevisionID != shot.CurrentRevisionID {
+		return model.ShotArtifact{}, kernel.BadAuthRequest("该产物属于历史镜头版本，请先回退镜头版本后再使用")
+	}
+	selected, err := s.repo.SelectShotArtifactActive(userID, projectID, shot.ID, artifact.ID, time.Now())
+	if err != nil {
+		return model.ShotArtifact{}, mapProjectWriteError(err)
+	}
+	return *selected, nil
+}
+
 func (s *Service) CreateProjectAssetCandidates(userID string, projectID string, req CreateAssetCandidatesRequest) ([]model.ProjectAssetCandidate, error) {
 	if _, err := s.Active(userID, projectID); err != nil {
 		return nil, err

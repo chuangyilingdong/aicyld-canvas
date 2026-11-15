@@ -748,6 +748,54 @@ func TestTextOnlyProjectAssetCannotBeLinkedAsShotReference(t *testing.T) {
 	}
 }
 
+func TestSelectShotArtifactOnlyUsesCurrentReadyRevision(t *testing.T) {
+	svc, db := newTestService(t, &recordingWorkflows{})
+	project, err := svc.CreateProject("user-1", CreateProjectRequest{Name: "产物版本", Type: "smart-film"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	unit, err := svc.CreateProjectUnit("user-1", project.ID, CreateProjectUnitRequest{Title: "独立视频", SourceText: "剧本"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shot, err := svc.CreateProjectShot("user-1", project.ID, CreateProjectShotRequest{
+		UnitID: unit.ID, Title: "镜头 1", Position: 0, DurationMs: 3000,
+		Revision: ShotRevisionInput{PlotDescription: "人物抬头", DurationMs: 3000},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	artifacts := []model.ShotArtifact{
+		{ID: "old-ready", ProjectID: project.ID, UnitID: unit.ID, ShotID: shot.ID, RevisionID: "old-revision", Type: "video", Version: 1, ResourceID: "resource-old", Status: "ready", Selected: true, CreatedAt: now, UpdatedAt: now},
+		{ID: "current-ready", ProjectID: project.ID, UnitID: unit.ID, ShotID: shot.ID, RevisionID: shot.CurrentRevisionID, Type: "video", Version: 2, ResourceID: "resource-current", Status: "ready", CreatedAt: now, UpdatedAt: now},
+		{ID: "current-stale", ProjectID: project.ID, UnitID: unit.ID, ShotID: shot.ID, RevisionID: shot.CurrentRevisionID, Type: "video", Version: 3, ResourceID: "resource-stale", Status: "stale", CreatedAt: now, UpdatedAt: now},
+	}
+	if err := db.Create(&artifacts).Error; err != nil {
+		t.Fatal(err)
+	}
+	selected, err := svc.SelectShotArtifact("user-1", project.ID, shot.ID, "current-ready")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !selected.Selected {
+		t.Fatalf("selected artifact = %+v", selected)
+	}
+	var stored []model.ShotArtifact
+	if err := db.Where("shot_id = ? AND type = ?", shot.ID, "video").Order("version asc").Find(&stored).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stored[0].Selected || !stored[1].Selected || stored[2].Selected {
+		t.Fatalf("artifact selection = %+v", stored)
+	}
+	if _, err := svc.SelectShotArtifact("user-1", project.ID, shot.ID, "old-ready"); err == nil || !strings.Contains(err.Error(), "历史镜头版本") {
+		t.Fatalf("old artifact error = %v", err)
+	}
+	if _, err := svc.SelectShotArtifact("user-1", project.ID, shot.ID, "current-stale"); err == nil || !strings.Contains(err.Error(), "已生成") {
+		t.Fatalf("stale artifact error = %v", err)
+	}
+}
+
 func TestSmartFilmProductionRunCheckpointsAssetAndStoryboardStages(t *testing.T) {
 	svc, _ := newTestService(t, &recordingWorkflows{})
 	created, err := svc.CreateSmartFilmBatch("user-1", CreateSmartFilmBatchRequest{Title: "阶段记录", SourceText: "想法"})
