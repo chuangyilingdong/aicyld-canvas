@@ -1314,6 +1314,22 @@ func TestSmartFilmVideoTaskRequiresConfirmedShot(t *testing.T) {
 	}
 }
 
+func TestSmartFilmWholeVideoTaskDoesNotRequireSingleShot(t *testing.T) {
+	svc, _ := newTestService(t, &recordingWorkflows{})
+	project, err := svc.CreateProject("user-1", CreateProjectRequest{Name: "整片视频门禁", Type: "smart-film"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.EnsureSmartFilmVideoTaskAllowed("user-1", project.ID, map[string]any{
+		"mode": "video",
+		"metadata": map[string]any{
+			"source": "smart-film-whole-video", "artifactType": "smart_film",
+		},
+	}); err != nil {
+		t.Fatalf("whole-film video task was rejected: %v", err)
+	}
+}
+
 func TestSmartFilmScriptSourceChangeInvalidatesConfirmedShots(t *testing.T) {
 	svc, db := newTestService(t, &recordingWorkflows{})
 	project, err := svc.CreateProject("user-1", CreateProjectRequest{Name: "剧本变更", Type: "smart-film"})

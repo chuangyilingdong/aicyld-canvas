@@ -468,6 +468,11 @@ func (s *Service) EnsureSmartFilmVideoTaskAllowed(userID, projectID string, inpu
 		return nil
 	}
 	metadata, _ := input["metadata"].(map[string]any)
+	source, _ := metadata["source"].(string)
+	artifactType, _ := metadata["artifactType"].(string)
+	if strings.TrimSpace(source) == "smart-film-whole-video" && strings.TrimSpace(artifactType) == "smart_film" {
+		return nil
+	}
 	shotID, _ := metadata["shotId"].(string)
 	if strings.TrimSpace(shotID) == "" {
 		return kernel.BadAuthRequest("生成镜头视频前必须指定已确认的分镜提示词")
