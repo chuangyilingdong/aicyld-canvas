@@ -40,14 +40,12 @@ import {
     updateProjectAssetCategory,
     updateProjectAssetCandidateDetails,
     updateProjectAssetFolder,
-    updateProjectAssetCandidatePreview,
     updateProjectCharacter,
     type ProjectAsset,
     type ProjectAssetCandidate,
     type ProjectAssetCandidatePreview,
     type ProjectAssetFolder,
 } from "@/services/api/projects";
-import { buildBackendGenerationTaskQuoteInput, runBackendGenerationTask } from "@/services/api/generation-task";
 import { confirmCanvasGenerationTaskQuote } from "@/components/canvas/canvas-billing-confirmation";
 import { hasRemoteUserDataSyncSession, saveRemoteUserDataNow } from "@/services/local-workspace-sync";
 import { isLocalWorkspaceMode } from "@/services/workspace-mode";
@@ -62,6 +60,7 @@ import { AssetCandidateHistoryModal } from "./asset-candidate-history-modal";
 import { AssetCandidatePromptModal, assetCandidateImagePrompt, assetCandidatePromptPreview, assetCandidatePromptValue } from "./asset-candidate-prompt-modal";
 import { ProjectAssetNextStep } from "./project-asset-next-step";
 import { useProjectAssetAnalysis } from "./use-project-asset-analysis";
+import { useCandidateImageGeneration } from "./use-candidate-image-generation";
 import { TextAssetPromotionModal } from "./text-asset-promotion-modal";
 import { linkSelectedProjectAssets } from "./project-asset-linking";
 import { generateCharacterTurnaround } from "./project-character-media";
@@ -355,90 +354,13 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
         },
         onError: failed("保存资产提示词失败"),
     });
-    const candidateImageMutation = useMutation({
-        mutationFn: async (candidate: ProjectAssetCandidate) => {
-            const model = effectiveConfig.imageModel || effectiveConfig.model;
-            const config = { ...effectiveConfig, model };
-            if (!isAiConfigReady(config, model)) throw new Error("请先在设置中配置可用的图片模型");
-            const style = resolveProjectCanvasStyle(detail.project.stylePresetId, detail.project.styleProfileJson);
-            const referenceImages = detail.assets.flatMap((asset) => {
-                if (asset.mediaType !== "image" || !asset.storageKey) return [];
-                const resourceId = resourceIdFromStorageKey(asset.storageKey);
-                return [{
-                    id: asset.id,
-                    name: asset.title,
-                    type: "image/*",
-                    dataUrl: "",
-                    storageKey: asset.storageKey,
-                    ...(resourceId ? { url: resourceFileUrl(resourceId) } : {}),
-                }];
-            }).slice(0, 4);
-            let taskId = "";
-            let taskSnapshot: { model?: string; billingPoints?: number } | undefined;
-            const generationOptions: Parameters<typeof buildBackendGenerationTaskQuoteInput>[0] = {
-                projectId: detail.project.id,
-                mode: "image",
-                prompt: assetCandidateImagePrompt(candidate, style?.prompt || ""),
-                config,
-                referenceImages,
-                metadata: { source: "asset_candidate_preview", candidateId: candidate.id, unitId: candidate.unitId || "" },
-                onTaskUpdate: (task) => {
-                    taskId = task.id;
-                    taskSnapshot = { model: task.model, billingPoints: task.billingPoints };
-                },
-            };
-            if (!(await confirmCanvasGenerationTaskQuote(modal, buildBackendGenerationTaskQuoteInput(generationOptions), {
-                title: "确认生成资产图",
-                description: `资产：${candidate.name || "未命名资产"}`,
-            }))) throw new Error("已取消生成资产图");
-            try {
-                const result = await runBackendGenerationTask(generationOptions);
-                const image = result.images?.[0];
-                const resourceId = ownedResourceIdFromMediaRef(image?.storageKey, image?.url) || resourceIdFromStorageKey(image?.storageKey);
-                if (!resourceId) throw new Error("资产图已生成，但没有取得可保存的图片资源");
-                const latest = await getProjectCore(detail.project.id);
-                await updateProjectAssetCandidatePreview(detail.project.id, candidate.id, {
-                    resourceId,
-                    taskId,
-                    model: taskSnapshot?.model || model,
-                    points: Math.max(0, Math.floor(taskSnapshot?.billingPoints || 0)),
-                    status: "ready",
-                    selected: true,
-                    expectedRevision: latest.project.revision,
-                });
-                return { candidateId: candidate.id, resourceId };
-            } catch (error) {
-                if (taskId) {
-                    try {
-                        const latest = await getProjectCore(detail.project.id);
-                        await updateProjectAssetCandidatePreview(detail.project.id, candidate.id, {
-                            resourceId: "",
-                            taskId,
-                            model: taskSnapshot?.model || model,
-                            points: Math.max(0, Math.floor(taskSnapshot?.billingPoints || 0)),
-                            status: "failed",
-                            error: error instanceof Error ? error.message : "资产图生成失败",
-                            selected: false,
-                            expectedRevision: latest.project.revision,
-                        });
-                    } catch {
-                        // The original generation error remains the actionable failure.
-                    }
-                }
-                throw error;
-            }
-        },
-        onSuccess: async () => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ["project", detail.project.id, "asset-candidates"] }),
-                queryClient.invalidateQueries({ queryKey: ["project", detail.project.id] }),
-            ]);
-            refreshProject();
-            message.success("资产图已生成，可预览后确认");
-        },
-        onError: failed("资产图生成失败"),
+    const candidateImageGeneration = useCandidateImageGeneration({
+        projectId: detail.project.id,
+        stylePresetId: detail.project.stylePresetId,
+        styleProfileJson: detail.project.styleProfileJson,
+        assets,
+        refreshProject,
     });
-    const generatingCandidateId = candidateImageMutation.isPending ? candidateImageMutation.variables?.id || "" : "";
     const openPromotion = (asset: ProjectAsset) => {
         setPreviewAsset(null);
         setPromotionAsset(asset);
@@ -648,7 +570,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
                             <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                                 {pendingCandidates.map((candidate) => {
                                     const confirming = confirmingCandidateId === candidate.id;
-                                    const generatingImage = generatingCandidateId === candidate.id;
+                                    const generatingImage = candidateImageGeneration.generatingIds.has(candidate.id);
                                     const isCharacter = candidate.category === "character";
                                     const matchingExistingAssets = !isCharacter
                                         ? assets.filter((asset) => asset.category === candidate.category && asset.mediaType === "image")
@@ -668,11 +590,11 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
                                                 </div>
                                                 {!isCharacter && !candidate.previewResourceId ? <div className="mt-1 text-[var(--fs-tiny)] leading-4 text-foreground/38">请先生成资产图。未生成资产图的内容不能绑定镜头或参与分镜生图。</div> : null}
                                                 <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1">
-                                                    <Button type="text" size="small" icon={<Pencil className="size-3.5" />} disabled={Boolean(generatingCandidateId)} onClick={() => { setCandidatePromptEditing(candidate); setCandidatePromptDraft(assetCandidatePromptValue(candidate)); }}>修改提示词</Button>
-                                                    {matchingExistingAssets.length ? <Dropdown trigger={["click"]} menu={{ items: matchingExistingAssets.map((asset) => ({ key: asset.id, label: asset.title })), onClick: ({ key }) => confirmMutation.mutate({ candidateId: candidate.id, targetAssetId: key }) }}><Button type="text" size="small" disabled={Boolean(confirmingCandidateId) || Boolean(generatingCandidateId)}>使用已有素材<ChevronDown className="size-3" /></Button></Dropdown> : null}
-                                                    {!isCharacter ? <Button type="text" size="small" icon={<Sparkles className="size-3.5" />} loading={generatingImage} disabled={Boolean(generatingCandidateId) && !generatingImage} onClick={() => candidateImageMutation.mutate(candidate)}>{candidate.previewResourceId ? "重新生成资产图" : "生成资产图"}</Button> : null}
-                                                    {candidate.previews?.length ? <Button type="text" size="small" icon={<ImageIcon className="size-3.5" />} disabled={Boolean(generatingCandidateId)} onClick={() => setCandidateHistoryId(candidate.id)}>历史 {candidate.previews.filter((preview) => preview.status !== "deleted").length}</Button> : null}
-                                                    <Button type="text" size="small" icon={<Check className="size-3.5" />} loading={confirming} disabled={(Boolean(confirmingCandidateId) && !confirming) || Boolean(generatingCandidateId) || (!isCharacter && !candidate.previewResourceId)} onClick={() => confirmMutation.mutate({ candidateId: candidate.id })}>{isCharacter ? "确认角色设定" : candidate.previewResourceId ? "确认资产图" : "需先生成资产图"}</Button>
+                                                    <Button type="text" size="small" icon={<Pencil className="size-3.5" />} disabled={generatingImage} onClick={() => { setCandidatePromptEditing(candidate); setCandidatePromptDraft(assetCandidatePromptValue(candidate)); }}>修改提示词</Button>
+                                                    {matchingExistingAssets.length ? <Dropdown trigger={["click"]} menu={{ items: matchingExistingAssets.map((asset) => ({ key: asset.id, label: asset.title })), onClick: ({ key }) => confirmMutation.mutate({ candidateId: candidate.id, targetAssetId: key }) }}><Button type="text" size="small" disabled={Boolean(confirmingCandidateId && !confirming) || generatingImage}>使用已有素材<ChevronDown className="size-3" /></Button></Dropdown> : null}
+                                                    {!isCharacter ? <Button type="text" size="small" icon={<Sparkles className="size-3.5" />} loading={generatingImage} disabled={generatingImage} onClick={() => void candidateImageGeneration.generate(candidate)}>{candidate.previewResourceId ? "重新生成资产图" : "生成资产图"}</Button> : null}
+                                                    {candidate.previews?.length ? <Button type="text" size="small" icon={<ImageIcon className="size-3.5" />} disabled={generatingImage} onClick={() => setCandidateHistoryId(candidate.id)}>历史 {candidate.previews.filter((preview) => preview.status !== "deleted").length}</Button> : null}
+                                                    <Button type="text" size="small" icon={<Check className="size-3.5" />} loading={confirming} disabled={(Boolean(confirmingCandidateId) && !confirming) || generatingImage || (!isCharacter && !candidate.previewResourceId)} onClick={() => confirmMutation.mutate({ candidateId: candidate.id })}>{isCharacter ? "确认角色设定" : candidate.previewResourceId ? "确认资产图" : "需先生成资产图"}</Button>
                                                     {isCharacter && characterAssets.length ? <Dropdown trigger={["click"]} menu={{ items: characterAssets.map((asset) => ({ key: asset.id, label: asset.title })), onClick: ({ key }) => confirmMutation.mutate({ candidateId: candidate.id, targetAssetId: key }) }}><Button type="text" size="small" disabled={Boolean(confirmingCandidateId)}>归并到角色<ChevronDown className="size-3" /></Button></Dropdown> : null}
                                                 </div>
                                             </div>
