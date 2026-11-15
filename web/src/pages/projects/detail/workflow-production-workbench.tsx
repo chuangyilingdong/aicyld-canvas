@@ -909,8 +909,8 @@ export default function WorkflowProductionWorkbench(props: Props) {
                             <div className="workflow-smart-film-copy">
                                 <span className="workflow-smart-film-icon"><Film className="size-5" /></span>
                                 <div>
-                                    <strong>智能整片 · 视频生成</strong>
-                                    <p>这一步只生成视频，不生成分镜图。确认全部 {shots.length} 张分镜图后，将按顺序生成一个约 {smartFilmBatch?.config.targetDurationSeconds || 0} 秒的完整视频，不再逐镜生成视频。</p>
+                                    <strong>智能整片 · 最终视频</strong>
+                                    <p>生成顺序：先完成全部 {shots.length} 张分镜图，再用这些图一次性生成约 {smartFilmBatch?.config.targetDurationSeconds || 0} 秒的整片视频。本步骤不生成分镜图，也不逐镜生成视频。</p>
                                     <small>分镜图已就绪 {readyStoryboardCount}/{shots.length} 张{readyStoryboardCount < shots.length ? `，还差 ${shots.length - readyStoryboardCount} 张；请先在下方逐镜生成并确认分镜图` : "，可以生成整片视频"}</small>
                                 </div>
                             </div>
@@ -1020,13 +1020,13 @@ export default function WorkflowProductionWorkbench(props: Props) {
                             size="sm"
                             className="workflow-preview-stage-switch"
                             value={activeStage}
-                            options={[{ value: "storyboard", label: "分镜图" }, { value: "previz", label: "动作预演" }, { value: "video", label: "镜头视频" }]}
+                            options={[{ value: "storyboard", label: "1 分镜图" }, { value: "previz", label: "2 动作预演" }, { value: "video", label: smartWholeFilm ? "3 整片视频" : "3 镜头视频" }]}
                             onChange={(nextStage) => navigate(`/projects/${projectId}/workflow/${unitId}/${nextStage}`)}
                         />
                     </header>
                     <div className="workflow-preview-scroll thin-scrollbar">
                         {previewTab === "latest" ? <LatestPreview artifact={previewArtifact} emptyText={stageCopy.empty} onPreviewImage={setImagePreviewArtifact} /> : <ArtifactHistory artifacts={artifacts} activeId={previewArtifact?.id} onSelect={(artifact) => { setPreviewArtifactId(artifact.id); setPreviewTab("latest"); }} />}
-                        <div className="workflow-preview-summary"><div className="flex items-center justify-between gap-2"><span className="text-xs font-medium">当前产物</span><ArtifactStatus artifact={newestArtifact} compact /></div><div className="mt-1 text-[var(--fs-micro)] text-foreground/45">{newestArtifact ? `${formatDuration(selectedShot.durationMs)} · ${resolution}p · v${newestArtifact.version}` : "当前镜头还没有生成产物"}</div></div>
+                        <div className="workflow-preview-summary"><div className="flex items-center justify-between gap-2"><span className="text-xs font-medium">当前产物</span><ArtifactStatus artifact={newestArtifact} compact /></div><div className="mt-1 text-[var(--fs-micro)] text-foreground/45">{newestArtifact ? generationCapability === "video" ? `镜头时长 ${formatDuration(selectedShot.durationMs)} · ${formatVideoResolutionLabel(resolution)} · v${newestArtifact.version}` : `镜头计划时长 ${formatDuration(selectedShot.durationMs)} · 图片质量 ${imageQuality.toUpperCase()} · v${newestArtifact.version}` : "当前镜头还没有生成产物"}</div></div>
                         <div className="workflow-preview-actions"><ShotArtifactSelectButton projectId={projectId} shot={selectedShot} artifact={previewArtifact} onSelected={(artifact) => { setPreviewArtifactId(artifact.id); setPreviewTab("latest"); void onRefresh(); }} /><Button icon={<RefreshCcw className="size-3.5" />} loading={selectedShotSubmitting || shotTask?.status === "queued" || shotTask?.status === "running"} onClick={() => void generateArtifact()}>重新生成</Button><Button icon={<Download className="size-3.5" />} disabled={!previewArtifact?.resourceId} onClick={() => previewArtifact?.resourceId && void downloadArtifact(previewArtifact, selectedShot.title, message.error)}>下载{activeStage === "video" ? "视频" : "图片"}</Button></div>
                         <ArtifactHistory artifacts={artifacts.slice(0, 4)} activeId={previewArtifact?.id} onSelect={(artifact) => setPreviewArtifactId(artifact.id)} compact />
                     </div>
@@ -1205,5 +1205,5 @@ function TimelineShot({ artifactType, detail, shot, task, submitting, index, sel
     const revision = currentRevision(detail, shot);
     const stageLabel = artifactType === "video" ? "镜头视频" : artifactType === "action_board" ? "动作预演" : "分镜画面";
     const cameraMeta = [revision?.shotSize, revision?.cameraMovement].filter(Boolean).join(" · ") || "等待补充镜头参数";
-    return <button type="button" className={`workflow-timeline-shot ${selected ? "is-active" : ""}`} onClick={onSelect}><span className="workflow-timeline-media">{preview?.resourceId && preview.type !== "video" ? <img src={resourceFileUrl(preview.resourceId)} alt="" loading="lazy" /> : <Film />}</span><span className="workflow-timeline-copy"><span className="workflow-timeline-heading"><strong>{formatShotOrdinal(index)}</strong><b>{formatDuration(shot.durationMs)}</b></span>{customShotTitle(shot.title, index) ? <em className="workflow-timeline-title">{customShotTitle(shot.title, index)}</em> : null}<small className="workflow-timeline-meta">{cameraMeta}</small><span className="workflow-timeline-status"><span>{stageLabel}{stateArtifact ? ` · v${stateArtifact.version}` : ""}</span><ArtifactStatus artifact={stateArtifact} taskStatus={submitting ? "queued" : task?.status} compact /></span></span></button>;
+    return <button type="button" className={`workflow-timeline-shot ${selected ? "is-active" : ""}`} onClick={onSelect}><span className="workflow-timeline-media">{preview?.resourceId && preview.type !== "video" ? <img src={resourceFileUrl(preview.resourceId)} alt="" loading="lazy" /> : <Film />}</span><span className="workflow-timeline-copy"><span className="workflow-timeline-heading"><strong>{formatShotOrdinal(index)}</strong><b>计划 {formatDuration(shot.durationMs)}</b></span>{customShotTitle(shot.title, index) ? <em className="workflow-timeline-title">{customShotTitle(shot.title, index)}</em> : null}<small className="workflow-timeline-meta">{cameraMeta}</small><span className="workflow-timeline-status"><span>{stageLabel}{stateArtifact ? ` · v${stateArtifact.version}` : ""}</span><ArtifactStatus artifact={stateArtifact} taskStatus={submitting ? "queued" : task?.status} compact /></span></span></button>;
 }
