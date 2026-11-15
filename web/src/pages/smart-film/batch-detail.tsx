@@ -14,6 +14,7 @@ import {
     confirmSmartFilmBatchScripts,
     deleteSmartFilmBatchScript,
     getSmartFilmBatch,
+    recoverSmartFilmBatchScripts,
     saveSmartFilmBatchScripts,
     startSmartFilmProductionStage,
     updateSmartFilmBatchProductionConfig,
@@ -84,6 +85,7 @@ export default function SmartFilmBatchDetailPage() {
     const [productionSaveRetry, setProductionSaveRetry] = useState(0);
     const autoStartedAssetRunsRef = useRef<Set<string>>(new Set());
     const autoStartedStoryboardRunsRef = useRef<Set<string>>(new Set());
+    const scriptRecoveryAttemptedRef = useRef(false);
     const batchQuery = useQuery({
         queryKey: ["smart-film-batch", batchId],
         queryFn: ({ signal }) => getSmartFilmBatch(batchId, signal).then((result) => result.batch),
@@ -210,6 +212,28 @@ export default function SmartFilmBatchDetailPage() {
     const updateBatch = useCallback((next: SmartFilmBatch) => {
         queryClient.setQueryData(["smart-film-batch", batchId], next);
     }, [batchId, queryClient]);
+
+    const recoverMissingScripts = useCallback(async (announce = true) => {
+        if (!batch || busy) return false;
+        setBusy("正在恢复上次生成结果…");
+        try {
+            const result = await recoverSmartFilmBatchScripts(batch.id);
+            updateBatch(result.batch);
+            message.success(`已恢复 ${result.batch.scripts.length} 条上次生成成功的剧本`);
+            return true;
+        } catch (error) {
+            if (announce) message.warning(error instanceof Error ? error.message : "没有找到可恢复的剧本生成结果");
+            return false;
+        } finally {
+            setBusy("");
+        }
+    }, [batch, busy, message, updateBatch]);
+
+    useEffect(() => {
+        if (!batch || batch.scripts.length || busy || scriptRecoveryAttemptedRef.current) return;
+        scriptRecoveryAttemptedRef.current = true;
+        void recoverMissingScripts(false);
+    }, [batch, busy, recoverMissingScripts]);
 
     const productionSavePayload = useMemo(() => {
         if (!productionConfigValid || !productionModeDraft) return null;
@@ -734,8 +758,11 @@ export default function SmartFilmBatchDetailPage() {
                     <div className="smart-film-script-empty">
                         <Sparkles className="size-7 text-foreground/30" />
                         <strong>这个批次还没有剧本</strong>
-                        <span>上次生成可能中断了。可以按同一组想法和参考图重新生成 {batch.config.scriptCount} 条独立剧本。</span>
-                        <Button type="primary" loading={Boolean(busy)} onClick={() => void generateMissingScripts()}>重新生成剧本</Button>
+                        <span>上次生成成功的剧本可能尚未保存。先尝试恢复上次结果；找不到时再按同一组想法和参考图重新生成 {batch.config.scriptCount} 条独立剧本。</span>
+                        <div className="flex flex-wrap justify-center gap-2">
+                            <Button type="primary" loading={Boolean(busy)} onClick={() => void generateMissingScripts()}>重新生成剧本</Button>
+                            <Button icon={<RefreshCcw className="size-4" />} loading={Boolean(busy)} onClick={() => void recoverMissingScripts()}>恢复上次生成结果</Button>
+                        </div>
                     </div>
                 )}
             </div>

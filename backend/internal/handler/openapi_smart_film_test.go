@@ -28,6 +28,7 @@ func TestSmartFilmOpenAPIContainsMountedOperations(t *testing.T) {
 		"/smart-film-batches/{batchId}/production-config":                           {"patch"},
 		"/smart-film-batches/{batchId}/costs":                                       {"get"},
 		"/smart-film-batches/{batchId}/scripts":                                     {"put"},
+		"/smart-film-batches/{batchId}/recover-scripts":                             {"post"},
 		"/smart-film-batches/{batchId}/scripts/{scriptId}":                          {"patch", "delete"},
 		"/smart-film-batches/{batchId}/confirm":                                     {"post"},
 		"/smart-film-batches/{batchId}/production-runs/{runId}":                     {"patch"},

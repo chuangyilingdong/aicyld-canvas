@@ -14,27 +14,37 @@ export async function uploadWorkspaceAssetFiles(files: File[], folderId: string,
     let completed = 0;
     let failed = 0;
     const trackedAssets: Array<{ id: string; kind: "image" | "video" | "audio"; storageKey: string }> = [];
-    const progress = startOperation("添加素材", { totalFiles: media.length, detail: "正在读取并保存素材" });
+    const totalBytes = media.reduce((total, file) => total + file.size, 0);
+    const loadedByFile = new Map<number, { loaded: number; total: number }>();
+    const progress = startOperation("添加素材", { totalFiles: media.length, totalBytes, detail: "正在读取并保存素材" });
+    const reportBytes = (index: number, loaded: number, total: number) => {
+        loadedByFile.set(index, { loaded, total });
+        const aggregate = [...loadedByFile.values()].reduce((sum, item) => sum + item.loaded, 0);
+        progress.progress(Math.min(aggregate, totalBytes), totalBytes);
+    };
     const worker = async () => {
         while (cursor < media.length) {
-            const file = media[cursor++];
+            const index = cursor++;
+            const file = media[index];
+            const onProgress = (loaded: number, total: number) => reportBytes(index, loaded, total);
             try {
                 const category = options.category || (folderId.startsWith("builtin:") ? normalizeAssetCategory(folderId.slice(8)) : "material" as const);
                 const common = { title: file.name.replace(/\.[^.]+$/, ""), category, folderId: folderId.startsWith("builtin:") ? undefined : folderId || undefined, tags: [], source: "批量上传", metadata: { source: "manual-batch" } };
                 if (file.type.startsWith("video/")) {
-                    const uploaded = await uploadMediaFile(file, "video");
+                    const uploaded = await uploadMediaFile(file, "video", onProgress, { trackProgress: false });
                     const id = useAssetStore.getState().addAsset({ ...common, kind: "video", coverUrl: uploaded.preview?.url || "", data: { url: uploaded.url, storageKey: uploaded.storageKey, width: uploaded.width || 0, height: uploaded.height || 0, durationMs: uploaded.durationMs, hasAudio: uploaded.hasAudio, bytes: uploaded.bytes, mimeType: uploaded.mimeType } });
                     trackedAssets.push({ id, kind: "video", storageKey: uploaded.storageKey });
                 } else if (file.type.startsWith("audio/")) {
-                    const uploaded = await uploadMediaFile(file, "audio");
+                    const uploaded = await uploadMediaFile(file, "audio", onProgress, { trackProgress: false });
                     const id = useAssetStore.getState().addAsset({ ...common, kind: "audio", coverUrl: "", data: { url: uploaded.url, storageKey: uploaded.storageKey, durationMs: uploaded.durationMs, bytes: uploaded.bytes, mimeType: uploaded.mimeType } });
                     trackedAssets.push({ id, kind: "audio", storageKey: uploaded.storageKey });
                 } else {
-                    const uploaded = await uploadImage(file);
+                    const uploaded = await uploadImage(file, onProgress, { trackProgress: false });
                     const meta = await readImageMeta(uploaded.url).catch(() => ({ width: uploaded.width, height: uploaded.height }));
                     const id = useAssetStore.getState().addAsset({ ...common, kind: "image", coverUrl: uploaded.url, data: { dataUrl: uploaded.url, storageKey: uploaded.storageKey, width: meta.width || uploaded.width, height: meta.height || uploaded.height, bytes: uploaded.bytes, mimeType: uploaded.mimeType } });
                     trackedAssets.push({ id, kind: "image", storageKey: uploaded.storageKey });
                 }
+                loadedByFile.set(index, { loaded: file.size, total: file.size });
                 completed += 1;
             } catch (error) {
                 failed += 1;

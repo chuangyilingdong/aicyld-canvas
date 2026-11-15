@@ -167,6 +167,10 @@ export function saveSmartFilmBatchScripts(batchId: string, scripts: SmartFilmScr
     return http.put<{ batch: SmartFilmBatch }>(`/smart-film-batches/${encodeURIComponent(batchId)}/scripts`, { scripts, expectedRevision });
 }
 
+export function recoverSmartFilmBatchScripts(batchId: string) {
+    return http.post<{ batch: SmartFilmBatch; recovered: boolean }>(`/smart-film-batches/${encodeURIComponent(batchId)}/recover-scripts`, {});
+}
+
 export function updateSmartFilmBatchScript(batchId: string, scriptId: string, input: {
     title: string;
     content: string;

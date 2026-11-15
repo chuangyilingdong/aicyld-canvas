@@ -28,7 +28,7 @@ export type UploadedImage = {
 const store = localForageInstance(IMAGE_FILES_STORE_NAME);
 const objectUrls = new Map<string, string>();
 
-export async function uploadImage(input: string | Blob, onProgress?: (uploadedBytes: number, totalBytes: number) => void): Promise<UploadedImage> {
+export async function uploadImage(input: string | Blob, onProgress?: (uploadedBytes: number, totalBytes: number) => void, options: { trackProgress?: boolean } = {}): Promise<UploadedImage> {
     // 同一个逻辑上传在本地资源服务不可用后会退回 IndexedDB。
     // 提前生成稳定 key，确保恢复路径仍能定位同一份本地媒体。
     const storageKey = `image:${getActiveUserScope()}:${nanoid()}`;
@@ -59,9 +59,9 @@ export async function uploadImage(input: string | Blob, onProgress?: (uploadedBy
     try {
         const meta = await readImageMeta(previewUrl);
         if (usesBrowserLocalResourceStore()) {
-            const progress = startOperation(input instanceof File ? input.name : "保存图片", { totalBytes: blob.size, detail: "正在保存图片到本机" });
-            try { await store.setItem(storageKey, blob); progress.done("图片已保存到本机"); }
-            catch (error) { progress.fail("图片保存未完成，请检查本机存储空间"); throw error; }
+            const progress = options.trackProgress === false ? null : startOperation(input instanceof File ? input.name : "保存图片", { totalBytes: blob.size, detail: "正在保存图片到本机" });
+            try { await store.setItem(storageKey, blob); progress?.done("图片已保存到本机"); }
+            catch (error) { progress?.fail("图片保存未完成，请检查本机存储空间"); throw error; }
             objectUrls.set(storageKey, previewUrl);
             return { url: previewUrl, storageKey, width: meta.width, height: meta.height, bytes: blob.size, mimeType: blob.type || meta.mimeType };
         }
@@ -70,7 +70,7 @@ export async function uploadImage(input: string | Blob, onProgress?: (uploadedBy
         // as the canonical durable store in local mode; IndexedDB remains a safe
         // browser fallback when the backend is temporarily unavailable.
         try {
-            const resource = await uploadResourceFile(blob, "image", { width: meta.width, height: meta.height, fileName: input instanceof File ? input.name : undefined }, onProgress);
+            const resource = await uploadResourceFile(blob, "image", { width: meta.width, height: meta.height, fileName: input instanceof File ? input.name : undefined }, onProgress, options);
             try {
                 await primeResourceBlobCache(resourceStorageKey(resource.id), blob);
             } catch (error) {

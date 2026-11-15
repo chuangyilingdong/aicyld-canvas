@@ -286,6 +286,16 @@ func (r *Repository) MarkSmartFilmAssetStageConfirmed(projectID, unitID string) 
 		}).Error
 }
 
+func (r *Repository) RecentSucceededCanvasTextTasks(userID string, limit int) ([]model.Task, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 100
+	}
+	var tasks []model.Task
+	err := r.db.Where("user_id = ? AND type = ? AND status = ?", userID, "canvas_text", model.TaskStatusSucceeded).
+		Order("updated_at desc, id desc").Limit(limit).Find(&tasks).Error
+	return tasks, err
+}
+
 // PrepareSmartFilmProductionRun creates the orchestration receipt before the
 // confirmation transaction. A retry reuses the row and preserves any known
 // resource snapshot, while a completed run remains replayable.

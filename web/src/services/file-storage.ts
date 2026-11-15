@@ -32,7 +32,7 @@ export type UploadedFile = {
     remoteUploadError?: string;
 };
 
-export async function uploadMediaFile(input: Blob, prefix = "file", onProgress?: (uploadedBytes: number, totalBytes: number) => void): Promise<UploadedFile> {
+export async function uploadMediaFile(input: Blob, prefix = "file", onProgress?: (uploadedBytes: number, totalBytes: number) => void, options: { trackProgress?: boolean } = {}): Promise<UploadedFile> {
     // 直传和失败后的本地同步必须复用同一上传身份，避免响应丢失后创建第二个对象。
     const storageKey = `${prefix}:${getActiveUserScope()}:${nanoid()}`;
     const blob = input;
@@ -80,7 +80,7 @@ export async function uploadMediaFile(input: Blob, prefix = "file", onProgress?:
         let poster: UploadedImage | undefined;
         if (captured?.poster) {
             try {
-                poster = await uploadImage(captured.poster);
+                poster = await uploadImage(captured.poster, undefined, options);
             } catch (error) {
                 // 预览图失败不应把已经可用的视频降级成本地文件；视频本体仍按强校验上传。
                 console.warn("上传视频预览图失败，继续保存视频本体", { mimeType: blob.type, bytes: blob.size, error });
@@ -88,9 +88,9 @@ export async function uploadMediaFile(input: Blob, prefix = "file", onProgress?:
         }
 
         if (usesBrowserLocalResourceStore()) {
-            const progress = startOperation(input instanceof File ? input.name : "保存媒体文件", { totalBytes: blob.size, detail: "正在保存媒体文件到本机" });
-            try { await saveLocalMedia(storageKey, blob, previewUrl); progress.done("媒体文件已保存到本机"); }
-            catch (error) { progress.fail("媒体保存未完成，请检查本机存储空间"); throw error; }
+            const progress = options.trackProgress === false ? null : startOperation(input instanceof File ? input.name : "保存媒体文件", { totalBytes: blob.size, detail: "正在保存媒体文件到本机" });
+            try { await saveLocalMedia(storageKey, blob, previewUrl); progress?.done("媒体文件已保存到本机"); }
+            catch (error) { progress?.fail("媒体保存未完成，请检查本机存储空间"); throw error; }
             retainPreviewUrl = true;
             return { url: previewUrl, storageKey, bytes: blob.size, mimeType: blob.type || "application/octet-stream", ...meta, preview: poster };
         }
@@ -100,7 +100,7 @@ export async function uploadMediaFile(input: Blob, prefix = "file", onProgress?:
         // Browser local mode keeps IndexedDB as its offline/development store.
         try {
             const kind = isVideo ? "video" : prefix === "audio" || blob.type.startsWith("audio/") ? "audio" : "file";
-            const resource = await uploadResourceFile(blob, kind, { ...meta, fileName: input instanceof File ? input.name : undefined }, onProgress);
+            const resource = await uploadResourceFile(blob, kind, { ...meta, fileName: input instanceof File ? input.name : undefined }, onProgress, options);
             try {
                 await primeResourceBlobCache(resourceStorageKey(resource.id), blob);
             } catch (error) {

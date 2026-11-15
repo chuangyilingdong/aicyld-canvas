@@ -147,6 +147,20 @@ func RegisterSmartFilmBatchRoutes(r *gin.RouterGroup, owners workspaceOwners, pr
 		ok(c, gin.H{"batch": batch})
 	})
 
+	r.POST("/smart-film-batches/:id/recover-scripts", func(c *gin.Context) {
+		user, err := currentUser(c, owners)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		batch, err := projects.RecoverSmartFilmBatchScripts(user.ID, c.Param("id"))
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"batch": batch, "recovered": true})
+	})
+
 	r.PATCH("/smart-film-batches/:id/scripts/:scriptId", func(c *gin.Context) {
 		user, err := currentUser(c, owners)
 		if err != nil {

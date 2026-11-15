@@ -1204,6 +1204,35 @@ func TestSmartFilmScriptRejectsStaleScriptRevision(t *testing.T) {
 	}
 }
 
+func TestRecoverSmartFilmBatchScriptsFromSucceededTask(t *testing.T) {
+	svc, db := newTestService(t, &recordingWorkflows{})
+	created, err := svc.CreateSmartFilmBatch("user-1", CreateSmartFilmBatchRequest{Title: "恢复剧本", SourceText: "想法"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	task := model.Task{
+		ID: "recover-script-task", UserID: "user-1", Type: "canvas_text", Status: model.TaskStatusSucceeded,
+		InputJSON:  `{"metadata":{"batchId":"` + created.ID + `","source":"smart-film-batch-script"}}`,
+		ResultJSON: `{"mode":"text","text":"{\"scripts\":[{\"title\":\"恢复一\",\"content\":\"创意方向：测试。\"},{\"title\":\"恢复二\",\"content\":\"创意方向：测试二。\"}]}"}`,
+		CreatedAt:  now, UpdatedAt: now,
+	}
+	if err := db.Create(&task).Error; err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := svc.RecoverSmartFilmBatchScripts("user-1", created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recovered.Scripts) != 2 || recovered.Scripts[0].Title != "恢复一" || recovered.Scripts[0].TaskID != task.ID {
+		t.Fatalf("recovered scripts = %+v", recovered.Scripts)
+	}
+	replayed, err := svc.RecoverSmartFilmBatchScripts("user-1", created.ID)
+	if err != nil || len(replayed.Scripts) != 2 {
+		t.Fatalf("recovery replay = %+v, %v", replayed.Scripts, err)
+	}
+}
+
 func TestSmartFilmAssetExtractionWorkItemIsQueuedForWorker(t *testing.T) {
 	svc, db := newTestService(t, &recordingWorkflows{})
 	now := time.Now()

@@ -225,6 +225,7 @@ export async function uploadResourceFile(
     kind: "image" | "video" | "audio" | "file",
     meta?: ResourceUploadMeta,
     onProgress?: (uploadedBytes: number, totalBytes: number) => void,
+    options: { trackProgress?: boolean } = {},
 ): Promise<RemoteResource> {
     const name = meta?.fileName || (file instanceof File ? file.name : `${kind}.${extensionFromMime(file.type, kind)}`);
     // Reuse the same content identity across separate selections, not only
@@ -232,24 +233,24 @@ export async function uploadResourceFile(
     // file can otherwise become several canonical resources and assets.
     const contentIdentity = (meta?.contentDedupe ?? !meta?.idempotencyKey?.trim()) ? await contentUploadIdempotencyKey(file, kind) : "";
     const retryMeta = { ...meta, idempotencyKey: contentIdentity || meta?.idempotencyKey?.trim() || `resource-upload:${createClientId()}` };
-    const progress = startOperation(name, { totalBytes: file.size, detail: isLocalRuntimeMode() ? "正在保存到本地资源目录" : "正在准备上传" });
-    const report = (loaded: number, total: number) => { progress.progress(loaded, total); onProgress?.(loaded, total); };
+    const progress = options.trackProgress === false ? null : startOperation(name, { totalBytes: file.size, detail: isLocalRuntimeMode() ? "正在保存到本地资源目录" : "正在准备上传" });
+    const report = (loaded: number, total: number) => { progress?.progress(loaded, total); onProgress?.(loaded, total); };
     // 分片与 multipart 两条路径的失败都要归一成 ResourceUploadError，
     // 否则调用方只能靠文案猜测该重试还是该报错。
     try {
         if (file.size > CHUNK_UPLOAD_THRESHOLD) {
             const resource = await uploadFileInChunks(file, name, kind, retryMeta, report);
             rememberResource(resource);
-            progress.done("文件已确认并保存");
+            progress?.done("文件已确认并保存");
             return resource;
         }
-        const resource = await uploadFileMultipart(file, name, kind, retryMeta, report, (loaded) => progress.progress(loaded));
+        const resource = await uploadFileMultipart(file, name, kind, retryMeta, report, (loaded) => progress?.progress(loaded));
         rememberResource(resource);
-        progress.done("文件已确认并保存");
+        progress?.done("文件已确认并保存");
         return resource;
     } catch (error) {
         
-        progress.fail("文件保存未完成，请查看上传提示后重试");
+        progress?.fail("文件保存未完成，请查看上传提示后重试");
         throw normalizeUploadError(error);
     }
 }
