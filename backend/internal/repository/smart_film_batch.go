@@ -296,6 +296,16 @@ func (r *Repository) RecentSucceededCanvasTextTasks(userID string, limit int) ([
 	return tasks, err
 }
 
+func (r *Repository) SmartFilmProductionRunForProject(userID, projectID string) (*model.SmartFilmProductionRun, error) {
+	var run model.SmartFilmProductionRun
+	err := r.db.Where("user_id = ? AND project_id = ? AND status <> ?", userID, projectID, "archived").
+		Order("created_at desc, id desc").First(&run).Error
+	if err != nil {
+		return nil, err
+	}
+	return &run, nil
+}
+
 // PrepareSmartFilmProductionRun creates the orchestration receipt before the
 // confirmation transaction. A retry reuses the row and preserves any known
 // resource snapshot, while a completed run remains replayable.

@@ -117,6 +117,10 @@ export function getSmartFilmBatch(batchId: string, signal?: AbortSignal) {
     return http.get<{ batch: SmartFilmBatch }>(`/smart-film-batches/${encodeURIComponent(batchId)}`, { signal });
 }
 
+export function getProjectSmartFilmRun(projectId: string, signal?: AbortSignal) {
+    return http.get<{ run: SmartFilmProductionRun }>(`/projects/${encodeURIComponent(projectId)}/production-run`, { signal });
+}
+
 export function listSmartFilmBatches(input: { status?: "" | "draft" | "confirmed" | "partially_confirmed"; page?: number; pageSize?: number } = {}) {
     return http.get<SmartFilmBatchList>("/smart-film-batches", { params: input });
 }

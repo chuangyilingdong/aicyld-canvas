@@ -61,6 +61,7 @@ import { ProjectCharacterCard } from "./project-character-card";
 import { AssetCandidateHistoryModal } from "./asset-candidate-history-modal";
 import { AssetCandidatePromptModal, assetCandidateImagePrompt, assetCandidatePromptPreview, assetCandidatePromptValue } from "./asset-candidate-prompt-modal";
 import { ProjectAssetNextStep } from "./project-asset-next-step";
+import { useProjectAssetAnalysis } from "./use-project-asset-analysis";
 import { TextAssetPromotionModal } from "./text-asset-promotion-modal";
 import { linkSelectedProjectAssets } from "./project-asset-linking";
 import { generateCharacterTurnaround } from "./project-character-media";
@@ -79,6 +80,7 @@ const characterFields = [
 type CharacterForm = { name: string } & Record<(typeof characterFields)[number][0], string>;
 
 export default function ProjectAssetsView({ detail, refreshProject }: ProjectDetailViewProps) {
+    const isSmartFilmProject = detail.project.type === "smart-film" || detail.project.type === "smart-film-auto";
     const { message, modal } = App.useApp();
     const localMode = isLocalWorkspaceMode();
     const personalAssets = useAssetStore((state) => state.assets);
@@ -130,6 +132,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
         queryKey: ["project", detail.project.id, "asset-candidates", "pending-count"],
         queryFn: () => listProjectAssetCandidates(detail.project.id, { page: 1, pageSize: 1, status: "pending_confirmation" }),
     });
+    const assetAnalysis = useProjectAssetAnalysis(detail.project.id, isSmartFilmProject);
     const characterPendingCountQuery = useQuery({
         queryKey: ["project", detail.project.id, "asset-candidates", "character-pending-count"],
         queryFn: () => listProjectAssetCandidates(detail.project.id, { page: 1, pageSize: 1, category: "character", status: "pending_confirmation" }),
@@ -606,10 +609,13 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
             {detail.project.type === "smart-film" || detail.project.type === "smart-film-auto" ? (
                 <ProjectAssetNextStep
                     projectId={detail.project.id}
+                    batchId={detail.project.batchId}
                     unitId={detail.units.slice().sort((left, right) => left.position - right.position)[0]?.id || ""}
                     pendingCount={pendingCountQuery.data?.total || 0}
                     pendingLoading={pendingCountQuery.isLoading}
                     hasAssets={totalAssetCount > 0}
+                    analysisRunning={assetAnalysis.running}
+                    analysisFailed={assetAnalysis.failed}
                 />
             ) : null}
             <div className="project-assets-layout mt-3 grid gap-3">
