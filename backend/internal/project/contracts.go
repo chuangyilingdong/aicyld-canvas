@@ -163,6 +163,14 @@ type CreateAssetVersionRequest struct {
 	Note           string `json:"note"`
 }
 
+type PromoteProjectAssetVisualRequest struct {
+	ResourceID       string `json:"resourceId"`
+	TaskID           string `json:"taskId"`
+	Model            string `json:"model,omitempty"`
+	Prompt           string `json:"prompt"`
+	ExpectedRevision int64  `json:"expectedRevision"`
+}
+
 type ProjectAssetFilter struct {
 	Category  string
 	MediaType string

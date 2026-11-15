@@ -748,6 +748,79 @@ func TestTextOnlyProjectAssetCannotBeLinkedAsShotReference(t *testing.T) {
 	}
 }
 
+func TestPromoteTextAssetToVisualCreatesImageVersionAndInvalidatesShots(t *testing.T) {
+	svc, db := newTestService(t, &recordingWorkflows{})
+	project, err := svc.CreateProject("user-1", CreateProjectRequest{Name: "文本升级", Type: "smart-film"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	unit, err := svc.CreateProjectUnit("user-1", project.ID, CreateProjectUnitRequest{Title: "独立视频", SourceText: "剧本"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shot, err := svc.CreateProjectShot("user-1", project.ID, CreateProjectShotRequest{
+		UnitID: unit.ID, Title: "镜头 1", Position: 0, DurationMs: 3000, Status: "confirmed",
+		Revision: ShotRevisionInput{PlotDescription: "桌上放着咖啡杯", DurationMs: 3000},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	asset := model.Asset{
+		ID: "text-cup", UserID: "user-1", Kind: "text", Category: model.AssetCategoryProp,
+		Status: model.AssetVersionStatusConfirmed, PrimaryVersionID: "text-cup-v1", Title: "咖啡杯",
+		PayloadJSON: `{"data":{"content":"白色陶瓷咖啡杯"}}`, CreatedAt: now, UpdatedAt: now,
+	}
+	version := model.AssetVersion{ID: asset.PrimaryVersionID, AssetID: asset.ID, Version: 1, Status: model.AssetVersionStatusConfirmed, DefinitionJSON: `{"description":"白色陶瓷咖啡杯"}`, CreatedAt: now, UpdatedAt: now}
+	link := model.ProjectAssetLink{ID: "text-cup-link", ProjectID: project.ID, AssetID: asset.ID, Position: 0, CreatedAt: now}
+	reference := model.ShotAssetReference{ID: "text-cup-reference", ShotID: shot.ID, AssetVersionID: version.ID, Role: "reference", Status: "linked", CreatedAt: now}
+	artifact := model.ShotArtifact{ID: "text-cup-artifact", ProjectID: project.ID, UnitID: unit.ID, ShotID: shot.ID, RevisionID: shot.CurrentRevisionID, Type: "storyboard", Version: 1, ResourceID: "resource-storyboard", Status: "ready", Selected: true, CreatedAt: now, UpdatedAt: now}
+	image := model.Resource{ID: "resource-cup-image", UserID: "user-1", Kind: "image", Status: model.ResourceStatusReady, MimeType: "image/png", Width: 1024, Height: 1024, CreatedAt: now, UpdatedAt: now}
+	for _, item := range []any{&asset, &version, &link, &reference, &artifact, &image} {
+		if err := db.Create(item).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	latestProject, err := svc.Owned("user-1", project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	promoted, err := svc.PromoteProjectAssetVisual("user-1", project.ID, asset.ID, PromoteProjectAssetVisualRequest{
+		ResourceID: image.ID, TaskID: "task-promote-cup", Model: "image-model", Prompt: "白色陶瓷咖啡杯，干净背景", ExpectedRevision: latestProject.Revision,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if promoted.MediaType != "image" || promoted.PrimaryVersionID == version.ID || promoted.StorageKey != "resource:"+image.ID {
+		t.Fatalf("promoted asset = %+v", promoted)
+	}
+	var versions []model.AssetVersion
+	if err := db.Where("asset_id = ?", asset.ID).Order("version asc").Find(&versions).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(versions) != 2 || versions[0].ID != version.ID || versions[1].Status != model.AssetVersionStatusConfirmed {
+		t.Fatalf("versions = %+v", versions)
+	}
+	var representation model.AssetRepresentation
+	if err := db.First(&representation, "asset_version_id = ? AND resource_id = ?", versions[1].ID, image.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	var storedShot model.Shot
+	if err := db.First(&storedShot, "id = ?", shot.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if storedShot.Status != "draft" {
+		t.Fatalf("shot status = %q, want draft", storedShot.Status)
+	}
+	var storedArtifact model.ShotArtifact
+	if err := db.First(&storedArtifact, "id = ?", artifact.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if storedArtifact.Status != "stale" || storedArtifact.Selected {
+		t.Fatalf("artifact = %+v, want stale and unselected", storedArtifact)
+	}
+}
+
 func TestSelectShotArtifactOnlyUsesCurrentReadyRevision(t *testing.T) {
 	svc, db := newTestService(t, &recordingWorkflows{})
 	project, err := svc.CreateProject("user-1", CreateProjectRequest{Name: "产物版本", Type: "smart-film"})

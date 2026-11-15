@@ -585,6 +585,10 @@ export function createProjectAssetVersion(projectId: string, assetId: string, in
     return http.post<{ version: { id: string; assetId: string; version: number; status: string } }>(`/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}/versions`, input);
 }
 
+export function promoteProjectAssetVisual(projectId: string, assetId: string, input: { resourceId: string; taskId?: string; model?: string; prompt: string; expectedRevision: number }) {
+    return http.post<{ asset: ProjectAsset }>(`/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}/promote-visual`, input);
+}
+
 export function listVoiceProfiles() {
     return http.get<{ profiles: VoiceProfile[] }>("/voice-profiles");
 }

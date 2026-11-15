@@ -59,6 +59,7 @@ import { mediaFileExtension, sanitizeDownloadFileName } from "@/lib/canvas/canva
 
 import { ProjectCharacterCard } from "./project-character-card";
 import { AssetCandidateHistoryModal } from "./asset-candidate-history-modal";
+import { TextAssetPromotionModal } from "./text-asset-promotion-modal";
 import { linkSelectedProjectAssets } from "./project-asset-linking";
 import { generateCharacterTurnaround } from "./project-character-media";
 import { categoryLabels, categoryLabel, mediaLabel, StatusPill, formatTime, textValue, type ProjectDetailViewProps } from "./shared";
@@ -98,6 +99,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
     const [candidateHistoryId, setCandidateHistoryId] = useState("");
     const [candidatePromptEditing, setCandidatePromptEditing] = useState<ProjectAssetCandidate | null>(null);
     const [candidatePromptDraft, setCandidatePromptDraft] = useState("");
+    const [promotionAsset, setPromotionAsset] = useState<ProjectAsset | null>(null);
     const [imageAsset, setImageAsset] = useState<ProjectAsset | null>(null);
     const externalAssetSources = useExternalAssetSources(addOpen || Boolean(imageAsset));
     const [voiceAsset, setVoiceAsset] = useState<ProjectAsset | null>(null);
@@ -430,6 +432,10 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
         onError: failed("资产图生成失败"),
     });
     const generatingCandidateId = candidateImageMutation.isPending ? candidateImageMutation.variables?.id || "" : "";
+    const openPromotion = (asset: ProjectAsset) => {
+        setPreviewAsset(null);
+        setPromotionAsset(asset);
+    };
     const selectCandidatePreviewMutation = useMutation({
         mutationFn: async ({ candidate, preview }: { candidate: ProjectAssetCandidate; preview: ProjectAssetCandidatePreview }) => {
             const latest = await getProjectCore(detail.project.id);
@@ -683,7 +689,8 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
                 onSelect={(candidate, preview) => selectCandidatePreviewMutation.mutate({ candidate, preview })}
                 onDelete={(candidate, preview) => deleteCandidatePreviewMutation.mutate({ candidate, preview })}
             />
-            <ProjectAssetPreviewModal asset={previewAsset} personalAsset={previewAsset ? personalAssets.find((item) => item.id === previewAsset.id) : undefined} onClose={() => setPreviewAsset(null)} onDownload={() => previewAsset && downloadPreviewAsset(previewAsset)} onReplaceImage={() => { if (!previewAsset || previewAsset.category !== "character") return; setPreviewAsset(null); openImages(previewAsset); }} />
+            <ProjectAssetPreviewModal asset={previewAsset} personalAsset={previewAsset ? personalAssets.find((item) => item.id === previewAsset.id) : undefined} onClose={() => setPreviewAsset(null)} onDownload={() => previewAsset && downloadPreviewAsset(previewAsset)} onReplaceImage={() => { if (!previewAsset || previewAsset.category !== "character") return; setPreviewAsset(null); openImages(previewAsset); }} onPromoteVisual={() => previewAsset && openPromotion(previewAsset)} />
+            <TextAssetPromotionModal open={Boolean(promotionAsset)} detail={detail} asset={promotionAsset} onClose={() => setPromotionAsset(null)} onPromoted={(asset) => { updatePersonalAsset(asset.id, { status: asset.status as AssetStatus, primaryVersionId: asset.primaryVersionId }); void Promise.all([queryClient.invalidateQueries({ queryKey: ["project", detail.project.id, "assets"] }), queryClient.invalidateQueries({ queryKey: ["project", detail.project.id] })]).then(refreshProject); }} />
             <CharacterEditorModal open={Boolean(editorAsset)} editing={editorAsset !== "new"} form={form} loading={saveCharacter.isPending} onClose={() => setEditorAsset(null)} onSave={() => form.validateFields().then((values) => saveCharacter.mutate(values))} />
             <Modal className="workspace-modal workspace-modal-compact" title={folderEditor?.folder ? "重命名文件夹" : "新建文件夹"} open={Boolean(folderEditor)} okText={folderEditor?.folder ? "保存" : "创建"} cancelText="取消" okButtonProps={{ loading: createFolderMutation.isPending || renameFolderMutation.isPending }} onCancel={() => { setFolderEditor(null); setFolderName(""); }} onOk={saveFolder}>
                 <div className="grid gap-2"><span className="text-[var(--fs-label)] text-foreground/48">位置：{folderEditor ? projectAssetFolderParentLabel(assetFolders, folderEditor.parentId) : ""}</span><Input autoFocus maxLength={60} value={folderName} placeholder="输入文件夹名称" onChange={(event) => setFolderName(event.target.value)} onPressEnter={saveFolder} /></div>
@@ -897,22 +904,23 @@ function MediaAssetCard({ asset, personalAsset, folderItems, onOpen, onMove, onC
 }
 
 function ProjectAssetMedia({ asset, personalAsset }: { asset: ProjectAsset; personalAsset?: Asset }) {
-    if (personalAsset) return <AssetMediaPreview asset={personalAsset} alt={asset.title} className="h-full w-full bg-black object-cover" fallback={<div className="grid h-full place-items-center text-foreground/25"><MediaIcon kind={asset.mediaType} /></div>} />;
     const remoteUrl = projectAssetRemoteUrl(asset);
     if (asset.mediaType === "image" && remoteUrl) return <img src={remoteUrl} alt={asset.title} className="h-full w-full bg-black object-cover" />;
+    if (personalAsset) return <AssetMediaPreview asset={personalAsset} alt={asset.title} className="h-full w-full bg-black object-cover" fallback={<div className="grid h-full place-items-center text-foreground/25"><MediaIcon kind={asset.mediaType} /></div>} />;
     if (asset.mediaType === "video" && remoteUrl) return <video src={remoteUrl} muted preload="metadata" className="h-full w-full bg-black object-cover" />;
     if (asset.mediaType === "text" && asset.previewText) return <p className="line-clamp-6 h-full overflow-hidden p-4 text-left text-xs leading-5 text-foreground/62">{asset.previewText}</p>;
     return <div className="grid h-full place-items-center text-foreground/25"><MediaIcon kind={asset.mediaType} /></div>;
 }
 
-function ProjectAssetPreviewModal({ asset, personalAsset, onClose, onDownload, onReplaceImage }: { asset: ProjectAsset | null; personalAsset?: Asset; onClose: () => void; onDownload: () => void; onReplaceImage: () => void }) {
+function ProjectAssetPreviewModal({ asset, personalAsset: personalAssetInput, onClose, onDownload, onReplaceImage, onPromoteVisual, promoting }: { asset: ProjectAsset | null; personalAsset?: Asset; onClose: () => void; onDownload: () => void; onReplaceImage: () => void; onPromoteVisual?: () => void; promoting?: boolean }) {
+    const personalAsset = personalAssetInput?.kind === asset?.mediaType ? personalAssetInput : undefined;
     const characterCover = asset?.character?.representations.find((item) => item.role === "turnaround_sheet") || asset?.character?.representations.find((item) => item.role === "primary") || asset?.character?.representations[0];
     const remoteUrl = asset ? projectAssetRemoteUrl(asset) : "";
     const canDownload = Boolean(personalAsset && ["image", "video", "audio", "model"].includes(personalAsset.kind)) || Boolean(characterCover) || Boolean(remoteUrl);
     const previewKind = personalAsset?.kind || asset?.mediaType;
     const previewClass = asset?.category === "character" ? "is-character" : previewKind === "video" ? "is-video" : previewKind === "audio" ? "is-audio" : previewKind === "text" ? "is-text" : "is-image";
     return (
-        <Modal className="workspace-modal workspace-modal-wide library-modal project-asset-preview-modal" title={asset?.category === "character" ? "角色卡预览" : "资产预览"} open={Boolean(asset)} onCancel={onClose} footer={<div className="flex justify-end gap-2"><Button onClick={onClose}>关闭</Button>{asset?.category === "character" ? <Button onClick={onReplaceImage}>替换图片</Button> : null}{canDownload ? <Button type="primary" icon={<Download className="size-3.5" />} onClick={onDownload}>下载</Button> : null}</div>}>
+        <Modal className="workspace-modal workspace-modal-wide library-modal project-asset-preview-modal" title={asset?.category === "character" ? "角色卡预览" : "资产预览"} open={Boolean(asset)} onCancel={onClose} footer={<div className="flex justify-end gap-2"><Button onClick={onClose}>关闭</Button>{asset?.mediaType === "text" && asset.category !== "character" ? <Button icon={<Sparkles className="size-3.5" />} loading={promoting} onClick={onPromoteVisual}>生成资产图</Button> : null}{asset?.category === "character" ? <Button onClick={onReplaceImage}>替换图片</Button> : null}{canDownload ? <Button type="primary" icon={<Download className="size-3.5" />} onClick={onDownload}>下载</Button> : null}</div>}>
             {asset ? <div className="project-asset-preview-layout">
                 <div className={`project-asset-preview-stage ${previewClass}`}>
                     {asset.category === "character" ? characterCover ? <CachedResourceImage storageKey={`resource:${characterCover.resourceId}`} src={resourceFileUrl(characterCover.resourceId)} alt={asset.title} className="project-asset-preview-media" fallback={<div className="grid min-h-48 place-items-center text-foreground/35"><UserRound className="size-12" /></div>} /> : <div className="grid min-h-48 place-items-center text-foreground/35"><UserRound className="size-12" /></div> : personalAsset?.kind === "video" ? <video src={personalAsset.data.url} controls className="project-asset-preview-media" /> : personalAsset?.kind === "audio" ? <audio src={personalAsset.data.url} controls className="project-asset-preview-audio" /> : personalAsset?.kind === "image" ? <AssetMediaPreview asset={personalAsset} alt={asset.title} className="project-asset-preview-media" /> : personalAsset?.kind === "text" ? <p className="project-asset-preview-text">{personalAsset.data.content}</p> : asset.mediaType === "video" && remoteUrl ? <video src={remoteUrl} controls className="project-asset-preview-media" /> : asset.mediaType === "audio" && remoteUrl ? <audio src={remoteUrl} controls className="project-asset-preview-audio" /> : asset.mediaType === "image" && remoteUrl ? <img src={remoteUrl} alt={asset.title} className="project-asset-preview-media" /> : asset.mediaType === "text" && asset.previewText ? <p className="project-asset-preview-text">{asset.previewText}</p> : <div className="grid min-h-48 place-items-center text-foreground/35"><MediaIcon kind={asset.mediaType} /></div>}
