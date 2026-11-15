@@ -2,7 +2,8 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { confirmCanvasGenerationTaskQuote } from "@/components/canvas/canvas-billing-confirmation";
-import { modelCapabilityConfigFor } from "@/lib/model-capabilities";
+import { modelCapabilityConfigFor, normalizeVideoValue } from "@/lib/model-capabilities";
+import { resolveModelVideoBooleanOptions } from "@/lib/model-selection";
 import { buildBackendGenerationTaskQuoteInput, runBackendGenerationTask } from "@/services/api/generation-task";
 import { listProjectUnitArtifacts, registerProjectUnitArtifact, type ProjectDetail, type ProjectShot } from "@/services/api/projects";
 import { ownedResourceIdFromMediaRef, resourceFileUrl, resourceIdFromStorageKey } from "@/services/api/resources";
@@ -68,6 +69,17 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
             notifyError(`当前视频模型单次最多生成 ${maxTargetSeconds} 秒，无法直接生成 ${targetSeconds} 秒整片`);
             return;
         }
+        const normalizedVideo = profile
+            ? normalizeVideoValue(profile, {
+                  seconds: String(targetSeconds),
+                  ratio: detail.project.aspectRatio,
+                  resolution: effectiveConfig.vquality,
+              })
+            : { seconds: String(targetSeconds), ratio: detail.project.aspectRatio, resolution: effectiveConfig.vquality };
+        const videoBooleanOptions = resolveModelVideoBooleanOptions(effectiveConfig, model, {}, {
+            videoGenerateAudio: effectiveConfig.videoGenerateAudio,
+            videoWatermark: effectiveConfig.videoWatermark,
+        });
         const storyboardPrompt = storyboardArtifacts.map(({ shot }, index) => {
             const revision = currentRevision(detail, shot);
             const motion = [revision?.videoPrompt, revision?.action].filter(Boolean).join("\n");
@@ -79,7 +91,15 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
             projectId,
             mode: "video",
             prompt: `把以下已确认分镜图按顺序生成一个完整的 ${targetSeconds} 秒视频。保持角色、产品、场景和画风一致，镜头之间自然衔接。\n${storyboardPrompt}`,
-            config: { ...effectiveConfig, model, videoModel: model, size: detail.project.aspectRatio, videoSeconds: String(targetSeconds) },
+            config: {
+                ...effectiveConfig,
+                model,
+                videoModel: model,
+                size: normalizedVideo.ratio,
+                vquality: normalizedVideo.resolution,
+                videoSeconds: normalizedVideo.seconds,
+                ...videoBooleanOptions,
+            },
             referenceImages: storyboardArtifacts.map(({ shot, artifact }, index) => ({
                 id: `smart-film-storyboard-${index}`,
                 name: `分镜 ${index + 1} · ${shot.title}`,
