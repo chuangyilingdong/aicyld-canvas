@@ -496,6 +496,7 @@
 
 .smart-film-batch-list-card {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     min-width: 0;
     gap: 14px;
     border: 1px solid color-mix(in srgb, var(--foreground) 9%, transparent);
@@ -507,6 +508,7 @@
 .smart-film-batch-list-card-head,
 .smart-film-batch-list-card-foot {
     display: flex;
+    min-width: 0;
     align-items: flex-start;
     justify-content: space-between;
     gap: 12px;
