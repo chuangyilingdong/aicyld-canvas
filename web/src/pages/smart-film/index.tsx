@@ -30,10 +30,7 @@ export default function SmartFilmPage() {
                     <Button type="primary" icon={<Clapperboard className="size-4" />} onClick={() => navigate("/smart-film/batches/new")}>
                         多剧本成片
                     </Button>
-                    <Button icon={<Layers3 className="size-4" />} onClick={() => navigate("/smart-film/batches")}>
-                        批次历史
-                    </Button>
-                    <Button icon={<Clapperboard className="size-4" />} onClick={() => navigate("/projects")}>
+                    <Button icon={<Clapperboard className="size-4" />} onClick={() => navigate("/canvas")}>
                         返回项目库
                     </Button>
                 </div>
@@ -60,7 +57,7 @@ export default function SmartFilmPage() {
                     </div>
                 </aside>
                 <main className="smart-film-main">
-                    <SmartFilmStarter presentation="page" onClose={() => navigate("/projects")} />
+                    <SmartFilmStarter presentation="page" onClose={() => navigate("/canvas")} />
                 </main>
             </div>
         </WorkspacePage>

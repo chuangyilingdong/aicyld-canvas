@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ChangeEvent } from "react";
 import { getCanvasHydrationHealth,subscribeCanvasHydrationHealth } from "@/services/canvas-hydration-health";
 import { useNavigate, useSearchParams } from "react-router";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { App, Button, Dropdown, Input, Modal } from "antd";
 import { Select } from "@/components/ui/base/select";
 import { Clapperboard, Download, FolderPlus, Image as ImageIcon, MoreHorizontal, Pencil, Plus, Trash2, Upload } from "lucide-react";
@@ -29,6 +29,7 @@ import { listWorkspaceCanvasProjectsPage, type CanvasLibrarySummary } from "@/se
 import { useUserStore } from "@/stores/use-user-store";
 import { listProjects, type ProjectSummary } from "@/services/api/projects";
 import { projectSummaryStage } from "@/lib/project-workbench";
+import { deleteSmartFilmBatch, listSmartFilmBatches, type SmartFilmBatch } from "@/services/api/smart-film-batches";
 import { loadCanvasProjectPage } from "@/lib/workspace-route-modules";
 import { useSyncProgressStore } from "@/stores/use-sync-progress-store";
 import { useAppearanceStore } from "@/stores/use-appearance-store";
@@ -40,7 +41,8 @@ const CanvasDeleteProjectsDialog = lazy(() => import("@/components/canvas/canvas
 
 export default function CanvasPage() {
     const canvasHealth = useSyncExternalStore(subscribeCanvasHydrationHealth,getCanvasHydrationHealth);
-    const { message } = App.useApp();
+    const { message, modal } = App.useApp();
+    const queryClient = useQueryClient();
     const brandName = useAppearanceStore((state) => state.appearance.brandName);
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
@@ -112,6 +114,12 @@ export default function CanvasPage() {
     const [associationProjectId, setAssociationProjectId] = useState("");
     // 本地工作区的画布、文件夹与历史完全来自浏览器本地存储；项目关系查询只在远程工作区启用。
     const projectQuery = useQuery({ queryKey: ["projects", userId], queryFn: () => listProjects(), enabled: remoteMode && sessionHydrated });
+    const batchQuery = useQuery({
+        queryKey: ["smart-film-batches", "project-library", userId],
+        queryFn: () => listSmartFilmBatches({ page: 1, pageSize: 100 }),
+        enabled: remoteMode && sessionHydrated,
+        refetchInterval: (query) => (query.state.data?.batches || []).some((batch) => batch.control.queuedCount + batch.control.runningCount > 0) ? 3_000 : false,
+    });
     const studioProjects = useMemo(() => remoteMode ? projectQuery.data?.projects || [] : [], [projectQuery.data, remoteMode]);
     const visibleStudioProjects = useMemo(() => {
         if (folderFilter !== "all") return [];
@@ -120,6 +128,36 @@ export default function CanvasPage() {
             .filter(({ project }) => (projectFilter === "all" || projectFilter === project.id) && (!query || project.name.toLowerCase().includes(query)))
             .sort((left, right) => sort === "name" ? left.project.name.localeCompare(right.project.name, "zh-CN") : right.project.updatedAt.localeCompare(left.project.updatedAt));
     }, [debouncedKeyword, folderFilter, projectFilter, studioProjects, sort]);
+    const visibleBatches = useMemo(() => {
+        if (folderFilter !== "all") return [];
+        const query = debouncedKeyword.toLowerCase();
+        return (batchQuery.data?.batches || [])
+            .filter((batch) => projectFilter === "all" || batch.scripts.some((script) => script.projectId === projectFilter))
+            .filter((batch) => !query || `${batch.title} ${batch.sourceText}`.toLowerCase().includes(query))
+            .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+    }, [batchQuery.data?.batches, debouncedKeyword, folderFilter, projectFilter]);
+    const requestDeleteBatch = (batch: SmartFilmBatch) => {
+        modal.confirm({
+            title: `删除批次「${batch.title}」？`,
+            content: "批次记录、剧本和运行记录会删除；已经创建的项目会保留并转为独立项目。生成中的任务需要结束后才能删除。",
+            okText: "删除批次",
+            cancelText: "取消",
+            okButtonProps: { danger: true },
+            onOk: async () => {
+                try {
+                    await deleteSmartFilmBatch(batch.id);
+                    message.success("批次已删除，已有项目已保留");
+                    await Promise.all([
+                        queryClient.invalidateQueries({ queryKey: ["smart-film-batches"] }),
+                        queryClient.invalidateQueries({ queryKey: ["projects"] }),
+                    ]);
+                } catch (error) {
+                    message.error(error instanceof Error ? error.message : "批次删除失败");
+                    throw error;
+                }
+            },
+        });
+    };
 
     const mode = searchParams.get("mode");
     const agentMode = mode === "new" || mode === "recent" || mode === "choose";
@@ -404,7 +442,7 @@ export default function CanvasPage() {
                     <div role="alert">画布列表读取失败<Button onClick={() => void libraryQuery.refetch()}>重试</Button></div>
                 ) : !hydrated || (remoteMode && libraryQuery.isPending) ? (
                     <WorkspaceLoadingState label="正在恢复画布" detail="读取本地缓存与账号同步状态" />
-                ) : visibleProjects.length || visibleStudioProjects.length || (!keyword && projectFilter === "all") ? (
+                ) : visibleProjects.length || visibleStudioProjects.length || visibleBatches.length || (!keyword && projectFilter === "all") ? (
                     <CollectionGrid className="canvas-collection-grid">
                         <div className="libtv-create-project-entry">
                             <article className="libtv-create-project-card" role="button" tabIndex={0} onClick={() => createAndEnter()} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); createAndEnter(); } }}>
@@ -420,6 +458,9 @@ export default function CanvasPage() {
                                 message.error(error instanceof Error ? error.message : "封面没有保存成功");
                             });
                         }} />)}
+                        {visibleBatches.map((batch) => (
+                            <SmartFilmBatchCard key={`smart-film-batch-${batch.id}`} batch={batch} onOpen={() => navigate(`/smart-film/batches/${batch.id}`)} onDelete={() => requestDeleteBatch(batch)} />
+                        ))}
                         {visibleStudioProjects.map((item) => (
                             <StudioProjectCard key={`studio-project-${item.project.id}`} item={item} onOpen={() => navigate(`/projects/${item.project.id}/overview`)} />
                         ))}
@@ -517,6 +558,61 @@ export default function CanvasPage() {
                 }} /> : null}
             {deleteDialogOpen ? <Suspense fallback={null}><CanvasDeleteProjectsDialog /></Suspense> : null}
         </WorkspacePage>
+    );
+}
+
+function SmartFilmBatchCard({ batch, onOpen, onDelete }: { batch: SmartFilmBatch; onOpen: () => void; onDelete: () => void }) {
+    const projectCount = batch.scripts.filter((script) => Boolean(script.projectId)).length;
+    const readyCount = batch.scripts.filter((script) => script.status === "storyboard_ready").length;
+    const activeCount = batch.control.queuedCount + batch.control.runningCount;
+    const status = activeCount ? "生成中" : batch.status === "draft" ? "草稿" : batch.status === "partially_confirmed" ? "部分确认" : "已确认";
+    const statusTone = status === "生成中" ? "border-amber-500/25 bg-amber-500/10 text-amber-500" : status === "部分确认" ? "border-sky-500/25 bg-sky-500/10 text-sky-400" : status === "草稿" ? "border-border/70 bg-background/70 text-foreground/55" : "border-emerald-500/25 bg-emerald-500/10 text-emerald-400";
+    return (
+        <LibraryCardShell
+            ariaLabel={`打开批次 ${batch.title}`}
+            className="canvas-collection-card"
+            updatedAt={batch.updatedAt}
+            onOpen={onOpen}
+            cover={
+                <div className="canvas-collection-preview-content">
+                    <div className="flex size-full flex-col justify-between bg-[radial-gradient(circle_at_top_right,color-mix(in_srgb,#38bdf8_20%,transparent),transparent_58%),linear-gradient(145deg,color-mix(in_srgb,var(--foreground)_5%,transparent),transparent)] p-4">
+                        <div className="flex items-start justify-between gap-2">
+                            <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-border/70 bg-background/70 px-2.5 py-1 text-[var(--fs-micro)] text-foreground/55"><Clapperboard className="size-3.5" />多剧本批次</span>
+                            <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[var(--fs-micro)] ${statusTone}`}>{status}</span>
+                        </div>
+                        <div className="flex items-end justify-between gap-3">
+                            <div className="min-w-0">
+                                <strong className="line-clamp-2 text-sm leading-5">{batch.title}</strong>
+                                <span className="mt-1 block text-[var(--fs-micro)] text-foreground/45">{batch.scripts.length} 条剧本 · {projectCount} 个项目 · {readyCount} 个分镜完成</span>
+                            </div>
+                            <Clapperboard className="size-9 shrink-0 text-foreground/18" />
+                        </div>
+                    </div>
+                </div>
+            }
+            title={batch.title}
+            actions={
+                <div className="canvas-collection-actions" onClick={(event) => event.stopPropagation()}>
+                    <Dropdown
+                        trigger={["click"]}
+                        placement="bottomRight"
+                        overlayClassName="project-library-menu"
+                        menu={{
+                            onClick: ({ domEvent }) => domEvent.stopPropagation(),
+                            items: [
+                                { key: "open", label: "打开批次", onClick: onOpen },
+                                { type: "divider" },
+                                { key: "delete", danger: true, label: "删除批次", onClick: onDelete },
+                            ],
+                        }}
+                    >
+                        <button type="button" className="product-icon-button canvas-collection-more" aria-label={`${batch.title} 批次操作`} title="更多操作" onClick={(event) => event.stopPropagation()}>
+                            <MoreHorizontal />
+                        </button>
+                    </Dropdown>
+                </div>
+            }
+        />
     );
 }
 

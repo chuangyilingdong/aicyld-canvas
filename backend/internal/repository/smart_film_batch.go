@@ -36,15 +36,47 @@ func (r *Repository) SmartFilmBatchesForUser(userID, status string, page, pageSi
 	return batches, total, err
 }
 
-func (r *Repository) DeleteSmartFilmBatchDraft(userID, batchID string) error {
-	result := r.db.Where("id = ? AND user_id = ? AND status = ?", batchID, userID, "draft").Delete(&model.SmartFilmBatch{})
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.RowsAffected != 1 {
-		return gorm.ErrRecordNotFound
-	}
-	return nil
+func (r *Repository) DeleteSmartFilmBatch(userID, batchID string) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		var batch model.SmartFilmBatch
+		if err := tx.Where("id = ? AND user_id = ?", batchID, userID).First(&batch).Error; err != nil {
+			return err
+		}
+		var scripts []model.SmartFilmScriptRecord
+		if err := tx.Where("user_id = ? AND batch_id = ?", userID, batchID).Find(&scripts).Error; err != nil {
+			return err
+		}
+		projectIDs := make([]string, 0, len(scripts))
+		for _, script := range scripts {
+			if strings.TrimSpace(script.ProjectID) != "" {
+				projectIDs = append(projectIDs, script.ProjectID)
+			}
+		}
+		if len(projectIDs) > 0 {
+			if err := tx.Model(&model.Project{}).Where("user_id = ? AND id IN ?", userID, projectIDs).Updates(map[string]any{
+				"batch_id": "", "source_run_id": "", "source_script_id": "",
+			}).Error; err != nil {
+				return err
+			}
+		}
+		if err := tx.Where("user_id = ? AND batch_id = ?", userID, batchID).Delete(&model.SmartFilmProductionRun{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("user_id = ? AND batch_id = ?", userID, batchID).Delete(&model.SmartFilmScriptRevision{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("user_id = ? AND batch_id = ?", userID, batchID).Delete(&model.SmartFilmScriptRecord{}).Error; err != nil {
+			return err
+		}
+		result := tx.Where("id = ? AND user_id = ?", batchID, userID).Delete(&model.SmartFilmBatch{})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return gorm.ErrRecordNotFound
+		}
+		return nil
+	})
 }
 
 func (r *Repository) UpdateSmartFilmBatch(userID, batchID string, expectedRevision int64, fields map[string]any) (*model.SmartFilmBatch, error) {

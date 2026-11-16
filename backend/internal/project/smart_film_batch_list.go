@@ -38,28 +38,40 @@ func (s *Service) ListSmartFilmBatches(userID, status string, page, pageSize int
 	}, nil
 }
 
-func (s *Service) DeleteSmartFilmBatchDraft(userID, batchID string) error {
+func (s *Service) DeleteSmartFilmBatch(userID, batchID string) error {
 	batch, err := s.repo.SmartFilmBatchForUser(userID, batchID)
 	if err != nil {
 		return err
 	}
-		scripts, err := s.smartFilmScripts(batch)
+	scripts, err := s.smartFilmScripts(batch)
 	if err != nil {
 		return err
-	}
-	for _, script := range scripts {
-		if script.ProjectID != "" || script.Status != SmartFilmScriptStatusDraft {
-			return kernel.BadAuthRequest("批次已经进入制作，不能删除")
-		}
 	}
 	runs, err := s.repo.SmartFilmProductionRunsForBatch(userID, batchID)
 	if err != nil {
 		return err
 	}
-	if len(runs) > 0 {
-		return kernel.BadAuthRequest("批次已有生产记录，不能删除")
+	for _, run := range runs {
+		if run.AssetStatus == "queued" || run.AssetStatus == "running" || run.StoryboardStatus == "queued" || run.StoryboardStatus == "running" {
+			return kernel.BadAuthRequest("批次仍有生成中的任务，请等待任务结束后再删除")
+		}
 	}
-	if err := s.repo.DeleteSmartFilmBatchDraft(userID, batchID); err != nil {
+	projectIDs := make([]string, 0, len(scripts))
+	for _, script := range scripts {
+		if strings.TrimSpace(script.ProjectID) != "" {
+			projectIDs = append(projectIDs, script.ProjectID)
+		}
+	}
+	if len(projectIDs) > 0 {
+		activeTasks, countErr := s.repo.ActiveTaskCountForProjectIDs(userID, projectIDs)
+		if countErr != nil {
+			return countErr
+		}
+		if activeTasks > 0 {
+			return kernel.BadAuthRequest("批次项目仍有生成中的任务，请等待任务结束后再删除")
+		}
+	}
+	if err := s.repo.DeleteSmartFilmBatch(userID, batchID); err != nil {
 		if s.repo != nil {
 			return mapProjectWriteError(err)
 		}

@@ -32,15 +32,20 @@ export default function SmartFilmBatchListPage() {
 
     const deleteBatch = (batch: SmartFilmBatch) => {
         modal.confirm({
-            title: `删除草稿批次「${batch.title}」？`,
-            content: "只删除尚未创建项目的草稿批次，不会影响任何项目、任务或素材。",
-            okText: "删除",
+            title: `删除批次「${batch.title}」？`,
+            content: "批次记录、剧本和批次运行记录会被删除；已经创建的项目会保留并转为独立项目。生成中的批次需要等待任务结束后才能删除。",
+            okText: "删除批次",
             okButtonProps: { danger: true },
             cancelText: "取消",
             onOk: async () => {
-                await deleteSmartFilmBatch(batch.id);
-                message.success("草稿批次已删除");
-                await queryClient.invalidateQueries({ queryKey: ["smart-film-batches"] });
+                try {
+                    await deleteSmartFilmBatch(batch.id);
+                    message.success("批次已删除，已有项目已保留");
+                    await queryClient.invalidateQueries({ queryKey: ["smart-film-batches"] });
+                } catch (error) {
+                    message.error(error instanceof Error ? error.message : "批次删除失败");
+                    throw error;
+                }
             },
         });
     };
@@ -112,7 +117,7 @@ export default function SmartFilmBatchListPage() {
                                         <span>{batch.paused ? "已暂停" : batch.control.currentProjectId ? "后台处理中" : `更新于 ${new Date(batch.updatedAt).toLocaleString()}`}</span>
                                         <div className="flex flex-wrap items-center gap-2">
                                             <Button size="small" type="primary" onClick={() => navigate(`/smart-film/batches/${batch.id}`)}>继续制作</Button>
-                                            {batch.status === "draft" && projectCount === 0 ? <Button size="small" danger icon={<Trash2 className="size-3.5" />} onClick={() => deleteBatch(batch)}>删除</Button> : null}
+                                            <Button size="small" danger icon={<Trash2 className="size-3.5" />} onClick={() => deleteBatch(batch)}>删除</Button>
                                         </div>
                                     </div>
                                 </article>

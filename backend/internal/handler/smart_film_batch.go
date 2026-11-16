@@ -67,7 +67,7 @@ func RegisterSmartFilmBatchRoutes(r *gin.RouterGroup, owners workspaceOwners, pr
 			failService(c, err)
 			return
 		}
-		if err := projects.DeleteSmartFilmBatchDraft(user.ID, c.Param("id")); err != nil {
+		if err := projects.DeleteSmartFilmBatch(user.ID, c.Param("id")); err != nil {
 			failService(c, err)
 			return
 		}

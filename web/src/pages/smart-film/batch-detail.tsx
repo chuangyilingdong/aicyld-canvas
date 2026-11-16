@@ -445,7 +445,7 @@ export default function SmartFilmBatchDetailPage() {
                     if (scriptIds.length === 1 && createdScript?.projectId) {
                         navigate(`/projects/${createdScript.projectId}/overview`);
                     } else if (scriptIds.length > 1) {
-                        navigate("/projects");
+                        navigate("/canvas");
                     }
                 } catch (error) {
                     message.error(error instanceof Error ? error.message : "创建视频项目失败");
@@ -575,7 +575,7 @@ export default function SmartFilmBatchDetailPage() {
                     <h1>{batch.title}</h1>
                     <p>{batch.sourceText}</p>
                 </div>
-                <Button icon={<ArrowLeft className="size-4" />} onClick={() => navigate("/smart-film/batches")}>返回批次列表</Button>
+                <Button icon={<ArrowLeft className="size-4" />} onClick={() => navigate("/canvas")}>返回项目库</Button>
             </header>
 
             <div className="smart-film-batch-detail">

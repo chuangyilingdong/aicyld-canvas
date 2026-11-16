@@ -375,8 +375,8 @@ func TestSmartFilmBatchCreatesIndependentProjects(t *testing.T) {
 	}
 }
 
-func TestSmartFilmBatchListFiltersAndDeletesDraft(t *testing.T) {
-	svc, _ := newTestService(t, &recordingWorkflows{})
+func TestSmartFilmBatchListFiltersAndDeletePreservesProjects(t *testing.T) {
+	svc, db := newTestService(t, &recordingWorkflows{})
 	draft, err := svc.CreateSmartFilmBatch("user-1", CreateSmartFilmBatchRequest{Title: "草稿批次", SourceText: "想法"})
 	if err != nil {
 		t.Fatal(err)
@@ -404,6 +404,17 @@ func TestSmartFilmBatchListFiltersAndDeletesDraft(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	project := seedProject(t, db, model.Project{ID: "batch-project", UserID: "user-1", Name: "批次项目"})
+	if err := db.Model(&model.Project{}).Where("id = ?", project.ID).Updates(map[string]any{"batch_id": confirmed.ID, "source_script_id": saved.Scripts[0].ID}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&model.SmartFilmScriptRecord{}).Where("id = ?", saved.Scripts[0].ID).Update("project_id", project.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	activeTask := model.Task{ID: "batch-project-task", UserID: "user-1", ProjectID: project.ID, Type: "canvas_video", Status: model.TaskStatusRunning, Attempts: 1}
+	if err := db.Create(&activeTask).Error; err != nil {
+		t.Fatal(err)
+	}
 	page, err := svc.ListSmartFilmBatches("user-1", SmartFilmScriptStatusDraft, 1, 20)
 	if err != nil {
 		t.Fatal(err)
@@ -411,17 +422,30 @@ func TestSmartFilmBatchListFiltersAndDeletesDraft(t *testing.T) {
 	if page.Total != 1 || len(page.Batches) != 1 || page.Batches[0].ID != draft.ID {
 		t.Fatalf("draft batch list = %+v", page)
 	}
-	if err := svc.DeleteSmartFilmBatchDraft("user-1", confirmed.ID); err == nil {
-		t.Fatal("confirmed batch was deleted as draft")
+	if err := svc.DeleteSmartFilmBatch("user-1", confirmed.ID); err == nil {
+		t.Fatal("batch with an active project task was deleted")
 	}
-	if err := svc.DeleteSmartFilmBatchDraft("user-1", draft.ID); err != nil {
+	if err := db.Delete(&activeTask).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.DeleteSmartFilmBatch("user-1", confirmed.ID); err != nil {
+		t.Fatal(err)
+	}
+	var retainedProject model.Project
+	if err := db.First(&retainedProject, "id = ?", project.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if retainedProject.BatchID != "" || retainedProject.SourceScriptID != "" {
+		t.Fatalf("project batch link was not cleared: %+v", retainedProject)
+	}
+	if err := svc.DeleteSmartFilmBatch("user-1", draft.ID); err != nil {
 		t.Fatal(err)
 	}
 	page, err = svc.ListSmartFilmBatches("user-1", "", 1, 20)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if page.Total != 1 || page.Batches[0].ID != confirmed.ID {
+	if page.Total != 0 {
 		t.Fatalf("batch list after delete = %+v", page)
 	}
 }
