@@ -61,6 +61,53 @@ func (s *Service) UpdateSmartFilmBatchProductionConfig(userID, batchID string, r
 	return s.smartFilmBatchResponse(*updated)
 }
 
+func (s *Service) UpdateSmartFilmBatchSkill(userID, batchID string, req UpdateSmartFilmBatchSkillRequest) (SmartFilmBatchView, error) {
+	if req.ExpectedRevision <= 0 {
+		return SmartFilmBatchView{}, kernel.BadAuthRequest("请刷新后再更换技能")
+	}
+	batch, err := s.repo.SmartFilmBatchForUser(userID, batchID)
+	if err != nil {
+		return SmartFilmBatchView{}, err
+	}
+	if batch.Revision != req.ExpectedRevision {
+		return SmartFilmBatchView{}, kernel.WrapAppError(kernel.CodeConflict, "批次已发生变化，请刷新后重试", nil)
+	}
+	scripts, err := s.smartFilmScripts(batch)
+	if err != nil {
+		return SmartFilmBatchView{}, err
+	}
+	for _, script := range scripts {
+		if strings.TrimSpace(script.ProjectID) != "" {
+			return SmartFilmBatchView{}, kernel.BadAuthRequest("已有项目开始制作，不能再更换批次技能")
+		}
+	}
+	runs, err := s.repo.SmartFilmProductionRunsForBatch(userID, batchID)
+	if err != nil {
+		return SmartFilmBatchView{}, err
+	}
+	for _, run := range runs {
+		if strings.TrimSpace(run.ProjectID) != "" {
+			return SmartFilmBatchView{}, kernel.BadAuthRequest("已有项目开始制作，不能再更换批次技能")
+		}
+	}
+	config, err := smartFilmBatchConfig(batch)
+	if err != nil {
+		return SmartFilmBatchView{}, err
+	}
+	config.SkillSnapshot = req.SkillSnapshot
+	config, err = normalizeSmartFilmBatchConfig(config)
+	if err != nil {
+		return SmartFilmBatchView{}, err
+	}
+	updated, err := s.repo.UpdateSmartFilmBatch(userID, batchID, req.ExpectedRevision, map[string]any{
+		"config_json": mustJSON(config),
+	})
+	if err != nil {
+		return SmartFilmBatchView{}, mapProjectWriteError(err)
+	}
+	return s.smartFilmBatchResponse(*updated)
+}
+
 func normalizeSmartFilmInputAssetRoles(values map[string]string) (map[string]string, error) {
 	if len(values) == 0 {
 		return nil, nil

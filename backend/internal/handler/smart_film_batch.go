@@ -112,6 +112,25 @@ func RegisterSmartFilmBatchRoutes(r *gin.RouterGroup, owners workspaceOwners, pr
 		}
 		ok(c, gin.H{"batch": batch})
 	})
+	r.PATCH("/smart-film-batches/:id/skill", func(c *gin.Context) {
+		user, err := currentUser(c, owners)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)
+		var req localproject.UpdateSmartFilmBatchSkillRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			fail(c, http.StatusBadRequest, err)
+			return
+		}
+		batch, err := projects.UpdateSmartFilmBatchSkill(user.ID, c.Param("id"), req)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"batch": batch})
+	})
 
 	r.GET("/smart-film-batches/:id/costs", func(c *gin.Context) {
 		user, err := currentUser(c, owners)

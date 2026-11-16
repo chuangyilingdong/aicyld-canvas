@@ -185,6 +185,11 @@ type UpdateSmartFilmBatchProductionConfigRequest struct {
 	ExpectedRevision      int64     `json:"expectedRevision"`
 }
 
+type UpdateSmartFilmBatchSkillRequest struct {
+	SkillSnapshot    *SmartFilmSkillSnapshot `json:"skillSnapshot,omitempty"`
+	ExpectedRevision int64                   `json:"expectedRevision"`
+}
+
 type SmartFilmBatchCostItem struct {
 	Key     string `json:"key"`
 	Label   string `json:"label"`

@@ -158,6 +158,13 @@ export function updateSmartFilmBatchProductionConfig(batchId: string, input: {
     return http.patch<{ batch: SmartFilmBatch }>(`/smart-film-batches/${encodeURIComponent(batchId)}/production-config`, input);
 }
 
+export function updateSmartFilmBatchSkill(batchId: string, skillSnapshot: SmartFilmSkillSnapshot | undefined, expectedRevision: number) {
+    return http.patch<{ batch: SmartFilmBatch }>(`/smart-film-batches/${encodeURIComponent(batchId)}/skill`, {
+        skillSnapshot,
+        expectedRevision,
+    });
+}
+
 export type SmartFilmBatchCostItem = {
     key: string;
     label: string;

@@ -106,6 +106,45 @@ func TestSmartFilmBatchGroupsCharacterViewsByNameAndStoresSingleSkill(t *testing
 	}
 }
 
+func TestSmartFilmBatchSkillCanChangeBeforeProjectAndLocksAfterward(t *testing.T) {
+	svc, _ := newTestService(t, &recordingWorkflows{})
+	created, err := svc.CreateSmartFilmBatch("user-1", CreateSmartFilmBatchRequest{Title: "更换技能", SourceText: "一个故事"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := &SmartFilmSkillSnapshot{
+		SkillID: "skill-one", VersionID: "version-one", ContentHash: "hash-one", Name: "技能一", Version: "1", RoutingMode: "auto",
+		Stages: map[string]string{SmartFilmSkillStageScript: "剧本一", SmartFilmSkillStageAssets: "资产一", SmartFilmSkillStageStoryboard: "分镜一", SmartFilmSkillStageImage: "图片一", SmartFilmSkillStageVideo: "视频一"},
+	}
+	updated, err := svc.UpdateSmartFilmBatchSkill("user-1", created.ID, UpdateSmartFilmBatchSkillRequest{SkillSnapshot: first, ExpectedRevision: created.Revision})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Config.SkillSnapshot == nil || updated.Config.SkillSnapshot.SkillID != "skill-one" {
+		t.Fatalf("updated skill = %+v", updated.Config.SkillSnapshot)
+	}
+	saved, err := svc.SaveSmartFilmBatchScripts("user-1", updated.ID, SaveSmartFilmBatchScriptsRequest{
+		ExpectedRevision: updated.Revision,
+		Scripts:          []SmartFilmScriptInput{{Title: "剧本", Content: "正文"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	configureSmartFilmBatchFixed(t, svc, &saved, 1)
+	confirmed, err := svc.ConfirmSmartFilmBatchScripts("user-1", saved.ID, ConfirmSmartFilmBatchScriptsRequest{
+		ExpectedRevision: saved.Revision, ScriptIDs: []string{saved.Scripts[0].ID},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := *first
+	second.SkillID = "skill-two"
+	second.Name = "技能二"
+	if _, err := svc.UpdateSmartFilmBatchSkill("user-1", confirmed.ID, UpdateSmartFilmBatchSkillRequest{SkillSnapshot: &second, ExpectedRevision: confirmed.Revision}); err == nil {
+		t.Fatal("skill changed after a project started production")
+	}
+}
+
 func configureSmartFilmBatchFixed(t *testing.T, svc *Service, batch *SmartFilmBatchView, shotCount int) {
 	t.Helper()
 	if shotCount <= 0 {

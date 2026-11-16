@@ -244,6 +244,34 @@
     flex: 1;
 }
 
+.smart-film-skill-edit {
+    margin-top: 14px;
+}
+
+.smart-film-skill-edit-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.smart-film-skill-locked-copy {
+    border: 1px solid color-mix(in srgb, var(--foreground) 9%, transparent);
+    border-radius: 9px;
+    background: color-mix(in srgb, var(--foreground) 3%, transparent);
+    padding: 8px 11px;
+    color: color-mix(in srgb, var(--foreground) 72%, transparent);
+    font-size: 12px;
+}
+
+.smart-film-skill-edit-note {
+    margin: 0;
+    color: color-mix(in srgb, var(--foreground) 42%, transparent);
+    font-size: 10px;
+    line-height: 1.6;
+}
+
 .smart-film-batch-number-grid,
 .smart-film-batch-model-grid {
     display: grid;
@@ -815,6 +843,10 @@
     .smart-film-production-duration-heading {
         align-items: flex-start;
         flex-direction: column;
+    }
+    .smart-film-skill-edit-actions {
+        width: 100%;
+        justify-content: flex-start;
     }
     .smart-film-production-mode-row {
         grid-template-columns: 1fr;

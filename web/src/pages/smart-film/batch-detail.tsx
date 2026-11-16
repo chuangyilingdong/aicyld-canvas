@@ -17,6 +17,7 @@ import {
     recoverSmartFilmBatchScripts,
     saveSmartFilmBatchScripts,
     startSmartFilmProductionStage,
+    updateSmartFilmBatchSkill,
     updateSmartFilmBatchProductionConfig,
     updateSmartFilmBatchScript,
     type SmartFilmBatch,
@@ -27,6 +28,8 @@ import {
 import { updateProjectUnit } from "@/services/api/projects";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { useEffectiveConfig } from "@/stores/use-config-store";
+import { useSkillRuntimeCatalog } from "@/components/skills/skill-runtime-picker";
+import { createSmartFilmSkillSnapshot } from "@/services/smart-film-skill";
 import { generateSmartFilmScripts } from "./smart-film-script-generation";
 import { smartFilmRecoveryMessage, smartFilmRecoveryStage, type SmartFilmRecoveryMode } from "./smart-film-recovery";
 import { canCompareSmartFilmScripts } from "./smart-film-script-comparison";
@@ -61,12 +64,15 @@ export default function SmartFilmBatchDetailPage() {
     const queryClient = useQueryClient();
     const effectiveConfig = useEffectiveConfig();
     const assets = useAssetStore((state) => state.assets);
+    const { skills: installedSkills, loading: skillsLoading } = useSkillRuntimeCatalog();
     const [selected, setSelected] = useState<Set<string>>(new Set());
     const [comparisonOpen, setComparisonOpen] = useState(false);
     const [editing, setEditing] = useState<SmartFilmScript | null>(null);
     const [draftTitle, setDraftTitle] = useState("");
     const [draftContent, setDraftContent] = useState("");
     const [busy, setBusy] = useState("");
+    const [skillDraftId, setSkillDraftId] = useState("");
+    const [skillSaving, setSkillSaving] = useState(false);
     const [productionSaving, setProductionSaving] = useState(false);
     const [productionModeDraft, setProductionModeDraft] = useState<"fixed" | "smart" | "">("");
     const [shotCountDraft, setShotCountDraft] = useState<number | null>(6);
@@ -141,6 +147,16 @@ export default function SmartFilmBatchDetailPage() {
     const draftScripts = batch?.scripts.filter((script) => !script.projectId) || [];
     const projectScripts = batch?.scripts.filter((script) => Boolean(script.projectId)) || [];
     const productionLocked = projectScripts.length > 0;
+    const currentSkillSnapshot = batch?.config.skillSnapshot;
+    const currentSkillId = currentSkillSnapshot?.skillId || "";
+    const skillDirty = skillDraftId !== currentSkillId;
+    const skillOptions = useMemo(() => {
+        const options = installedSkills.map((skill) => ({ value: skill.skillId, label: `${skill.skillName} · ${skill.version}` }));
+        if (currentSkillSnapshot && !options.some((option) => option.value === currentSkillSnapshot.skillId)) {
+            options.unshift({ value: currentSkillSnapshot.skillId, label: `${currentSkillSnapshot.name} · 当前版本不可用` });
+        }
+        return options;
+    }, [currentSkillSnapshot, installedSkills]);
     const runsByScript = useMemo(() => new Map<string, SmartFilmProductionRun>((batch?.productionRuns || []).filter((run) => run.status !== "archived").map((run) => [run.scriptId, run])), [batch?.productionRuns]);
     const selectedScripts = useMemo(() => (batch?.scripts || []).filter((script) => selected.has(script.id)), [batch?.scripts, selected]);
     const selectedDraftCount = selectedScripts.filter((script) => !script.projectId).length;
@@ -212,6 +228,28 @@ export default function SmartFilmBatchDetailPage() {
     const updateBatch = useCallback((next: SmartFilmBatch) => {
         queryClient.setQueryData(["smart-film-batch", batchId], next);
     }, [batchId, queryClient]);
+
+    useEffect(() => {
+        setSkillDraftId(currentSkillId);
+    }, [batch?.id, currentSkillId]);
+
+    const applyBatchSkill = async () => {
+        if (!batch || productionLocked || skillSaving) return;
+        setSkillSaving(true);
+        try {
+            const skillToApply = skillDraftId ? installedSkills.find((skill) => skill.skillId === skillDraftId) : undefined;
+            if (skillDraftId && !skillToApply) throw new Error("所选技能不可用，请刷新技能库后重试");
+            const snapshot = skillToApply ? await createSmartFilmSkillSnapshot(skillToApply) : undefined;
+            const result = await updateSmartFilmBatchSkill(batch.id, snapshot, batch.revision);
+            updateBatch(result.batch);
+            if (snapshot && batch.scripts.length) message.warning("批次技能已更换；已有剧本不会自动重写，请重新生成剧本后再创建项目");
+            else message.success(snapshot ? `本批次已固定使用「${snapshot.name}」` : "本批次已切换为平台默认技能规则");
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "批次技能更新失败");
+        } finally {
+            setSkillSaving(false);
+        }
+    };
 
     const recoverMissingScripts = useCallback(async (announce = true) => {
         if (!batch || busy) return false;
@@ -592,6 +630,50 @@ export default function SmartFilmBatchDetailPage() {
                         <div><span>已建项目</span><strong>{projectScripts.length}</strong></div>
                         <div><span>参考图</span><strong>{batch.inputAssetIds.length}</strong></div>
                     </div>
+                </section>
+
+                <section className="smart-film-production-config smart-film-skill-edit">
+                    <div className="smart-film-production-config-head">
+                        <div>
+                            <strong>批次制作技能</strong>
+                            <span>整个批次只能固定一个完整 Skill 包。已有项目开始制作后不可更换。</span>
+                        </div>
+                        <Tag bordered={false}>{productionLocked ? "已锁定" : skillDirty ? "有修改" : currentSkillSnapshot ? "已固定" : "平台默认"}</Tag>
+                    </div>
+                    <div className="smart-film-production-mode-row">
+                        <label>
+                            <span>唯一 Skill</span>
+                            {productionLocked ? (
+                                <div className="smart-film-skill-locked-copy">
+                                    {currentSkillSnapshot ? `${currentSkillSnapshot.name}${currentSkillSnapshot.version ? ` · ${currentSkillSnapshot.version}` : ""}` : "平台默认技能规则"}
+                                </div>
+                            ) : (
+                                <Select
+                                    allowClear
+                                    showSearch
+                                    value={skillDraftId || undefined}
+                                    loading={skillsLoading}
+                                    disabled={Boolean(busy) || productionSaving || skillSaving}
+                                    optionFilterProp="label"
+                                    placeholder="选择本批次唯一技能"
+                                    options={skillOptions}
+                                    onChange={(value) => setSkillDraftId(value || "")}
+                                    aria-label="更换本批次唯一技能"
+                                />
+                            )}
+                        </label>
+                        <div className="smart-film-skill-edit-actions">
+                            {!productionLocked ? <Button type="primary" loading={skillSaving} disabled={!skillDirty || Boolean(busy) || productionSaving || skillsLoading} onClick={() => void applyBatchSkill()}>应用技能</Button> : null}
+                            <Button disabled={Boolean(busy) || skillSaving} onClick={() => navigate("/skills")}>管理技能</Button>
+                        </div>
+                    </div>
+                    <p className="smart-film-skill-edit-note">
+                        {productionLocked
+                            ? "批次已经有项目进入制作，技能和版本已锁定。"
+                            : batch.scripts.length
+                                ? "更换技能不会自动重写已有剧本；建议更换后重新生成剧本，再创建项目。"
+                                : "选择并应用后，后续剧本、资产、分镜和视频都会使用这一个 Skill。"}
+                    </p>
                 </section>
 
                 {batch.scripts.length ? (
