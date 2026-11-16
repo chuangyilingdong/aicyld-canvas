@@ -319,6 +319,30 @@ export default function WorkflowProductionWorkbench(props: Props) {
         });
     };
 
+    const confirmSmartFilmStoryboardShot = async (shot: ProjectShot) => {
+        const shotIndex = shots.findIndex((item) => item.id === shot.id);
+        const context = buildShotAssetReferenceContext(detail, shot.id);
+        await saveConfirmedStoryboardShot(shot, shotEditorValues(detail, shot, Math.max(0, shotIndex), context));
+        await onRefresh();
+    };
+
+    const saveSmartFilmVideoPrompt = async (shot: ProjectShot, videoPrompt: string, status: "draft" | "confirmed") => {
+        const shotIndex = shots.findIndex((item) => item.id === shot.id);
+        const context = buildShotAssetReferenceContext(detail, shot.id);
+        const values = { ...shotEditorValues(detail, shot, Math.max(0, shotIndex), context), videoPrompt };
+        await saveProjectShot(projectId, {
+            id: shot.id,
+            unitId,
+            title: values.title,
+            description: values.plotDescription,
+            position: shot.position,
+            durationMs: Math.round(values.durationSeconds * 1000),
+            status,
+            revision: revisionInput(values),
+        });
+        await onRefresh();
+    };
+
     const confirmStoryboardPrompts = useStoryboardPromptConfirmation<ShotEditorValues>({
         shots,
         selectedShot,
@@ -871,7 +895,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                 readyCount={readyStoryboardCount}
                 busy={Boolean(batchProgress) || submittingShotIds.size > 0}
                 submittingShotIds={submittingShotIds}
-                onConfirmPrompts={() => void confirmStoryboardPrompts()}
+                onConfirmShot={confirmSmartFilmStoryboardShot}
                 onGenerateAll={() => void generateAllArtifacts()}
                 onGenerateShot={(shot) => void generateSmartFilmStoryboardShot(shot)}
                 onPreviewImage={setImagePreviewArtifact}
@@ -892,6 +916,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
             generating={smartFilmGenerating}
             latestResourceId={latestSmartWholeFilm?.resourceId}
             onBack={() => navigate(`/projects/${projectId}/workflow/${unitId}/storyboard`)}
+            onSaveShotPrompt={saveSmartFilmVideoPrompt}
             onGenerate={() => void generateSmartWholeFilm(
                 (input) => confirmCanvasGenerationTaskQuote(modal, input, { title: "确认生成整片视频", description: `将使用 ${shots.length} 张已确认分镜图生成 1 条完整视频；本步骤不会生成分镜图。` }),
                 message.error,

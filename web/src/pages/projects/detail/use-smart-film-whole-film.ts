@@ -1,15 +1,15 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
-import { confirmCanvasGenerationTaskQuote } from "@/components/canvas/canvas-billing-confirmation";
 import { modelCapabilityConfigFor, normalizeVideoValue } from "@/lib/model-capabilities";
 import { resolveModelVideoBooleanOptions } from "@/lib/model-selection";
 import { buildBackendGenerationTaskQuoteInput, runBackendGenerationTask } from "@/services/api/generation-task";
 import { listProjectUnitArtifacts, registerProjectUnitArtifact, type ProjectDetail, type ProjectShot } from "@/services/api/projects";
-import { ownedResourceIdFromMediaRef, resourceFileUrl, resourceIdFromStorageKey } from "@/services/api/resources";
+import { ownedResourceIdFromMediaRef, resourceIdFromStorageKey } from "@/services/api/resources";
 import { getSmartFilmBatch } from "@/services/api/smart-film-batches";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
-import { currentArtifact, currentRevision } from "./workflow-shared";
+import { currentArtifact } from "./workflow-shared";
+import { buildSmartFilmWholeFilmPrompt } from "./smart-film-whole-film-prompt";
 
 export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, unitId: string, shots: ProjectShot[]) {
     const effectiveConfig = useEffectiveConfig();
@@ -40,6 +40,11 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
 
     const generateSmartWholeFilm = async (confirmQuote: (input: ReturnType<typeof buildBackendGenerationTaskQuoteInput>) => Promise<boolean>, notifyError: (message: string) => void) => {
         if (smartFilmGenerating) return;
+        const unconfirmedShots = shots.filter((shot) => shot.status !== "confirmed");
+        if (unconfirmedShots.length) {
+            notifyError(`还有 ${unconfirmedShots.length} 个镜头的参考分镜未确认，请逐镜确认后再生成整片`);
+            return;
+        }
         const storyboardArtifacts = shots.flatMap((shot) => {
             const artifact = currentArtifact(detail, shot.id, "storyboard");
             return artifact?.resourceId && artifact.status === "ready" ? [{ shot, artifact }] : [];
@@ -55,13 +60,14 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
         }
         const profile = modelCapabilityConfigFor(effectiveConfig, model).video;
         const maxImages = profile?.references.maxImages || 0;
-        if (storyboardArtifacts.length > maxImages) {
-            notifyError(`当前视频模型最多支持 ${maxImages} 张参考图，本项目有 ${storyboardArtifacts.length} 张分镜图，请更换支持更多参考图的模型`);
-            return;
-        }
         const targetSeconds = Number(smartFilmBatchQuery.data?.config.targetDurationSeconds || 0);
         if (targetSeconds <= 0) {
             notifyError("智能整片缺少目标总时长，请返回批次设置制作规格");
+            return;
+        }
+        const promptPlan = buildSmartFilmWholeFilmPrompt(detail, storyboardArtifacts, targetSeconds);
+        if (promptPlan.referenceImages.length > maxImages) {
+            notifyError(`当前视频模型最多支持 ${maxImages} 张参考图，本片包含 ${storyboardArtifacts.length} 张分镜图和 ${promptPlan.referenceImages.length - storyboardArtifacts.length} 张镜头资产图，请更换支持更多参考图的模型`);
             return;
         }
         const maxTargetSeconds = profile?.duration.max || targetSeconds;
@@ -80,17 +86,11 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
             videoGenerateAudio: effectiveConfig.videoGenerateAudio,
             videoWatermark: effectiveConfig.videoWatermark,
         });
-        const storyboardPrompt = storyboardArtifacts.map(({ shot }, index) => {
-            const revision = currentRevision(detail, shot);
-            const motion = [revision?.videoPrompt, revision?.action].filter(Boolean).join("\n");
-            const seconds = Math.max(0.5, shot.durationMs / 1000);
-            return `第 ${index + 1} 镜（计划 ${seconds} 秒，使用第 ${index + 1} 张分镜图）：${motion || revision?.plotDescription || shot.description || shot.title}`;
-        }).join("\n");
         let taskId = "";
         const options: Parameters<typeof buildBackendGenerationTaskQuoteInput>[0] = {
             projectId,
             mode: "video",
-            prompt: `把以下已确认分镜图按顺序生成一个完整的 ${targetSeconds} 秒视频。保持角色、产品、场景和画风一致，镜头之间自然衔接。\n${storyboardPrompt}`,
+            prompt: promptPlan.prompt,
             config: {
                 ...effectiveConfig,
                 model,
@@ -100,14 +100,7 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
                 videoSeconds: normalizedVideo.seconds,
                 ...videoBooleanOptions,
             },
-            referenceImages: storyboardArtifacts.map(({ shot, artifact }, index) => ({
-                id: `smart-film-storyboard-${index}`,
-                name: `分镜 ${index + 1} · ${shot.title}`,
-                type: "image/*",
-                dataUrl: "",
-                url: resourceFileUrl(artifact.resourceId!),
-                storageKey: `resource:${artifact.resourceId}`,
-            })),
+            referenceImages: promptPlan.referenceImages,
             metadata: { source: "smart-film-whole-video", domainProjectId: projectId, unitId, artifactType: "smart_film" },
             onTaskUpdate: (task) => { taskId = task.id; },
         };
@@ -124,7 +117,7 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
                 metadataJson: JSON.stringify({
                     model,
                     targetDurationSeconds: targetSeconds,
-                    storyboardResourceIds: storyboardArtifacts.map(({ artifact }) => artifact.resourceId),
+                    storyboardResourceIds: promptPlan.storyboardResourceIds,
                     shotIds: storyboardArtifacts.map(({ shot }) => shot.id),
                 }),
             });

@@ -21,6 +21,26 @@ describe("workflow shot asset references", () => {
         expect(resolveShotAssetMentionPrompt(prompt, context)).toContain("让 图片2 从 图片1 走近镜头");
     });
 
+    test("binds explicit character and scene names to their own shot images", () => {
+        const context = buildShotAssetReferenceContext(detail(), "shot-1");
+
+        const prompt = resolveShotAssetMentionPrompt("林默保持静止站立姿态，背景是雨夜街道", context);
+
+        expect(prompt).toContain("林默 图片2保持静止站立姿态");
+        expect(prompt).toContain("雨夜街道 图片1");
+    });
+
+    test("uses the whole-film reference indexes instead of per-shot indexes", () => {
+        const context = buildShotAssetReferenceContext(detail(), "shot-1");
+
+        const prompt = resolveShotAssetMentionPrompt("林默走在雨夜街道", context, {
+            imageIndexByAssetId: new Map([["asset-scene", 7], ["asset-character", 9]]),
+        });
+
+        expect(prompt).toContain("林默 图片9走在雨夜街道 图片7");
+        expect(prompt).toContain("雨夜街道：场景参考：图片7");
+    });
+
     test("rejects stale mentions after an asset is unbound", () => {
         const context = buildShotAssetReferenceContext(detail(), "shot-1");
 

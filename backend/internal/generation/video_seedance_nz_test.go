@@ -62,6 +62,27 @@ func TestSeedanceNZVideosBodyUsesContentForMultiModel(t *testing.T) {
 	}
 }
 
+func TestSeedanceNZVideosBodyUsesContentForSeedance25ReferenceVideo(t *testing.T) {
+	body, err := SeedanceNZVideosBody(Input{
+		Mode:     "video",
+		Prompt:   "keep the character and scene consistent",
+		Config:   Config{BaseURL: "https://api.seedance.nz", Model: "seedance-2.5-standard", VQuality: "720p", VideoSeconds: "5", Size: "9:16"},
+		Metadata: map[string]any{"videoEditOperation": "reference_to_video"},
+		ReferenceImages: []Media{
+			{URL: "https://cdn.example.com/character.png"},
+			{URL: "https://cdn.example.com/scene.png"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata, _ := body["metadata"].(map[string]any)
+	content, _ := metadata["content"].([]map[string]any)
+	if len(content) != 2 || content[0]["type"] != "image_url" || content[1]["type"] != "image_url" {
+		t.Fatalf("Seedance 2.5 references were not preserved: %#v", metadata["content"])
+	}
+}
+
 func TestSeedanceNZConfigDetection(t *testing.T) {
 	if !IsSeedanceNZVideoConfig(Config{BaseURL: "https://api.seedance.nz/v1"}) {
 		t.Fatal("official Seedance host was not detected")
@@ -72,7 +93,7 @@ func TestSeedanceNZConfigDetection(t *testing.T) {
 	if !IsSeedance2NZVideoConfig(Config{BaseURL: "https://api.seedance.nz", Model: "seedance-2.0-fast-t2v"}) {
 		t.Fatal("Seedance 2.0 Fast was not selected for the JSON contract")
 	}
-	if IsSeedance2NZVideoConfig(Config{BaseURL: "https://api.seedance.nz", Model: "seedance-2.5-standard-t2v"}) {
-		t.Fatal("Seedance 2.5 must keep its existing adapter")
+	if !IsSeedance2NZVideoConfig(Config{BaseURL: "https://api.seedance.nz", Model: "seedance-2.5-standard-t2v"}) {
+		t.Fatal("Seedance 2.5 was not selected for the JSON contract")
 	}
 }

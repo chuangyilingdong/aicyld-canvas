@@ -19,7 +19,7 @@ func IsSeedanceNZVideoConfig(config Config) bool {
 }
 
 func IsSeedance2NZVideoConfig(config Config) bool {
-	return IsSeedanceNZVideoConfig(config) && strings.Contains(strings.ToLower(config.Model), "seedance-2.0")
+	return IsSeedanceNZVideoConfig(config) && strings.Contains(strings.ToLower(config.Model), "seedance-2")
 }
 
 // SeedanceNZVideosBody follows the model-specific /v1/videos contract:
@@ -46,8 +46,9 @@ func SeedanceNZVideosBody(input Input) (map[string]any, error) {
 	}
 
 	model := strings.ToLower(strings.TrimSpace(input.Config.Model))
+	operation := strings.TrimSpace(metadataString(input.Metadata, "videoEditOperation"))
 	switch {
-	case strings.HasSuffix(model, "-multi"):
+	case strings.HasSuffix(model, "-multi") || operation == "reference_to_video":
 		content, err := seedanceNZContent(input)
 		if err != nil {
 			return nil, err
@@ -56,7 +57,7 @@ func SeedanceNZVideosBody(input Input) (map[string]any, error) {
 			return nil, errors.New("多模态视频至少需要一张图片、一段视频或一段音频")
 		}
 		metadata["content"] = content
-	case strings.HasSuffix(model, "-i2v"):
+	case strings.HasSuffix(model, "-i2v") || operation == "image_to_video" || operation == "first_last_frame":
 		images, err := seedanceNZImages(input)
 		if err != nil {
 			return nil, err

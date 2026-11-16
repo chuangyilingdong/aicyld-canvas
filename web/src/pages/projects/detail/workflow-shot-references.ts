@@ -86,10 +86,17 @@ export function buildShotAssetReferenceContext(detail: ProjectDetail, shotId: st
     };
 }
 
-export function resolveShotAssetMentionPrompt(prompt: string, context: ShotAssetReferenceContext, options: { dialogue?: string } = {}) {
-    const imageLabelByAssetId = new Map(context.mentionReferences.map((reference, index) => [reference.assetId, `图片${index + 1}`]));
+export function resolveShotAssetMentionPrompt(prompt: string, context: ShotAssetReferenceContext, options: {
+    dialogue?: string;
+    imageIndexByAssetId?: ReadonlyMap<string, number>;
+} = {}) {
+    const normalizedPrompt = autoMentionShotAssetReferences(prompt, context.mentionReferences);
+    const imageLabelByAssetId = new Map(context.mentionReferences.map((reference, index) => {
+        const imageIndex = reference.assetId ? options.imageIndexByAssetId?.get(reference.assetId) : undefined;
+        return [reference.assetId, `图片${imageIndex ?? index + 1}`];
+    }));
     const unresolved = new Set<string>();
-    const resolved = prompt.replace(/@\[asset:([^\]]+)\]/g, (token, assetId: string) => {
+    const resolved = normalizedPrompt.replace(/@\[asset:([^\]]+)\]/g, (token, assetId: string) => {
         const label = imageLabelByAssetId.get(assetId);
         if (!label) {
             unresolved.add(token);
@@ -98,10 +105,41 @@ export function resolveShotAssetMentionPrompt(prompt: string, context: ShotAsset
         return label;
     });
     if (unresolved.size) throw new Error(`提示词中的 ${Array.from(unresolved).join("、")} 未绑定到当前镜头，请重新选择资产或删除引用`);
-    const dialogueContext = withShotDialogue(context.assetReferences, options.dialogue);
+    const assetReferences = options.imageIndexByAssetId
+        ? context.assetReferences.map((reference) => ({
+            ...reference,
+            imageIndex: options.imageIndexByAssetId?.get(reference.assetId) ?? reference.imageIndex,
+        }))
+        : context.assetReferences;
+    const dialogueContext = withShotDialogue(assetReferences, options.dialogue);
     const assetBlock = compileShotAssetReferencePrompt(dialogueContext.references);
     const dialogueBlock = dialogueContext.unassignedDialogue ? `【镜头台词】\n\n${dialogueContext.unassignedDialogue}` : "";
     return [resolved.trim(), assetBlock, dialogueBlock].filter(Boolean).join("\n\n");
+}
+
+/** Keep an explicit asset name glued to its own image token, so a later @ cannot drift to another character. */
+export function autoMentionShotAssetReferences(
+    prompt: string,
+    references: Array<Pick<CanvasResourceReference, "assetId" | "kind" | "label" | "title">>,
+) {
+    let value = prompt;
+    const candidates = references.flatMap((reference) => {
+        const title = (reference.title || reference.label).trim();
+        return reference.assetId && title ? [{ assetId: reference.assetId, title }] : [];
+    }).sort((left, right) => right.title.length - left.title.length);
+
+    for (const { assetId, title } of candidates) {
+        const token = `@[asset:${assetId}]`;
+        if (value.includes(token)) continue;
+        const pattern = new RegExp(`@?${escapeRegExp(title)}`, "u");
+        let replaced = false;
+        value = value.replace(pattern, (match) => {
+            if (replaced) return match;
+            replaced = true;
+            return `${title} ${token}`;
+        });
+    }
+    return value;
 }
 
 export function ensureShotAssetMentionPrompt(prompt: string, references: Array<Pick<CanvasResourceReference, "assetId" | "kind" | "label" | "title">>) {
@@ -213,4 +251,8 @@ function characterVoiceDescription(asset: ProjectAsset) {
 
 function stringValue(value: unknown) {
     return typeof value === "string" ? value.trim() : "";
+}
+
+function escapeRegExp(value: string) {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
