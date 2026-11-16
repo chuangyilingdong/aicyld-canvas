@@ -749,27 +749,6 @@ export default function WorkflowProductionWorkbench(props: Props) {
                 return;
             }
         }
-        const missingStoryboards = activeStage === "video"
-            ? targets.filter((shot) => !currentArtifact(detail, shot.id, "storyboard")?.resourceId).length
-            : 0;
-        if (!options?.automatic) {
-            const singleTargetIndex = targets.length === 1 ? shots.findIndex((shot) => shot.id === targets[0]?.id) : -1;
-            const targetLabel = options?.singleShot && singleTargetIndex >= 0 ? `镜头 ${singleTargetIndex + 1} 的${stageCopy.label}` : `${targets.length} 个${stageCopy.label}`;
-            const confirmed = await new Promise<boolean>((resolve) => {
-                modal.confirm({
-                    title: `使用 ${modelSummary} 生成${targetLabel}？`,
-                    content: options?.singleShot
-                        ? "将提交 1 个生成任务。生成会产生积分消耗，提交前会显示本次预计费用。"
-                        : `将提交 ${targets.length} 个生成任务，已生成或正在生成的 ${candidateShots.length - targets.length} 个镜头会跳过。${missingStoryboards ? `其中 ${missingStoryboards} 个镜头没有分镜图，将按视频提示词和已绑定资产生成。` : ""}批量生成会产生积分消耗。`,
-                    okText: options?.singleShot ? "开始生成" : "开始批量生成",
-                    cancelText: "取消",
-                    centered: true,
-                    onOk: () => resolve(true),
-                    onCancel: () => resolve(false),
-                });
-            });
-            if (!confirmed) return;
-        }
         setSubmittingShotIds((current) => new Set([...current, ...targets.map((shot) => shot.id)]));
         setBatchProgress({ done: 0, total: targets.length, phase: "submitting" });
         const failures: string[] = [];

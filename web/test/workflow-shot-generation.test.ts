@@ -36,7 +36,6 @@ test("production workbench can submit missing shots in one batch", async () => {
     expect(source).toContain("await generateAllArtifacts({ shotIds: [selectedShot.id], singleShot: true });");
     expect(source).toContain("shotNeedsGeneration(detail, shot, artifactType)");
     expect(source).toContain("补齐全部${stageCopy.label}");
-    expect(source).toContain("批量生成会产生积分消耗");
     expect(source).toContain('setBatchProgress({ done: index + 1, total: targets.length, phase: "submitting" })');
     expect(source).toContain("withStoryboardVideoReference");
     expect(source).toContain("最后一张参考图是当前镜头分镜图");
