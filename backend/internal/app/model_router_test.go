@@ -137,7 +137,7 @@ func TestSKUSelectorIncludesVideoReferenceImageCount(t *testing.T) {
 	}
 }
 
-func TestSKUSelectorTreatsAnyVideoReferenceAsVideoToVideo(t *testing.T) {
+func TestSKUSelectorPreservesExplicitVideoReferenceOperation(t *testing.T) {
 	intent := ModelRequestIntentFromTaskInput(map[string]any{
 		"mode":              "video",
 		"referenceImages":   []any{map[string]any{"url": "https://example.com/reference.png"}},
@@ -146,21 +146,21 @@ func TestSKUSelectorTreatsAnyVideoReferenceAsVideoToVideo(t *testing.T) {
 		"capabilityOptions": map[string]any{"vquality": "720p"},
 	}, "canvas_video", "reference_to_video")
 	selector := skuSelectorForIntent(intent)
-	if selector["operation"] != "video_to_video" {
-		t.Fatalf("operation = %q, want video_to_video; selector = %#v", selector["operation"], selector)
+	if selector["operation"] != "reference_to_video" {
+		t.Fatalf("operation = %q, want reference_to_video; selector = %#v", selector["operation"], selector)
 	}
 
 	modelWithTiers := model.ChannelModel{Variants: []model.ChannelModelVariant{
-		{SelectorJSON: `{}`, Enabled: true},
+		{SelectorJSON: `{"operation":"reference_to_video"}`, Enabled: true},
 		{SelectorJSON: `{"operation":"video_to_video"}`, Enabled: true},
 	}}
 	matched := channelModelVariantForIntent(modelWithTiers, intent)
-	if matched == nil || matched.SelectorJSON != `{"operation":"video_to_video"}` {
+	if matched == nil || matched.SelectorJSON != `{"operation":"reference_to_video"}` {
 		t.Fatalf("matched tier = %#v", matched)
 	}
 }
 
-func TestSKUSelectorTreatsAnyImageReferenceCountAsImageToVideo(t *testing.T) {
+func TestSKUSelectorFallsBackToInputRouteForLegacyVideoVariants(t *testing.T) {
 	intent := ModelRequestIntentFromTaskInput(map[string]any{
 		"mode": "video",
 		"referenceImages": []any{
@@ -170,8 +170,8 @@ func TestSKUSelectorTreatsAnyImageReferenceCountAsImageToVideo(t *testing.T) {
 		},
 	}, "canvas_video", "reference_to_video")
 	selector := skuSelectorForIntent(intent)
-	if selector["operation"] != "image_to_video" || selector["imageCount"] != "3" {
-		t.Fatalf("selector = %#v, want image_to_video with imageCount 3", selector)
+	if selector["operation"] != "reference_to_video" || selector["imageCount"] != "3" {
+		t.Fatalf("selector = %#v, want reference_to_video with imageCount 3", selector)
 	}
 
 	modelWithTiers := model.ChannelModel{Variants: []model.ChannelModelVariant{
@@ -181,5 +181,22 @@ func TestSKUSelectorTreatsAnyImageReferenceCountAsImageToVideo(t *testing.T) {
 	matched := channelModelVariantForIntent(modelWithTiers, intent)
 	if matched == nil || matched.SelectorJSON != `{"operation":"image_to_video"}` {
 		t.Fatalf("matched tier = %#v", matched)
+	}
+}
+
+func TestSKUSelectorPrefersSeedanceMultiVariantForMultipleImages(t *testing.T) {
+	intent := ModelRequestIntentFromTaskInput(map[string]any{
+		"mode":            "video",
+		"referenceImages": make([]any, 8),
+	}, "canvas_video", "reference_to_video")
+	modelWithTiers := model.ChannelModel{Variants: []model.ChannelModelVariant{
+		{SelectorJSON: `{"operation":"text_to_video"}`, ProviderModelKey: "seedance-2.5-standard-t2v", Enabled: true},
+		{SelectorJSON: `{"operation":"image_to_video"}`, ProviderModelKey: "seedance-2.5-standard-i2v", Enabled: true},
+		{SelectorJSON: `{"operation":"reference_to_video"}`, ProviderModelKey: "seedance-2.5-standard-multi", Enabled: true},
+	}}
+
+	matched := channelModelVariantForIntent(modelWithTiers, intent)
+	if matched == nil || matched.ProviderModelKey != "seedance-2.5-standard-multi" {
+		t.Fatalf("matched tier = %#v, want seedance multi SKU", matched)
 	}
 }

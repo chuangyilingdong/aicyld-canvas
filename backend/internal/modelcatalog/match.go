@@ -392,6 +392,29 @@ func isProviderCapabilityOption(name string) bool {
 
 func channelModelVariantForIntent(channelModel model.ChannelModel, intent ModelRequestIntent) *model.ChannelModelVariant {
 	selector := skuSelectorForIntent(intent)
+	best, bestScore := bestVariantForSelector(channelModel, selector)
+	if normalizeCapability(intent.Capability) != "video" || strings.TrimSpace(intent.Operation) == "" {
+		return best
+	}
+	// Older video models may not declare a reference_to_video/first_last_frame
+	// variant. Keep their historical input-based fallback, but only after the
+	// exact declared operation had a chance to match a dedicated SKU.
+	fallback := make(map[string]string, len(selector))
+	for key, value := range selector {
+		fallback[key] = value
+	}
+	fallback["operation"] = inputDerivedVideoOperation(intent)
+	if fallback["operation"] == "" || fallback["operation"] == selector["operation"] {
+		return best
+	}
+	fallbackTier, fallbackScore := bestVariantForSelector(channelModel, fallback)
+	if fallbackScore > bestScore {
+		return fallbackTier
+	}
+	return best
+}
+
+func bestVariantForSelector(channelModel model.ChannelModel, selector map[string]string) (*model.ChannelModelVariant, int) {
 	bestScore := -1
 	var best *model.ChannelModelVariant
 	for index := range channelModel.Variants {
@@ -407,7 +430,7 @@ func channelModelVariantForIntent(channelModel model.ChannelModel, intent ModelR
 			best, bestScore = tier, score
 		}
 	}
-	return best
+	return best, bestScore
 }
 
 func skuSelectorForIntent(intent ModelRequestIntent) map[string]string {
@@ -417,13 +440,10 @@ func skuSelectorForIntent(intent ModelRequestIntent) map[string]string {
 	}
 	switch normalizeCapability(intent.Capability) {
 	case "video":
-		// 变体按实际参考素材归类。供应商执行仍可使用 reference_to_video、extend
-		// 等细分操作；选择变体时视频参考优先归为视频生视频，其余图片参考无论数量
-		// 都归为图生视频。
-		if intent.Inputs["video"] > 0 {
-			selector["operation"] = "video_to_video"
-		} else if intent.Inputs["image"] > 0 {
-			selector["operation"] = "image_to_video"
+		// 有明确操作时先匹配专用 SKU（例如 reference_to_video -> multi）。
+		// 没有明确操作时才按参考素材类型推导，兼容旧模型变体。
+		if selector["operation"] == "" {
+			selector["operation"] = inputDerivedVideoOperation(intent)
 		}
 		if count := intent.Inputs["image"]; count > 0 {
 			selector["imageCount"] = strconv.Itoa(count)
@@ -456,6 +476,16 @@ func skuSelectorForIntent(intent ModelRequestIntent) map[string]string {
 		}
 	}
 	return selector
+}
+
+func inputDerivedVideoOperation(intent ModelRequestIntent) string {
+	if intent.Inputs["video"] > 0 {
+		return "video_to_video"
+	}
+	if intent.Inputs["image"] > 0 {
+		return "image_to_video"
+	}
+	return "text_to_video"
 }
 
 func normalizeImagePriceQuality(rawQuality string, rawSize string) string {
