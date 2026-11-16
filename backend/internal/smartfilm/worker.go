@@ -602,12 +602,23 @@ func actionBeats(row map[string]any) []map[string]any {
 }
 
 func withAssetMentions(prompt string, assetIDs []string) string {
-	if len(assetIDs) == 0 || strings.Contains(prompt, "@[asset:") {
+	if len(assetIDs) == 0 {
 		return prompt
+	}
+	mentioned := make(map[string]bool, len(assetIDs))
+	for _, match := range assetMentionPattern.FindAllStringSubmatch(prompt, -1) {
+		if len(match) == 2 {
+			mentioned[strings.TrimSpace(match[1])] = true
+		}
 	}
 	mentions := make([]string, 0, len(assetIDs))
 	for _, assetID := range assetIDs {
-		mentions = append(mentions, "@[asset:"+assetID+"]")
+		if assetID = strings.TrimSpace(assetID); assetID != "" && !mentioned[assetID] {
+			mentions = append(mentions, "@[asset:"+assetID+"]")
+		}
+	}
+	if len(mentions) == 0 {
+		return prompt
 	}
 	if strings.TrimSpace(prompt) == "" {
 		return strings.Join(mentions, " ")

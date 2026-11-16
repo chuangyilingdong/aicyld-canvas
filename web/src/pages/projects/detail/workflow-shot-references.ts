@@ -24,6 +24,8 @@ export type ShotPromptAssetReference = {
     dialogue?: string;
 };
 
+const managedShotAssetReferenceMarkers = ["【角色参考】", "【场景与道具参考】", "【资产引用】", "【资产参考】"];
+
 export function buildShotAssetReferenceContext(detail: ProjectDetail, shotId: string): ShotAssetReferenceContext {
     const assetByVersionId = new Map(detail.assets.filter((asset) => asset.primaryVersionId).map((asset) => [asset.primaryVersionId as string, asset]));
     const seenAssetIds = new Set<string>();
@@ -90,7 +92,7 @@ export function resolveShotAssetMentionPrompt(prompt: string, context: ShotAsset
     dialogue?: string;
     imageIndexByAssetId?: ReadonlyMap<string, number>;
 } = {}) {
-    const normalizedPrompt = autoMentionShotAssetReferences(prompt, context.mentionReferences);
+    const normalizedPrompt = autoMentionShotAssetReferences(stripManagedShotAssetReferenceBlocks(prompt), context.mentionReferences);
     const imageLabelByAssetId = new Map(context.mentionReferences.map((reference, index) => {
         const imageIndex = reference.assetId ? options.imageIndexByAssetId?.get(reference.assetId) : undefined;
         return [reference.assetId, `图片${imageIndex ?? index + 1}`];
@@ -135,6 +137,8 @@ export function autoMentionShotAssetReferences(
     const candidates = Array.from(grouped.values()).sort((left, right) => right.title.length - left.title.length);
 
     for (const { assetIds, title } of candidates) {
+        const compiledMention = new RegExp(`${escapeRegExp(title)}\\s+图片\\d+(?:、\\d+)*`, "u");
+        if (compiledMention.test(value)) continue;
         const mentioned = new Set(Array.from(value.matchAll(/@\[asset:([^\]]+)\]/g), (match) => match[1]));
         const missing = assetIds.filter((assetId) => !mentioned.has(assetId));
         if (!missing.length) continue;
@@ -150,17 +154,22 @@ export function autoMentionShotAssetReferences(
 }
 
 export function ensureShotAssetMentionPrompt(prompt: string, references: Array<Pick<CanvasResourceReference, "assetId" | "kind" | "label" | "title">>) {
-    const value = prompt.trim();
+    const value = stripManagedShotAssetReferenceBlocks(prompt);
     if (!value) return "";
-    const mentionedAssetIds = new Set(Array.from(value.matchAll(/@\[asset:([^\]]+)\]/g), (match) => match[1]));
+    const anchored = autoMentionShotAssetReferences(value, references);
+    const mentionedAssetIds = new Set(Array.from(anchored.matchAll(/@\[asset:([^\]]+)\]/g), (match) => match[1]));
     const missing = references.filter((reference): reference is typeof reference & { assetId: string } => Boolean(reference.assetId && !mentionedAssetIds.has(reference.assetId)));
-    if (!missing.length) return value;
-    const block = (title: string, items: typeof missing) => items.length
-        ? [title, ...items.map((reference) => `${reference.title || reference.label}：@[asset:${reference.assetId}]`)].join("\n")
-        : "";
-    const characters = missing.filter((reference) => reference.kind === "character");
-    const otherAssets = missing.filter((reference) => reference.kind !== "character");
-    return [value, block("【角色参考】", characters), block("【场景与道具参考】", otherAssets)].filter(Boolean).join("\n\n");
+    if (!missing.length) return anchored;
+    const groups = new Map<string, { title: string; assetIds: string[] }>();
+    missing.forEach((reference) => {
+        const title = (reference.title || reference.label).trim();
+        const key = `${reference.kind}:${title.toLocaleLowerCase()}`;
+        const group = groups.get(key) || { title, assetIds: [] };
+        group.assetIds.push(reference.assetId);
+        groups.set(key, group);
+    });
+    const lines = Array.from(groups.values()).map((group) => `- ${group.title}：${group.assetIds.map((assetId) => `@[asset:${assetId}]`).join(" ")}`);
+    return `${anchored}\n\n【资产引用】\n${lines.join("\n")}`;
 }
 
 export function compileShotAssetReferencePrompt(references: ShotPromptAssetReference[]) {
@@ -282,4 +291,14 @@ function stringValue(value: unknown) {
 
 function escapeRegExp(value: string) {
     return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function stripManagedShotAssetReferenceBlocks(prompt: string) {
+    const value = prompt.trim();
+    if (!value) return "";
+    const markerIndexes = managedShotAssetReferenceMarkers
+        .map((marker) => value.indexOf(marker))
+        .filter((index) => index >= 0);
+    if (!markerIndexes.length) return value;
+    return value.slice(0, Math.min(...markerIndexes)).trimEnd();
 }

@@ -77,7 +77,18 @@ describe("workflow shot asset references", () => {
 
         expect(prompt).toContain("@[asset:asset-character]");
         expect(prompt.match(/@\[asset:asset-character\]/g)).toHaveLength(1);
-        expect(prompt).toContain("【场景与道具参考】\n雨夜街道：@[asset:asset-scene]");
+        expect(prompt).toContain("【资产引用】\n- 雨夜街道：@[asset:asset-scene]");
+    });
+
+    test("keeps normalized editable prompts idempotent", () => {
+        const context = buildShotAssetReferenceContext(detail(), "shot-1");
+        const once = ensureShotAssetMentionPrompt("林默保持静止站立姿态", context.mentionReferences);
+        const twice = ensureShotAssetMentionPrompt(once, context.mentionReferences);
+
+        expect(twice).toBe(once);
+        expect(twice.match(/【资产引用】/g)).toHaveLength(1);
+        expect(twice.match(/@\[asset:asset-character\]/g)).toHaveLength(1);
+        expect(twice.match(/@\[asset:asset-scene\]/g)).toHaveLength(1);
     });
 
     test("groups same-name character views into one multi-view reference", () => {
@@ -110,6 +121,18 @@ describe("workflow shot asset references", () => {
         const prompt = resolveShotAssetMentionPrompt("林默保持静止站立姿态", context);
         expect(prompt).toContain("林默：人物参考：图片2、3（同一角色多视图参考）");
         expect(prompt).not.toContain("@[asset:asset-character]");
+        expect(prompt.match(/【资产参考】/g)).toHaveLength(1);
+    });
+
+    test("replaces previously managed reference blocks instead of stacking them", () => {
+        const context = buildShotAssetReferenceContext(detail(), "shot-1");
+        const first = resolveShotAssetMentionPrompt("林默走在雨夜街道", context);
+        const second = resolveShotAssetMentionPrompt(first, context);
+
+        expect(second).toBe(first);
+        expect(second.match(/【资产参考】/g)).toHaveLength(1);
+        expect(second.match(/林默：人物参考/g)).toHaveLength(1);
+        expect(second.match(/雨夜街道：场景参考/g)).toHaveLength(1);
     });
 });
 

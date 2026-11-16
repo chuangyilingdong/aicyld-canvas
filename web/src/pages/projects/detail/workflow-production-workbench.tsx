@@ -645,51 +645,20 @@ export default function WorkflowProductionWorkbench(props: Props) {
         }
     };
 
+    // 单镜与批量必须走同一条提交链路，避免两条入口在报价、校验和错误提示上分叉。
     const generateArtifact = async () => {
-        if (!selectedShot || submittingShotIds.has(selectedShot.id) || batchProgress) return;
-        if (smartWholeFilm && activeStage === "video") {
-            message.warning("当前项目使用智能整片模式，请使用上方的整片视频生成入口");
+        if (!selectedShot) {
+            message.warning("请先选择要生成的镜头");
             return;
         }
-        const promptGate = smartFilmPromptGate({ detail, stage: activeStage, shots: [selectedShot], selectedShot, editorDirty });
-        if (promptGate) {
-            message.warning(promptGate);
-            return;
-        }
-        const submittingShot = selectedShot;
-        setSubmittingShotIds((current) => new Set(current).add(submittingShot.id));
-        try {
-            const values = await form.validateFields();
-            const productionStep = await ensureProductionStep();
-            const context = generationCapability === "video"
-                ? withStoryboardVideoReference(detail, submittingShot, shotAssetReferenceContext)
-                : shotAssetReferenceContext;
-            const generation = generationConfigForShot({
-                effectiveConfig,
-                capability: generationCapability,
-                requestedModel: routedModel,
-                context,
-                values,
-                aspectRatio,
-                resolution,
-                imageQuality,
-            });
-            await submitShotGeneration({ shot: submittingShot, values, context, productionStep, model: generation.model, config: generation.config, persistRevision: true });
-            await onRefresh();
-            message.success(`${productionStageCopy[activeStage as "storyboard" | "previz" | "video"].label}任务已提交`);
-        } catch (error) {
-            message.error(error instanceof Error ? error.message : "生成任务提交失败");
-        } finally {
-            setSubmittingShotIds((current) => {
-                const next = new Set(current);
-                next.delete(submittingShot.id);
-                return next;
-            });
-        }
+        await generateAllArtifacts({ shotIds: [selectedShot.id], singleShot: true });
     };
 
-    const generateAllArtifacts = async (options?: { automatic?: boolean }) => {
-        if (batchProgress || submittingShotIds.size) return;
+    const generateAllArtifacts = async (options?: { automatic?: boolean; shotIds?: readonly string[]; singleShot?: boolean }) => {
+        if (batchProgress || submittingShotIds.size) {
+            message.warning("已有镜头正在提交生成任务，请稍候");
+            return;
+        }
         if (smartWholeFilm && activeStage === "video") {
             message.warning("当前项目使用智能整片模式，请使用整片视频生成入口");
             return;
@@ -722,8 +691,10 @@ export default function WorkflowProductionWorkbench(props: Props) {
             const musicFailure = await generateMusic(productionStep);
             if (musicFailure) message.warning(`BGM 生成失败，继续无配乐成片：${musicFailure}`);
         };
-        const runningTasks = runningStageTasks(detail, shots, artifactType);
-        const targets = shots.filter((shot) => shotNeedsGeneration(detail, shot, artifactType));
+        const requestedShotIds = new Set(options?.shotIds || []);
+        const candidateShots = requestedShotIds.size ? shots.filter((shot) => requestedShotIds.has(shot.id)) : shots;
+        const runningTasks = runningStageTasks(detail, candidateShots, artifactType);
+        const targets = candidateShots.filter((shot) => shotNeedsGeneration(detail, shot, artifactType));
         if (!targets.length) {
             if (options?.automatic) {
                 try {
@@ -744,7 +715,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                 }
                 return;
             }
-            message.info(`所有${stageCopy.label}都已生成或正在生成`);
+            message.info(options?.singleShot ? `当前镜头${stageCopy.label}已生成或正在生成` : `所有${stageCopy.label}都已生成或正在生成`);
             return;
         }
         if (!routedModel) {
@@ -764,11 +735,15 @@ export default function WorkflowProductionWorkbench(props: Props) {
             ? targets.filter((shot) => !currentArtifact(detail, shot.id, "storyboard")?.resourceId).length
             : 0;
         if (!options?.automatic) {
+            const singleTargetIndex = targets.length === 1 ? shots.findIndex((shot) => shot.id === targets[0]?.id) : -1;
+            const targetLabel = options?.singleShot && singleTargetIndex >= 0 ? `镜头 ${singleTargetIndex + 1} 的${stageCopy.label}` : `${targets.length} 个${stageCopy.label}`;
             const confirmed = await new Promise<boolean>((resolve) => {
                 modal.confirm({
-                    title: `使用 ${modelSummary} 补齐 ${targets.length} 个${stageCopy.label}？`,
-                    content: `将提交 ${targets.length} 个生成任务，已生成或正在生成的 ${shots.length - targets.length} 个镜头会跳过。${missingStoryboards ? `其中 ${missingStoryboards} 个镜头没有分镜图，将按视频提示词和已绑定资产生成。` : ""}批量生成会产生积分消耗。`,
-                    okText: "开始批量生成",
+                    title: `使用 ${modelSummary} 生成${targetLabel}？`,
+                    content: options?.singleShot
+                        ? "将提交 1 个生成任务。生成会产生积分消耗，提交前会显示本次预计费用。"
+                        : `将提交 ${targets.length} 个生成任务，已生成或正在生成的 ${candidateShots.length - targets.length} 个镜头会跳过。${missingStoryboards ? `其中 ${missingStoryboards} 个镜头没有分镜图，将按视频提示词和已绑定资产生成。` : ""}批量生成会产生积分消耗。`,
+                    okText: options?.singleShot ? "开始生成" : "开始批量生成",
                     cancelText: "取消",
                     centered: true,
                     onOk: () => resolve(true),
@@ -848,40 +823,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
     };
 
     const generateSmartFilmStoryboardShot = async (shot: ProjectShot) => {
-        if (submittingShotIds.has(shot.id) || batchProgress) return;
-        const shotIndex = shots.findIndex((item) => item.id === shot.id);
-        const context = buildShotAssetReferenceContext(detail, shot.id);
-        const values = shotEditorValues(detail, shot, shotIndex, context);
-        const model = detail.project.defaultImageModel || effectiveConfig.imageModel || effectiveConfig.model;
-        if (!model || !isAiConfigReady(effectiveConfig, model)) {
-            message.warning("请先配置可用的图片模型");
-            return;
-        }
-        setSubmittingShotIds((current) => new Set(current).add(shot.id));
-        try {
-            const productionStep = await ensureProductionStep();
-            const generation = generationConfigForShot({
-                effectiveConfig,
-                capability: "image",
-                requestedModel: model,
-                context,
-                values,
-                aspectRatio,
-                resolution,
-                imageQuality,
-            });
-            await submitShotGeneration({ shot, values, context, productionStep, model: generation.model, config: generation.config, persistRevision: false });
-            await onRefresh();
-            message.success(`镜头 ${shotIndex + 1} 分镜图任务已提交`);
-        } catch (error) {
-            message.error(error instanceof Error ? error.message : "分镜图生成失败");
-        } finally {
-            setSubmittingShotIds((current) => {
-                const next = new Set(current);
-                next.delete(shot.id);
-                return next;
-            });
-        }
+        await generateAllArtifacts({ shotIds: [shot.id], singleShot: true });
     };
 
     useEffect(() => {

@@ -305,6 +305,19 @@ func TestSanitizeAssetMentionsDropsTextOnlyReferences(t *testing.T) {
 	}
 }
 
+func TestWithAssetMentionsAppendsOnlyMissingReferences(t *testing.T) {
+	prompt := withAssetMentions("林默 @[asset:character-front] 抬眼", []string{"character-front", "character-side", "scene"})
+	if strings.Count(prompt, "@[asset:character-front]") != 1 {
+		t.Fatalf("existing mention was duplicated: %q", prompt)
+	}
+	if !strings.Contains(prompt, "@[asset:character-side]") || !strings.Contains(prompt, "@[asset:scene]") {
+		t.Fatalf("missing mentions were not appended: %q", prompt)
+	}
+	if got := withAssetMentions(prompt, []string{"character-front", "character-side", "scene"}); got != prompt {
+		t.Fatalf("asset mention append is not idempotent: %q", got)
+	}
+}
+
 func TestSmartFilmStageOperationIDKeepsInitialKeyStable(t *testing.T) {
 	if got := smartFilmStageOperationID("assets", "run-1", 1); got != "smart-film:assets:run-1" {
 		t.Fatalf("initial operation id = %q", got)

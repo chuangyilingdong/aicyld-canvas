@@ -106,6 +106,62 @@ func TestRegisterTaskOutputFromTaskUsesNestedMetadataAndCanonicalResource(t *tes
 	}
 }
 
+func TestRegisterTaskOutputFromTaskAppliesAssetCandidatePreview(t *testing.T) {
+	svc, db := newTestService(t, nil)
+	project, err := svc.CreateProject("user-1", CreateProjectRequest{Name: "资产图自动回填"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	resource := model.Resource{ID: "resource-candidate-auto", UserID: "user-1", Kind: "image", Status: model.ResourceStatusReady, MimeType: "image/webp", Size: 2048, CreatedAt: now, UpdatedAt: now}
+	candidate := model.ProjectAssetCandidate{
+		ID: "candidate-auto", ProjectID: project.ID, Name: "旧书店", NameKey: "旧书店", Category: model.AssetCategoryEnvironment,
+		Status: "pending_confirmation", Source: "chapter_character_extract", DetailsJSON: "{}", CreatedAt: now, UpdatedAt: now,
+	}
+	task := model.Task{
+		ID: "task-candidate-auto", UserID: "user-1", ProjectID: project.ID, Type: "canvas_image", Status: model.TaskStatusSucceeded,
+		Model: "zhenzhen-image-g-v2.5-lowprice", BillingPoints: 4,
+		ResultJSON: `{"mode":"image","images":[{"storageKey":"resource:resource-candidate-auto"}]}`, CreatedAt: now, UpdatedAt: now,
+	}
+	for _, item := range []any{&resource, &candidate, &task} {
+		if err := db.Create(item).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	input, err := json.Marshal(map[string]any{
+		"metadata": map[string]any{
+			"source": "asset_candidate_preview", "candidateId": candidate.ID, "domainProjectId": project.ID,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.RegisterTaskOutputFromTask(task, string(input)); err != nil {
+		t.Fatal(err)
+	}
+	var updated model.ProjectAssetCandidate
+	if err := db.First(&updated, "id = ?", candidate.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if updated.PreviewResourceID != resource.ID || updated.PreviewTaskID != task.ID || updated.PreviewStatus != "ready" || updated.PreviewPoints != 4 || updated.PreviewModel != task.Model {
+		t.Fatalf("candidate preview = %+v", updated)
+	}
+	projectAfterFirst, err := svc.Owned("user-1", project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.RegisterTaskOutputFromTask(task, string(input)); err != nil {
+		t.Fatal(err)
+	}
+	projectAfterRetry, err := svc.Owned("user-1", project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if projectAfterRetry.Revision != projectAfterFirst.Revision {
+		t.Fatalf("retry revision = %d, want %d", projectAfterRetry.Revision, projectAfterFirst.Revision)
+	}
+}
+
 func TestRegisterTaskOutputFromTaskKeepsTopLevelOverMetadata(t *testing.T) {
 	svc, db := newTestService(t, nil)
 	project, unit, video, shot := seedWorkflowOutputFixture(t, svc, db)

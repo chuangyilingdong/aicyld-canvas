@@ -30,6 +30,8 @@ func (s *Service) RegisterTaskOutputFromTask(task model.Task, decryptedInputJSON
 		Role            string         `json:"role"`
 		MetadataJSON    string         `json:"metadataJson"`
 		Metadata        map[string]any `json:"metadata"`
+		Source          string         `json:"source"`
+		CandidateID     string         `json:"candidateId"`
 	}
 	if err := json.Unmarshal([]byte(decryptedInputJSON), &input); err != nil {
 		return err
@@ -75,12 +77,31 @@ func (s *Service) RegisterTaskOutputFromTask(task model.Task, decryptedInputJSON
 				}
 			}
 		}
+		if input.Source == "" {
+			input.Source, _ = input.Metadata["source"].(string)
+		}
+		if input.CandidateID == "" {
+			input.CandidateID, _ = input.Metadata["candidateId"].(string)
+		}
 	}
 	if strings.TrimSpace(input.ResourceID) == "" {
 		input.ResourceID, input.MediaType = CanonicalTaskOutputResource(task.ResultJSON, task.Type)
 	}
 	if strings.TrimSpace(input.MediaType) == "" && strings.TrimSpace(input.ResourceID) != "" {
 		input.MediaType = taskOutputMediaType(task.Type)
+	}
+	if strings.TrimSpace(input.Source) == "asset_candidate_preview" && strings.TrimSpace(input.CandidateID) != "" {
+		projectID := strings.TrimSpace(input.DomainProjectID)
+		if projectID == "" {
+			projectID = strings.TrimSpace(task.ProjectID)
+		}
+		if projectID == "" {
+			return errors.New("资产图任务未关联短剧项目")
+		}
+		if strings.TrimSpace(input.ResourceID) == "" {
+			return errors.New("资产图任务没有可保存的图片资源")
+		}
+		return s.applyTaskAssetCandidatePreview(task, projectID, strings.TrimSpace(input.CandidateID), strings.TrimSpace(input.ResourceID))
 	}
 	if strings.TrimSpace(input.WorkflowStepID) == "" {
 		return nil
@@ -109,6 +130,45 @@ func (s *Service) RegisterTaskOutputFromTask(task model.Task, decryptedInputJSON
 		Role: input.Role, MetadataJSON: input.MetadataJSON, OutputJSON: task.ResultJSON,
 	})
 	return err
+}
+
+func (s *Service) applyTaskAssetCandidatePreview(task model.Task, projectID string, candidateID string, resourceID string) error {
+	var lastErr error
+	for attempt := 0; attempt < 4; attempt += 1 {
+		project, err := s.repo.ProjectForUser(task.UserID, projectID)
+		if err != nil {
+			if IsNotFound(err) {
+				return nil
+			}
+			return err
+		}
+		candidate, err := s.repo.ProjectAssetCandidate(projectID, candidateID)
+		if err != nil {
+			if IsNotFound(err) {
+				return nil
+			}
+			return err
+		}
+		if candidate.Status != "pending_confirmation" {
+			return nil
+		}
+		if candidate.PreviewTaskID == task.ID && candidate.PreviewResourceID == resourceID && candidate.PreviewStatus == "ready" {
+			return nil
+		}
+		selected := true
+		_, err = s.UpdateProjectAssetCandidatePreview(task.UserID, projectID, candidateID, UpdateProjectAssetCandidatePreviewRequest{
+			ResourceID: resourceID, TaskID: task.ID, Model: task.Model, Points: task.BillingPoints,
+			Status: "ready", Selected: &selected, ExpectedRevision: project.Revision,
+		})
+		if err == nil || IsNotFound(err) {
+			return nil
+		}
+		if !IsConflict(err) {
+			return err
+		}
+		lastErr = err
+	}
+	return lastErr
 }
 
 func CanonicalTaskOutputResource(resultJSON string, taskType string) (string, string) {

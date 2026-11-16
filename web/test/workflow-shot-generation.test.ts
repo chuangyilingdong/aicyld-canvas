@@ -32,7 +32,8 @@ test("production workbench does not silently drop bound voice samples before bac
 test("production workbench can submit missing shots in one batch", async () => {
     const source = await Bun.file(new URL("../src/pages/projects/detail/workflow-production-workbench.tsx", import.meta.url)).text();
 
-    expect(source).toContain("const generateAllArtifacts = async (options?: { automatic?: boolean }) =>");
+    expect(source).toContain("const generateAllArtifacts = async (options?: { automatic?: boolean; shotIds?: readonly string[]; singleShot?: boolean }) =>");
+    expect(source).toContain("await generateAllArtifacts({ shotIds: [selectedShot.id], singleShot: true });");
     expect(source).toContain("shotNeedsGeneration(detail, shot, artifactType)");
     expect(source).toContain("补齐全部${stageCopy.label}");
     expect(source).toContain("批量生成会产生积分消耗");
@@ -103,7 +104,7 @@ test("shot generation submits historical character image, current voice and asse
     expect(context.referenceAudios).toHaveLength(1);
     expect(context.referenceAudios[0]?.storageKey).toBe("resource:character-audio-1");
     expect(context.resolvedCharacterVersions).toEqual([{ assetId: "character-1", versionId: "character-version-1" }]);
-    expect(prompt).toContain("张天昊在 图片2 睁开眼睛");
+    expect(prompt).toContain("张天昊 图片1在 图片2 睁开眼睛");
     expect(prompt).toContain("- 张天昊：人物参考：图片1；声音参考：音频1");
     expect(prompt).toContain("声音画像：普通话；青年男性；略带疲惫和震惊；内心独白语气");
     expect(prompt).toContain("镜头台词：我穿越了？瓦西国张家废柴少主？");
