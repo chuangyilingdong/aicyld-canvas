@@ -30,6 +30,21 @@ describe("smart film single skill context", () => {
         });
     });
 
+    it("keeps image and video prompts within the model limits while preserving the platform task", () => {
+        const longSnapshot = {
+            ...snapshot,
+            stages: { image: "图片规则".repeat(10_000), video: "视频规则".repeat(10_000) },
+        } satisfies SmartFilmSkillSnapshot;
+        const imageTask = `图片任务-${"画面细节".repeat(800)}`;
+        const videoTask = `视频任务-${"动作细节".repeat(800)}`;
+        const imagePrompt = smartFilmSkillStagePrompt(longSnapshot, "image", imageTask);
+        const videoPrompt = smartFilmSkillStagePrompt(longSnapshot, "video", videoTask);
+        expect(imagePrompt.length).toBeLessThanOrEqual(5_000);
+        expect(videoPrompt.length).toBeLessThanOrEqual(4_000);
+        expect(imagePrompt).toContain("图片任务-");
+        expect(videoPrompt).toContain("视频任务-");
+    });
+
     it("requires scripts to preserve supplied character names", () => {
         const prompt = smartFilmScriptPrompt({
             idea: "林默和母亲在雨夜相遇",
