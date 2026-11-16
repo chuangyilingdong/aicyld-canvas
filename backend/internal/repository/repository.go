@@ -1710,7 +1710,7 @@ func (r *Repository) LinkProjectAsset(asset *model.Asset, version *model.AssetVe
 			}
 		}
 		result := tx.Model(&model.Asset{}).Where("id = ? AND user_id = ?", asset.ID, asset.UserID).Updates(map[string]any{
-			"category": asset.Category, "status": asset.Status, "primary_version_id": asset.PrimaryVersionID, "updated_at": asset.UpdatedAt,
+			"title": asset.Title, "category": asset.Category, "status": asset.Status, "primary_version_id": asset.PrimaryVersionID, "updated_at": asset.UpdatedAt,
 		})
 		if result.Error != nil {
 			return result.Error

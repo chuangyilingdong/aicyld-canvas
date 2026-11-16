@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -270,6 +271,26 @@ func TestStoryboardRowAssetsIgnoresTextOnlySettings(t *testing.T) {
 	}
 	if len(roles) != 1 || roles[0].AssetID != "product-image" || roles[0].Role != "prop" {
 		t.Fatalf("roles=%+v", roles)
+	}
+}
+
+func TestStoryboardRowAssetsIncludesAllSameNameCharacterViews(t *testing.T) {
+	assets := []localproject.SmartFilmStoryboardAsset{
+		{ID: "linmo-front", Title: "林默", Category: "character", MediaType: "image", VisualReference: true, PrimaryVersionID: "front-v1"},
+		{ID: "linmo-side", Title: "林默", Category: "character", MediaType: "image", VisualReference: true, PrimaryVersionID: "side-v1"},
+		{ID: "linmo-three-quarter", Title: "林默", Category: "character", MediaType: "image", VisualReference: true, PrimaryVersionID: "three-quarter-v1"},
+	}
+	ids, versions, roles := storyboardRowAssets(map[string]any{
+		"characters": []any{"林默"},
+		"assetRefs":  []any{map[string]any{"nodeId": "linmo-front", "role": "character"}},
+	}, assets)
+	if len(ids) != 3 || len(versions) != 3 || len(roles) != 3 {
+		t.Fatalf("same-name character views were not all bound: ids=%v versions=%v roles=%v", ids, versions, roles)
+	}
+	for _, id := range []string{"linmo-front", "linmo-side", "linmo-three-quarter"} {
+		if !slices.Contains(ids, id) {
+			t.Fatalf("missing character view %s in %v", id, ids)
+		}
 	}
 }
 

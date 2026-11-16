@@ -90,6 +90,14 @@ func (s *Service) LinkProjectAsset(userID string, projectID string, req LinkProj
 	if !validAssetCategory(category) {
 		return AssetSummary{}, kernel.BadAuthRequest("不支持的资产业务分类")
 	}
+	now := time.Now()
+	if category == model.AssetCategoryCharacter {
+		requestedTitle := strings.TrimSpace(req.Title)
+		if requestedTitle != "" && asset.Title != requestedTitle {
+			asset.Title = requestedTitle
+			asset.UpdatedAt = now
+		}
+	}
 	folderID, err := s.resolveAssetFolderID(projectID, req.FolderID)
 	if err != nil {
 		return AssetSummary{}, err
@@ -99,9 +107,11 @@ func (s *Service) LinkProjectAsset(userID string, projectID string, req LinkProj
 		return AssetSummary{}, err
 	}
 	if linked {
+		if err := s.repo.UpsertAsset(asset); err != nil {
+			return AssetSummary{}, mapProjectWriteError(err)
+		}
 		return s.assetSummary(userID, projectID, asset)
 	}
-	now := time.Now()
 	asset.Category = category
 	if asset.Status == "" {
 		asset.Status = model.AssetVersionStatusConfirmed

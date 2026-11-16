@@ -106,6 +106,40 @@ func TestSmartFilmBatchGroupsCharacterViewsByNameAndStoresSingleSkill(t *testing
 	}
 }
 
+func TestLinkProjectAssetUsesCharacterDisplayNameForAllViews(t *testing.T) {
+	svc, db := newTestService(t, &recordingWorkflows{})
+	project, err := svc.CreateProject("user-1", CreateProjectRequest{Name: "多视图角色", Type: "smart-film"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	for _, asset := range []model.Asset{
+		{ID: "character-front", UserID: "user-1", Kind: "image", Category: model.AssetCategoryCharacter, Status: model.AssetVersionStatusConfirmed, Title: "linmo-front", CreatedAt: now, UpdatedAt: now},
+		{ID: "character-side", UserID: "user-1", Kind: "image", Category: model.AssetCategoryCharacter, Status: model.AssetVersionStatusConfirmed, Title: "linmo-side", CreatedAt: now, UpdatedAt: now},
+	} {
+		if err := db.Create(&asset).Error; err != nil {
+			t.Fatal(err)
+		}
+		if _, err := svc.LinkProjectAsset("user-1", project.ID, LinkProjectAssetRequest{
+			AssetID: asset.ID, Category: string(model.AssetCategoryCharacter), Title: "林默", Source: AssetSourceUploaded,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	assets, err := svc.ProjectAssets("user-1", project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(assets) != 2 {
+		t.Fatalf("project assets = %d, want 2 character views", len(assets))
+	}
+	for _, asset := range assets {
+		if asset.Category != model.AssetCategoryCharacter || asset.Title != "林默" {
+			t.Fatalf("character view = %s/%s, want character/林默", asset.Category, asset.Title)
+		}
+	}
+}
+
 func TestSmartFilmBatchSkillCanChangeBeforeProjectAndLocksAfterward(t *testing.T) {
 	svc, _ := newTestService(t, &recordingWorkflows{})
 	created, err := svc.CreateSmartFilmBatch("user-1", CreateSmartFilmBatchRequest{Title: "更换技能", SourceText: "一个故事"})
