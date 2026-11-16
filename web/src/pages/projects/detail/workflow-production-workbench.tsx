@@ -138,7 +138,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
     const activeShotIdRef = useRef(selectedShot?.id || "");
     activeShotIdRef.current = selectedShot?.id || "";
     const shots = useMemo(() => (detail.shots || []).filter((item) => item.unitId === unitId).slice().sort((left, right) => left.position - right.position), [detail.shots, unitId]);
-    const { smartWholeFilm, smartFilmGenerating, smartFilmTask, latestSmartWholeFilm, readyStoryboardCount, smartFilmBatch, generateSmartWholeFilm } = useSmartFilmWholeFilm(detail, projectId, unitId, shots, activeStage);
+    const { smartWholeFilm, smartFilmConfigurationPending, smartFilmGenerating, smartFilmTask, latestSmartWholeFilm, readyStoryboardCount, smartFilmBatch, generateSmartWholeFilm } = useSmartFilmWholeFilm(detail, projectId, unitId, shots, activeStage);
     const shotIndex = selectedShot ? shots.findIndex((item) => item.id === selectedShot.id) : -1;
     const revision = currentRevision(detail, selectedShot);
     const artifactType = artifactTypeForStage(activeStage);
@@ -832,6 +832,15 @@ export default function WorkflowProductionWorkbench(props: Props) {
     const stageCopy = productionStageCopy[activeStage as "storyboard" | "previz" | "video"];
     const selectedShotSubmitting = submittingShotIds.has(selectedShot?.id || "");
     const unconfirmedSmartFilmShots = ["smart-film", "smart-film-auto"].includes(detail.project.type) ? shots.filter((shot) => shot.status !== "confirmed") : [];
+
+    if (smartFilmConfigurationPending && (activeStage === "storyboard" || activeStage === "video")) {
+        return <div className="grid h-full place-items-center px-6 text-center">
+            <div>
+                <strong className="text-sm">正在读取智能成片配置</strong>
+                <p className="mt-2 text-xs leading-5 text-foreground/45">正在确认本批次的分镜方式与制作规格，请稍候。</p>
+            </div>
+        </div>;
+    }
 
     if (smartWholeFilm && activeStage === "storyboard") {
         return <div className="h-full min-h-0">

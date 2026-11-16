@@ -28,6 +28,7 @@ describe("desktop release build contract", () => {
         expect(dockerfile).not.toContain("payment-package");
         expect(dockerfile).not.toContain("verify-payment-packages.sh");
         expect(dockerfile).not.toContain("migrate-schema");
+        expect(dockerfile).toContain("-linkmode external -extldflags '-static'");
         expect(dockerfile).not.toContain("migrate-sqlite-postgres");
         expect(packageJson.scripts?.test).toContain("scripts/run-test-suite.mjs");
         const testRunner = readFileSync(resolve(root, "web/scripts/run-test-suite.mjs"), "utf8");
@@ -96,6 +97,11 @@ describe("desktop release build contract", () => {
         expect(script).toContain('"$ROOT_DIR/plugin-packages/"*.beeftv-plugin');
     });
 
+    test("rollback restores writable database ownership for the service user", () => {
+        const script = readFileSync(resolve(root, "scripts/deploy-canvas-release.sh"), "utf8");
+
+        expect(script).toContain('cp -a "$backup/open_ai_canvas.db" "$db_path"; chown aicyld:aicyld "$db_path"; chmod 600 "$db_path"');
+    });
     test("keeps every source file required by the local release gate", () => {
         const gate = readFileSync(resolve(root, "scripts/verify-beeftv-local-release.sh"), "utf8");
         const exporter = readFileSync(resolve(root, "scripts/public-release-export.sh"), "utf8");

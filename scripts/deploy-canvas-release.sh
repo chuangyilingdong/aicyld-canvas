@@ -126,7 +126,7 @@ rollback() {
     fi
     [[ -f "$backup/RELEASE.json" ]] && cp -a "$backup/RELEASE.json" "$root/RELEASE.json"
     [[ -f "$backup/VERSION" ]] && cp -a "$backup/VERSION" "$root/VERSION"
-    [[ -f "$backup/open_ai_canvas.db" ]] && cp -a "$backup/open_ai_canvas.db" "$db_path"
+    if [[ -f "$backup/open_ai_canvas.db" ]]; then cp -a "$backup/open_ai_canvas.db" "$db_path"; chown aicyld:aicyld "$db_path"; chmod 600 "$db_path"; fi
     systemctl start "$service" >/dev/null 2>&1 || true
     wait_health "$health_timeout" >/dev/null 2>&1 || true
     echo "rollback completed; previous release restored" >&2

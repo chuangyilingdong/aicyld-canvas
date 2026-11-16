@@ -42,6 +42,12 @@ test("production workbench can submit missing shots in one batch", async () => {
     expect(source).toContain("最后一张参考图是当前镜头分镜图");
 });
 
+test("smart-film workbench waits for batch configuration before rendering the generic stage", async () => {
+    const source = await Bun.file(new URL("../src/pages/projects/detail/workflow-production-workbench.tsx", import.meta.url)).text();
+
+    expect(source).toContain("smartFilmConfigurationPending");
+    expect(source).toContain("正在读取智能成片配置");
+});
 test("shot generation submits historical character image, current voice and asset prompt", async () => {
     const detail = {
         assets: [

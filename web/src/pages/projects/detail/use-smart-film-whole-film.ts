@@ -25,6 +25,7 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
         enabled: Boolean(detail.project.batchId),
     });
     const smartWholeFilm = smartFilmBatchQuery.data?.config.productionMode === "smart";
+    const smartFilmConfigurationPending = Boolean(detail.project.batchId) && smartFilmBatchQuery.isPending;
     const unitArtifactsQuery = useQuery({
         queryKey: ["project-unit-artifacts", projectId, unitId],
         queryFn: ({ signal }) => listProjectUnitArtifacts(projectId, unitId, signal).then((result) => result.artifacts),
@@ -154,5 +155,5 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
         }
     };
 
-    return { smartWholeFilm, smartFilmGenerating, smartFilmTask: smartFilmTask || activeSmartFilmTask, latestSmartWholeFilm, readyStoryboardCount, smartFilmBatch: smartFilmBatchQuery.data, generateSmartWholeFilm };
+    return { smartWholeFilm, smartFilmConfigurationPending, smartFilmGenerating, smartFilmTask: smartFilmTask || activeSmartFilmTask, latestSmartWholeFilm, readyStoryboardCount, smartFilmBatch: smartFilmBatchQuery.data, generateSmartWholeFilm };
 }
