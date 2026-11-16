@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	localproject "infinite-canvas/backend/internal/project"
 
@@ -42,6 +43,7 @@ func RegisterSmartFilmBatchRoutes(r *gin.RouterGroup, owners workspaceOwners, pr
 			failService(c, err)
 			return
 		}
+		batch = trimSmartFilmBatchSkillStage(batch, c.Query("stage"))
 		ok(c, gin.H{"batch": batch})
 	})
 
@@ -331,4 +333,24 @@ func RegisterSmartFilmBatchRoutes(r *gin.RouterGroup, owners workspaceOwners, pr
 		}
 		ok(c, gin.H{"run": run})
 	})
+}
+
+func trimSmartFilmBatchSkillStage(batch localproject.SmartFilmBatchView, stage string) localproject.SmartFilmBatchView {
+	stage = strings.TrimSpace(stage)
+	if stage == "" || batch.Config.SkillSnapshot == nil {
+		return batch
+	}
+	snapshot := *batch.Config.SkillSnapshot
+	if context, ok := snapshot.Stages[stage]; ok {
+		snapshot.Stages = map[string]string{stage: context}
+	} else {
+		snapshot.Stages = map[string]string{}
+	}
+	if files, ok := snapshot.StageFiles[stage]; ok {
+		snapshot.StageFiles = map[string][]string{stage: files}
+	} else {
+		snapshot.StageFiles = map[string][]string{}
+	}
+	batch.Config.SkillSnapshot = &snapshot
+	return batch
 }

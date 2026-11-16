@@ -8,19 +8,20 @@ import { listProjectUnitArtifacts, registerProjectUnitArtifact, type ProjectDeta
 import { ownedResourceIdFromMediaRef, resourceIdFromStorageKey } from "@/services/api/resources";
 import { getSmartFilmBatch } from "@/services/api/smart-film-batches";
 import type { GenerationTask } from "@/services/api/task-center";
+import type { SmartFilmSkillStage } from "@/services/api/smart-film-batches";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { approvedStoryboardArtifact, currentArtifact } from "./workflow-shared";
 import { buildSmartFilmWholeFilmPrompt } from "./smart-film-whole-film-prompt";
 import { smartFilmSkillMetadata, smartFilmSkillStagePrompt } from "@/services/smart-film-skill";
 
-export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, unitId: string, shots: ProjectShot[]) {
+export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, unitId: string, shots: ProjectShot[], activeStage: string) {
     const effectiveConfig = useEffectiveConfig();
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const [smartFilmGenerating, setSmartFilmGenerating] = useState(false);
     const [smartFilmTask, setSmartFilmTask] = useState<GenerationTask | null>(null);
     const smartFilmBatchQuery = useQuery({
-        queryKey: ["smart-film-batch", detail.project.batchId],
-        queryFn: () => getSmartFilmBatch(detail.project.batchId!).then((result) => result.batch),
+        queryKey: ["smart-film-batch", detail.project.batchId, activeStage === "video" ? "video" : "image"],
+        queryFn: () => getSmartFilmBatch(detail.project.batchId!, undefined, (activeStage === "video" ? "video" : "image") as SmartFilmSkillStage).then((result) => result.batch),
         enabled: Boolean(detail.project.batchId),
     });
     const smartWholeFilm = smartFilmBatchQuery.data?.config.productionMode === "smart";

@@ -128,8 +128,8 @@ export function createSmartFilmBatch(input: {
     return http.post<{ batch: SmartFilmBatch }>("/smart-film-batches", input);
 }
 
-export function getSmartFilmBatch(batchId: string, signal?: AbortSignal) {
-    return http.get<{ batch: SmartFilmBatch }>(`/smart-film-batches/${encodeURIComponent(batchId)}`, { signal });
+export function getSmartFilmBatch(batchId: string, signal?: AbortSignal, stage?: SmartFilmSkillStage) {
+    return http.get<{ batch: SmartFilmBatch }>(`/smart-film-batches/${encodeURIComponent(batchId)}`, { signal, params: stage ? { stage } : undefined });
 }
 
 export function getProjectSmartFilmRun(projectId: string, signal?: AbortSignal) {
