@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { canvasResourceMentionToken } from "@/lib/canvas/canvas-resource-references";
 import type { ProjectAsset, ProjectDetail } from "@/services/api/projects";
-import { buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, resolveShotAssetMentionPrompt } from "@/pages/projects/detail/workflow-shot-references";
+import { buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, resolveShotAssetMentionPrompt, stripUnboundShotAssetMentions } from "@/pages/projects/detail/workflow-shot-references";
 
 describe("workflow shot asset references", () => {
     test("builds ordered image references for bound media and characters", () => {
@@ -41,6 +41,18 @@ describe("workflow shot asset references", () => {
         expect(prompt).toContain("雨夜街道：场景参考：图片7");
     });
 
+    test("removes stale mentions before single-shot generation while preserving bound references", () => {
+        const context = buildShotAssetReferenceContext(detail(), "shot-1");
+        const [scene, character] = context.mentionReferences;
+        const prompt = `让 ${canvasResourceMentionToken(character)} 从 ${canvasResourceMentionToken(scene)} 走近，旁边保留 @[asset:missing]`;
+
+        const stripped = stripUnboundShotAssetMentions(prompt, context);
+
+        expect(stripped).toContain(canvasResourceMentionToken(character));
+        expect(stripped).toContain(canvasResourceMentionToken(scene));
+        expect(stripped).not.toContain("@[asset:missing]");
+        expect(stripped).not.toMatch(/\s{2,}/);
+    });
     test("rejects stale mentions after an asset is unbound", () => {
         const context = buildShotAssetReferenceContext(detail(), "shot-1");
 

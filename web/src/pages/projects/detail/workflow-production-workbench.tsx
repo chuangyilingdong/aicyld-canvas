@@ -62,7 +62,7 @@ import {
     formatDuration,
     type ShortDramaWorkflowStage,
 } from "./workflow-shared";
-import { buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, resolveShotAssetMentionPrompt } from "./workflow-shot-references";
+import { buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, resolveShotAssetMentionPrompt, stripUnboundShotAssetMentions } from "./workflow-shot-references";
 import { isProjectAssetVisualReference, linkedShotAssetReferences, parseShotAssetRoles, shotAssetRoleLabel } from "./shot-asset-roles";
 import { useSmartFilmWholeFilm } from "./use-smart-film-whole-film";
 import { SmartFilmStoryboardBoard, SmartFilmVideoBoard } from "./smart-film-production-board";
@@ -767,9 +767,14 @@ export default function WorkflowProductionWorkbench(props: Props) {
                 const context = generationCapability === "video"
                     ? withStoryboardVideoReference(detail, shot, buildShotAssetReferenceContext(detail, shot.id))
                     : buildShotAssetReferenceContext(detail, shot.id);
-                const values = shot.id === selectedShot?.id && currentValues
+                const rawValues = shot.id === selectedShot?.id && currentValues
                     ? currentValues
                     : shotEditorValues(detail, shot, shotIndex, context);
+                const values = {
+                    ...rawValues,
+                    imagePrompt: stripUnboundShotAssetMentions(rawValues.imagePrompt || "", context),
+                    videoPrompt: stripUnboundShotAssetMentions(rawValues.videoPrompt || "", context),
+                };
                 const generation = generationConfigForShot({
                     effectiveConfig,
                     capability: generationCapability,
@@ -785,7 +790,9 @@ export default function WorkflowProductionWorkbench(props: Props) {
                     const task = await submitShotGeneration({ shot, values, context, productionStep, model: generation.model, config: generation.config, persistRevision });
                     submittedTasks.push(task);
                 } catch (error) {
-                    failures.push(`${shot.title || formatShotOrdinal(shotIndex)}：${error instanceof Error ? error.message : "提交失败"}`);
+                    const reason = error instanceof Error ? error.message : "提交失败";
+                    failures.push(`${shot.title || formatShotOrdinal(shotIndex)}：${reason}`);
+                    if (options?.singleShot) message.error(`${shot.title || formatShotOrdinal(shotIndex)}提交失败：${reason}`);
                 } finally {
                     setBatchProgress({ done: index + 1, total: targets.length, phase: "submitting" });
                 }

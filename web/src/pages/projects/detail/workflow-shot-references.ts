@@ -88,6 +88,14 @@ export function buildShotAssetReferenceContext(detail: ProjectDetail, shotId: st
     };
 }
 
+export function stripUnboundShotAssetMentions(prompt: string, context: ShotAssetReferenceContext) {
+    const boundAssetIds = new Set(context.mentionReferences.flatMap((reference) => reference.assetId ? [reference.assetId] : []));
+    return prompt
+        .replace(/@\[asset:([^\]]+)\]/g, (token, assetId: string) => boundAssetIds.has(assetId) ? token : "")
+        .replace(/[ \t]{2,}/g, " ")
+        .replace(/[ \t]+([，。；：、！？])/g, "$1")
+        .trim();
+}
 export function resolveShotAssetMentionPrompt(prompt: string, context: ShotAssetReferenceContext, options: {
     dialogue?: string;
     imageIndexByAssetId?: ReadonlyMap<string, number>;
