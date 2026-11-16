@@ -28,6 +28,7 @@ import { createWorkspaceCanvasProject } from "@/services/workspace-project-repos
 import { listWorkspaceCanvasProjectsPage, type CanvasLibrarySummary } from "@/services/api/workspace-data";
 import { useUserStore } from "@/stores/use-user-store";
 import { listProjects, type ProjectSummary } from "@/services/api/projects";
+import { projectSummaryStage } from "@/lib/project-workbench";
 import { loadCanvasProjectPage } from "@/lib/workspace-route-modules";
 import { useSyncProgressStore } from "@/stores/use-sync-progress-store";
 import { useAppearanceStore } from "@/stores/use-appearance-store";
@@ -111,16 +112,14 @@ export default function CanvasPage() {
     const [associationProjectId, setAssociationProjectId] = useState("");
     // 本地工作区的画布、文件夹与历史完全来自浏览器本地存储；项目关系查询只在远程工作区启用。
     const projectQuery = useQuery({ queryKey: ["projects", userId], queryFn: () => listProjects(), enabled: remoteMode && sessionHydrated });
-    const smartFilmProjects = useMemo(() => remoteMode
-        ? (projectQuery.data?.projects || []).filter(({ project }) => project.type === "smart-film" || project.type === "smart-film-auto")
-        : [], [projectQuery.data, remoteMode]);
-    const visibleSmartFilmProjects = useMemo(() => {
+    const studioProjects = useMemo(() => remoteMode ? projectQuery.data?.projects || [] : [], [projectQuery.data, remoteMode]);
+    const visibleStudioProjects = useMemo(() => {
         if (folderFilter !== "all") return [];
         const query = debouncedKeyword.toLowerCase();
-        return smartFilmProjects
+        return studioProjects
             .filter(({ project }) => (projectFilter === "all" || projectFilter === project.id) && (!query || project.name.toLowerCase().includes(query)))
             .sort((left, right) => sort === "name" ? left.project.name.localeCompare(right.project.name, "zh-CN") : right.project.updatedAt.localeCompare(left.project.updatedAt));
-    }, [debouncedKeyword, folderFilter, projectFilter, smartFilmProjects, sort]);
+    }, [debouncedKeyword, folderFilter, projectFilter, studioProjects, sort]);
 
     const mode = searchParams.get("mode");
     const agentMode = mode === "new" || mode === "recent" || mode === "choose";
@@ -405,7 +404,7 @@ export default function CanvasPage() {
                     <div role="alert">画布列表读取失败<Button onClick={() => void libraryQuery.refetch()}>重试</Button></div>
                 ) : !hydrated || (remoteMode && libraryQuery.isPending) ? (
                     <WorkspaceLoadingState label="正在恢复画布" detail="读取本地缓存与账号同步状态" />
-                ) : visibleProjects.length || visibleSmartFilmProjects.length || (!keyword && projectFilter === "all") ? (
+                ) : visibleProjects.length || visibleStudioProjects.length || (!keyword && projectFilter === "all") ? (
                     <CollectionGrid className="canvas-collection-grid">
                         <div className="libtv-create-project-entry">
                             <article className="libtv-create-project-card" role="button" tabIndex={0} onClick={() => createAndEnter()} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); createAndEnter(); } }}>
@@ -421,8 +420,8 @@ export default function CanvasPage() {
                                 message.error(error instanceof Error ? error.message : "封面没有保存成功");
                             });
                         }} />)}
-                        {visibleSmartFilmProjects.map((item) => (
-                            <SmartFilmProjectCard key={`smart-film-project-${item.project.id}`} item={item} onOpen={() => navigate(`/projects/${item.project.id}/overview`)} />
+                        {visibleStudioProjects.map((item) => (
+                            <StudioProjectCard key={`studio-project-${item.project.id}`} item={item} onOpen={() => navigate(`/projects/${item.project.id}/overview`)} />
                         ))}
                         {visibleProjects.map((project) => (
                             <CanvasFolderCard
@@ -521,7 +520,10 @@ export default function CanvasPage() {
     );
 }
 
-function SmartFilmProjectCard({ item, onOpen }: { item: ProjectSummary; onOpen: () => void }) {
+function StudioProjectCard({ item, onOpen }: { item: ProjectSummary; onOpen: () => void }) {
+    const stage = projectSummaryStage(item);
+    const smartFilm = item.project.type === "smart-film" || item.project.type === "smart-film-auto";
+    const statusTone = stage.label.includes("生成") ? "border-amber-500/25 bg-amber-500/10 text-amber-500" : stage.label.includes("确认") || stage.label.includes("处理") ? "border-rose-500/25 bg-rose-500/10 text-rose-400" : stage.label.includes("完成") || stage.label.includes("交付") ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-400" : "border-border/70 bg-background/70 text-foreground/55";
     return (
         <LibraryCardShell
             ariaLabel={`打开智能成片项目 ${item.project.name}`}
@@ -531,7 +533,10 @@ function SmartFilmProjectCard({ item, onOpen }: { item: ProjectSummary; onOpen: 
             cover={
                 <div className="canvas-collection-preview-content">
                     <div className="flex size-full flex-col justify-between bg-[radial-gradient(circle_at_top_right,color-mix(in_srgb,var(--workspace-accent)_28%,transparent),transparent_58%),linear-gradient(145deg,color-mix(in_srgb,var(--foreground)_5%,transparent),transparent)] p-4">
-                        <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-border/70 bg-background/70 px-2.5 py-1 text-[var(--fs-micro)] text-foreground/55"><Clapperboard className="size-3.5" />智能成片</span>
+                        <div className="flex items-start justify-between gap-2">
+                            <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-border/70 bg-background/70 px-2.5 py-1 text-[var(--fs-micro)] text-foreground/55"><Clapperboard className="size-3.5" />{smartFilm ? "智能成片" : "视频项目"}</span>
+                            <span className={`inline-flex max-w-[58%] items-center truncate rounded-full border px-2.5 py-1 text-[var(--fs-micro)] ${statusTone}`} title={stage.detail}>{stage.label}</span>
+                        </div>
                         <div className="flex items-end justify-between gap-3">
                             <div className="min-w-0">
                                 <strong className="line-clamp-2 text-sm leading-5">{item.project.name}</strong>
