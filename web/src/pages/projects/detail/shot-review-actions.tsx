@@ -18,10 +18,12 @@ export function ShotReviewActions({ projectId, shot, artifact, disabled, approve
     const [rejectOpen, setRejectOpen] = useState(false);
     const [note, setNote] = useState(shot.reviewNote || "");
     const [busy, setBusy] = useState(false);
+    const [optimisticStatus, setOptimisticStatus] = useState<string>();
     const canReview = Boolean(artifact?.resourceId && artifact.status === "ready");
-    const status = canReview ? shot.reviewStatus || "pending" : "pending";
+    const status = canReview ? optimisticStatus || shot.reviewStatus || "pending" : "pending";
     useEffect(() => {
         setNote(shot.reviewNote || "");
+        setOptimisticStatus(undefined);
     }, [shot.id, shot.reviewNote, shot.reviewStatus]);
     const submit = async (nextStatus: "approved" | "rejected", nextNote = "") => {
         if (!shot.currentRevisionId) {
@@ -31,6 +33,7 @@ export function ShotReviewActions({ projectId, shot, artifact, disabled, approve
         setBusy(true);
         try {
             await reviewProjectShot(projectId, shot.id, { status: nextStatus, note: nextNote, expectedRevisionId: shot.currentRevisionId });
+            setOptimisticStatus(nextStatus);
             await onReviewed();
             setRejectOpen(false);
             message.success(nextStatus === "approved" ? "镜头已通过审核" : "已记录返工意见");

@@ -781,11 +781,6 @@ export default function WorkflowProductionWorkbench(props: Props) {
                 } catch (error) {
                     failures.push(`${shot.title || formatShotOrdinal(shotIndex)}：${error instanceof Error ? error.message : "提交失败"}`);
                 } finally {
-                    setSubmittingShotIds((current) => {
-                        const next = new Set(current);
-                        next.delete(shot.id);
-                        return next;
-                    });
                     setBatchProgress({ done: index + 1, total: targets.length, phase: "submitting" });
                 }
             }

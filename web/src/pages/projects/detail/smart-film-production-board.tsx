@@ -29,10 +29,15 @@ export function SmartFilmStoryboardBoard({ detail, shots, readyCount, busy, subm
     const { message } = App.useApp();
     const [confirmingShotId, setConfirmingShotId] = useState<string>();
     const [confirmingImageShotId, setConfirmingImageShotId] = useState<string>();
+    const [confirmedImageArtifacts, setConfirmedImageArtifacts] = useState<Record<string, string>>({});
     const allReady = shots.length > 0 && readyCount === shots.length;
     const confirmedCount = shots.filter((shot) => shot.status === "confirmed").length;
     const allConfirmed = shots.length > 0 && confirmedCount === shots.length;
-    const confirmedImageCount = shots.filter((shot) => shot.reviewStatus === "approved" && currentArtifact(detail, shot.id, "storyboard")?.status === "ready").length;
+    const imageConfirmed = (shot: ProjectShot) => {
+        const artifact = currentArtifact(detail, shot.id, "storyboard");
+        return Boolean(artifact?.status === "ready" && (shot.reviewStatus === "approved" || confirmedImageArtifacts[shot.id] === artifact.id));
+    };
+    const confirmedImageCount = shots.filter(imageConfirmed).length;
     const allImagesConfirmed = shots.length > 0 && confirmedImageCount === shots.length;
     const assetTitles = new Map(detail.assets.map((asset) => [asset.id, asset.title]));
 
@@ -49,9 +54,11 @@ export function SmartFilmStoryboardBoard({ detail, shots, readyCount, busy, subm
     };
 
     const confirmImage = async (shot: ProjectShot) => {
+        const artifact = currentArtifact(detail, shot.id, "storyboard");
         setConfirmingImageShotId(shot.id);
         try {
             await onConfirmImage(shot);
+            if (artifact?.id) setConfirmedImageArtifacts((current) => ({ ...current, [shot.id]: artifact.id }));
             message.success("本镜分镜图已确认");
         } catch (error) {
             message.error(error instanceof Error ? error.message : "本镜分镜图确认失败");
@@ -85,7 +92,7 @@ export function SmartFilmStoryboardBoard({ detail, shots, readyCount, busy, subm
                     const submitting = submittingShotIds.has(shot.id);
                     const confirming = confirmingShotId === shot.id;
                     const confirmingImage = confirmingImageShotId === shot.id;
-                    const imageConfirmed = shot.reviewStatus === "approved" && ready;
+                    const imageIsConfirmed = imageConfirmed(shot) && ready;
                     const imagePrompt = revision?.imagePrompt || "未单独填写；生成时使用镜头画面和静态表演信息自动组成图片提示词";
                     return (
                         <article key={shot.id} className="grid gap-3 rounded-xl border border-border/70 bg-surface p-3 lg:grid-cols-[220px_minmax(0,1fr)_170px]">
@@ -98,7 +105,7 @@ export function SmartFilmStoryboardBoard({ detail, shots, readyCount, busy, subm
                                     <strong className="text-sm">镜头 {String(index + 1).padStart(2, "0")} · {shot.title || "未命名"}</strong>
                                     <span className="text-[var(--fs-tiny)] text-foreground/42">计划 {formatDuration(shot.durationMs)}</span>
                                     {shot.status === "confirmed" ? <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[var(--fs-micro)] text-emerald-500">本镜已确认</span> : <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[var(--fs-micro)] text-amber-500">本镜待确认</span>}
-                                    {imageConfirmed ? <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[var(--fs-micro)] text-emerald-500">分镜图已确认</span> : ready ? <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[var(--fs-micro)] text-amber-500">分镜图待确认</span> : null}
+                                    {imageIsConfirmed ? <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[var(--fs-micro)] text-emerald-500">分镜图已确认</span> : ready ? <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[var(--fs-micro)] text-amber-500">分镜图待确认</span> : null}
                                 </div>
                                 <p className="mt-1 text-xs leading-5 text-foreground/55">{readablePrompt(revision?.plotDescription || shot.description || "尚未填写镜头画面", assetTitles)}</p>
                                 <div className="mt-2">
@@ -110,7 +117,7 @@ export function SmartFilmStoryboardBoard({ detail, shots, readyCount, busy, subm
                                 <ArtifactStatus artifact={artifact} taskStatus={submitting ? "queued" : undefined} />
                                 <Button type={shot.status === "confirmed" ? "default" : "primary"} icon={<CheckCircle2 className="size-3.5" />} loading={confirming} disabled={busy || shot.status === "confirmed"} onClick={() => void confirmShot(shot)}>{shot.status === "confirmed" ? "本镜已确认" : "确认本镜"}</Button>
                                 <Button icon={<Sparkles className="size-3.5" />} loading={submitting} disabled={busy || shot.status !== "confirmed"} onClick={() => onGenerateShot(shot)}>{ready ? "重新生成分镜图" : "生成分镜图"}</Button>
-                                {ready ? <Button type={imageConfirmed ? "default" : "primary"} icon={<CheckCircle2 className="size-3.5" />} loading={confirmingImage} disabled={busy || imageConfirmed} onClick={() => void confirmImage(shot)}>{imageConfirmed ? "分镜图已确认" : "确认本镜分镜图"}</Button> : null}
+                                {ready ? <Button type={imageIsConfirmed ? "default" : "primary"} icon={<CheckCircle2 className="size-3.5" />} loading={confirmingImage} disabled={busy || imageIsConfirmed} onClick={() => void confirmImage(shot)}>{imageIsConfirmed ? "分镜图已确认" : "确认本镜分镜图"}</Button> : null}
                                 {artifact?.resourceId ? <Button type="text" size="small" icon={<ImageIcon className="size-3.5" />} onClick={() => onPreviewImage(artifact)}>查看图片</Button> : null}
                             </div>
                         </article>
