@@ -116,7 +116,7 @@ func TestAssetCandidatePreviewBecomesConfirmedImageAsset(t *testing.T) {
 	}
 	revision := ownedRevision(t, svc, project.ID)
 	updated, err := svc.UpdateProjectAssetCandidatePreview("user-1", project.ID, candidates[0].ID, UpdateProjectAssetCandidatePreviewRequest{
-		ResourceID: resource.ID, TaskID: "task-preview", Status: "ready", ExpectedRevision: revision,
+		ResourceID: resource.ID, Status: "ready", ExpectedRevision: revision,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -135,7 +135,7 @@ func TestAssetCandidatePreviewBecomesConfirmedImageAsset(t *testing.T) {
 	if err := db.First(&representation, "asset_version_id = ?", asset.PrimaryVersionID).Error; err != nil {
 		t.Fatal(err)
 	}
-	if representation.ResourceID != resource.ID || representation.MediaType != "image" || representation.Role != "primary" {
+	if representation.ResourceID != resource.ID || representation.MediaType != "image" || representation.Role != "primary" || representation.TaskID == "" {
 		t.Fatalf("representation = %+v", representation)
 	}
 }

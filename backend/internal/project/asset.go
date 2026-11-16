@@ -610,8 +610,12 @@ func (s *Service) assetFromCandidatePreview(userID string, candidate *model.Proj
 		ID: versionID, AssetID: assetID, Version: 1, Status: model.AssetVersionStatusConfirmed,
 		DefinitionJSON: candidate.DetailsJSON, Prompt: candidatePreviewPrompt(candidate), CreatedAt: now, UpdatedAt: now,
 	}
+	representationTaskID := strings.TrimSpace(candidate.PreviewTaskID)
+	if representationTaskID == "" {
+		representationTaskID = kernel.NewID()
+	}
 	representation := model.AssetRepresentation{
-		ID: kernel.NewID(), AssetVersionID: versionID, ResourceID: resource.ID, MediaType: resource.Kind, Role: "primary", CreatedAt: now,
+		ID: kernel.NewID(), TaskID: representationTaskID, AssetVersionID: versionID, ResourceID: resource.ID, MediaType: resource.Kind, Role: "primary", CreatedAt: now,
 	}
 	return asset, version, []model.AssetRepresentation{representation}, false, nil
 }
