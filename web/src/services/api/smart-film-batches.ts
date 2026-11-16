@@ -11,7 +11,9 @@ export type SmartFilmSkillSnapshot = {
     contentHash: string;
     name: string;
     version?: string;
+    routingMode?: "manifest" | "auto";
     stages?: Partial<Record<SmartFilmSkillStage, string>> | null;
+    stageFiles?: Partial<Record<SmartFilmSkillStage, string[]>>;
 };
 
 export type SmartFilmBatchConfig = {

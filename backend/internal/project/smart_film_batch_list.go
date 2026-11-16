@@ -47,6 +47,7 @@ func (s *Service) smartFilmBatchSummaryResponse(batch model.SmartFilmBatch) (Sma
 	if view.Config.SkillSnapshot != nil {
 		snapshot := *view.Config.SkillSnapshot
 		snapshot.Stages = nil
+		snapshot.StageFiles = nil
 		view.Config.SkillSnapshot = &snapshot
 	}
 	return view, nil

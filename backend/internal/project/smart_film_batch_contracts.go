@@ -50,12 +50,14 @@ const (
 )
 
 type SmartFilmSkillSnapshot struct {
-	SkillID     string            `json:"skillId"`
-	VersionID   string            `json:"versionId"`
-	ContentHash string            `json:"contentHash"`
-	Name        string            `json:"name"`
-	Version     string            `json:"version,omitempty"`
-	Stages      map[string]string `json:"stages,omitempty"`
+	SkillID     string              `json:"skillId"`
+	VersionID   string              `json:"versionId"`
+	ContentHash string              `json:"contentHash"`
+	Name        string              `json:"name"`
+	Version     string              `json:"version,omitempty"`
+	RoutingMode string              `json:"routingMode,omitempty"`
+	Stages      map[string]string   `json:"stages,omitempty"`
+	StageFiles  map[string][]string `json:"stageFiles,omitempty"`
 }
 
 type SmartFilmBatchConfig struct {

@@ -169,6 +169,7 @@ func normalizeSmartFilmSkillSnapshot(snapshot *SmartFilmSkillSnapshot) (*SmartFi
 	contentHash := strings.TrimSpace(snapshot.ContentHash)
 	name := strings.TrimSpace(snapshot.Name)
 	version := strings.TrimSpace(snapshot.Version)
+	routingMode := strings.TrimSpace(snapshot.RoutingMode)
 	if skillID == "" && versionID == "" && contentHash == "" && name == "" && len(snapshot.Stages) == 0 {
 		return nil, nil
 	}
@@ -202,8 +203,36 @@ func normalizeSmartFilmSkillSnapshot(snapshot *SmartFilmSkillSnapshot) (*SmartFi
 	if len(stages) == 0 {
 		return nil, kernel.BadAuthRequest("技能没有可用的阶段规则")
 	}
+	if routingMode == "" {
+		routingMode = "auto"
+	}
+	if routingMode != "manifest" && routingMode != "auto" {
+		return nil, kernel.BadAuthRequest("技能阶段路由模式无效")
+	}
+	stageFiles := make(map[string][]string, len(snapshot.StageFiles))
+	for stage, paths := range snapshot.StageFiles {
+		stage = strings.TrimSpace(stage)
+		if _, ok := allowed[stage]; !ok {
+			return nil, kernel.BadAuthRequest("技能阶段文件配置无效")
+		}
+		cleaned := make([]string, 0, len(paths))
+		for _, filePath := range paths {
+			filePath = strings.TrimSpace(filePath)
+			if filePath == "" || utf8.RuneCountInString(filePath) > 1000 {
+				continue
+			}
+			cleaned = append(cleaned, filePath)
+		}
+		if len(cleaned) > 8 {
+			return nil, kernel.BadAuthRequest("单个技能阶段引用的文件过多")
+		}
+		if len(cleaned) > 0 {
+			stageFiles[stage] = cleaned
+		}
+	}
 	return &SmartFilmSkillSnapshot{
-		SkillID: skillID, VersionID: versionID, ContentHash: contentHash, Name: name, Version: version, Stages: stages,
+		SkillID: skillID, VersionID: versionID, ContentHash: contentHash, Name: name, Version: version,
+		RoutingMode: routingMode, Stages: stages, StageFiles: stageFiles,
 	}, nil
 }
 

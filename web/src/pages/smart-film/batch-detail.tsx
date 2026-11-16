@@ -585,7 +585,7 @@ export default function SmartFilmBatchDetailPage() {
                     <div>
                         <h2>每条剧本都是独立视频</h2>
                         <p>{busy || "选择剧本后分别创建项目；系统会分析所需资产并生成可修改的资产提示词。"}</p>
-                        <p>{batchSpec}{batch.config.skillSnapshot ? ` · 技能：${batch.config.skillSnapshot.name}` : " · 技能：平台默认"}</p>
+                        <p>{batchSpec}{batch.config.skillSnapshot ? ` · 技能：${batch.config.skillSnapshot.name} · 路由：${batch.config.skillSnapshot.routingMode === "manifest" ? "技能声明" : "自动固化"}` : " · 技能：平台默认"}</p>
                     </div>
                     <div className="smart-film-batch-summary-stats">
                         <div><span>剧本</span><strong>{batch.scripts.length}</strong></div>
