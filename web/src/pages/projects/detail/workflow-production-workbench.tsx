@@ -661,10 +661,10 @@ export default function WorkflowProductionWorkbench(props: Props) {
             message.warning("请先选择要生成的镜头");
             return;
         }
-        await generateAllArtifacts({ shotIds: [selectedShot.id], singleShot: true });
+        await generateAllArtifacts({ shotIds: [selectedShot.id], singleShot: true, force: true });
     };
 
-    const generateAllArtifacts = async (options?: { automatic?: boolean; shotIds?: readonly string[]; singleShot?: boolean }) => {
+    const generateAllArtifacts = async (options?: { automatic?: boolean; shotIds?: readonly string[]; singleShot?: boolean; force?: boolean }) => {
         if (batchProgress || submittingShotIds.size) {
             message.warning("已有镜头正在提交生成任务，请稍候");
             return;
@@ -704,7 +704,13 @@ export default function WorkflowProductionWorkbench(props: Props) {
         const requestedShotIds = new Set(options?.shotIds || []);
         const candidateShots = requestedShotIds.size ? shots.filter((shot) => requestedShotIds.has(shot.id)) : shots;
         const runningTasks = runningStageTasks(detail, candidateShots, artifactType);
-        const targets = candidateShots.filter((shot) => shotNeedsGeneration(detail, shot, artifactType));
+        const runningShotIds = new Set(runningTasks.flatMap((task) => task.clientContext?.shotId ? [task.clientContext.shotId] : []));
+        const targets = options?.force
+            ? candidateShots.filter((shot) => {
+                const artifact = currentArtifact(detail, shot.id, artifactType);
+                return !runningShotIds.has(shot.id) && artifact?.status !== "pending" && artifact?.status !== "running";
+            })
+            : candidateShots.filter((shot) => shotNeedsGeneration(detail, shot, artifactType));
         if (!targets.length) {
             if (options?.automatic) {
                 try {
@@ -815,7 +821,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
     };
 
     const generateSmartFilmStoryboardShot = async (shot: ProjectShot) => {
-        await generateAllArtifacts({ shotIds: [shot.id], singleShot: true });
+        await generateAllArtifacts({ shotIds: [shot.id], singleShot: true, force: true });
     };
 
     useEffect(() => {
