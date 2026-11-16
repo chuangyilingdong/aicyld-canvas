@@ -19,7 +19,7 @@ type SkillRuntimeProfileConfig = {
 export const SKILL_RUNTIME_PROFILES: Record<SkillRuntimeProfile, SkillRuntimeProfileConfig> = {
     canvas: { delivery: "linked-context", maxSkills: 4, maxContextChars: 32_000, maxLinkedFilesPerSkill: 3 },
     creation: { delivery: "linked-context", maxSkills: 4, maxContextChars: 32_000, maxLinkedFilesPerSkill: 3 },
-    shortDrama: { delivery: "linked-context", maxSkills: 4, maxContextChars: 32_000, maxLinkedFilesPerSkill: 3 },
+    shortDrama: { delivery: "linked-context", maxSkills: 1, maxContextChars: 32_000, maxLinkedFilesPerSkill: 4 },
     director: { delivery: "linked-context", maxSkills: 4, maxContextChars: 32_000, maxLinkedFilesPerSkill: 3 },
 };
 
@@ -203,7 +203,9 @@ function linkedFileCandidates(entry: string, files: SkillPackageFile[], prompt: 
         .flatMap((file) => {
             const path = normalizePackagePath(file.path);
             if (!isLinkedContextTextFile(path, file) || path === "SKILL.md") return [];
-            const index = entry.indexOf(path);
+            const baseName = path.split("/").pop() || path;
+            let index = entry.indexOf(path);
+            if (index < 0) index = entry.indexOf(baseName);
             if (index < 0) return [];
             const lineStart = entry.lastIndexOf("\n", index) + 1;
             const lineEnd = entry.indexOf("\n", index);

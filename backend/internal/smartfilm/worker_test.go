@@ -213,6 +213,45 @@ func TestWorkerStoryboardUsesAttemptScopedOperationID(t *testing.T) {
 	}
 }
 
+func TestWorkerStoryboardUsesOnePinnedSkillContext(t *testing.T) {
+	var captured localtask.CreateRequest
+	worker := &Worker{SubmitTask: func(userID string, req localtask.CreateRequest) (*model.Task, error) {
+		captured = req
+		return &model.Task{ID: "task-1", UserID: userID}, nil
+	}}
+	item := localproject.SmartFilmStoryboardWorkItem{
+		RunID: "run-1", Attempts: 1, UserID: "user-1", ProjectID: "project-1", UnitID: "unit-1",
+		TextModel: "text-model", ShotCount: 1, ShotDurationSeconds: 5,
+		SkillID: "skill-one", SkillVersionID: "version-one", SkillContentHash: "hash-one", SkillContext: "只加载这一个技能包规则",
+	}
+	if _, err := worker.submitStoryboard(item); err != nil {
+		t.Fatal(err)
+	}
+	metadata := captured.Input["metadata"].(map[string]any)
+	if metadata["skillId"] != "skill-one" || metadata["skillVersionId"] != "version-one" {
+		t.Fatalf("skill metadata = %+v", metadata)
+	}
+	if metadata["skillContext"] != "只加载这一个技能包规则" {
+		t.Fatalf("skill context metadata = %+v", metadata)
+	}
+}
+
+func TestValidateStoryboardCharacterBindingsRequiresNamedVisualAsset(t *testing.T) {
+	assets := []localproject.SmartFilmStoryboardAsset{
+		{ID: "linmo", Title: "林默", Category: "character", VisualReference: true},
+	}
+	if err := validateStoryboardCharacterBindings(map[string]any{"characters": []any{"林默"}}, assets); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateStoryboardCharacterBindings(map[string]any{"characters": []any{"林默", "陌生人"}}, assets); err == nil {
+		t.Fatal("unknown character name was accepted")
+	}
+	assets[0].VisualReference = false
+	if err := validateStoryboardCharacterBindings(map[string]any{"characters": []any{"林默"}}, assets); err == nil {
+		t.Fatal("character without a visual reference was accepted")
+	}
+}
+
 func TestStoryboardRowAssetsIgnoresTextOnlySettings(t *testing.T) {
 	assets := []localproject.SmartFilmStoryboardAsset{
 		{ID: "text-setting", Title: "雨夜街角", Category: "environment", MediaType: "text", VisualReference: false, PrimaryVersionID: "text-v1", Prompt: "潮湿的街道和霓虹灯"},

@@ -28,12 +28,12 @@ export function useSkillRuntimeCatalog() {
     return { skills, loading };
 }
 
-export function SkillRuntimePicker({ skills, loading, value, onChange, placeholder = "选择本次生成使用的技能", profile = "canvas" }: { skills: Skill[]; loading?: boolean; value: string[]; onChange: (skillIds: string[]) => void; placeholder?: string; profile?: SkillRuntimeProfile }) {
+export function SkillRuntimePicker({ skills, loading, value, onChange, placeholder = "选择本次生成使用的技能", profile = "canvas", maxSkills: maxSkillsOverride }: { skills: Skill[]; loading?: boolean; value: string[]; onChange: (skillIds: string[]) => void; placeholder?: string; profile?: SkillRuntimeProfile; maxSkills?: number }) {
     const options = useMemo(
         () => skills.map((skill) => ({ value: skill.skillId, label: skill.skillName, title: skill.description })),
         [skills],
     );
-    const maxSkills = SKILL_RUNTIME_PROFILES[profile].maxSkills;
+    const maxSkills = Math.max(1, Math.min(SKILL_RUNTIME_PROFILES[profile].maxSkills, maxSkillsOverride || SKILL_RUNTIME_PROFILES[profile].maxSkills));
 
     return (
         <Select

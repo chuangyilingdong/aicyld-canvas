@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"infinite-canvas/backend/internal/kernel"
+	"infinite-canvas/backend/internal/model"
 )
 
 func (s *Service) ListSmartFilmBatches(userID, status string, page, pageSize int) (SmartFilmBatchListPage, error) {
@@ -26,7 +27,7 @@ func (s *Service) ListSmartFilmBatches(userID, status string, page, pageSize int
 	}
 	items := make([]SmartFilmBatchView, 0, len(batches))
 	for _, batch := range batches {
-		view, viewErr := s.smartFilmBatchResponse(batch)
+		view, viewErr := s.smartFilmBatchSummaryResponse(batch)
 		if viewErr != nil {
 			return SmartFilmBatchListPage{}, viewErr
 		}
@@ -36,6 +37,19 @@ func (s *Service) ListSmartFilmBatches(userID, status string, page, pageSize int
 		Batches: items, Page: page, PageSize: pageSize, Total: total,
 		HasMore: int64(page*pageSize) < total,
 	}, nil
+}
+
+func (s *Service) smartFilmBatchSummaryResponse(batch model.SmartFilmBatch) (SmartFilmBatchView, error) {
+	view, err := s.smartFilmBatchResponse(batch)
+	if err != nil {
+		return SmartFilmBatchView{}, err
+	}
+	if view.Config.SkillSnapshot != nil {
+		snapshot := *view.Config.SkillSnapshot
+		snapshot.Stages = nil
+		view.Config.SkillSnapshot = &snapshot
+	}
+	return view, nil
 }
 
 func (s *Service) DeleteSmartFilmBatch(userID, batchID string) error {

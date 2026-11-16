@@ -41,22 +41,39 @@ const (
 
 	SmartFilmProductionModeFixed = "fixed"
 	SmartFilmProductionModeSmart = "smart"
+
+	SmartFilmSkillStageScript     = "script"
+	SmartFilmSkillStageAssets     = "assets"
+	SmartFilmSkillStageStoryboard = "storyboard"
+	SmartFilmSkillStageImage      = "image"
+	SmartFilmSkillStageVideo      = "video"
 )
 
+type SmartFilmSkillSnapshot struct {
+	SkillID     string            `json:"skillId"`
+	VersionID   string            `json:"versionId"`
+	ContentHash string            `json:"contentHash"`
+	Name        string            `json:"name"`
+	Version     string            `json:"version,omitempty"`
+	Stages      map[string]string `json:"stages,omitempty"`
+}
+
 type SmartFilmBatchConfig struct {
-	AspectRatio           string            `json:"aspectRatio"`
-	StylePresetID         string            `json:"stylePresetId,omitempty"`
-	StyleProfileJSON      string            `json:"styleProfileJson,omitempty"`
-	DefaultTextModel      string            `json:"defaultTextModel,omitempty"`
-	DefaultImageModel     string            `json:"defaultImageModel,omitempty"`
-	DefaultVideoModel     string            `json:"defaultVideoModel,omitempty"`
-	InputAssetRoles       map[string]string `json:"inputAssetRoles,omitempty"`
-	ProductionMode        string            `json:"productionMode,omitempty"`
-	ScriptCount           int               `json:"scriptCount"`
-	ShotCount             int               `json:"shotCount"`
-	ShotDurationSeconds   float64           `json:"shotDurationSeconds"`
-	ShotDurationsSeconds  []float64         `json:"shotDurationsSeconds,omitempty"`
-	TargetDurationSeconds float64           `json:"targetDurationSeconds,omitempty"`
+	AspectRatio           string                  `json:"aspectRatio"`
+	StylePresetID         string                  `json:"stylePresetId,omitempty"`
+	StyleProfileJSON      string                  `json:"styleProfileJson,omitempty"`
+	DefaultTextModel      string                  `json:"defaultTextModel,omitempty"`
+	DefaultImageModel     string                  `json:"defaultImageModel,omitempty"`
+	DefaultVideoModel     string                  `json:"defaultVideoModel,omitempty"`
+	InputAssetRoles       map[string]string       `json:"inputAssetRoles,omitempty"`
+	InputAssetNames       map[string]string       `json:"inputAssetNames,omitempty"`
+	SkillSnapshot         *SmartFilmSkillSnapshot `json:"skillSnapshot,omitempty"`
+	ProductionMode        string                  `json:"productionMode,omitempty"`
+	ScriptCount           int                     `json:"scriptCount"`
+	ShotCount             int                     `json:"shotCount"`
+	ShotDurationSeconds   float64                 `json:"shotDurationSeconds"`
+	ShotDurationsSeconds  []float64               `json:"shotDurationsSeconds,omitempty"`
+	TargetDurationSeconds float64                 `json:"targetDurationSeconds,omitempty"`
 }
 
 type SmartFilmOrchestrationConfig struct {
@@ -256,6 +273,10 @@ type SmartFilmAssetExtractionWorkItem struct {
 	ConfigurationError string
 	AssetTaskID        string
 	AssetStatus        string
+	SkillID            string
+	SkillVersionID     string
+	SkillContentHash   string
+	SkillContext       string
 }
 
 type SmartFilmStoryboardAsset struct {
@@ -294,4 +315,8 @@ type SmartFilmStoryboardWorkItem struct {
 	ExistingShotIDs       []string
 	StoryboardTaskID      string
 	StoryboardStatus      string
+	SkillID               string
+	SkillVersionID        string
+	SkillContentHash      string
+	SkillContext          string
 }

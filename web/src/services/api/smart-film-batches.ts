@@ -3,6 +3,17 @@ import { http } from "@/services/api/request";
 export type SmartFilmScriptStatus = "draft" | "project_created" | "assets_extracted" | "storyboard_ready" | "needs_attention" | "failed";
 export type SmartFilmReferenceRole = "product" | "scene" | "character" | "prop" | "other";
 
+export type SmartFilmSkillStage = "script" | "assets" | "storyboard" | "image" | "video";
+
+export type SmartFilmSkillSnapshot = {
+    skillId: string;
+    versionId: string;
+    contentHash: string;
+    name: string;
+    version?: string;
+    stages?: Partial<Record<SmartFilmSkillStage, string>> | null;
+};
+
 export type SmartFilmBatchConfig = {
     aspectRatio: string;
     stylePresetId?: string;
@@ -11,6 +22,8 @@ export type SmartFilmBatchConfig = {
     defaultImageModel?: string;
     defaultVideoModel?: string;
     inputAssetRoles?: Record<string, SmartFilmReferenceRole>;
+    inputAssetNames?: Record<string, string>;
+    skillSnapshot?: SmartFilmSkillSnapshot;
     productionMode?: "" | "fixed" | "smart";
     scriptCount: number;
     shotCount?: number;

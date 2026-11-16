@@ -12,8 +12,11 @@ import { ASSET_CATEGORY_LABELS, normalizeAssetCategory, type AssetCategory } fro
 import { createStyleProfileSnapshot, serializeStyleProfile } from "@/lib/canvas/style-profile";
 import type { SmartFilmScriptReference } from "@/lib/canvas/smart-film-scripts";
 import { uploadWorkspaceAssetFiles } from "@/services/workspace-asset-upload";
-import { createSmartFilmBatch, saveSmartFilmBatchScripts, type SmartFilmReferenceRole } from "@/services/api/smart-film-batches";
+import { createSmartFilmBatch, saveSmartFilmBatchScripts, type SmartFilmReferenceRole, type SmartFilmSkillSnapshot } from "@/services/api/smart-film-batches";
 import { backendProviderConfig } from "@/services/api/generation-task";
+import type { Skill } from "@/services/api/skills";
+import { useSkillRuntimeCatalog } from "@/components/skills/skill-runtime-picker";
+import { createSmartFilmSkillSnapshot } from "@/services/smart-film-skill";
 import { useAssetStore, type ImageAsset } from "@/stores/use-asset-store";
 import { logicalModelIDForConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { generateSmartFilmScripts } from "./smart-film-script-generation";
@@ -36,11 +39,14 @@ export default function SmartFilmBatchNewPage() {
     const effectiveConfig = useEffectiveConfig();
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const assets = useAssetStore((state) => state.assets);
+    const { skills: installedSkills, loading: skillsLoading } = useSkillRuntimeCatalog();
     const fileInputRef = useRef<HTMLInputElement>(null);
     const pendingUploadRoleRef = useRef<BatchReferenceRole>("product");
     const [idea, setIdea] = useState("");
     const [productAssetIds, setProductAssetIds] = useState<string[]>([]);
     const [referenceRoles, setReferenceRoles] = useState<Record<string, BatchReferenceRole>>({});
+    const [referenceNames, setReferenceNames] = useState<Record<string, string>>({});
+    const [selectedSkillId, setSelectedSkillId] = useState("");
     const [scriptCount, setScriptCount] = useState<number | null>(3);
     const [aspectRatio, setAspectRatio] = useState("9:16");
     const [selectedStyle, setSelectedStyle] = useState<CanvasStylePreset | null>(null);
@@ -67,6 +73,7 @@ export default function SmartFilmBatchNewPage() {
         option.value,
         productAssets.filter((asset) => (referenceRoles[asset.id] || "prop") === option.value),
     ])) as Record<BatchReferenceRole, ImageAsset[]>;
+    const selectedSkill = useMemo<Skill | undefined>(() => installedSkills.find((skill) => skill.skillId === selectedSkillId), [installedSkills, selectedSkillId]);
     const productPickerItems = useMemo<AssetLibraryPickerItem[]>(() => assets
         .filter((asset) => asset.kind === "image" && asset.status !== "archived")
         .map((asset) => ({
@@ -115,6 +122,11 @@ export default function SmartFilmBatchNewPage() {
         if (!sourceText) return message.warning("请先填写视频想法");
         if (resolvedScriptCount < 1 || resolvedScriptCount > 10) return message.warning("剧本数量需要在 1–10 条之间");
         if (productAssetIds.length > MAX_BATCH_PRODUCT_IMAGES) return message.warning(`参考图最多 ${MAX_BATCH_PRODUCT_IMAGES} 张`);
+        const characterAssets = productAssets.filter((asset) => referenceRoles[asset.id] === "character");
+        const inputAssetNames = Object.fromEntries(characterAssets.map((asset) => [asset.id, (referenceNames[asset.id] || asset.title).trim()]));
+        if (characterAssets.some((asset) => !inputAssetNames[asset.id])) return message.warning("请为每个人物参考图填写人物名称");
+        const normalizedNames = characterAssets.map((asset) => inputAssetNames[asset.id].toLocaleLowerCase());
+        if (new Set(normalizedNames).size !== normalizedNames.length) return message.warning("人物名称不能重复，请为不同人物使用不同名称");
         if (!resolvedTextModel || !resolvedImageModel || !resolvedVideoModel) return message.warning("请先选择文本、图片和视频模型");
         if ([resolvedTextModel, resolvedImageModel, resolvedVideoModel].some((model) => !isAiConfigReady(effectiveConfig, model))) {
             return message.warning("所选模型当前不可用，请先检查模型配置");
@@ -124,6 +136,11 @@ export default function SmartFilmBatchNewPage() {
         setStatus("正在创建多剧本批次…");
         let batchId = "";
         try {
+            let skillSnapshot: SmartFilmSkillSnapshot | undefined;
+            if (selectedSkill) {
+                setStatus("正在读取所选技能的阶段规范…");
+                skillSnapshot = await createSmartFilmSkillSnapshot(selectedSkill);
+            }
             const textProvider = { ...backendProviderConfig({ ...effectiveConfig, model: resolvedTextModel, textModel: resolvedTextModel }, "text"), logicalModelId: logicalModelIDForConfig({ ...effectiveConfig, model: resolvedTextModel, textModel: resolvedTextModel }) || undefined };
             const imageProvider = { ...backendProviderConfig({ ...effectiveConfig, model: resolvedImageModel, imageModel: resolvedImageModel }, "image"), logicalModelId: logicalModelIDForConfig({ ...effectiveConfig, model: resolvedImageModel, imageModel: resolvedImageModel }) || undefined };
             const videoProvider = { ...backendProviderConfig({ ...effectiveConfig, model: resolvedVideoModel, videoModel: resolvedVideoModel }, "video"), logicalModelId: logicalModelIDForConfig({ ...effectiveConfig, model: resolvedVideoModel, videoModel: resolvedVideoModel }) || undefined };
@@ -141,6 +158,8 @@ export default function SmartFilmBatchNewPage() {
                     defaultImageModel: resolvedImageModel,
                     defaultVideoModel: resolvedVideoModel,
                     inputAssetRoles: referenceRoles,
+                    inputAssetNames,
+                    ...(skillSnapshot ? { skillSnapshot } : {}),
                     scriptCount: resolvedScriptCount,
                 },
                 budgetPoints: 0,
@@ -156,12 +175,13 @@ export default function SmartFilmBatchNewPage() {
             const generated = await generateSmartFilmScripts({
                 idea: sourceText,
                 references: productAssets.map((asset) => ({
-                    title: asset.title,
+                    title: inputAssetNames[asset.id] || asset.title,
                     role: referenceRoles[asset.id] || "prop",
                 })) satisfies SmartFilmScriptReference[],
                 count: resolvedScriptCount,
                 config: { ...effectiveConfig, model: resolvedTextModel, textModel: resolvedTextModel, imageModel: resolvedImageModel, videoModel: resolvedVideoModel },
                 batchId,
+                skillSnapshot,
                 onProgress: (progress, stage) => {
                     setGenerationProgress(Math.max(10, progress));
                     if (stage) setStatus(stage);
@@ -223,8 +243,18 @@ export default function SmartFilmBatchNewPage() {
                                         {roleAssets.map((asset) => (
                                             <div className="smart-film-product-card" key={asset.id}>
                                                 <CachedResourceImage storageKey={asset.data.storageKey} src={asset.data.dataUrl} alt={asset.title} eager />
-                                                <span title={asset.title}>{asset.title}</span>
-                                                <button type="button" aria-label={`移除 ${asset.title}`} onClick={() => { setProductAssetIds((current) => current.filter((id) => id !== asset.id)); setReferenceRoles((current) => { const next = { ...current }; delete next[asset.id]; return next; }); }}><Trash2 className="size-3.5" /></button>
+                                                {option.value === "character" ? (
+                                                    <Input
+                                                        size="small"
+                                                        className="smart-film-character-name"
+                                                        maxLength={80}
+                                                        value={referenceNames[asset.id] ?? asset.title}
+                                                        placeholder="填写人物名称"
+                                                        aria-label={`${asset.title} 的人物名称`}
+                                                        onChange={(event) => setReferenceNames((current) => ({ ...current, [asset.id]: event.target.value }))}
+                                                    />
+                                                ) : <span title={asset.title}>{asset.title}</span>}
+                                                <button type="button" aria-label={`移除 ${asset.title}`} onClick={() => { setProductAssetIds((current) => current.filter((id) => id !== asset.id)); setReferenceRoles((current) => { const next = { ...current }; delete next[asset.id]; return next; }); setReferenceNames((current) => { const next = { ...current }; delete next[asset.id]; return next; }); }}><Trash2 className="size-3.5" /></button>
                                             </div>
                                         ))}
                                     </div>
@@ -232,7 +262,29 @@ export default function SmartFilmBatchNewPage() {
                             );
                         })}
                     </div>
-                    <small className="smart-film-product-hint">参考图合计最多 {MAX_BATCH_PRODUCT_IMAGES} 张；每类都可以添加 0 张或多张。</small>
+                    <small className="smart-film-product-hint">参考图合计最多 {MAX_BATCH_PRODUCT_IMAGES} 张；人物参考必须填写唯一名称，后续会按名称精准插入 @ 引用。</small>
+                    <div className="smart-film-skill-select-row">
+                        <div>
+                            <strong>制作技能</strong>
+                            <span>整个批次固定使用一个完整 Skill 包；不选择时使用平台默认规则。</span>
+                        </div>
+                        <div className="smart-film-skill-select-actions">
+                            <Select
+                                allowClear
+                                showSearch
+                                value={selectedSkillId || undefined}
+                                loading={skillsLoading}
+                                disabled={generating}
+                                optionFilterProp="label"
+                                placeholder="选择一个已安装技能（可选）"
+                                options={installedSkills.map((skill) => ({ value: skill.skillId, label: `${skill.skillName} · ${skill.version}` }))}
+                                onChange={(value) => setSelectedSkillId(value || "")}
+                                notFoundContent={skillsLoading ? "正在读取技能库" : "还没有已安装技能"}
+                                aria-label="本批次使用的单一技能"
+                            />
+                            <Button size="small" disabled={generating} onClick={() => navigate("/skills")}>管理技能</Button>
+                        </div>
+                    </div>
                     <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/avif" multiple hidden onChange={(event) => void addProductImages(pendingUploadRoleRef.current, Array.from(event.target.files || []))} />
                 </section>
 

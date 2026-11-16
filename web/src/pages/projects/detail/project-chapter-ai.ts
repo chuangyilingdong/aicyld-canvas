@@ -7,6 +7,8 @@ import { backendProviderConfig, parseBackendGenerationResult } from "@/services/
 import { createGenerationTask, waitForGenerationTask, type GenerationTask } from "@/services/api/task-center";
 import type { Skill } from "@/services/api/skills";
 import { skillRuntime } from "@/services/skill-runtime";
+import { smartFilmSkillMetadata, smartFilmSkillStagePrompt } from "@/services/smart-film-skill";
+import type { SmartFilmSkillSnapshot } from "@/services/api/smart-film-batches";
 import { logicalModelIDForConfig, type AiConfig } from "@/stores/use-config-store";
 
 import type { ChapterStoryboardAsset, ChapterStoryboardCharacter } from "./chapter-storyboard-production";
@@ -98,6 +100,7 @@ type ChapterStoryboardGenerationInput = {
     config: AiConfig;
     skills: Skill[];
     selectedSkillIds: string[];
+    skillSnapshot?: SmartFilmSkillSnapshot;
     approvedRevision: number;
     approvedShotIds: string[];
     /** Optional planning constraints used by the smart-film starter. */
@@ -116,20 +119,27 @@ export async function generateChapterStoryboard(input: ChapterStoryboardGenerati
     }
     const model = input.config.textModel || input.config.model;
     const config = { ...input.config, model };
-    const skillExecution = await skillRuntime.prepare({
-        profile: "shortDrama",
-        prompt: [
-            `章节：${input.chapterTitle}`,
-            input.sourceText,
-            "请将本章拆解为可直接进入短剧分镜制作的镜头脚本，保持剧情因果、人物关系、关键动作与台词完整。",
-            input.shotCount && input.shotCount > 0 ? `镜头数量：严格规划为 ${input.shotCount} 个镜头。` : "",
-            input.shotDurationSeconds && input.shotDurationSeconds > 0 ? `单镜时长：每个镜头约 ${input.shotDurationSeconds} 秒，按叙事需要可略有浮动。` : "",
-            input.shotDurationsSeconds?.length ? `逐镜时长：${input.shotDurationsSeconds.map((seconds, index) => `第 ${index + 1} 镜 ${seconds} 秒`).join("，")}。严格按照该时长规划，不得超出所选视频模型的单镜上限。` : "",
-            input.userRequirements?.trim() || "",
-        ].join("\n\n"),
-        skills: input.skills,
-        selectedSkillIds: input.selectedSkillIds,
-    });
+    const taskPrompt = [
+        `章节：${input.chapterTitle}`,
+        input.sourceText,
+        "请将本章拆解为可直接进入短剧分镜制作的镜头脚本，保持剧情因果、人物关系、关键动作与台词完整。",
+        input.shotCount && input.shotCount > 0 ? `镜头数量：严格规划为 ${input.shotCount} 个镜头。` : "",
+        input.shotDurationSeconds && input.shotDurationSeconds > 0 ? `单镜时长：每个镜头约 ${input.shotDurationSeconds} 秒，按叙事需要可略有浮动。` : "",
+        input.shotDurationsSeconds?.length ? `逐镜时长：${input.shotDurationsSeconds.map((seconds, index) => `第 ${index + 1} 镜 ${seconds} 秒`).join("，")}。严格按照该时长规划，不得超出所选视频模型的单镜上限。` : "",
+        input.userRequirements?.trim() || "",
+    ].join("\n\n");
+    if (input.skillSnapshot && !input.skillSnapshot.stages?.storyboard) {
+        throw new Error(`技能「${input.skillSnapshot.name}」缺少分镜阶段规则`);
+    }
+    const skillExecution = input.skillSnapshot
+        ? { prompt: smartFilmSkillStagePrompt(input.skillSnapshot, "storyboard", taskPrompt), metadata: smartFilmSkillMetadata(input.skillSnapshot), selectedSkills: [] }
+        : await skillRuntime.prepare({
+            profile: "shortDrama",
+            prompt: taskPrompt,
+            skills: input.skills,
+            selectedSkillIds: input.selectedSkillIds,
+        });
+    const skillCount = input.skillSnapshot ? 1 : skillExecution.selectedSkills.length;
     // 技能上下文只描述工作流，不会约束输出结构；必须显式带上输出契约，否则模型返回 Markdown 表格。
     const prompt = [
         skillExecution.prompt,
@@ -165,7 +175,7 @@ export async function generateChapterStoryboard(input: ChapterStoryboardGenerati
     });
     options?.onTaskUpdate?.(task);
     const completed = await waitForGenerationTask(task.id, { initialTask: task, useTextEvents: true, onTaskUpdate: options?.onTaskUpdate });
-    return { ...storyboardRowsFromTask(completed), skillCount: skillExecution.selectedSkills.length, taskId: completed.id };
+    return { ...storyboardRowsFromTask(completed), skillCount, taskId: completed.id };
 }
 
 async function runProjectTextTask(input: ChapterAnalysisInput, operation: string, promptTemplateVariables: Record<string, string>, options?: ChapterTaskOptions) {

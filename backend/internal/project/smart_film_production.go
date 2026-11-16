@@ -305,6 +305,7 @@ func (s *Service) SmartFilmAssetExtractionWorkItems(limit int) ([]SmartFilmAsset
 		}
 		textModel, textConfig, snapshotErr := s.smartFilmTextStageConfig(config, batch)
 		existingAssets, _ := s.smartFilmStoryboardAssets(run.UserID, run.ProjectID)
+		skillID, skillVersionID, skillContentHash, skillContext := smartFilmSkillStage(config, SmartFilmSkillStageAssets)
 		items = append(items, SmartFilmAssetExtractionWorkItem{
 			RunID: run.ID, Attempts: run.Attempts, UserID: run.UserID, BatchID: run.BatchID, ScriptID: run.ScriptID,
 			ProjectID: run.ProjectID, UnitID: run.UnitID, ProjectName: project.Name, ProjectStyle: stylePrompt,
@@ -312,6 +313,7 @@ func (s *Service) SmartFilmAssetExtractionWorkItems(limit int) ([]SmartFilmAsset
 			ScriptTitle:    script.Title, ScriptContent: script.Content,
 			TextModel: textModel, TextConfig: textConfig, LogicalModelID: stringValue(textConfig["logicalModelId"]), ConfigurationError: errorText(snapshotErr),
 			AssetTaskID: run.AssetTaskID, AssetStatus: run.AssetStatus,
+			SkillID: skillID, SkillVersionID: skillVersionID, SkillContentHash: skillContentHash, SkillContext: skillContext,
 		})
 	}
 	return items, nil
@@ -378,6 +380,7 @@ func (s *Service) SmartFilmStoryboardWorkItems(limit int) ([]SmartFilmStoryboard
 		for _, shot := range existing {
 			existingIDs = append(existingIDs, shot.ID)
 		}
+		skillID, skillVersionID, skillContentHash, skillContext := smartFilmSkillStage(config, SmartFilmSkillStageStoryboard)
 		items = append(items, SmartFilmStoryboardWorkItem{
 			RunID: run.ID, Attempts: run.Attempts, UserID: run.UserID, BatchID: run.BatchID, ScriptID: run.ScriptID,
 			ProjectID: run.ProjectID, UnitID: run.UnitID, ProjectName: project.Name, ProjectStyle: stylePrompt,
@@ -387,6 +390,7 @@ func (s *Service) SmartFilmStoryboardWorkItems(limit int) ([]SmartFilmStoryboard
 			ShotDurationsSeconds: config.ShotDurationsSeconds, TargetDurationSeconds: config.TargetDurationSeconds,
 			Assets: assets, ExistingShotIDs: existingIDs,
 			StoryboardTaskID: run.StoryboardTaskID, StoryboardStatus: run.StoryboardStatus,
+			SkillID: skillID, SkillVersionID: skillVersionID, SkillContentHash: skillContentHash, SkillContext: skillContext,
 		})
 	}
 	return items, nil

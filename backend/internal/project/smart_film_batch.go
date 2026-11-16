@@ -59,6 +59,14 @@ func (s *Service) CreateSmartFilmBatch(userID string, req CreateSmartFilmBatchRe
 		return SmartFilmBatchView{}, err
 	}
 	config.InputAssetRoles = filterSmartFilmInputAssetRoles(config.InputAssetRoles, inputAssetIDs)
+	config.InputAssetNames, err = normalizeSmartFilmInputAssetNames(config.InputAssetNames)
+	if err != nil {
+		return SmartFilmBatchView{}, err
+	}
+	config.InputAssetNames = filterSmartFilmInputAssetNames(config.InputAssetNames, inputAssetIDs)
+	if err := validateSmartFilmCharacterNames(config, inputAssetIDs); err != nil {
+		return SmartFilmBatchView{}, err
+	}
 	if req.BudgetPoints < 0 {
 		return SmartFilmBatchView{}, kernel.BadAuthRequest("批次预算不能为负数")
 	}
@@ -379,7 +387,7 @@ func (s *Service) ConfirmSmartFilmBatchScripts(userID, batchID string, req Confi
 			linkedAssetIDs := make([]string, 0, len(inputAssetIDs))
 			for _, assetID := range inputAssetIDs {
 				activeStep = SmartFilmProductionStepAssetLink
-				category, title := smartFilmInputAssetLink(config.InputAssetRoles[assetID])
+				category, title := smartFilmInputAssetTitle(config, assetID)
 				if _, linkErr := txService.LinkProjectAsset(userID, projectID, LinkProjectAssetRequest{
 					AssetID: assetID, Category: string(category), Source: AssetSourceUploaded, Title: title,
 				}); linkErr != nil {
@@ -646,6 +654,15 @@ func normalizeSmartFilmBatchConfig(config SmartFilmBatchConfig) (SmartFilmBatchC
 		return SmartFilmBatchConfig{}, err
 	}
 	config.InputAssetRoles = roles
+	names, err := normalizeSmartFilmInputAssetNames(config.InputAssetNames)
+	if err != nil {
+		return SmartFilmBatchConfig{}, err
+	}
+	config.InputAssetNames = names
+	config.SkillSnapshot, err = normalizeSmartFilmSkillSnapshot(config.SkillSnapshot)
+	if err != nil {
+		return SmartFilmBatchConfig{}, err
+	}
 	config.ProductionMode = strings.TrimSpace(config.ProductionMode)
 	if config.ProductionMode == "" && config.ShotCount > 0 {
 		config.ProductionMode = SmartFilmProductionModeFixed

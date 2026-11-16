@@ -112,4 +112,19 @@ describe("skill runtime", () => {
         expect(result.prompt).toContain('<skill-context skill-id="director"');
         expect(result.metadata.skillIds).toEqual(["director"]);
     });
+
+    test("入口只写文件名时仍能关联 references 下的阶段规则", async () => {
+        const entry = "# 导演技能\n分镜阶段读取 `camera-specs-15rules.md`。";
+        const files: SkillPackageFile[] = [
+            file("SKILL.md", entry).file,
+            file("references/camera-specs-15rules.md", "镜头五要素与景别阶梯").file,
+        ];
+        const runtime = createSkillRuntime({
+            getFile: async (_id, path) => ({ file: file(path, path === "SKILL.md" ? entry : "镜头五要素与景别阶梯") }),
+            listFiles: async () => ({ files }),
+        });
+        const result = await runtime.prepare({ profile: "shortDrama", prompt: "@[skill:director] 请读取 camera-specs-15rules 制作分镜", skills: [skill()] });
+        expect(result.prompt).toContain('<skill-file path="references/camera-specs-15rules.md">');
+        expect(result.prompt).toContain("镜头五要素与景别阶梯");
+    });
 });

@@ -11,6 +11,7 @@ import type { GenerationTask } from "@/services/api/task-center";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { currentArtifact } from "./workflow-shared";
 import { buildSmartFilmWholeFilmPrompt } from "./smart-film-whole-film-prompt";
+import { smartFilmSkillMetadata, smartFilmSkillStagePrompt } from "@/services/smart-film-skill";
 
 export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, unitId: string, shots: ProjectShot[]) {
     const effectiveConfig = useEffectiveConfig();
@@ -74,6 +75,12 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
             return;
         }
         const promptPlan = buildSmartFilmWholeFilmPrompt(detail, storyboardArtifacts, targetSeconds);
+        const skillSnapshot = smartFilmBatchQuery.data?.config.skillSnapshot;
+        if (skillSnapshot && !skillSnapshot.stages?.video) {
+            notifyError(`技能「${skillSnapshot.name}」缺少整片视频阶段规则`);
+            return;
+        }
+        const prompt = smartFilmSkillStagePrompt(skillSnapshot, "video", promptPlan.prompt);
         if (promptPlan.referenceImages.length > maxImages) {
             notifyError(`当前视频模型最多支持 ${maxImages} 张参考图，本片包含 ${storyboardArtifacts.length} 张分镜图和 ${promptPlan.referenceImages.length - storyboardArtifacts.length} 张镜头资产图，请更换支持更多参考图的模型`);
             return;
@@ -98,7 +105,7 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
         const options: Parameters<typeof buildBackendGenerationTaskQuoteInput>[0] = {
             projectId,
             mode: "video",
-            prompt: promptPlan.prompt,
+            prompt,
             config: {
                 ...effectiveConfig,
                 model,
@@ -109,7 +116,7 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
                 ...videoBooleanOptions,
             },
             referenceImages: promptPlan.referenceImages,
-            metadata: { source: "smart-film-whole-video", domainProjectId: projectId, unitId, artifactType: "smart_film" },
+            metadata: { source: "smart-film-whole-video", domainProjectId: projectId, unitId, artifactType: "smart_film", ...smartFilmSkillMetadata(skillSnapshot) },
             onTaskUpdate: (task) => {
                 taskId = task.id;
                 setSmartFilmTask(task);

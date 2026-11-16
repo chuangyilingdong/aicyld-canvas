@@ -55,6 +55,57 @@ func TestSmartFilmBatchEncryptsOrchestrationConfigSnapshot(t *testing.T) {
 	}
 }
 
+func TestSmartFilmBatchRequiresNamedCharactersAndStoresSingleSkill(t *testing.T) {
+	svc, db := newTestService(t, &recordingWorkflows{})
+	now := time.Now()
+	first := model.Asset{ID: "character-a", UserID: "user-1", Kind: "image", Category: model.AssetCategoryCharacter, Status: model.AssetVersionStatusConfirmed, Title: "人物图 A", CreatedAt: now, UpdatedAt: now}
+	second := model.Asset{ID: "character-b", UserID: "user-1", Kind: "image", Category: model.AssetCategoryCharacter, Status: model.AssetVersionStatusConfirmed, Title: "人物图 B", CreatedAt: now, UpdatedAt: now}
+	for _, asset := range []*model.Asset{&first, &second} {
+		if err := db.Create(asset).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	request := CreateSmartFilmBatchRequest{
+		Title: "人物名称", SourceText: "两个人物相遇", InputAssetIDs: []string{first.ID, second.ID},
+		Config: SmartFilmBatchConfig{
+			InputAssetRoles: map[string]string{first.ID: "character", second.ID: "character"},
+			SkillSnapshot: &SmartFilmSkillSnapshot{
+				SkillID: "skill-one", VersionID: "version-one", ContentHash: "hash-one", Name: "短剧导演", Version: "1",
+				Stages: map[string]string{SmartFilmSkillStageScript: "剧本规范", SmartFilmSkillStageAssets: "资产规范", SmartFilmSkillStageStoryboard: "分镜规范", SmartFilmSkillStageImage: "图片规范", SmartFilmSkillStageVideo: "视频规范"},
+			},
+		},
+	}
+	if _, err := svc.CreateSmartFilmBatch("user-1", request); err == nil {
+		t.Fatal("batch accepted character images without names")
+	}
+	request.Config.InputAssetNames = map[string]string{first.ID: "林默", second.ID: "林默"}
+	if _, err := svc.CreateSmartFilmBatch("user-1", request); err == nil {
+		t.Fatal("batch accepted duplicate character names")
+	}
+	request.Config.InputAssetNames = map[string]string{first.ID: "林默", second.ID: "母亲"}
+	created, err := svc.CreateSmartFilmBatch("user-1", request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Config.InputAssetNames[first.ID] != "林默" || created.Config.InputAssetNames[second.ID] != "母亲" {
+		t.Fatalf("character names = %+v", created.Config.InputAssetNames)
+	}
+	if created.Config.SkillSnapshot == nil || created.Config.SkillSnapshot.SkillID != "skill-one" || len(created.Config.SkillSnapshot.Stages) != 5 {
+		t.Fatalf("skill snapshot = %+v", created.Config.SkillSnapshot)
+	}
+	category, title := smartFilmInputAssetTitle(created.Config, first.ID)
+	if category != model.AssetCategoryCharacter || title != "林默" {
+		t.Fatalf("character asset link = %s/%s", category, title)
+	}
+	page, err := svc.ListSmartFilmBatches("user-1", "", 1, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Batches) != 1 || page.Batches[0].Config.SkillSnapshot == nil || page.Batches[0].Config.SkillSnapshot.Name != "短剧导演" || len(page.Batches[0].Config.SkillSnapshot.Stages) != 0 {
+		t.Fatalf("batch summary skill snapshot = %+v", page.Batches)
+	}
+}
+
 func configureSmartFilmBatchFixed(t *testing.T, svc *Service, batch *SmartFilmBatchView, shotCount int) {
 	t.Helper()
 	if shotCount <= 0 {

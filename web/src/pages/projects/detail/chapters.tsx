@@ -72,6 +72,7 @@ import {
 import { ApiError } from "@/services/api/request";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { listGenerationTasks, queryGenerationTask, type GenerationTask } from "@/services/api/task-center";
+import { getSmartFilmBatch } from "@/services/api/smart-film-batches";
 
 import { formatCount, formatTime, statusLabel, type ProjectDetailViewProps } from "./shared";
 import { chapterStoryboardAssets, chapterStoryboardCharacters, chapterStoryboardReplaceImpact, storyboardRowsToProjectShots } from "./chapter-storyboard-production";
@@ -118,6 +119,12 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
     const [pendingStoryboardRecoveries, setPendingStoryboardRecoveries] = useState<Record<string, PendingStoryboardRecovery>>({});
     const { skills: availableSkills, loading: skillsLoading } = useSkillRuntimeCatalog();
+    const batchSkillQuery = useQuery({
+        queryKey: ["smart-film-batch", detail.project.batchId],
+        queryFn: () => getSmartFilmBatch(detail.project.batchId!).then((result) => result.batch),
+        enabled: Boolean(detail.project.batchId),
+    });
+    const pinnedSkillSnapshot = batchSkillQuery.data?.config.skillSnapshot;
     const effectiveConfig = useEffectiveConfig();
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const listRef = useRef<HTMLDivElement>(null);
@@ -451,6 +458,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                 config,
                 skills: availableSkills,
                 selectedSkillIds,
+                skillSnapshot: pinnedSkillSnapshot,
                 approvedRevision,
                 approvedShotIds,
             }, { onTaskUpdate: (task) => updateChapterOperation(unit.id, "storyboard", task) });
@@ -747,9 +755,11 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                     <div>
                         <label className="block">
                             <span className="mb-1.5 block text-xs font-medium text-foreground/68">分镜技能</span>
-                            <SkillRuntimePicker profile="shortDrama" skills={availableSkills} loading={skillsLoading} value={selectedSkillIds} onChange={setSelectedSkillIds} placeholder="选择本次章节分镜使用的技能" />
+                            {pinnedSkillSnapshot
+                                ? <div className="rounded-lg border border-border/60 bg-foreground/[.025] px-3 py-2 text-xs text-foreground/60">本批次固定技能：<strong className="text-foreground/80">{pinnedSkillSnapshot.name}</strong>{pinnedSkillSnapshot.version ? ` · ${pinnedSkillSnapshot.version}` : ""}</div>
+                                : <SkillRuntimePicker profile="shortDrama" maxSkills={1} skills={availableSkills} loading={skillsLoading} value={selectedSkillIds} onChange={setSelectedSkillIds} placeholder="选择本次章节分镜使用的技能" />}
                         </label>
-                        <p className="mt-2 text-[var(--fs-tiny)] leading-5 text-foreground/42">可不选，最多 4 个。所选技能会在本次生成时由统一 Skill Runtime 按需读取，并记录实际使用的版本和文件。</p>
+                        <p className="mt-2 text-[var(--fs-tiny)] leading-5 text-foreground/42">可不选；每次生成最多加载 1 个完整 Skill 包。运行时会按当前阶段读取该 Skill 的对应规则，并记录实际使用的版本和文件。</p>
                     </div>
                 </div>
             </Modal>

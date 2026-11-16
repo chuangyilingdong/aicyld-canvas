@@ -142,11 +142,27 @@
     position: relative;
     display: grid;
     width: 96px;
-    height: 96px;
+    height: 112px;
     overflow: hidden;
     border: 1px solid color-mix(in srgb, var(--foreground) 10%, transparent);
     border-radius: 11px;
     background: color-mix(in srgb, var(--foreground) 3%, transparent);
+}
+
+.smart-film-product-card .smart-film-character-name {
+    position: absolute;
+    right: 6px;
+    bottom: 6px;
+    left: 6px;
+    height: 26px;
+    border-color: rgb(255 255 255 / 18%);
+    background: rgb(0 0 0 / 68%);
+    color: white;
+    font-size: 10px;
+}
+
+.smart-film-product-card .smart-film-character-name::placeholder {
+    color: rgb(255 255 255 / 55%);
 }
 
 .smart-film-product-card img {
@@ -186,6 +202,46 @@
     margin-top: -8px;
     color: color-mix(in srgb, var(--foreground) 40%, transparent);
     font-size: 10px;
+}
+
+.smart-film-skill-select-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    margin-top: 8px;
+    border: 1px solid color-mix(in srgb, var(--foreground) 9%, transparent);
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--foreground) 2.5%, transparent);
+    padding: 13px 14px;
+}
+
+.smart-film-skill-select-row strong,
+.smart-film-skill-select-row span {
+    display: block;
+}
+
+.smart-film-skill-select-row strong {
+    font-size: 12px;
+    font-weight: 650;
+}
+
+.smart-film-skill-select-row span {
+    margin-top: 3px;
+    color: color-mix(in srgb, var(--foreground) 42%, transparent);
+    font-size: 10px;
+}
+
+.smart-film-skill-select-actions {
+    display: flex;
+    min-width: min(420px, 48%);
+    align-items: center;
+    gap: 8px;
+}
+
+.smart-film-skill-select-actions .ant-select {
+    min-width: 0;
+    flex: 1;
 }
 
 .smart-film-batch-number-grid,
@@ -753,6 +809,7 @@
     .smart-film-batch-submit,
     .smart-film-batch-toolbar,
     .smart-film-batch-style-row,
+    .smart-film-skill-select-row,
     .smart-film-production-config-head,
     .smart-film-production-config-foot,
     .smart-film-production-duration-heading {
@@ -761,6 +818,10 @@
     }
     .smart-film-production-mode-row {
         grid-template-columns: 1fr;
+    }
+    .smart-film-skill-select-actions {
+        width: 100%;
+        min-width: 0;
     }
     .smart-film-script-actions {
         flex-wrap: wrap;

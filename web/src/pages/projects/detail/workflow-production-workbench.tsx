@@ -45,6 +45,7 @@ import {
 import { resourceFileUrl } from "@/services/api/resources";
 import { confirmCanvasGenerationTaskQuote } from "@/components/canvas/canvas-billing-confirmation";
 import { skillRuntime } from "@/services/skill-runtime";
+import { smartFilmSkillMetadata, smartFilmSkillStagePrompt } from "@/services/smart-film-skill";
 import { uploadWorkspaceAssetFiles } from "@/services/workspace-asset-upload";
 import { ASSET_CATEGORIES, ASSET_CATEGORY_LABELS, defaultAssetCategoryForKind, normalizeAssetCategory, type AssetCategory } from "@/lib/asset-category";
 import { modelDisplayName, modelOptionName, resolveModelChannel, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
@@ -460,6 +461,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
     }) => {
         const mode = generationCapability;
         if (!isAiConfigReady(input.config, input.model)) throw new Error("当前模型渠道配置不完整，请先到设置中补齐");
+        if (detail.project.batchId && !smartFilmBatch) throw new Error("正在读取本批次技能配置，请稍后重试");
         const shotAssetReferenceContext = mode === "video" ? withStoryboardVideoReference(detail, input.shot, input.context) : input.context;
         const hasStoryboardReference = mode === "video" && shotAssetReferenceContext.referenceImages.some((image) => image.id === `storyboard:${input.shot.id}`);
         const existingRevision = currentRevision(detail, input.shot);
@@ -484,12 +486,20 @@ export default function WorkflowProductionWorkbench(props: Props) {
             ? [input.values.videoPrompt || input.values.plotDescription, input.values.action, input.values.dialogue && `台词：${input.values.dialogue}`, input.values.continuityNotes, hasStoryboardReference ? "最后一张参考图是当前镜头分镜图，请保持人物位置、构图、场景关系和光线一致。" : ""].filter(Boolean).join("\n")
             : [input.values.imagePrompt || input.values.plotDescription, storyboardImageActionCue(input.values.action || ""), input.values.continuityNotes, "电影分镜静帧，只表现一个关键瞬间；明确构图、景别、角色位置、场景和光线，不描述连续运动时间线"].filter(Boolean).join("\n");
         const resolvedPrompt = resolveShotAssetMentionPrompt(basePrompt, shotAssetReferenceContext, { dialogue: input.values.dialogue });
-        const skillExecution = await skillRuntime.prepare({
-            profile: "shortDrama",
-            prompt: resolvedPrompt,
-            skills: availableSkills,
-            selectedSkillIds,
-        });
+        const pinnedSkill = smartFilmBatch?.config.skillSnapshot;
+        const skillStage = mode === "video" ? "video" : "image";
+        if (pinnedSkill && !pinnedSkill.stages?.[skillStage]) throw new Error(`技能「${pinnedSkill.name}」缺少${skillStage === "video" ? "视频" : "图片"}阶段规则`);
+        const skillExecution = pinnedSkill
+            ? {
+                prompt: smartFilmSkillStagePrompt(pinnedSkill, skillStage, resolvedPrompt),
+                metadata: smartFilmSkillMetadata(pinnedSkill),
+            }
+            : await skillRuntime.prepare({
+                profile: "shortDrama",
+                prompt: resolvedPrompt,
+                skills: availableSkills,
+                selectedSkillIds,
+            });
         const styledGeneration = applyProjectStyleToGenerationPrompt({ prompt: skillExecution.prompt, styleProfileJson: detail.project.styleProfileJson, mode, model: input.model, config: input.config });
         const task = await submitQuotedShotGeneration(modal, {
             projectId,
@@ -1067,7 +1077,11 @@ export default function WorkflowProductionWorkbench(props: Props) {
 
                                         />
                                     </Form.Item>
-                                    <Form.Item label="技能库"><SkillRuntimePicker profile="shortDrama" skills={availableSkills} loading={skillsLoading} value={selectedSkillIds} onChange={setSelectedSkillIds} /></Form.Item>
+                                    <Form.Item label="技能库">
+                                        {smartFilmBatch?.config.skillSnapshot
+                                            ? <div className="rounded-lg border border-border/60 bg-foreground/[.025] px-3 py-2 text-xs text-foreground/60">本批次固定技能：<strong className="text-foreground/80">{smartFilmBatch.config.skillSnapshot.name}</strong>{smartFilmBatch.config.skillSnapshot.version ? ` · ${smartFilmBatch.config.skillSnapshot.version}` : ""}</div>
+                                            : <SkillRuntimePicker profile="shortDrama" maxSkills={1} skills={availableSkills} loading={skillsLoading} value={selectedSkillIds} onChange={setSelectedSkillIds} />}
+                                    </Form.Item>
                                     <div className="workflow-form-grid is-three">
                                         <Form.Item name="durationSeconds" label="镜头时长（秒）">
                                             {generationCapability === "video" && videoProfile?.duration.selection === "enum"

@@ -135,9 +135,9 @@ export default function SmartFilmBatchDetailPage() {
         return `画幅 ${batch.config.aspectRatio} · ${durationCopy} · ${styleTitle}`;
     }, [batch]);
     const scriptReferences = useMemo(() => (batch?.inputAssetIds || []).map((id, index) => ({
-        title: assets.find((item) => item.id === id && item.kind === "image")?.title || `参考图 ${index + 1}`,
+        title: batch?.config.inputAssetNames?.[id] || assets.find((item) => item.id === id && item.kind === "image")?.title || `参考图 ${index + 1}`,
         role: batch?.config.inputAssetRoles?.[id] || "other",
-    })), [assets, batch?.inputAssetIds, batch?.config.inputAssetRoles]);
+    })), [assets, batch?.inputAssetIds, batch?.config.inputAssetNames, batch?.config.inputAssetRoles]);
     const draftScripts = batch?.scripts.filter((script) => !script.projectId) || [];
     const projectScripts = batch?.scripts.filter((script) => Boolean(script.projectId)) || [];
     const productionLocked = projectScripts.length > 0;
@@ -306,6 +306,7 @@ export default function SmartFilmBatchDetailPage() {
                 config: modelConfig(batch, effectiveConfig),
                 batchId: batch.id,
                 existingTitles: batch.scripts.map((script) => script.title),
+                skillSnapshot: batch.config.skillSnapshot,
             });
             const result = await saveSmartFilmBatchScripts(batch.id, generated.scripts.map((script) => ({
                 title: script.title,
@@ -336,6 +337,7 @@ export default function SmartFilmBatchDetailPage() {
                 batchId: batch.id,
                 existingTitles: batch.scripts.filter((item) => item.id !== script.id).map((item) => item.title),
                 regenerateIndex: index,
+                skillSnapshot: batch.config.skillSnapshot,
             });
             const next = generated.scripts[0];
             if (!next) throw new Error("模型没有返回有效剧本");
@@ -583,7 +585,7 @@ export default function SmartFilmBatchDetailPage() {
                     <div>
                         <h2>每条剧本都是独立视频</h2>
                         <p>{busy || "选择剧本后分别创建项目；系统会分析所需资产并生成可修改的资产提示词。"}</p>
-                        <p>{batchSpec}</p>
+                        <p>{batchSpec}{batch.config.skillSnapshot ? ` · 技能：${batch.config.skillSnapshot.name}` : " · 技能：平台默认"}</p>
                     </div>
                     <div className="smart-film-batch-summary-stats">
                         <div><span>剧本</span><strong>{batch.scripts.length}</strong></div>
