@@ -55,7 +55,7 @@ func TestSmartFilmBatchEncryptsOrchestrationConfigSnapshot(t *testing.T) {
 	}
 }
 
-func TestSmartFilmBatchRequiresNamedCharactersAndStoresSingleSkill(t *testing.T) {
+func TestSmartFilmBatchGroupsCharacterViewsByNameAndStoresSingleSkill(t *testing.T) {
 	svc, db := newTestService(t, &recordingWorkflows{})
 	now := time.Now()
 	first := model.Asset{ID: "character-a", UserID: "user-1", Kind: "image", Category: model.AssetCategoryCharacter, Status: model.AssetVersionStatusConfirmed, Title: "人物图 A", CreatedAt: now, UpdatedAt: now}
@@ -79,15 +79,11 @@ func TestSmartFilmBatchRequiresNamedCharactersAndStoresSingleSkill(t *testing.T)
 		t.Fatal("batch accepted character images without names")
 	}
 	request.Config.InputAssetNames = map[string]string{first.ID: "林默", second.ID: "林默"}
-	if _, err := svc.CreateSmartFilmBatch("user-1", request); err == nil {
-		t.Fatal("batch accepted duplicate character names")
-	}
-	request.Config.InputAssetNames = map[string]string{first.ID: "林默", second.ID: "母亲"}
 	created, err := svc.CreateSmartFilmBatch("user-1", request)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if created.Config.InputAssetNames[first.ID] != "林默" || created.Config.InputAssetNames[second.ID] != "母亲" {
+	if created.Config.InputAssetNames[first.ID] != "林默" || created.Config.InputAssetNames[second.ID] != "林默" {
 		t.Fatalf("character names = %+v", created.Config.InputAssetNames)
 	}
 	if created.Config.SkillSnapshot == nil || created.Config.SkillSnapshot.SkillID != "skill-one" || len(created.Config.SkillSnapshot.Stages) != 5 {
@@ -96,6 +92,10 @@ func TestSmartFilmBatchRequiresNamedCharactersAndStoresSingleSkill(t *testing.T)
 	category, title := smartFilmInputAssetTitle(created.Config, first.ID)
 	if category != model.AssetCategoryCharacter || title != "林默" {
 		t.Fatalf("character asset link = %s/%s", category, title)
+	}
+	category, title = smartFilmInputAssetTitle(created.Config, second.ID)
+	if category != model.AssetCategoryCharacter || title != "林默" {
+		t.Fatalf("second character view link = %s/%s", category, title)
 	}
 	page, err := svc.ListSmartFilmBatches("user-1", "", 1, 20)
 	if err != nil {

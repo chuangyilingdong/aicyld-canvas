@@ -148,7 +148,6 @@ func filterSmartFilmInputAssetNames(values map[string]string, assetIDs []string)
 }
 
 func validateSmartFilmCharacterNames(config SmartFilmBatchConfig, assetIDs []string) error {
-	seen := make(map[string]string)
 	for _, assetID := range assetIDs {
 		if strings.TrimSpace(config.InputAssetRoles[assetID]) != "character" {
 			continue
@@ -157,11 +156,6 @@ func validateSmartFilmCharacterNames(config SmartFilmBatchConfig, assetIDs []str
 		if name == "" {
 			return kernel.BadAuthRequest("请为每个人物参考图填写人物名称")
 		}
-		key := strings.ToLower(name)
-		if previous, exists := seen[key]; exists && previous != assetID {
-			return kernel.BadAuthRequest("人物名称「" + name + "」重复，请为不同人物使用不同名称")
-		}
-		seen[key] = assetID
 	}
 	return nil
 }

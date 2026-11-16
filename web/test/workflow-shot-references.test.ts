@@ -79,6 +79,38 @@ describe("workflow shot asset references", () => {
         expect(prompt.match(/@\[asset:asset-character\]/g)).toHaveLength(1);
         expect(prompt).toContain("【场景与道具参考】\n雨夜街道：@[asset:asset-scene]");
     });
+
+    test("groups same-name character views into one multi-view reference", () => {
+        const value = detail();
+        value.assets.push({
+            id: "asset-character-side",
+            title: "林默",
+            mediaType: "entity",
+            category: "character",
+            status: "confirmed",
+            primaryVersionId: "version-character-side",
+            versionCount: 1,
+            usages: [],
+            position: 3,
+            updatedAt: "2026-08-29T00:00:05Z",
+            character: {
+                versionId: "version-character-side",
+                version: 1,
+                definition: {},
+                representations: [{ id: "representation-side", resourceId: "character-side", mediaType: "image", role: "primary" }],
+                visualStatus: "ready",
+                voiceStatus: "missing",
+            },
+        } satisfies ProjectAsset);
+        value.shotReferences = [
+            ...(value.shotReferences || []),
+            { id: "reference-character-side", shotId: "shot-1", assetVersionId: "version-character-side", role: "reference", status: "linked", createdAt: "2026-08-29T00:00:05Z" },
+        ];
+        const context = buildShotAssetReferenceContext(value, "shot-1");
+        const prompt = resolveShotAssetMentionPrompt("林默保持静止站立姿态", context);
+        expect(prompt).toContain("林默：人物参考：图片2、3（同一角色多视图参考）");
+        expect(prompt).not.toContain("@[asset:asset-character]");
+    });
 });
 
 function detail(): ProjectDetail {

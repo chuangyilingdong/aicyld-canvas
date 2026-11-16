@@ -503,14 +503,14 @@ func addSmartFilmSkillMetadata(metadata map[string]any, skillID, versionID, cont
 }
 
 func validateStoryboardCharacterBindings(row map[string]any, assets []localproject.SmartFilmStoryboardAsset) error {
-	characters := make(map[string]localproject.SmartFilmStoryboardAsset)
+	characters := make(map[string][]localproject.SmartFilmStoryboardAsset)
 	for _, asset := range assets {
 		if asset.Category != "character" {
 			continue
 		}
 		name := strings.ToLower(strings.TrimSpace(asset.Title))
 		if name != "" {
-			characters[name] = asset
+			characters[name] = append(characters[name], asset)
 		}
 	}
 	if len(characters) == 0 {
@@ -521,11 +521,18 @@ func validateStoryboardCharacterBindings(row map[string]any, assets []localproje
 		if name == "" {
 			continue
 		}
-		asset, ok := characters[strings.ToLower(name)]
+		matches, ok := characters[strings.ToLower(name)]
 		if !ok {
 			return fmt.Errorf("人物「%s」没有对应的已确认人物资产，请使用已绑定的人物名称", name)
 		}
-		if !asset.VisualReference {
+		hasVisual := false
+		for _, asset := range matches {
+			if asset.VisualReference {
+				hasVisual = true
+				break
+			}
+		}
+		if !hasVisual {
 			return fmt.Errorf("人物「%s」没有可用于生成的参考图", name)
 		}
 	}

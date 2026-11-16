@@ -125,8 +125,6 @@ export default function SmartFilmBatchNewPage() {
         const characterAssets = productAssets.filter((asset) => referenceRoles[asset.id] === "character");
         const inputAssetNames = Object.fromEntries(characterAssets.map((asset) => [asset.id, (referenceNames[asset.id] || asset.title).trim()]));
         if (characterAssets.some((asset) => !inputAssetNames[asset.id])) return message.warning("请为每个人物参考图填写人物名称");
-        const normalizedNames = characterAssets.map((asset) => inputAssetNames[asset.id].toLocaleLowerCase());
-        if (new Set(normalizedNames).size !== normalizedNames.length) return message.warning("人物名称不能重复，请为不同人物使用不同名称");
         if (!resolvedTextModel || !resolvedImageModel || !resolvedVideoModel) return message.warning("请先选择文本、图片和视频模型");
         if ([resolvedTextModel, resolvedImageModel, resolvedVideoModel].some((model) => !isAiConfigReady(effectiveConfig, model))) {
             return message.warning("所选模型当前不可用，请先检查模型配置");
@@ -262,7 +260,7 @@ export default function SmartFilmBatchNewPage() {
                             );
                         })}
                     </div>
-                    <small className="smart-film-product-hint">参考图合计最多 {MAX_BATCH_PRODUCT_IMAGES} 张；人物参考必须填写唯一名称，后续会按名称精准插入 @ 引用。</small>
+                    <small className="smart-film-product-hint">参考图合计最多 {MAX_BATCH_PRODUCT_IMAGES} 张；人物参考必须填写名称。同一人物的正面、侧面、背面等视图请使用相同名称，系统会按该名称归为一组并一起引用。</small>
                     <div className="smart-film-skill-select-row">
                         <div>
                             <strong>制作技能</strong>

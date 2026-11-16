@@ -123,20 +123,27 @@ export function autoMentionShotAssetReferences(
     references: Array<Pick<CanvasResourceReference, "assetId" | "kind" | "label" | "title">>,
 ) {
     let value = prompt;
-    const candidates = references.flatMap((reference) => {
+    const grouped = new Map<string, { title: string; assetIds: string[] }>();
+    references.forEach((reference) => {
         const title = (reference.title || reference.label).trim();
-        return reference.assetId && title ? [{ assetId: reference.assetId, title }] : [];
-    }).sort((left, right) => right.title.length - left.title.length);
+        if (!reference.assetId || !title) return;
+        const key = `${reference.kind}:${title.toLocaleLowerCase()}`;
+        const group = grouped.get(key) || { title, assetIds: [] };
+        if (!group.assetIds.includes(reference.assetId)) group.assetIds.push(reference.assetId);
+        grouped.set(key, group);
+    });
+    const candidates = Array.from(grouped.values()).sort((left, right) => right.title.length - left.title.length);
 
-    for (const { assetId, title } of candidates) {
-        const token = `@[asset:${assetId}]`;
-        if (value.includes(token)) continue;
+    for (const { assetIds, title } of candidates) {
+        const mentioned = new Set(Array.from(value.matchAll(/@\[asset:([^\]]+)\]/g), (match) => match[1]));
+        const missing = assetIds.filter((assetId) => !mentioned.has(assetId));
+        if (!missing.length) continue;
         const pattern = new RegExp(`@?${escapeRegExp(title)}`, "u");
         let replaced = false;
         value = value.replace(pattern, (match) => {
             if (replaced) return match;
             replaced = true;
-            return `${title} ${token}`;
+            return `${title} ${missing.map((assetId) => `@[asset:${assetId}]`).join(" ")}`;
         });
     }
     return value;
@@ -158,14 +165,34 @@ export function ensureShotAssetMentionPrompt(prompt: string, references: Array<P
 
 export function compileShotAssetReferencePrompt(references: ShotPromptAssetReference[]) {
     if (!references.length) return "";
-    const lines = references.flatMap((reference) => {
-        const visualLabel = reference.category === "character" ? "人物参考" : `${projectAssetCategoryLabel(reference.category)}参考`;
-        const media = [`${visualLabel}：图片${reference.imageIndex}`, reference.audioIndex ? `声音参考：音频${reference.audioIndex}` : ""].filter(Boolean).join("；");
+    const groups = new Map<string, { title: string; category: string; imageIndices: number[]; audioIndices: number[]; voiceDescriptions: Set<string>; dialogues: Set<string> }>();
+    for (const reference of references) {
+        const key = `${reference.category}:${reference.title.trim().toLocaleLowerCase()}`;
+        const group = groups.get(key) || {
+            title: reference.title,
+            category: reference.category,
+            imageIndices: [],
+            audioIndices: [],
+            voiceDescriptions: new Set<string>(),
+            dialogues: new Set<string>(),
+        };
+        if (!group.imageIndices.includes(reference.imageIndex)) group.imageIndices.push(reference.imageIndex);
+        if (reference.audioIndex && !group.audioIndices.includes(reference.audioIndex)) group.audioIndices.push(reference.audioIndex);
+        if (reference.voiceDescription?.trim()) group.voiceDescriptions.add(reference.voiceDescription.trim());
+        if (reference.dialogue?.trim()) group.dialogues.add(reference.dialogue.trim());
+        groups.set(key, group);
+    }
+    const lines = Array.from(groups.values()).flatMap((group) => {
+        const visualLabel = group.category === "character" ? "人物参考" : `${projectAssetCategoryLabel(group.category)}参考`;
+        const imageLabel = group.imageIndices.length > 1
+            ? `图片${group.imageIndices.join("、")}（${group.category === "character" ? "同一角色多视图参考" : "多视图参考"}）`
+            : `图片${group.imageIndices[0]}`;
+        const media = [imageLabel, group.audioIndices.length ? `声音参考：音频${group.audioIndices.join("、")}` : ""].filter(Boolean).join("；");
         return [
-            `- ${reference.title}：${media}`,
-            reference.voiceDescription ? `  声音画像：${reference.voiceDescription}` : "",
-            reference.dialogue ? `  镜头台词：${reference.dialogue}` : "",
-        ].filter(Boolean);
+            `- ${group.title}：${visualLabel}：${media}`,
+            ...Array.from(group.voiceDescriptions, (voice) => `  声音画像：${voice}`),
+            ...Array.from(group.dialogues, (dialogue) => `  镜头台词：${dialogue}`),
+        ];
     });
     return ["【资产参考】", "", ...lines].join("\n");
 }

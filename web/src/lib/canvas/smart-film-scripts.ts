@@ -123,14 +123,16 @@ function smartFilmReferenceBlock(references: SmartFilmScriptReference[]) {
         prop: "道具参考",
         other: "其他参考",
     };
-    const grouped = new Map<SmartFilmScriptReference["role"], string[]>();
+    const grouped = new Map<SmartFilmScriptReference["role"], Set<string>>();
     references.forEach((reference) => {
         const title = reference.title.trim();
         if (!title) return;
-        grouped.set(reference.role, [...(grouped.get(reference.role) || []), title]);
+        const titles = grouped.get(reference.role) || new Set<string>();
+        titles.add(title);
+        grouped.set(reference.role, titles);
     });
     const lines = (Object.keys(labels) as SmartFilmScriptReference["role"][])
-        .flatMap((role) => grouped.has(role) ? [`${labels[role]}：${grouped.get(role)!.join("、")}`] : []);
+        .flatMap((role) => grouped.has(role) ? [`${labels[role]}：${Array.from(grouped.get(role)!).join("、")}`] : []);
     if (!lines.length) {
         return "用户本次没有上传参考素材，请根据文字想法保持人物、场景、道具和产品描述具体、可执行。";
     }
