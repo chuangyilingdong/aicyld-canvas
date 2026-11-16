@@ -9,7 +9,7 @@ import { ownedResourceIdFromMediaRef, resourceIdFromStorageKey } from "@/service
 import { getSmartFilmBatch } from "@/services/api/smart-film-batches";
 import type { GenerationTask } from "@/services/api/task-center";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
-import { currentArtifact } from "./workflow-shared";
+import { approvedStoryboardArtifact, currentArtifact } from "./workflow-shared";
 import { buildSmartFilmWholeFilmPrompt } from "./smart-film-whole-film-prompt";
 import { smartFilmSkillMetadata, smartFilmSkillStagePrompt } from "@/services/smart-film-skill";
 
@@ -60,6 +60,11 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
         });
         if (storyboardArtifacts.length !== shots.length || !storyboardArtifacts.length) {
             notifyError("请先确认全部分镜提示词并生成、确认每一张分镜图");
+            return;
+        }
+        const unapprovedShots = shots.filter((shot) => !approvedStoryboardArtifact(detail, shot));
+        if (unapprovedShots.length) {
+            notifyError(`还有 ${unapprovedShots.length} 个镜头的分镜图未确认，请逐镜确认后再生成整片`);
             return;
         }
         const model = detail.project.defaultVideoModel || effectiveConfig.videoModel;

@@ -63,6 +63,13 @@ export function currentArtifact(detail: ProjectDetail, shotId: string, type: str
     return artifacts.find((item) => item.selected) || artifacts[0];
 }
 
+export function approvedStoryboardArtifact(detail: ProjectDetail, shot: ProjectShot) {
+    const artifact = currentArtifact(detail, shot.id, "storyboard");
+    if (!artifact?.resourceId || artifact.status !== "ready") return undefined;
+    if (shot.reviewStatus !== "approved") return undefined;
+    return artifact;
+}
+
 export function artifactTypeForStage(stage: ShortDramaWorkflowStage) {
     if (stage === "video") return "video";
     if (stage === "previz") return "action_board";

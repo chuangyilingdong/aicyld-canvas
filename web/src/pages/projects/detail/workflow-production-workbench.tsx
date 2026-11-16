@@ -31,6 +31,7 @@ import {
     deleteProjectShot,
     linkProjectAsset,
     linkShotAsset,
+    reviewProjectShot,
     saveProjectShot,
     unlinkShotAsset,
     type ProjectAsset,
@@ -53,6 +54,7 @@ import { SkillRuntimePicker, useSkillRuntimeCatalog } from "@/components/skills/
 
 import {
     ArtifactStatus,
+    approvedStoryboardArtifact,
     artifactTypeForStage,
     assetCategoryLabel,
     currentArtifact,
@@ -324,6 +326,14 @@ export default function WorkflowProductionWorkbench(props: Props) {
         const shotIndex = shots.findIndex((item) => item.id === shot.id);
         const context = buildShotAssetReferenceContext(detail, shot.id);
         await saveConfirmedStoryboardShot(shot, shotEditorValues(detail, shot, Math.max(0, shotIndex), context));
+        await onRefresh();
+    };
+
+    const confirmSmartFilmStoryboardImage = async (shot: ProjectShot) => {
+        const artifact = currentArtifact(detail, shot.id, "storyboard");
+        if (!artifact?.resourceId || artifact.status !== "ready") throw new Error("当前镜头还没有可确认的分镜图");
+        if (!shot.currentRevisionId) throw new Error("当前镜头缺少分镜版本，请刷新后重试");
+        await reviewProjectShot(projectId, shot.id, { status: "approved", expectedRevisionId: shot.currentRevisionId });
         await onRefresh();
     };
 
@@ -718,6 +728,14 @@ export default function WorkflowProductionWorkbench(props: Props) {
             message.info(options?.singleShot ? `当前镜头${stageCopy.label}已生成或正在生成` : `所有${stageCopy.label}都已生成或正在生成`);
             return;
         }
+        if (activeStage === "video") {
+            const unapproved = targets.filter((shot) => !approvedStoryboardArtifact(detail, shot));
+            if (unapproved.length) {
+                const names = unapproved.slice(0, 3).map((shot) => shot.title || formatShotOrdinal(shots.findIndex((item) => item.id === shot.id))).join("、");
+                message.warning(`还有 ${unapproved.length} 个镜头的分镜图未确认：${names}。请逐镜确认后再生成视频`);
+                return;
+            }
+        }
         if (!routedModel) {
             message.warning(activeStage === "video" ? "请先配置视频模型" : "请先配置图片模型");
             return;
@@ -850,6 +868,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                 busy={Boolean(batchProgress) || submittingShotIds.size > 0}
                 submittingShotIds={submittingShotIds}
                 onConfirmShot={confirmSmartFilmStoryboardShot}
+                onConfirmImage={confirmSmartFilmStoryboardImage}
                 onGenerateAll={() => void generateAllArtifacts()}
                 onGenerateShot={(shot) => void generateSmartFilmStoryboardShot(shot)}
                 onPreviewImage={setImagePreviewArtifact}
@@ -958,7 +977,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                             {customShotTitle(watchedTitle || selectedShot.title, shotIndex) ? <h2>{customShotTitle(watchedTitle || selectedShot.title, shotIndex)}</h2> : null}
                             <StatusBadge tone={saveShot.isPending ? "loading" : editorDirty ? "warning" : selectedShot.status === "confirmed" ? "success" : "neutral"} label={saveShot.isPending ? "保存中" : editorDirty ? "有未保存修改" : selectedShot.status === "confirmed" ? "提示词已确认" : revision ? "待确认提示词" : "草稿"} className="m-0" />
                         </div>
-                        <div className="flex items-center gap-1"><span className="mr-1 text-[var(--fs-micro)] text-foreground/45">{shotIndex + 1} / {shots.length}</span><ShotReviewActions projectId={projectId} shot={selectedShot} artifact={newestArtifact} disabled={Boolean(batchProgress) || selectedShotSubmitting} onReviewed={async () => { await onRefresh(); }} onRework={(note) => { form.setFieldValue("continuityNotes", appendShotReworkInstruction(form.getFieldValue("continuityNotes"), note)); setEditorDirty(true); void generateArtifact(); }} /><ShotAssetConsistencyButton detail={detail} shots={shots} disabled={Boolean(batchProgress)} onSelectShot={requestShotSelection} /><ShotRevisionHistoryButton detail={detail} shot={selectedShot} projectId={projectId} unitId={unitId} disabled={editorDirty || saveShot.isPending || deleteShot.isPending || Boolean(batchProgress)} onRestored={async () => { setEditorDirty(false); await onRefresh(); }} /><Button type="text" size="small" icon={<ChevronLeft className="size-4" />} disabled={shotIndex <= 0} onClick={() => selectRelativeShot(-1)} aria-label="上一个镜头" /><Button type="text" size="small" icon={<ChevronRight className="size-4" />} disabled={shotIndex >= shots.length - 1} onClick={() => selectRelativeShot(1)} aria-label="下一个镜头" /></div>
+                        <div className="flex items-center gap-1"><span className="mr-1 text-[var(--fs-micro)] text-foreground/45">{shotIndex + 1} / {shots.length}</span><ShotReviewActions projectId={projectId} shot={selectedShot} artifact={newestArtifact} approveLabel={activeStage === "storyboard" ? "确认本镜分镜图" : activeStage === "video" ? "通过镜头视频" : "通过审核"} approvedLabel={activeStage === "storyboard" ? "分镜图已确认" : activeStage === "video" ? "镜头视频已通过" : "已通过"} disabled={Boolean(batchProgress) || selectedShotSubmitting} onReviewed={async () => { await onRefresh(); }} onRework={(note) => { form.setFieldValue("continuityNotes", appendShotReworkInstruction(form.getFieldValue("continuityNotes"), note)); setEditorDirty(true); void generateArtifact(); }} /><ShotAssetConsistencyButton detail={detail} shots={shots} disabled={Boolean(batchProgress)} onSelectShot={requestShotSelection} /><ShotRevisionHistoryButton detail={detail} shot={selectedShot} projectId={projectId} unitId={unitId} disabled={editorDirty || saveShot.isPending || deleteShot.isPending || Boolean(batchProgress)} onRestored={async () => { setEditorDirty(false); await onRefresh(); }} /><Button type="text" size="small" icon={<ChevronLeft className="size-4" />} disabled={shotIndex <= 0} onClick={() => selectRelativeShot(-1)} aria-label="上一个镜头" /><Button type="text" size="small" icon={<ChevronRight className="size-4" />} disabled={shotIndex >= shots.length - 1} onClick={() => selectRelativeShot(1)} aria-label="下一个镜头" /></div>
                     </header>
                     {smartWholeFilm && activeStage === "video" ? (
                         <section className="workflow-smart-film-panel">

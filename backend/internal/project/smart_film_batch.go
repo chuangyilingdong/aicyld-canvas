@@ -479,7 +479,15 @@ func (s *Service) EnsureSmartFilmVideoTaskAllowed(userID, projectID string, inpu
 	source, _ := metadata["source"].(string)
 	artifactType, _ := metadata["artifactType"].(string)
 	if strings.TrimSpace(source) == "smart-film-whole-video" && strings.TrimSpace(artifactType) == "smart_film" {
-		return nil
+		unitID, _ := metadata["unitId"].(string)
+		if strings.TrimSpace(unitID) == "" {
+			return kernel.BadAuthRequest("生成整片视频前必须指定章节")
+		}
+		shots, err := s.repo.ProjectUnitShots(projectID, strings.TrimSpace(unitID))
+		if err != nil {
+			return err
+		}
+		return s.ensureSmartFilmStoryboardsApproved(projectID, shots)
 	}
 	shotID, _ := metadata["shotId"].(string)
 	if strings.TrimSpace(shotID) == "" {
@@ -491,6 +499,38 @@ func (s *Service) EnsureSmartFilmVideoTaskAllowed(userID, projectID string, inpu
 	}
 	if shot.Status != "confirmed" {
 		return kernel.BadAuthRequest("当前镜头的分镜提示词尚未确认，不能生成视频")
+	}
+	return s.ensureSmartFilmStoryboardsApproved(projectID, []model.Shot{*shot})
+}
+
+func (s *Service) ensureSmartFilmStoryboardsApproved(projectID string, shots []model.Shot) error {
+	if len(shots) == 0 {
+		return kernel.BadAuthRequest("当前章节还没有可生成视频的镜头")
+	}
+	artifacts, err := s.repo.ProjectUnitShotArtifacts(projectID, shots[0].UnitID)
+	if err != nil {
+		return err
+	}
+	artifactByShot := make(map[string]model.ShotArtifact, len(artifacts))
+	for _, artifact := range artifacts {
+		if artifact.Type != "storyboard" || artifact.Status != "ready" || strings.TrimSpace(artifact.ResourceID) == "" {
+			continue
+		}
+		current, ok := artifactByShot[artifact.ShotID]
+		if !ok || artifact.Version > current.Version || (artifact.Selected && !current.Selected) {
+			artifactByShot[artifact.ShotID] = artifact
+		}
+	}
+	for _, shot := range shots {
+		if shot.Status != "confirmed" {
+			return kernel.BadAuthRequest(fmt.Sprintf("镜头「%s」的分镜提示词尚未确认", shot.Title))
+		}
+		if _, ok := artifactByShot[shot.ID]; !ok {
+			return kernel.BadAuthRequest(fmt.Sprintf("镜头「%s」还没有已生成的分镜图", shot.Title))
+		}
+		if shot.ReviewStatus != "approved" || strings.TrimSpace(shot.ReviewRevisionID) != strings.TrimSpace(shot.CurrentRevisionID) {
+			return kernel.BadAuthRequest(fmt.Sprintf("镜头「%s」的分镜图尚未确认", shot.Title))
+		}
 	}
 	return nil
 }

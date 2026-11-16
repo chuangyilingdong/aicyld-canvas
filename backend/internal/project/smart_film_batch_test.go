@@ -1429,7 +1429,7 @@ func TestSmartFilmAssetExtractionWorkItemIsQueuedForWorker(t *testing.T) {
 func TestSmartFilmVideoTaskRequiresConfirmedShot(t *testing.T) {
 	for _, projectType := range []string{"smart-film", "smart-film-auto"} {
 		t.Run(projectType, func(t *testing.T) {
-			svc, _ := newTestService(t, &recordingWorkflows{})
+			svc, db := newTestService(t, &recordingWorkflows{})
 			project, err := svc.CreateProject("user-1", CreateProjectRequest{Name: "视频确认门禁", Type: projectType})
 			if err != nil {
 				t.Fatal(err)
@@ -1449,32 +1449,77 @@ func TestSmartFilmVideoTaskRequiresConfirmedShot(t *testing.T) {
 			if err := svc.EnsureSmartFilmVideoTaskAllowed("user-1", project.ID, input); err == nil {
 				t.Fatal("video task was allowed before storyboard confirmation")
 			}
-			if _, err := svc.CreateProjectShot("user-1", project.ID, CreateProjectShotRequest{
+			confirmedShot, err := svc.CreateProjectShot("user-1", project.ID, CreateProjectShotRequest{
 				ID: shot.ID, UnitID: unit.ID, Title: shot.Title, Position: shot.Position, DurationMs: 3000, Status: "confirmed",
 				Revision: ShotRevisionInput{PlotDescription: "镜头画面", DurationMs: 3000},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := svc.EnsureSmartFilmVideoTaskAllowed("user-1", project.ID, input); err == nil {
+				t.Fatal("video task was allowed before storyboard image confirmation")
+			}
+			now := time.Now()
+			if err := db.Create(&model.ShotArtifact{
+				ID: "video-gate-storyboard", ProjectID: project.ID, UnitID: unit.ID, ShotID: confirmedShot.ID,
+				RevisionID: confirmedShot.CurrentRevisionID, Type: "storyboard", Version: 1,
+				ResourceID: "video-gate-resource", Status: "ready", Selected: true, CreatedAt: now, UpdatedAt: now,
+			}).Error; err != nil {
+				t.Fatal(err)
+			}
+			if _, err := svc.ReviewProjectShot("user-1", project.ID, confirmedShot.ID, ReviewProjectShotRequest{
+				Status: "approved", ExpectedRevisionID: confirmedShot.CurrentRevisionID,
 			}); err != nil {
 				t.Fatal(err)
 			}
 			if err := svc.EnsureSmartFilmVideoTaskAllowed("user-1", project.ID, input); err != nil {
-				t.Fatalf("confirmed shot was rejected: %v", err)
+				t.Fatalf("approved storyboard was rejected: %v", err)
 			}
 		})
 	}
 }
 
-func TestSmartFilmWholeVideoTaskDoesNotRequireSingleShot(t *testing.T) {
-	svc, _ := newTestService(t, &recordingWorkflows{})
+func TestSmartFilmWholeVideoTaskRequiresApprovedStoryboards(t *testing.T) {
+	svc, db := newTestService(t, &recordingWorkflows{})
 	project, err := svc.CreateProject("user-1", CreateProjectRequest{Name: "整片视频门禁", Type: "smart-film"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.EnsureSmartFilmVideoTaskAllowed("user-1", project.ID, map[string]any{
+	unit, err := svc.CreateProjectUnit("user-1", project.ID, CreateProjectUnitRequest{Title: "整片", SourceText: "剧本"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shot, err := svc.CreateProjectShot("user-1", project.ID, CreateProjectShotRequest{
+		UnitID: unit.ID, Title: "镜头 1", Position: 0, DurationMs: 5000, Status: "confirmed",
+		Revision: ShotRevisionInput{PlotDescription: "镜头画面", DurationMs: 5000},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := map[string]any{
 		"mode": "video",
 		"metadata": map[string]any{
-			"source": "smart-film-whole-video", "artifactType": "smart_film",
+			"source": "smart-film-whole-video", "artifactType": "smart_film", "unitId": unit.ID,
 		},
+	}
+	if err := svc.EnsureSmartFilmVideoTaskAllowed("user-1", project.ID, input); err == nil {
+		t.Fatal("whole-film video was allowed before storyboard confirmation")
+	}
+	now := time.Now()
+	if err := db.Create(&model.ShotArtifact{
+		ID: "whole-film-storyboard", ProjectID: project.ID, UnitID: unit.ID, ShotID: shot.ID,
+		RevisionID: shot.CurrentRevisionID, Type: "storyboard", Version: 1,
+		ResourceID: "whole-film-resource", Status: "ready", Selected: true, CreatedAt: now, UpdatedAt: now,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.ReviewProjectShot("user-1", project.ID, shot.ID, ReviewProjectShotRequest{
+		Status: "approved", ExpectedRevisionID: shot.CurrentRevisionID,
 	}); err != nil {
-		t.Fatalf("whole-film video task was rejected: %v", err)
+		t.Fatal(err)
+	}
+	if err := svc.EnsureSmartFilmVideoTaskAllowed("user-1", project.ID, input); err != nil {
+		t.Fatalf("approved whole-film video task was rejected: %v", err)
 	}
 }
 

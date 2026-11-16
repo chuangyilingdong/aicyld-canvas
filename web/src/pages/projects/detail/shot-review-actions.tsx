@@ -4,11 +4,13 @@ import { CheckCircle2, RotateCcw, XCircle } from "lucide-react";
 
 import { reviewProjectShot, type ProjectShot, type ShotArtifact } from "@/services/api/projects";
 
-export function ShotReviewActions({ projectId, shot, artifact, disabled, onReviewed, onRework }: {
+export function ShotReviewActions({ projectId, shot, artifact, disabled, approveLabel = "通过", approvedLabel = "已通过", onReviewed, onRework }: {
     projectId: string;
     shot: ProjectShot;
     artifact?: ShotArtifact;
     disabled: boolean;
+    approveLabel?: string;
+    approvedLabel?: string;
     onReviewed: () => Promise<void>;
     onRework: (note: string) => void;
 }) {
@@ -40,8 +42,8 @@ export function ShotReviewActions({ projectId, shot, artifact, disabled, onRevie
     };
     return (
         <div className="flex flex-wrap items-center gap-1">
-            <Tag color={status === "approved" ? "green" : status === "rejected" ? "red" : "default"}>{status === "approved" ? "已通过" : status === "rejected" ? "需返工" : "待审核"}</Tag>
-            {canReview ? <Button size="small" icon={<CheckCircle2 className="size-3.5" />} disabled={disabled || busy || status === "approved"} onClick={() => void submit("approved")}>通过</Button> : null}
+            <Tag color={status === "approved" ? "green" : status === "rejected" ? "red" : "default"}>{status === "approved" ? approvedLabel : status === "rejected" ? "需返工" : "待确认"}</Tag>
+            {canReview ? <Button size="small" icon={<CheckCircle2 className="size-3.5" />} disabled={disabled || busy || status === "approved"} onClick={() => void submit("approved")}>{approveLabel}</Button> : null}
             {canReview ? <Button size="small" danger icon={<XCircle className="size-3.5" />} disabled={disabled || busy} onClick={() => setRejectOpen(true)}>{status === "rejected" ? "修改意见" : "不通过"}</Button> : null}
             {status === "rejected" && shot.reviewNote ? <Button size="small" type="primary" icon={<RotateCcw className="size-3.5" />} disabled={disabled || busy} onClick={() => onRework(shot.reviewNote || "")}>按意见重新生成</Button> : null}
             {!canReview ? <span className="text-[var(--fs-micro)] text-foreground/38">生成产物后可审核</span> : null}
