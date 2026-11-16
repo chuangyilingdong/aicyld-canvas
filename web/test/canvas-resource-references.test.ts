@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { autoMentionCanvasResourceReferences, findCanvasResourceAutoLinkMatch, isCanvasTextResourceNode, type CanvasResourceReference, applyCanvasConnectionPromptSync, buildAssetMentionReferences, buildCanvasNodeMentionReferenceMap, buildNodeMentionReferences, buildOrderedCanvasResourceReferences, canvasResourceMentionToken, canvasResourceReferenceInsertText, collectUpstreamVideoNodes, imageGenerationReferenceConnections, reorderCanvasResourceConnections, replaceCanvasMentionToken, replaceCanvasReferenceMentions } from "../src/lib/canvas/canvas-resource-references";
+import { autoMentionCanvasResourceReferences, findCanvasResourceAutoLinkMatch, hasCanvasMentionBoundary, isCanvasTextResourceNode, type CanvasResourceReference, applyCanvasConnectionPromptSync, buildAssetMentionReferences, buildCanvasNodeMentionReferenceMap, buildNodeMentionReferences, buildOrderedCanvasResourceReferences, canvasResourceMentionToken, canvasResourceReferenceInsertText, collectUpstreamVideoNodes, imageGenerationReferenceConnections, reorderCanvasResourceConnections, replaceCanvasMentionToken, replaceCanvasReferenceMentions } from "../src/lib/canvas/canvas-resource-references";
 import { bindCanvasNodeResourceAsset, bindMissingCanvasResourceAssets, canvasNodeToAsset, canvasNodesMissingResourceAssetBinding } from "../src/lib/canvas/canvas-node-asset";
 import { buildNodeGenerationInputs } from "../src/components/canvas/canvas-node-generation";
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData } from "../src/types/canvas";
@@ -11,6 +11,11 @@ const smartReferences: CanvasResourceReference[] = [
 ];
 
 describe("canvas smart references", () => {
+    test("recognizes adjacent explicit asset tokens", () => {
+        expect(hasCanvasMentionBoundary("@[asset:first]@[asset:second]", "@[asset:first]".length)).toBe(true);
+        expect(hasCanvasMentionBoundary("@[asset:first]文字", "@[asset:first]".length)).toBe(false);
+    });
+
     test("converts repeated names and aliases without rewriting existing mentions", () => {
         // 用户自己写的标题（宫门全景 / 唐妙菱）保留原文，引用追加在后面；自动编号仍然直接替换。
         expect(autoMentionCanvasResourceReferences("图片6在前景，图6退后；宫门全景可见。唐妙菱看向图片60。", smartReferences))

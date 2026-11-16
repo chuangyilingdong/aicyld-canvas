@@ -411,6 +411,27 @@ type ShotRevision struct {
 	CreatedAt       time.Time `json:"createdAt"`
 }
 
+// StoryboardInputsEqual identifies revisions that would produce the same static
+// storyboard. Video-only edits must not invalidate an otherwise matching image.
+func (r ShotRevision) StoryboardInputsEqual(other ShotRevision) bool {
+	return r.PlotDescription == other.PlotDescription &&
+		r.ShotSize == other.ShotSize &&
+		r.CameraAngle == other.CameraAngle &&
+		r.CameraMovement == other.CameraMovement &&
+		r.ImagePrompt == other.ImagePrompt &&
+		r.ContinuityNotes == other.ContinuityNotes &&
+		r.AssetRolesJSON == other.AssetRolesJSON
+}
+
+func (r ShotRevision) VideoInputsEqual(other ShotRevision) bool {
+	return r.Action == other.Action &&
+		r.Dialogue == other.Dialogue &&
+		r.DurationMs == other.DurationMs &&
+		r.ActionBeatsJSON == other.ActionBeatsJSON &&
+		r.VideoPrompt == other.VideoPrompt &&
+		r.NegativePrompt == other.NegativePrompt
+}
+
 // ShotArtifact 是镜头的版本化生产产物。修改分镜或资产引用时只标记 stale，不删除历史。
 type ShotArtifact struct {
 	ID           string    `json:"id" gorm:"primaryKey;size:36"`

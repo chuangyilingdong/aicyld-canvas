@@ -1,5 +1,5 @@
 import { App, Button } from "antd";
-import { AlertTriangle, ArrowLeft, ArrowRight, CheckCircle2, Clapperboard, Download, Film, Image as ImageIcon, LoaderCircle, Save, Sparkles, Video } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, CheckCircle2, Clapperboard, Download, Film, Image as ImageIcon, LoaderCircle, Sparkles, Video } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { CanvasResourceMentionTextarea } from "@/components/canvas/canvas-resource-mention-textarea";
@@ -115,6 +115,7 @@ export function SmartFilmVideoBoard({ detail, shots, readyCount, targetSeconds, 
     const allReady = shots.length > 0 && readyCount === shots.length;
     const confirmedCount = shots.filter((shot) => shot.status === "confirmed").length;
     const allConfirmed = shots.length > 0 && confirmedCount === shots.length;
+    const staleCount = shots.filter((shot) => currentArtifact(detail, shot.id, "storyboard")?.status === "stale").length;
     const canGenerate = allReady && allConfirmed && !generating;
 
     return (
@@ -124,14 +125,15 @@ export function SmartFilmVideoBoard({ detail, shots, readyCount, targetSeconds, 
                     <div className="flex flex-wrap items-center gap-2">
                         <span className="rounded-full bg-foreground/[.06] px-2 py-0.5 text-[var(--fs-tiny)] font-medium text-foreground/55">步骤 2 / 2</span>
                         <strong className="text-sm">生成整片视频</strong>
-                        <span className="text-xs text-foreground/42">使用 {readyCount}/{shots.length} 张分镜图 · 目标 {formatDuration(targetSeconds * 1000)}</span>
+                        <span className="text-xs text-foreground/42">分镜图可用 {readyCount}/{shots.length} · 目标 {formatDuration(targetSeconds * 1000)}</span>
                     </div>
-                    <p className="mt-1 text-xs leading-5 text-foreground/48">请逐个检查并编辑本镜视频提示词，再逐镜确认。已确认 {confirmedCount}/{shots.length}；全部确认后才能生成 1 条完整视频。</p>
+                    <p className="mt-1 text-xs leading-5 text-foreground/48">请逐个检查并编辑本镜视频提示词与动作节拍，修改后直接确认。已确认 {confirmedCount}/{shots.length}；分镜图可用 {readyCount}/{shots.length}。</p>
+                    {!allReady ? <p className="mt-1 text-[var(--fs-tiny)] text-amber-500">{staleCount ? `有 ${staleCount} 张分镜图已过期，请回到分镜步骤重新生成。` : "仍有分镜图未生成，暂时不能生成整片视频。"}</p> : null}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                     <Button icon={<ArrowLeft className="size-4" />} onClick={onBack}>返回分镜图</Button>
                     <Button icon={<Download className="size-4" />} disabled={!latestResourceId} onClick={onDownload}>下载整片视频</Button>
-                    <Button type="primary" icon={generating ? <LoaderCircle className="size-4 animate-spin" /> : <Video className="size-4" />} loading={generating} disabled={!canGenerate} onClick={onGenerate}>{latestResourceId ? "重新生成整片视频" : "生成整片视频"}</Button>
+                    <Button type="primary" title={!allReady ? "需要所有分镜图可用" : !allConfirmed ? "需要先逐镜确认全部视频提示词" : undefined} icon={generating ? <LoaderCircle className="size-4 animate-spin" /> : <Video className="size-4" />} loading={generating} disabled={!canGenerate} onClick={onGenerate}>{latestResourceId ? "重新生成整片视频" : "生成整片视频"}</Button>
                 </div>
             </header>
 
@@ -177,10 +179,10 @@ function SmartFilmVideoShotRow({ detail, shot, index, artifact, revision, target
 }) {
     const { message } = App.useApp();
     const context = useMemo(() => buildShotAssetReferenceContext(detail, shot.id), [detail, shot.id]);
-    const initialPrompt = useMemo(() => normalizePrompt(revision?.videoPrompt || revision?.plotDescription || shot.description || "", context.mentionReferences), [context.mentionReferences, revision?.plotDescription, revision?.videoPrompt, shot.description]);
+    const initialPrompt = useMemo(() => normalizePrompt(combineVideoPromptAndAction(revision?.videoPrompt || revision?.plotDescription || shot.description || "", revision?.action || ""), context.mentionReferences), [context.mentionReferences, revision?.action, revision?.plotDescription, revision?.videoPrompt, shot.description]);
     const [prompt, setPrompt] = useState(initialPrompt);
     const [dirty, setDirty] = useState(false);
-    const [saving, setSaving] = useState<PromptSaveStatus>();
+    const [saving, setSaving] = useState(false);
     const [selection, setSelection] = useState({ start: initialPrompt.length, end: initialPrompt.length });
     const [caretRequest, setCaretRequest] = useState<{ offset: number; key: number } | null>(null);
     const ready = Boolean(artifact?.resourceId && artifact.status === "ready");
@@ -191,22 +193,22 @@ function SmartFilmVideoShotRow({ detail, shot, index, artifact, revision, target
         setDirty(false);
     }, [initialPrompt, revision?.id, shot.id]);
 
-    const savePrompt = async (status: PromptSaveStatus) => {
+    const confirmPrompt = async () => {
         const normalized = normalizePrompt(prompt, context.mentionReferences);
         if (!normalized.trim()) {
             message.error("视频提示词不能为空");
             return;
         }
-        setSaving(status);
+        setSaving(true);
         try {
-            await onSave(shot, normalized, status);
+            await onSave(shot, normalized, "confirmed");
             setPrompt(normalized);
             setDirty(false);
-            message.success(status === "confirmed" ? "本镜参考分镜已确认" : "本镜视频提示词已保存");
+            message.success("本镜视频提示词已保存并确认");
         } catch (error) {
             message.error(error instanceof Error ? error.message : "本镜提示词保存失败");
         } finally {
-            setSaving(undefined);
+            setSaving(false);
         }
     };
 
@@ -236,8 +238,8 @@ function SmartFilmVideoShotRow({ detail, shot, index, artifact, revision, target
                 </div>
 
                 <div className="mt-2 flex items-center justify-between gap-2">
-                    <label className="text-[var(--fs-micro)] font-medium text-foreground/48">视频提示词（仅本镜）</label>
-                    <span className={`text-[var(--fs-micro)] ${dirty ? "text-amber-500" : "text-foreground/30"}`}>{dirty ? "有未保存修改" : "输入 @ 精确引用本镜资产图片"}</span>
+                    <label className="text-[var(--fs-micro)] font-medium text-foreground/48">视频提示词与动作节拍（仅本镜）</label>
+                    <span className={`text-[var(--fs-micro)] ${dirty ? "text-amber-500" : "text-foreground/30"}`}>{dirty ? "修改后直接确认即可保存" : "输入 @ 精确引用本镜资产图片"}</span>
                 </div>
                 <CanvasResourceMentionTextarea
                     value={prompt}
@@ -251,7 +253,7 @@ function SmartFilmVideoShotRow({ detail, shot, index, artifact, revision, target
                     sendOnEnter={false}
                     containerClassName="workflow-shot-mention-container mt-1"
                     className="thin-scrollbar workflow-shot-mention-editor"
-                    placeholder={context.mentionReferences.length ? "描述本镜动作、运镜和节奏；输入 @ 选择当前镜头绑定的资产图片" : "描述本镜动作、运镜和节奏；先在镜头资产中绑定角色或场景，才能用 @ 精确引用"}
+                    placeholder={context.mentionReferences.length ? "描述本镜画面、动作、时间节拍和运镜；输入 @ 选择当前镜头绑定的资产图片" : "描述本镜画面、动作、时间节拍和运镜；先在镜头资产中绑定角色或场景，才能用 @ 精确引用"}
                     aria-label="本镜视频提示词，可使用 @ 引用当前镜头绑定的资产图片"
                 />
 
@@ -264,13 +266,11 @@ function SmartFilmVideoShotRow({ detail, shot, index, artifact, revision, target
                         </button>
                     )) : <span className="inline-flex items-center gap-1 text-[var(--fs-micro)] text-amber-500"><AlertTriangle className="size-3" />未绑定资产，请先到“角色与资产”绑定</span>}
                 </div>
-                {revision?.action ? <details className="mt-2 border-t border-border/50 pt-2"><summary className="cursor-pointer text-[var(--fs-micro)] text-foreground/38">动作与时间节拍（不属于可编辑视频提示词）</summary><p className="mt-1 whitespace-pre-wrap text-[var(--fs-tiny)] leading-5 text-foreground/50">{revision.action}</p></details> : null}
             </div>
 
             <div className="flex flex-col items-stretch justify-between gap-2 lg:items-end">
                 <ArtifactStatus artifact={artifact} />
-                <Button icon={<Save className="size-3.5" />} loading={saving === "draft"} disabled={busy || !dirty} onClick={() => void savePrompt("draft")}>保存修改</Button>
-                <Button type={confirmed ? "default" : "primary"} icon={<CheckCircle2 className="size-3.5" />} loading={saving === "confirmed"} disabled={busy || confirmed || !ready} onClick={() => void savePrompt("confirmed")}>{confirmed ? "本镜已确认" : "确认本镜"}</Button>
+                <Button type={confirmed ? "default" : "primary"} icon={<CheckCircle2 className="size-3.5" />} loading={saving} disabled={busy || confirmed || !ready} onClick={() => void confirmPrompt()}>{confirmed ? "本镜已确认" : "确认本镜（保存）"}</Button>
             </div>
         </article>
     );
@@ -278,6 +278,13 @@ function SmartFilmVideoShotRow({ detail, shot, index, artifact, revision, target
 
 function normalizePrompt(prompt: string, references: ReturnType<typeof buildShotAssetReferenceContext>["mentionReferences"]) {
     return ensureShotAssetMentionPrompt(autoMentionShotAssetReferences(prompt.trim(), references), references);
+}
+
+function combineVideoPromptAndAction(videoPrompt: string, action: string) {
+    const prompt = videoPrompt.trim();
+    const beats = action.trim();
+    if (!beats || prompt.includes(beats)) return prompt;
+    return `${prompt}\n\n动作与时间节拍：\n${beats}`;
 }
 
 function PromptBlock({ label, value }: { label: string; value: string }) {

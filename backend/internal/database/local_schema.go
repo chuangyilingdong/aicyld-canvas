@@ -15,7 +15,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion int64 = 44
+const CurrentSchemaVersion int64 = 45
 
 type localSchemaMigration struct {
 	Version   int64 `gorm:"primaryKey;autoIncrement:false"`
@@ -189,7 +189,68 @@ func canonicalLocalMigrations() []localMigration {
 			return backfillSmartFilmScripts(tx)
 		}},
 		{version: 44, name: "shot-review", apply: func(tx *gorm.DB) error { return tx.AutoMigrate(&model.Shot{}) }},
+		{version: 45, name: "repair-video-only-stale-storyboards", apply: migrateRepairVideoOnlyStaleStoryboards},
 	}
+}
+
+func migrateRepairVideoOnlyStaleStoryboards(tx *gorm.DB) error {
+	var artifacts []model.ShotArtifact
+	if err := tx.Where("type = ? AND status = ? AND resource_id <> ''", "storyboard", "stale").
+		Order("shot_id, version DESC").Find(&artifacts).Error; err != nil {
+		return err
+	}
+	processedShots := map[string]bool{}
+	for _, artifact := range artifacts {
+		if processedShots[artifact.ShotID] {
+			continue
+		}
+		processedShots[artifact.ShotID] = true
+		var shot model.Shot
+		if err := tx.First(&shot, "id = ?", artifact.ShotID).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				continue
+			}
+			return err
+		}
+		if strings.TrimSpace(shot.CurrentRevisionID) == "" {
+			continue
+		}
+		var currentRevision, artifactRevision model.ShotRevision
+		if err := tx.First(&currentRevision, "id = ?", shot.CurrentRevisionID).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				continue
+			}
+			return err
+		}
+		if err := tx.First(&artifactRevision, "id = ?", artifact.RevisionID).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				continue
+			}
+			return err
+		}
+		if !artifactRevision.StoryboardInputsEqual(currentRevision) {
+			continue
+		}
+		var activeCount int64
+		if err := tx.Model(&model.ShotArtifact{}).
+			Where("shot_id = ? AND type = ? AND status = ? AND selected = ?", artifact.ShotID, "storyboard", "ready", true).
+			Count(&activeCount).Error; err != nil {
+			return err
+		}
+		if activeCount > 0 {
+			continue
+		}
+		if err := tx.Model(&model.ShotArtifact{}).
+			Where("shot_id = ? AND type = ?", artifact.ShotID, "storyboard").
+			Update("selected", false).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&model.ShotArtifact{}).Where("id = ?", artifact.ID).
+			Updates(map[string]any{"status": "ready", "selected": true, "updated_at": time.Now()}).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func backfillSmartFilmScripts(tx *gorm.DB) error {

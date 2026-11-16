@@ -315,6 +315,58 @@ func TestCreateShotRevisionInvalidatesExistingArtifacts(t *testing.T) {
 	}
 }
 
+func TestVideoOnlyShotRevisionKeepsStoryboardReady(t *testing.T) {
+	service, db := newProjectWorkflowV2TestService(t)
+	project, unit := seedWorkflowProject(t, db)
+	if err := service.EnsureBuiltinProjectWorkflowTemplate(); err != nil {
+		t.Fatal(err)
+	}
+	workflow, err := service.ProjectService().CreateUnitWorkflow("user-1", project.ID, unit.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	shot, err := service.ProjectService().CreateProjectShot("user-1", project.ID, CreateProjectShotRequest{UnitID: unit.ID, Title: "SC.01", Description: "人物站在门口", DurationMs: 3000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&model.WorkflowStepInstance{}).Where("workflow_instance_id = ? AND step_key IN ?", workflow.Instance.ID, []string{"storyboard", "video"}).Update("status", model.WorkflowStepStatusCompleted).Error; err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	storyboard := model.ShotArtifact{ID: "storyboard-1", ProjectID: project.ID, UnitID: unit.ID, ShotID: shot.ID, RevisionID: shot.CurrentRevisionID, Type: "storyboard", Version: 1, Status: "ready", Selected: true, ResourceID: "storyboard-resource", CreatedAt: now, UpdatedAt: now}
+	video := model.ShotArtifact{ID: "video-1", ProjectID: project.ID, UnitID: unit.ID, ShotID: shot.ID, RevisionID: shot.CurrentRevisionID, Type: "video", Version: 1, Status: "ready", Selected: true, ResourceID: "video-resource", CreatedAt: now, UpdatedAt: now}
+	if err := db.Create(&storyboard).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&video).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := service.ProjectService().CreateShotRevision("user-1", project.ID, shot.ID, ShotRevisionInput{PlotDescription: shot.Description, DurationMs: shot.DurationMs, VideoPrompt: "镜头缓慢推进"}); err != nil {
+		t.Fatal(err)
+	}
+	var storedStoryboard, storedVideo model.ShotArtifact
+	if err := db.First(&storedStoryboard, "id = ?", storyboard.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.First(&storedVideo, "id = ?", video.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if storedStoryboard.Status != "ready" || !storedStoryboard.Selected {
+		t.Fatalf("video-only edit invalidated storyboard: status=%s selected=%v", storedStoryboard.Status, storedStoryboard.Selected)
+	}
+	if storedVideo.Status != "stale" || storedVideo.Selected {
+		t.Fatalf("video artifact status=%s selected=%v, want stale false", storedVideo.Status, storedVideo.Selected)
+	}
+	var storyboardStep model.WorkflowStepInstance
+	if err := db.First(&storyboardStep, "workflow_instance_id = ? AND step_key = ?", workflow.Instance.ID, "storyboard").Error; err != nil {
+		t.Fatal(err)
+	}
+	if storyboardStep.Status != model.WorkflowStepStatusCompleted {
+		t.Fatalf("storyboard step status = %s, want completed", storyboardStep.Status)
+	}
+}
+
 func TestReplaceProjectUnitShotsCreatesGeneratedAssetReferencesAtomically(t *testing.T) {
 	service, db := newProjectWorkflowV2TestService(t)
 	project, unit := seedWorkflowProject(t, db)

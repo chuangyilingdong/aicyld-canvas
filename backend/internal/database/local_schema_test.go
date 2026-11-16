@@ -44,6 +44,63 @@ func TestFailedMigrationDoesNotAdvanceVersionAndCanRetry(t *testing.T) {
 	}
 }
 
+func TestRepairVideoOnlyStaleStoryboards(t *testing.T) {
+	db, err := Open(Config{Driver: "sqlite", DSN: "file:repair-video-only-storyboards?mode=memory&cache=shared"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.Shot{}, &model.ShotRevision{}, &model.ShotArtifact{}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	oldRevision := model.ShotRevision{ID: "old-revision", ShotID: "shot-1", Version: 1, PlotDescription: "人物站在门口", VideoPrompt: "旧视频提示", CreatedAt: now}
+	currentRevision := model.ShotRevision{ID: "current-revision", ShotID: "shot-1", Version: 2, PlotDescription: "人物站在门口", VideoPrompt: "新视频提示", CreatedAt: now}
+	if err := db.Create(&oldRevision).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&currentRevision).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.Shot{ID: "shot-1", ProjectID: "project-1", UnitID: "unit-1", Title: "镜头 1", Description: "人物站在门口", CurrentRevisionID: currentRevision.ID, Status: "confirmed", CreatedAt: now, UpdatedAt: now}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.ShotArtifact{ID: "storyboard-1", ProjectID: "project-1", UnitID: "unit-1", ShotID: "shot-1", RevisionID: oldRevision.ID, Type: "storyboard", Version: 1, ResourceID: "resource-1", Status: "stale", Selected: false, CreatedAt: now, UpdatedAt: now}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	changedRevision := model.ShotRevision{ID: "changed-revision", ShotID: "shot-2", Version: 2, PlotDescription: "不同的画面", VideoPrompt: "视频提示", CreatedAt: now}
+	olderChangedRevision := model.ShotRevision{ID: "older-changed-revision", ShotID: "shot-2", Version: 1, PlotDescription: "原画面", VideoPrompt: "旧视频提示", CreatedAt: now}
+	if err := db.Create(&olderChangedRevision).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&changedRevision).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.Shot{ID: "shot-2", ProjectID: "project-1", UnitID: "unit-1", Title: "镜头 2", Description: "不同的画面", CurrentRevisionID: changedRevision.ID, Status: "confirmed", CreatedAt: now, UpdatedAt: now}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.ShotArtifact{ID: "storyboard-2", ProjectID: "project-1", UnitID: "unit-1", ShotID: "shot-2", RevisionID: olderChangedRevision.ID, Type: "storyboard", Version: 1, ResourceID: "resource-2", Status: "stale", Selected: false, CreatedAt: now, UpdatedAt: now}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	if err := migrateRepairVideoOnlyStaleStoryboards(db); err != nil {
+		t.Fatal(err)
+	}
+	var repaired, unchanged model.ShotArtifact
+	if err := db.First(&repaired, "id = ?", "storyboard-1").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.First(&unchanged, "id = ?", "storyboard-2").Error; err != nil {
+		t.Fatal(err)
+	}
+	if repaired.Status != "ready" || !repaired.Selected {
+		t.Fatalf("video-only stale storyboard was not repaired: %+v", repaired)
+	}
+	if unchanged.Status != "stale" || unchanged.Selected {
+		t.Fatalf("visual change was incorrectly repaired: %+v", unchanged)
+	}
+}
+
 func TestLocalSchemaRecordsVersionAndIsIdempotent(t *testing.T) {
 	db, err := Open(Config{Driver: "sqlite", DSN: "file:local-schema-version?mode=memory&cache=shared"})
 	if err != nil {
@@ -445,7 +502,7 @@ func TestAssistantTurnsMigrationFromPreviewV9(t *testing.T) {
 	if err := db.Order("version").Find(&ledger).Error; err != nil {
 		t.Fatal(err)
 	}
-	if ledger[len(ledger)-1].Version != CurrentSchemaVersion || ledger[len(ledger)-1].Name != "shot-review" {
+	if ledger[len(ledger)-1].Version != CurrentSchemaVersion || ledger[len(ledger)-1].Name != "repair-video-only-stale-storyboards" {
 		t.Fatalf("current identity: %+v", ledger[len(ledger)-1])
 	}
 	foundV10 := false

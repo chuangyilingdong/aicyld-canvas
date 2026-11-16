@@ -91,7 +91,8 @@ export function canvasGenerationMentionMatches(prompt: string) {
 
 export function hasCanvasMentionBoundary(value: string, index: number) {
     const next = value[index];
-    return !next || /\s|[,.!?;:，。！？；：、)\]}】）`"'|]/.test(next);
+    // Adjacent explicit mentions are valid: @[asset:a]@[asset:b].
+    return !next || /\s|[@,.!?;:，。！？；：、)\]}】）`"'|]/.test(next);
 }
 
 /** 将提示词内已连接素材的名称替换为对应引用；同名的每处指代都会保留为独立引用。 */

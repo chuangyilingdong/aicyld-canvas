@@ -329,7 +329,9 @@ export default function WorkflowProductionWorkbench(props: Props) {
     const saveSmartFilmVideoPrompt = async (shot: ProjectShot, videoPrompt: string, status: "draft" | "confirmed") => {
         const shotIndex = shots.findIndex((item) => item.id === shot.id);
         const context = buildShotAssetReferenceContext(detail, shot.id);
-        const values = { ...shotEditorValues(detail, shot, Math.max(0, shotIndex), context), videoPrompt };
+        // The review editor now owns both narration/action beats and motion prompt.
+        // Persist them as one video prompt so a confirmation has a single source of truth.
+        const values = { ...shotEditorValues(detail, shot, Math.max(0, shotIndex), context), action: "", videoPrompt };
         await saveProjectShot(projectId, {
             id: shot.id,
             unitId,

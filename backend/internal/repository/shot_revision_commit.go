@@ -18,6 +18,12 @@ func (r *Repository) SaveShotWithRevisionActive(userID string, shot *model.Shot,
 				return err
 			}
 		}
+		var previousRevision model.ShotRevision
+		if !create && strings.TrimSpace(expectedCurrentRevisionID) != "" {
+			if err := tx.Where("id = ? AND shot_id = ?", expectedCurrentRevisionID, shot.ID).First(&previousRevision).Error; err != nil {
+				return err
+			}
+		}
 		reviewReset := shotReviewResetUpdates()
 		if create {
 			if shot.ReviewStatus == "" {
@@ -63,15 +69,39 @@ func (r *Repository) SaveShotWithRevisionActive(userID string, shot *model.Shot,
 			return err
 		}
 		if !create {
-			if err := tx.Model(&model.ShotArtifact{}).Where("shot_id = ? AND status NOT IN ?", shot.ID, []string{"failed", "stale"}).Updates(map[string]any{"status": "stale", "selected": false, "updated_at": shot.UpdatedAt}).Error; err != nil {
-				return err
+			artifactTypes := shotArtifactTypesForRevisionChange(previousRevision, *revision)
+			if len(artifactTypes) > 0 {
+				if err := tx.Model(&model.ShotArtifact{}).
+					Where("shot_id = ? AND type IN ? AND status NOT IN ?", shot.ID, artifactTypes, []string{"failed", "stale"}).
+					Updates(map[string]any{"status": "stale", "selected": false, "updated_at": shot.UpdatedAt}).Error; err != nil {
+					return err
+				}
 			}
-		}
-		if err := invalidateUnitWorkflowTx(tx, shot.ProjectID, shot.UnitID, "storyboard", shot.UpdatedAt); err != nil {
-			return err
+			if previousRevision.ID == "" || !previousRevision.StoryboardInputsEqual(*revision) {
+				if err := invalidateUnitWorkflowTx(tx, shot.ProjectID, shot.UnitID, "storyboard", shot.UpdatedAt); err != nil {
+					return err
+				}
+			}
 		}
 		return bumpProjectRevisionTx(tx, shot.ProjectID, shot.UpdatedAt)
 	})
+}
+
+func shotArtifactTypesForRevisionChange(previous, next model.ShotRevision) []string {
+	if previous.ID == "" || !previous.StoryboardInputsEqual(next) {
+		return []string{"storyboard", "action_board", "start_frame", "end_frame", "video", "audio", "subtitle", "delivery"}
+	}
+	if previous.VideoInputsEqual(next) {
+		return nil
+	}
+	types := []string{"video", "delivery"}
+	if previous.Action != next.Action || previous.ActionBeatsJSON != next.ActionBeatsJSON || previous.CameraMovement != next.CameraMovement || previous.DurationMs != next.DurationMs {
+		types = append(types, "action_board")
+	}
+	if previous.Dialogue != next.Dialogue || previous.DurationMs != next.DurationMs {
+		types = append(types, "audio", "subtitle")
+	}
+	return types
 }
 
 func shotReviewResetUpdates() map[string]any {
