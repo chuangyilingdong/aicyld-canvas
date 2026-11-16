@@ -165,6 +165,10 @@ func (s *Service) summarizeProjects(userID string, projects []model.Project) ([]
 		if assetCountErr != nil {
 			return nil, assetCountErr
 		}
+		activeTaskCount, activeTaskErr := s.repo.ActiveTaskCountForProjectIDs(userID, []string{item.ID})
+		if activeTaskErr != nil {
+			return nil, activeTaskErr
+		}
 		completed := 0
 		for _, unit := range units {
 			if unit.Status == model.ProjectUnitStatusCompleted {
@@ -175,6 +179,7 @@ func (s *Service) summarizeProjects(userID string, projects []model.Project) ([]
 		summary.AssetCount = assetCount
 		summary.UnitCount = len(units)
 		summary.CompletedUnitCount = completed
+		summary.ActiveTaskCount = activeTaskCount
 		result = append(result, summary)
 	}
 	return result, nil

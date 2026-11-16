@@ -277,6 +277,7 @@ export type ProjectSummary = {
     assetCount: number;
     unitCount: number;
     completedUnitCount: number;
+    activeTaskCount?: number;
 };
 
 export type ProjectListPage = {

@@ -82,6 +82,7 @@ type Summary struct {
 	AssetCount         int64         `json:"assetCount"`
 	UnitCount          int           `json:"unitCount"`
 	CompletedUnitCount int           `json:"completedUnitCount"`
+	ActiveTaskCount    int64         `json:"activeTaskCount"`
 }
 
 type ListPage struct {

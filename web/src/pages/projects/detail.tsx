@@ -1,7 +1,7 @@
 import { lazy, Suspense } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Alert, App } from "antd";
-import { ArrowLeft, Plus } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { Link, Navigate, useNavigate, useParams } from "react-router";
 
 import { getProjectCore, getProjectOverview, getProjectUnitWorkspace, linkCanvasUnit, listProjectUnits } from "@/services/api/projects";
@@ -14,21 +14,17 @@ import { createLocalCanvasProject } from "@/services/local-workspace-repository"
 import { isLocalWorkspaceMode } from "@/services/workspace-mode";
 
 const ProjectAssetsView = lazy(() => import("./detail/assets"));
-const ProjectCanvasesView = lazy(() => import("./detail/canvases"));
 const ProjectChaptersView = lazy(() => import("./detail/chapters"));
 const ProjectOverviewView = lazy(() => import("./detail/overview"));
 const ProjectSettingsView = lazy(() => import("./detail/settings"));
 const ProjectWorkflowView = lazy(() => import("./detail/workflow"));
-const ProjectEditorView = lazy(() => import("./detail/editor"));
 
-type DetailView = "overview" | "chapters" | "workflow" | "canvases" | "editor" | "assets" | "settings";
+type DetailView = "overview" | "chapters" | "workflow" | "assets" | "settings";
 
 const views: Array<{ key: DetailView; label: string }> = [
     { key: "overview", label: "制作概览" },
     { key: "chapters", label: "剧情章节" },
     { key: "workflow", label: "分镜制作" },
-    { key: "canvases", label: "项目画布" },
-    { key: "editor", label: "剪辑成片" },
     { key: "assets", label: "角色与资产" },
     { key: "settings", label: "项目设置" },
 ];
@@ -143,20 +139,17 @@ export default function ProjectDetailPage() {
                     stage={stage}
                     chapterHref={chapterHref}
                     workflowHref={workflowHref}
-                    onCreateCanvas={createCanvas}
                 />
                 {detail.project.status === "archived" ? <Alert type="warning" showIcon banner message="项目已归档，恢复后才能创建画布和生成任务" className="!border-x-0 !border-t-0" /> : null}
                 <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-                    <div className={activeView === "chapters" || activeView === "workflow" || activeView === "editor" ? "min-h-0 flex-1" : "thin-scrollbar min-h-0 flex-1 overflow-y-auto px-3 py-5 sm:px-5 lg:px-8 lg:py-7"}>
+                    <div className={activeView === "chapters" || activeView === "workflow" ? "min-h-0 flex-1" : "thin-scrollbar min-h-0 flex-1 overflow-y-auto px-3 py-5 sm:px-5 lg:px-8 lg:py-7"}>
                         <Suspense fallback={<WorkspaceLoadingState label="正在准备当前项目视图" detail="只加载当前使用的工作区模块" />}>
-                            <div className={activeView === "overview" ? "w-full" : activeView === "chapters" || activeView === "workflow" || activeView === "editor" ? "h-full w-full" : "w-full"}>
+                            <div className={activeView === "overview" ? "w-full" : activeView === "chapters" || activeView === "workflow" ? "h-full w-full" : "w-full"}>
                                 {activeView === "overview" ? overviewQuery.isLoading ? <WorkspaceLoadingState label="正在统计制作进度" detail="只读取聚合数据，不加载全部镜头历史" /> : overviewQuery.data ? <ProjectOverviewView detail={detail} overview={overviewQuery.data} refreshProject={refreshProject} onCreateCanvas={createCanvas} /> : <WorkspaceErrorState title="制作概览读取失败" description="请稍后重试。" onRetry={() => void overviewQuery.refetch()} /> : null}
                                 {activeView === "chapters" ? workspaceQuery.isLoading ? <WorkspaceLoadingState label="正在读取当前章节" detail="正文与制作数据按章节加载" /> : workspaceQuery.isError ? <WorkspaceErrorState title="章节读取失败" description="当前章节可能已被删除，或服务暂时不可用。" onRetry={() => void workspaceQuery.refetch()} /> : <ProjectChaptersView detail={detail} refreshProject={refreshProject} onCreateCanvas={createCanvas} /> : null}
                                 {activeView === "workflow" ? workspaceQuery.isLoading ? <WorkspaceLoadingState label="正在读取当前章节分镜" detail="仅加载本章镜头、版本和产物" /> : workspaceQuery.isError ? <WorkspaceErrorState title="分镜工作区读取失败" description="当前章节制作数据暂时不可用。" onRetry={() => void workspaceQuery.refetch()} /> : <ProjectWorkflowView detail={detail} projectId={projectId} unitId={unitId || ""} stage={stage || "video"} /> : null}
-                                {activeView === "canvases" ? <ProjectCanvasesView detail={detail} refreshProject={refreshProject} onCreateCanvas={createCanvas} /> : null}
                                 {activeView === "assets" ? <ProjectAssetsView detail={detail} refreshProject={refreshProject} onCreateCanvas={createCanvas} /> : null}
                                 {activeView === "settings" ? <ProjectSettingsView detail={detail} refreshProject={refreshProject} onCreateCanvas={createCanvas} /> : null}
-                                {activeView === "editor" ? <ProjectEditorView detail={detail} /> : null}
                             </div>
                         </Suspense>
                     </div>
@@ -166,9 +159,8 @@ export default function ProjectDetailPage() {
     );
 }
 
-function ProjectWorkspaceHeader({ detail, projectId, activeView, unitId, stage, chapterHref, workflowHref, onCreateCanvas }: { detail: ProjectDetail; projectId: string; activeView: DetailView; unitId?: string; stage?: string; chapterHref: string; workflowHref: string; onCreateCanvas: () => void }) {
+function ProjectWorkspaceHeader({ detail, projectId, activeView, unitId, stage, chapterHref, workflowHref }: { detail: ProjectDetail; projectId: string; activeView: DetailView; unitId?: string; stage?: string; chapterHref: string; workflowHref: string }) {
     const archived = detail.project.status === "archived";
-    const createCanvasLabel = activeView === "chapters" && detail.units.length ? "新建当前章节画布" : "新建项目画布";
     return (
         <header className="project-workspace-header">
             <div className="project-workspace-identity">
@@ -198,14 +190,7 @@ function ProjectWorkspaceHeader({ detail, projectId, activeView, unitId, stage, 
                 })}
             </nav>
             <div className="project-workspace-actions">
-                {activeView === "workflow" ? (
-                    <WorkflowChapterNavigator projectId={projectId} units={detail.units} unitId={unitId} stage={stage} />
-                ) : (
-                    <button type="button" onClick={onCreateCanvas} className="project-workspace-create" aria-label={createCanvasLabel} title={createCanvasLabel}>
-                        <Plus />
-                        <span>新建画布</span>
-                    </button>
-                )}
+                {activeView === "workflow" ? <WorkflowChapterNavigator projectId={projectId} units={detail.units} unitId={unitId} stage={stage} /> : null}
             </div>
         </header>
     );

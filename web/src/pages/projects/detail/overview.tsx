@@ -1,4 +1,4 @@
-import { ArrowRight, BookOpenText, CheckCircle2, CircleAlert, Clapperboard, Clock3, Film, PackageCheck, PlaySquare, Scissors, UsersRound } from "lucide-react";
+import { ArrowRight, BookOpenText, CheckCircle2, CircleAlert, Clapperboard, Clock3, Film, PackageCheck, PlaySquare, UsersRound } from "lucide-react";
 import { Link } from "react-router";
 
 import { WorkspaceState } from "@/components/layout/workspace-state";
@@ -24,7 +24,6 @@ export default function ProjectOverviewView({ detail, overview }: ProjectDetailV
         content: stageCell(item.unit.wordCount > 0, item.unit.wordCount > 0 ? `${formatCompactCount(item.unit.wordCount)} 字` : "待补充"),
         assets: stageCell(item.candidateCount === 0 && item.shotCount > 0, item.candidateCount ? `${item.candidateCount} 待确认` : item.shotCount ? "已确认" : "待拆分", item.candidateCount > 0),
         storyboard: stageCell(item.shotCount > 0, item.shotCount ? `${item.shotCount} 镜` : "待生成"),
-        canvas: stageCell(item.canvasCount > 0, item.canvasCount ? `${item.canvasCount} 张` : "未关联"),
     }));
     const productionSteps = [
         { id: "story", icon: BookOpenText, label: "剧情章节", description: "导入或编写正文，确认每章叙事目标", metric: `${metrics.unitCount} 章 · ${formatCompactCount(metrics.totalWordCount)} 字`, href: `/projects/${project.id}/chapters`, complete: metrics.unitCount > 0 },
@@ -32,7 +31,6 @@ export default function ProjectOverviewView({ detail, overview }: ProjectDetailV
         { id: "storyboard", icon: Clapperboard, label: "分镜脚本与画面", description: "拆分镜头并确认构图、对白和时长", metric: `${metrics.shotCount} 镜 · ${metrics.readyStoryboardCount} 张图`, href: workflowHref("storyboard"), complete: metrics.shotCount > 0 },
         { id: "previz", icon: PlaySquare, label: "动作预演", description: "检查表演节拍、运镜和连续性", metric: `${metrics.readyPrevizCount}/${metrics.shotCount || 0} 镜`, href: workflowHref("previz"), complete: metrics.shotCount > 0 && metrics.readyPrevizCount === metrics.shotCount },
         { id: "video", icon: Film, label: "镜头视频", description: "逐镜生成、筛选版本并锁定成片", metric: `${metrics.readyVideoCount}/${metrics.shotCount || 0} 镜`, href: workflowHref("video"), complete: metrics.shotCount > 0 && metrics.readyVideoCount === metrics.shotCount },
-        { id: "editor", icon: Scissors, label: "剪辑成片", description: "在时间线中编排镜头、添加字幕并输出成片", metric: metrics.renderSucceededCount > 0 ? `已输出 ${metrics.renderSucceededCount} 个成片` : metrics.shotCount > 0 && metrics.readyVideoCount === metrics.shotCount ? "可以开始剪辑" : `还差 ${Math.max(0, metrics.shotCount - metrics.readyVideoCount)} 镜`, href: `/projects/${project.id}/editor`, complete: metrics.renderSucceededCount > 0 },
         { id: "delivery", icon: PackageCheck, label: "交付与打包", description: "检查缺失镜头并整理最终产物", metric: metrics.readyVideoCount && metrics.readyVideoCount === metrics.shotCount ? "可以交付" : `还差 ${Math.max(0, metrics.shotCount - metrics.readyVideoCount)} 镜`, href: workflowHref("delivery"), complete: metrics.shotCount > 0 && metrics.readyVideoCount === metrics.shotCount },
     ];
     const gaps = [
@@ -76,7 +74,6 @@ export default function ProjectOverviewView({ detail, overview }: ProjectDetailV
                         <dl className="project-overview-facts">
                             <ProjectFact label="当前阶段" value={stage.label} />
                             <ProjectFact label="分镜镜头" value={`${metrics.shotCount} 个`} />
-                            <ProjectFact label="项目画布" value={`${metrics.canvasCount} 张`} />
                             <ProjectFact label="需要处理" value={`${attentionCount} 项`} attention={attentionCount > 0} />
                         </dl>
                         {secondaryActions.length ? (
@@ -101,7 +98,7 @@ export default function ProjectOverviewView({ detail, overview }: ProjectDetailV
                 <div className="project-pipeline-head">
                     <div className="min-w-0">
                         <h2 className="project-pipeline-title">章节进度</h2>
-                        <p className="project-pipeline-hint">从内容确认到项目画布，每章只显示当前真实状态。</p>
+                        <p className="project-pipeline-hint">从内容确认到分镜画面，每章只显示当前真实状态。</p>
                     </div>
                     <Link to={`/projects/${project.id}/chapters`} className="project-pipeline-more">查看全部章节<ArrowRight className="size-3.5" /></Link>
                 </div>
@@ -114,12 +111,12 @@ export default function ProjectOverviewView({ detail, overview }: ProjectDetailV
                                     <span className="project-pipeline-index">{String(item.unit.position + 1).padStart(2, "0")}</span>
                                     <span className="min-w-0"><span className="project-pipeline-chapter-title">{item.unit.title}</span><span className="project-pipeline-chapter-time">更新于 {formatTime(item.unit.updatedAt)}</span></span>
                                 </span>
-                                <StagePipeline content={item.content} assets={item.assets} storyboard={item.storyboard} canvas={item.canvas} />
+                                <StagePipeline content={item.content} assets={item.assets} storyboard={item.storyboard} />
                                 <ArrowRight className="project-pipeline-arrow size-4" />
                             </Link>
                         ))}
                     </div>
-                ) : <div className="project-pipeline-surface p-2"><WorkspaceState icon="projects" compact title="还没有剧情章节" description="添加章节后，这里会显示内容、资产、分镜和画布的制作进度。" /></div>}
+                ) : <div className="project-pipeline-surface p-2"><WorkspaceState icon="projects" compact title="还没有剧情章节" description="添加章节后，这里会显示内容、资产和分镜的制作进度。" /></div>}
             </section>
         </div>
     );
@@ -138,8 +135,8 @@ function SecondaryAction({ action }: { action: ProjectWorkbenchAction }) {
     return <Link to={action.href} className="project-overview-next-item group"><Icon className={`size-3.5 shrink-0 ${action.tone === "danger" ? "text-foreground/80" : action.tone === "attention" ? "text-foreground/60" : "text-foreground/30"}`} /><span className="min-w-0 flex-1 truncate">{action.title}</span><ArrowRight className="size-3 shrink-0 text-foreground/25 transition group-hover:text-foreground/55" /></Link>;
 }
 
-function StagePipeline({ content, assets, storyboard, canvas }: { content: ProjectStageCell; assets: ProjectStageCell; storyboard: ProjectStageCell; canvas: ProjectStageCell }) {
-    const stages = [{ label: "内容", cell: content }, { label: "资产", cell: assets }, { label: "分镜", cell: storyboard }, { label: "画布", cell: canvas }];
+function StagePipeline({ content, assets, storyboard }: { content: ProjectStageCell; assets: ProjectStageCell; storyboard: ProjectStageCell }) {
+    const stages = [{ label: "内容", cell: content }, { label: "资产", cell: assets }, { label: "分镜", cell: storyboard }];
     return (
         <span className="project-pipeline-stages">
             {stages.map(({ label, cell }) => <StageStep key={label} label={label} cell={cell} />)}
@@ -183,9 +180,6 @@ function overviewActions(projectId: string, metrics: ProjectOverviewMetrics, fir
     }
     if (metrics.shotCount && metrics.readyVideoCount < metrics.shotCount) {
         actions.push({ id: "continue-video", title: `继续制作 ${metrics.shotCount - metrics.readyVideoCount} 个镜头视频`, description: "检查镜头提示词与参考资产，逐镜生成并选择最终版本。", href: workflowHref, actionLabel: "继续制作", tone: metrics.staleArtifactCount ? "attention" : "default" });
-    }
-    if (!metrics.canvasCount) {
-        actions.push({ id: "create-canvas", title: "建立第一张项目画布", description: "把章节、分镜和参考资产放进同一个制作空间。", href: `${projectRoot}/canvases`, actionLabel: "查看画布", tone: "default" });
     }
     if (!actions.length) {
         actions.push({ id: "review-delivery", title: "检查镜头并准备交付", description: "所有镜头视频已就绪，可检查版本、连续性和缺失项。", href: workflowHref, actionLabel: "检查交付", tone: "default" });

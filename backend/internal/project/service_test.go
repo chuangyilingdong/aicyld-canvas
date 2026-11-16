@@ -332,11 +332,14 @@ func TestListProjectsIsolatesUsersAndCountsUnits(t *testing.T) {
 	if err := db.Create(&model.ProjectUnit{ID: "u2", ProjectID: mine.ID, Title: "二", Status: model.ProjectUnitStatusDraft}).Error; err != nil {
 		t.Fatal(err)
 	}
+	if err := db.Create(&model.Task{ID: "task-1", UserID: "user-1", ProjectID: mine.ID, Type: "canvas_video", Status: model.TaskStatusRunning, Attempts: 1}).Error; err != nil {
+		t.Fatal(err)
+	}
 	listed, err := svc.ListProjects("user-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(listed) != 1 || listed[0].Project.ID != mine.ID || listed[0].UnitCount != 2 || listed[0].CompletedUnitCount != 1 {
+	if len(listed) != 1 || listed[0].Project.ID != mine.ID || listed[0].UnitCount != 2 || listed[0].CompletedUnitCount != 1 || listed[0].ActiveTaskCount != 1 {
 		t.Fatalf("listed = %+v", listed)
 	}
 }

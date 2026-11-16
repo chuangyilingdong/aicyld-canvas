@@ -443,7 +443,9 @@ export default function SmartFilmBatchDetailPage() {
                     else message.success(`已创建 ${scriptIds.length} 个独立视频项目，剧本资产分析已自动开始`);
                     const createdScript = latest.batch.scripts.find((script) => script.id === scriptIds[0] && script.projectId);
                     if (scriptIds.length === 1 && createdScript?.projectId) {
-                        navigate(`/projects/${createdScript.projectId}/assets`);
+                        navigate(`/projects/${createdScript.projectId}/overview`);
+                    } else if (scriptIds.length > 1) {
+                        navigate("/projects");
                     }
                 } catch (error) {
                     message.error(error instanceof Error ? error.message : "创建视频项目失败");

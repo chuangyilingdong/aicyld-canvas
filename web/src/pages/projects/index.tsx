@@ -4,7 +4,7 @@ import { MediaPlaceholder } from "@/components/ui/product/media-placeholder";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { App, Button, Dropdown, Form, Input, InputNumber, Modal, Select, Switch } from "antd";
-import { ArrowRight, Archive, BookOpenText, Clapperboard, FileText, FolderKanban, Images, LayoutGrid, MoreHorizontal, Palette, Pencil, Plus, Search, Sparkles } from "lucide-react";
+import { ArrowRight, Archive, BookOpenText, Clapperboard, FileText, FolderKanban, Images, MoreHorizontal, Palette, Pencil, Plus, Search, Sparkles } from "lucide-react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 
 import { CollectionGrid, PageHeader, WorkspacePage } from "@/components/layout/workspace-page";
@@ -27,7 +27,6 @@ import { modelDisplayName, useConfigStore, useEffectiveConfig } from "@/stores/u
 import { storyboardRowsToProjectShots } from "./detail/chapter-storyboard-production";
 import { extractChapterAssets, generateChapterStoryboard } from "./detail/project-chapter-ai";
 import { sourceTypeLabel } from "./detail/shared";
-import { groupProjectsByBatch } from "./project-batch-groups";
 
 type ProjectForm = { name: string; aspectRatio: string; sourceType: string };
 
@@ -42,7 +41,6 @@ export default function ProjectsPage() {
     const [keyword, setKeyword] = useState("");
     const [status, setStatus] = useState<"all" | "active" | "archived">("all");
     const [sort, setSort] = useState<"updated" | "progress" | "name">("updated");
-    const [groupByBatch, setGroupByBatch] = useState(false);
     const [storyDraft, setStoryDraft] = useState("");
     const [createSource, setCreateSource] = useState<"blank" | "novel" | "text">("blank");
     const [selectedStyle, setSelectedStyle] = useState<CanvasStylePreset | null>(null);
@@ -431,7 +429,6 @@ export default function ProjectsPage() {
             });
     }, [allProjects, keyword, sort, status]);
     const totalProjectCount = query.data?.pages[0]?.total ?? allProjects.length;
-    const projectGroups = useMemo(() => groupProjectsByBatch(rows), [rows]);
     useEffect(() => {
         const node = loadMoreRef.current;
         if (!node || !query.hasNextPage || query.isError) return;
@@ -505,32 +502,16 @@ export default function ProjectsPage() {
                 </div>
                 </details>
             </details>
-            <CollectionToolbar active={Boolean(keyword || status !== "all" || sort !== "updated" || groupByBatch)} onReset={() => { setKeyword(""); setStatus("all"); setSort("updated"); setGroupByBatch(false); }}>
+            <CollectionToolbar active={Boolean(keyword || status !== "all" || sort !== "updated")} onReset={() => { setKeyword(""); setStatus("all"); setSort("updated"); }}>
                 <Input allowClear className="app-list-search" prefix={<Search className="size-4 text-foreground/40" />} value={keyword} placeholder="搜索项目、简介或画风" onChange={(event) => setKeyword(event.target.value)} />
                 <Select className="w-32" value={status} onChange={setStatus} options={[{ label: "全部状态", value: "all" }, { label: "进行中", value: "active" }, { label: "已归档", value: "archived" }]} />
                 <Select className="w-32" value={sort} onChange={setSort} options={[{ label: "最近更新", value: "updated" }, { label: "章节进度", value: "progress" }, { label: "项目名称", value: "name" }]} />
-                <Button type={groupByBatch ? "primary" : "default"} onClick={() => setGroupByBatch((value) => !value)}>按批次聚合</Button>
             </CollectionToolbar>
 
             {hasInitialError ? <WorkspaceErrorState description={query.error instanceof Error ? query.error.message : "项目列表加载失败"} onRetry={() => void query.refetch()} /> : null}
             {query.isLoading ? <WorkspaceLoadingState label="正在整理项目" detail="读取章节、画布与资产进度" /> : null}
             {!query.isLoading && !hasInitialError && rows.length ? (
-                groupByBatch ? <div className="space-y-5">
-                    {projectGroups.map((group) => (
-                        <section key={group.key} className="space-y-3">
-                            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/70 pb-2">
-                                <div className="flex items-center gap-2">
-                                    <strong className="text-sm">{group.batchId ? `批次 ${group.batchId.slice(0, 8)}` : "独立项目"}</strong>
-                                    <span className="text-xs text-foreground/45">{group.projects.length} 个项目</span>
-                                </div>
-                                {group.batchId ? <Link to={`/smart-film/batches/${group.batchId}`} className="inline-flex items-center gap-1 text-xs text-[var(--workspace-accent)] hover:underline">查看批次全部子项目<ArrowRight className="size-3.5" /></Link> : null}
-                            </div>
-                            <CollectionGrid className="library-grid project-library-grid">
-                                {group.projects.map((row) => <ProjectRow key={row.project.id} row={row} folders={foldersQuery.data?.folders || []} onDelete={() => modal.confirm({ title: "删除项目？", content: `项目章节、画布关联和素材归属将一并移除「${row.project.name}」，独立画布与素材库原始素材会保留。此操作不可撤销。`, okText: "删除项目", cancelText: "取消", okButtonProps: { danger: true }, onOk: () => deleteMutation.mutateAsync(row.project.id) })} onRename={() => { setRenameValue(row.project.name); setRenamingProject(row.project); }} onArchive={() => archiveMutation.mutate({ id: row.project.id, status: row.project.status === "archived" ? "active" : "archived" })} onDuplicate={async () => { await duplicateProject(row.project.id); await queryClient.invalidateQueries({ queryKey: ["projects"] }); message.success("项目副本已创建"); }} onMove={async (folderId) => { await moveProjectToFolder(row.project.id, folderId); await queryClient.invalidateQueries({ queryKey: ["projects"] }); message.success(folderId ? "项目已移动" : "项目已移出文件夹"); }} />)}
-                            </CollectionGrid>
-                        </section>
-                    ))}
-                </div> : <CollectionGrid className="library-grid project-library-grid">
+                <CollectionGrid className="library-grid project-library-grid">
                     {rows.map((row) => <ProjectRow key={row.project.id} row={row} folders={foldersQuery.data?.folders || []} onDelete={() => modal.confirm({ title: "删除项目？", content: `项目章节、画布关联和素材归属将一并移除「${row.project.name}」，独立画布与素材库原始素材会保留。此操作不可撤销。`, okText: "删除项目", cancelText: "取消", okButtonProps: { danger: true }, onOk: () => deleteMutation.mutateAsync(row.project.id) })} onRename={() => { setRenameValue(row.project.name); setRenamingProject(row.project); }} onArchive={() => archiveMutation.mutate({ id: row.project.id, status: row.project.status === "archived" ? "active" : "archived" })} onDuplicate={async () => { await duplicateProject(row.project.id); await queryClient.invalidateQueries({ queryKey: ["projects"] }); message.success("项目副本已创建"); }} onMove={async (folderId) => { await moveProjectToFolder(row.project.id, folderId); await queryClient.invalidateQueries({ queryKey: ["projects"] }); message.success(folderId ? "项目已移动" : "项目已移出文件夹"); }} />)}
                 </CollectionGrid>
             ) : null}
@@ -541,7 +522,7 @@ export default function ProjectsPage() {
                 <WorkspaceState
                     icon="projects"
                     title={keyword || status !== "all" ? "没有匹配的项目" : "创建第一个故事项目"}
-                    description={keyword || status !== "all" ? "调整搜索词或状态筛选后再试。" : "项目会集中保存章节、项目画布、角色场景和制作进度。自由试图可从画布开始。"}
+                    description={keyword || status !== "all" ? "调整搜索词或状态筛选后再试。" : "所有智能成片和批次产生的项目都会集中显示在这里，并标注当前制作状态。"}
                     action={!keyword && status === "all" ? <Button type="primary" icon={<Plus className="size-3.5" />} onClick={() => setCreateOpen(true)}>创建项目</Button> : undefined}
                 />
             ) : null}
@@ -702,13 +683,14 @@ function ProjectRow({ row, folders, onDelete, onRename, onArchive, onDuplicate, 
     const projectStyle = resolveProjectCanvasStyle(row.project.stylePresetId, row.project.styleProfileJson);
     const styleTitle = projectStyle?.title || parseStyleProfile(row.project.styleProfileJson)?.title || resolveCanvasStylePreset(row.project.stylePresetId)?.title || (row.project.stylePresetId ? "自定义画风" : "未设置画风");
     const coverUrl = row.project.coverResourceId ? resourceFileUrl(row.project.coverResourceId) : projectStyle?.imageUrl;
+    const statusTone = row.project.status === "archived" ? "is-muted" : stage.label.includes("确认") || stage.label.includes("处理") ? "is-attention" : stage.label.includes("生成") || stage.label === "制作中" || stage.label.includes("镜头") ? "is-active" : "is-ready";
     return (
         <Link to={`/projects/${row.project.id}/overview`} className="product-collection-card library-card project-library-card group">
             <span className="project-library-cover">
                 {coverUrl ? <CachedResourceImage className="project-library-cover-art" src={coverUrl} alt="" fallback={<MediaPlaceholder failed />} /> : <MediaPlaceholder label="故事由此开始" />}
                 <span className="project-library-cover-scrim" />
                 <span className="project-library-cover-ratio">{row.project.aspectRatio}</span>
-                <span className="project-library-cover-stage">{stage.label}</span>
+                <span className={`project-library-status ${statusTone}`}>{stage.label}</span>
                 <span className="project-collection-delete" onClick={(event) => event.preventDefault()}><Dropdown trigger={["click"]} placement="bottomRight" overlayClassName="project-library-menu" menu={{ items: [{ key: "open", label: "打开", onClick: () => navigate(`/projects/${row.project.id}/overview`) }, { key: "rename", icon: <Pencil className="size-3.5" />, label: "重命名", onClick: onRename }, { key: "cover", label: "修改封面", onClick: () => navigate(`/projects/${row.project.id}/settings`) }, { key: "duplicate", label: "创建副本", onClick: () => void onDuplicate() }, { key: "move", label: "移动至文件夹", children: [{ key: "root", label: "全部项目", onClick: () => void onMove("") }, ...folders.map((folder) => ({ key: folder.id, label: folder.name, onClick: () => void onMove(folder.id) }))] }, { key: "archive", icon: <Archive className="size-3.5" />, label: row.project.status === "archived" ? "恢复项目" : "归档项目", onClick: onArchive }, { type: "divider" }, { key: "delete", danger: true, label: "删除项目", onClick: onDelete }] }}><button type="button" className="project-library-more" aria-label={`${row.project.name} 更多操作`} onClick={(event) => event.preventDefault()}><MoreHorizontal className="size-4" /></button></Dropdown></span>
             </span>
             <span className="project-library-body">
@@ -716,7 +698,7 @@ function ProjectRow({ row, folders, onDelete, onRename, onArchive, onDuplicate, 
                 <span className="project-library-date">{row.project.updatedAt.slice(0, 10)}</span>
                 <span className="project-library-subtitle">{styleTitle} · {sourceTypeLabel(row.project.sourceType)}</span>
                 <span className="project-library-progress"><span><span>{row.completedUnitCount}/{row.unitCount} 章</span><span>{completion}%</span></span><i><b style={{ width: `${completion}%` }} /></i></span>
-                <span className="project-library-stats"><ProjectCount icon={<BookOpenText className="size-3.5" />} label="章节" value={row.unitCount} /><ProjectCount icon={<LayoutGrid className="size-3.5" />} label="画布" value={row.canvasCount} /><ProjectCount icon={<Images className="size-3.5" />} label="资产" value={row.assetCount} /></span>
+                <span className="project-library-stats"><ProjectCount icon={<BookOpenText className="size-3.5" />} label="章节" value={row.unitCount} /><ProjectCount icon={<Images className="size-3.5" />} label="资产" value={row.assetCount} /></span>
             </span>
         </Link>
     );

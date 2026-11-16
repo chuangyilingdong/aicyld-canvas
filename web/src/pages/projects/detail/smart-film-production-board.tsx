@@ -1,4 +1,4 @@
-import { App, Button } from "antd";
+import { App, Button, Progress } from "antd";
 import { AlertTriangle, ArrowLeft, ArrowRight, CheckCircle2, Clapperboard, Download, Film, Image as ImageIcon, LoaderCircle, Sparkles, Video } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -6,6 +6,7 @@ import { CanvasResourceMentionTextarea } from "@/components/canvas/canvas-resour
 import { canvasResourceMentionToken } from "@/lib/canvas/canvas-resource-references";
 import { resourceFileUrl } from "@/services/api/resources";
 import type { ProjectDetail, ProjectShot, ShotArtifact, ShotRevision } from "@/services/api/projects";
+import type { GenerationTask } from "@/services/api/task-center";
 
 import { autoMentionShotAssetReferences, buildShotAssetReferenceContext, ensureShotAssetMentionPrompt } from "./workflow-shot-references";
 import { ArtifactStatus, currentArtifact, currentRevision, formatDuration } from "./workflow-shared";
@@ -100,12 +101,13 @@ export function SmartFilmStoryboardBoard({ detail, shots, readyCount, busy, subm
     );
 }
 
-export function SmartFilmVideoBoard({ detail, shots, readyCount, targetSeconds, generating, latestResourceId, onBack, onSaveShotPrompt, onGenerate, onDownload }: {
+export function SmartFilmVideoBoard({ detail, shots, readyCount, targetSeconds, generating, generationTask, latestResourceId, onBack, onSaveShotPrompt, onGenerate, onDownload }: {
     detail: ProjectDetail;
     shots: ProjectShot[];
     readyCount: number;
     targetSeconds: number;
     generating: boolean;
+    generationTask?: GenerationTask;
     latestResourceId?: string;
     onBack: () => void;
     onSaveShotPrompt: (shot: ProjectShot, videoPrompt: string, status: PromptSaveStatus) => Promise<void>;
@@ -116,7 +118,11 @@ export function SmartFilmVideoBoard({ detail, shots, readyCount, targetSeconds, 
     const confirmedCount = shots.filter((shot) => shot.status === "confirmed").length;
     const allConfirmed = shots.length > 0 && confirmedCount === shots.length;
     const staleCount = shots.filter((shot) => currentArtifact(detail, shot.id, "storyboard")?.status === "stale").length;
-    const canGenerate = allReady && allConfirmed && !generating;
+    const taskActive = generating || generationTask?.status === "queued" || generationTask?.status === "running";
+    const taskProgress = Math.max(0, Math.min(100, Math.round(generationTask?.progress || 0)));
+    const taskStage = generationTask?.stage || (generationTask?.status === "queued" ? "等待生成资源" : "正在生成整片视频");
+    const taskPreviewUrl = generationTask?.previewPosterUrl || (generationTask?.previewKind === "image" ? generationTask.previewUrl : "");
+    const canGenerate = allReady && allConfirmed && !taskActive;
 
     return (
         <section className="h-full min-h-0 overflow-y-auto px-4 py-4 thin-scrollbar">
@@ -133,7 +139,7 @@ export function SmartFilmVideoBoard({ detail, shots, readyCount, targetSeconds, 
                 <div className="flex flex-wrap items-center gap-2">
                     <Button icon={<ArrowLeft className="size-4" />} onClick={onBack}>返回分镜图</Button>
                     <Button icon={<Download className="size-4" />} disabled={!latestResourceId} onClick={onDownload}>下载整片视频</Button>
-                    <Button type="primary" title={!allReady ? "需要所有分镜图可用" : !allConfirmed ? "需要先逐镜确认全部视频提示词" : undefined} icon={generating ? <LoaderCircle className="size-4 animate-spin" /> : <Video className="size-4" />} loading={generating} disabled={!canGenerate} onClick={onGenerate}>{latestResourceId ? "重新生成整片视频" : "生成整片视频"}</Button>
+                    <Button type="primary" title={!allReady ? "需要所有分镜图可用" : !allConfirmed ? "需要先逐镜确认全部视频提示词" : taskActive ? taskStage : undefined} icon={taskActive ? <LoaderCircle className="size-4 animate-spin" /> : <Video className="size-4" />} loading={taskActive} disabled={!canGenerate} onClick={onGenerate}>{taskActive ? taskProgress ? `整片生成中 ${taskProgress}%` : "整片生成中…" : latestResourceId ? "重新生成整片视频" : "生成整片视频"}</Button>
                 </div>
             </header>
 
@@ -159,8 +165,19 @@ export function SmartFilmVideoBoard({ detail, shots, readyCount, targetSeconds, 
                         ))}
                     </div>
                 </div>
-                <div className="flex min-h-56 items-start justify-center rounded-xl border border-border/70 bg-surface p-3 xl:sticky xl:top-3">
-                    {latestResourceId ? <video src={resourceFileUrl(latestResourceId)} controls className="max-h-[420px] w-full rounded-lg" preload="metadata" /> : <div className="py-12 text-center text-foreground/38"><Film className="mx-auto size-10" /><p className="mt-2 text-xs">还没有生成整片视频</p><p className="mt-1 text-[var(--fs-tiny)] text-foreground/30">{allConfirmed ? "所有镜头已确认，可以开始生成" : `还剩 ${shots.length - confirmedCount} 个镜头待确认`}</p></div>}
+                <div className="rounded-xl border border-border/70 bg-surface p-3 xl:sticky xl:top-3">
+                    <div className="flex items-center justify-between gap-2">
+                        <strong className="text-xs">整片视频预览</strong>
+                        <span className={`rounded-full px-2 py-0.5 text-[var(--fs-micro)] ${taskActive ? "bg-amber-500/10 text-amber-500" : latestResourceId ? "bg-emerald-500/10 text-emerald-500" : generationTask?.status === "failed" ? "bg-rose-500/10 text-rose-500" : "bg-foreground/[.06] text-foreground/42"}`}>{taskActive ? taskProgress ? `生成中 ${taskProgress}%` : "生成中" : latestResourceId ? "已生成" : generationTask?.status === "failed" ? "生成失败" : "待生成"}</span>
+                    </div>
+                    <div className="mt-2 flex min-h-[360px] items-center justify-center overflow-hidden rounded-lg border border-border/60 bg-black/10 p-3">
+                        {latestResourceId ? <video src={resourceFileUrl(latestResourceId)} controls className="max-h-[420px] w-full rounded-lg" preload="metadata" /> : taskActive ? <div className="w-full text-center text-foreground/45">
+                            {taskPreviewUrl ? <img src={taskPreviewUrl} alt="整片视频生成预览" className="mx-auto mb-4 max-h-64 w-full rounded-lg object-contain" /> : <span className="mx-auto grid size-16 place-items-center rounded-2xl bg-foreground/[.05]"><Film className="size-8" /></span>}
+                            <p className="mt-4 text-xs font-medium text-foreground/70">{taskStage}</p>
+                            <Progress className="mt-3 w-full" percent={taskProgress || 5} showInfo={false} status="active" />
+                            <p className="mt-2 text-[var(--fs-tiny)] text-foreground/35">{generationTask?.referenceProgress ? "正在准备参考素材，完成后自动进入视频生成" : "视频生成需要一些时间，完成后会显示在这里"}</p>
+                        </div> : generationTask?.status === "failed" ? <div className="max-w-sm text-center text-rose-400"><Film className="mx-auto size-9" /><p className="mt-3 text-xs font-medium">整片视频生成失败</p><p className="mt-2 text-[var(--fs-tiny)] leading-5 text-foreground/45">{generationTask.error || "请调整参数后重试"}</p></div> : <div className="text-center text-foreground/38"><Film className="mx-auto size-10" /><p className="mt-2 text-xs">还没有生成整片视频</p><p className="mt-1 text-[var(--fs-tiny)] text-foreground/30">{allConfirmed ? "所有镜头已确认，可以开始生成" : `还剩 ${shots.length - confirmedCount} 个镜头待确认`}</p></div>}
+                    </div>
                 </div>
             </div>
         </section>

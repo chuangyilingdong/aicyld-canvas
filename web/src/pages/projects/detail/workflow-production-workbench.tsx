@@ -135,7 +135,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
     const activeShotIdRef = useRef(selectedShot?.id || "");
     activeShotIdRef.current = selectedShot?.id || "";
     const shots = useMemo(() => (detail.shots || []).filter((item) => item.unitId === unitId).slice().sort((left, right) => left.position - right.position), [detail.shots, unitId]);
-    const { smartWholeFilm, smartFilmGenerating, latestSmartWholeFilm, readyStoryboardCount, smartFilmBatch, generateSmartWholeFilm } = useSmartFilmWholeFilm(detail, projectId, unitId, shots);
+    const { smartWholeFilm, smartFilmGenerating, smartFilmTask, latestSmartWholeFilm, readyStoryboardCount, smartFilmBatch, generateSmartWholeFilm } = useSmartFilmWholeFilm(detail, projectId, unitId, shots);
     const shotIndex = selectedShot ? shots.findIndex((item) => item.id === selectedShot.id) : -1;
     const revision = currentRevision(detail, selectedShot);
     const artifactType = artifactTypeForStage(activeStage);
@@ -916,6 +916,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
             readyCount={readyStoryboardCount}
             targetSeconds={Number(smartFilmBatch?.config.targetDurationSeconds || 0)}
             generating={smartFilmGenerating}
+            generationTask={smartFilmTask}
             latestResourceId={latestSmartWholeFilm?.resourceId}
             onBack={() => navigate(`/projects/${projectId}/workflow/${unitId}/storyboard`)}
             onSaveShotPrompt={saveSmartFilmVideoPrompt}

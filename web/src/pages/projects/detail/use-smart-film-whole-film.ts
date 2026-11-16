@@ -7,6 +7,7 @@ import { buildBackendGenerationTaskQuoteInput, runBackendGenerationTask } from "
 import { listProjectUnitArtifacts, registerProjectUnitArtifact, type ProjectDetail, type ProjectShot } from "@/services/api/projects";
 import { ownedResourceIdFromMediaRef, resourceIdFromStorageKey } from "@/services/api/resources";
 import { getSmartFilmBatch } from "@/services/api/smart-film-batches";
+import type { GenerationTask } from "@/services/api/task-center";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { currentArtifact } from "./workflow-shared";
 import { buildSmartFilmWholeFilmPrompt } from "./smart-film-whole-film-prompt";
@@ -15,6 +16,7 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
     const effectiveConfig = useEffectiveConfig();
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const [smartFilmGenerating, setSmartFilmGenerating] = useState(false);
+    const [smartFilmTask, setSmartFilmTask] = useState<GenerationTask | null>(null);
     const smartFilmBatchQuery = useQuery({
         queryKey: ["smart-film-batch", detail.project.batchId],
         queryFn: () => getSmartFilmBatch(detail.project.batchId!).then((result) => result.batch),
@@ -36,6 +38,12 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
             return artifact?.resourceId && artifact.status === "ready";
         }).length,
         [detail, shots],
+    );
+    const activeSmartFilmTask = useMemo(
+        () => (detail.tasks || [])
+            .filter((task) => task.projectId === projectId && task.type === "canvas_video" && (task.status === "queued" || task.status === "running"))
+            .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0],
+        [detail.tasks, projectId],
     );
 
     const generateSmartWholeFilm = async (confirmQuote: (input: ReturnType<typeof buildBackendGenerationTaskQuoteInput>) => Promise<boolean>, notifyError: (message: string) => void) => {
@@ -102,9 +110,13 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
             },
             referenceImages: promptPlan.referenceImages,
             metadata: { source: "smart-film-whole-video", domainProjectId: projectId, unitId, artifactType: "smart_film" },
-            onTaskUpdate: (task) => { taskId = task.id; },
+            onTaskUpdate: (task) => {
+                taskId = task.id;
+                setSmartFilmTask(task);
+            },
         };
         if (!(await confirmQuote(buildBackendGenerationTaskQuoteInput(options)))) return;
+        setSmartFilmTask(null);
         setSmartFilmGenerating(true);
         try {
             const result = await runBackendGenerationTask(options);
@@ -129,5 +141,5 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
         }
     };
 
-    return { smartWholeFilm, smartFilmGenerating, latestSmartWholeFilm, readyStoryboardCount, smartFilmBatch: smartFilmBatchQuery.data, generateSmartWholeFilm };
+    return { smartWholeFilm, smartFilmGenerating, smartFilmTask: smartFilmTask || activeSmartFilmTask, latestSmartWholeFilm, readyStoryboardCount, smartFilmBatch: smartFilmBatchQuery.data, generateSmartWholeFilm };
 }
