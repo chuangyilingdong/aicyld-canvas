@@ -554,6 +554,33 @@ func (s *Service) ConfirmProjectAssetCandidate(userID string, projectID string, 
 	return summary, nil
 }
 
+// IgnoreProjectAssetCandidate lets a creator keep an extracted asset as text
+// inspiration without generating or confirming it. Ignored entries no longer
+// block smart-film storyboard generation.
+func (s *Service) IgnoreProjectAssetCandidate(userID, projectID, candidateID string) (model.ProjectAssetCandidate, error) {
+	if _, err := s.Active(userID, projectID); err != nil {
+		return model.ProjectAssetCandidate{}, err
+	}
+	candidate, err := s.repo.ProjectAssetCandidate(projectID, candidateID)
+	if err != nil {
+		return model.ProjectAssetCandidate{}, err
+	}
+	if candidate.Status != "pending_confirmation" {
+		return model.ProjectAssetCandidate{}, kernel.BadAuthRequest("资产候选已处理")
+	}
+	if candidate.PreviewStatus == "generating" {
+		return model.ProjectAssetCandidate{}, kernel.BadAuthRequest("资产图仍在生成，请等待完成后再忽略")
+	}
+	candidate.Status = "ignored"
+	candidate.ResolvedAssetID = ""
+	candidate.UpdatedAt = time.Now()
+	if err := s.repo.IgnoreProjectAssetCandidateActive(userID, candidate); err != nil {
+		return model.ProjectAssetCandidate{}, mapProjectWriteError(err)
+	}
+	s.markSmartFilmAssetsConfirmedIfReady(projectID, candidate.UnitID)
+	return *candidate, nil
+}
+
 func (s *Service) markSmartFilmAssetsConfirmedIfReady(projectID, unitID string) {
 	pending, err := s.repo.PendingProjectAssetCandidateCount(projectID, unitID)
 	if err != nil || pending > 0 {

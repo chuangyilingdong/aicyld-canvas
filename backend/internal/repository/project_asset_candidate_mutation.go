@@ -61,3 +61,26 @@ func (r *Repository) ConfirmProjectAssetCandidateActive(userID string, candidate
 		return bumpProjectRevisionTx(tx, candidate.ProjectID, candidate.UpdatedAt)
 	})
 }
+
+// IgnoreProjectAssetCandidateActive treats an optional extraction as handled
+// without creating a project asset. The project revision still advances so an
+// open editor cannot save the pre-ignore candidate state back over this choice.
+func (r *Repository) IgnoreProjectAssetCandidateActive(userID string, candidate *model.ProjectAssetCandidate) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if _, err := requireActiveProjectTx(tx, userID, candidate.ProjectID); err != nil {
+			return err
+		}
+		result := tx.Model(&model.ProjectAssetCandidate{}).
+			Where("id = ? AND project_id = ? AND status = ?", candidate.ID, candidate.ProjectID, "pending_confirmation").
+			Updates(map[string]any{
+				"status": candidate.Status, "resolved_asset_id": "", "updated_at": candidate.UpdatedAt,
+			})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return gorm.ErrInvalidData
+		}
+		return bumpProjectRevisionTx(tx, candidate.ProjectID, candidate.UpdatedAt)
+	})
+}

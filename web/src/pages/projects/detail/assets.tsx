@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { keepPreviousData, useMutation, useMutationState, useQuery, useQueryClient } from "@tanstack/react-query";
-import { App, Button, Dropdown, Form, Input, Modal, Popconfirm, Tabs, type FormInstance } from "antd";
-import { Box, Check, ChevronDown, Download, FileText, FolderOpen, FolderPlus, Image as ImageIcon, Link2, MoreHorizontal, MoveRight, Music2, Pencil, Plus, RefreshCw, Search, Sparkles, Trash2, Upload, UserRound, Video, VolumeX } from "lucide-react";
+import { App, Button, Collapse, Dropdown, Form, Input, Modal, Popconfirm, type FormInstance } from "antd";
+import { Box, Check, ChevronDown, Download, FileText, FolderOpen, FolderPlus, Image as ImageIcon, Link2, MoreHorizontal, MoveRight, Music2, Pencil, Plus, RefreshCw, Search, Sparkles, Trash2, Upload, UserRound, Video, VolumeX, XCircle } from "lucide-react";
 
 import { WorkspaceState } from "@/components/layout/workspace-state";
 import { PaginationBar } from "@/components/layout/workspace-page";
@@ -29,6 +29,7 @@ import {
     deleteProjectAssetFolder,
     getProjectCharacter,
     getProjectCore,
+    ignoreProjectAssetCandidate,
     linkProjectAsset,
     listProjectAssetCandidates,
     listProjectAssetFolders,
@@ -341,6 +342,19 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
         onError: failed("资产确认失败"),
     });
     const confirmingCandidateId = confirmMutation.isPending ? confirmMutation.variables?.candidateId || "" : "";
+    const ignoreMutation = useMutation({
+        mutationFn: (candidateId: string) => ignoreProjectAssetCandidate(detail.project.id, candidateId),
+        onSuccess: (_result, candidateId) => {
+            queryClient.setQueriesData<ProjectAssetCandidatePage>({ queryKey: ["project", detail.project.id, "asset-candidates"] }, (current) => current ? removeProjectAssetCandidateFromPage(current, candidateId) : current);
+            void Promise.all([
+                queryClient.invalidateQueries({ queryKey: ["project", detail.project.id, "asset-candidates"] }),
+                queryClient.invalidateQueries({ queryKey: ["project", detail.project.id] }),
+            ]).then(() => refreshProject());
+            message.success("已忽略这个资产，不会影响进入分镜");
+        },
+        onError: failed("忽略资产失败"),
+    });
+    const ignoringCandidateId = ignoreMutation.isPending ? ignoreMutation.variables || "" : "";
     const updateCandidatePromptMutation = useMutation({
         mutationFn: async ({ candidate, prompt }: { candidate: ProjectAssetCandidate; prompt: string }) => {
             const latest = await getProjectCore(detail.project.id);
@@ -590,6 +604,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
                             <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                                 {pendingCandidates.map((candidate) => {
                                     const confirming = confirmingCandidateId === candidate.id;
+                                    const ignoring = ignoringCandidateId === candidate.id;
                                     const generatingImage = candidateImageGeneration.generatingIds.has(candidate.id);
                                     const isCharacter = candidate.category === "character";
                                     const matchingExistingAssets = !isCharacter
@@ -604,18 +619,19 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
                                                 <div className="truncate text-xs font-semibold">{candidate.name}</div>
                                                 <p className="mt-1 line-clamp-2 text-[var(--fs-tiny)] leading-4 text-foreground/52">{assetCandidatePromptPreview(candidate)}</p>
                                                 <div className="mt-1 truncate text-[var(--fs-tiny)] text-foreground/42">
-                                                    待确认{categoryLabel(candidate.category)} · {candidate.previewResourceId ? "资产图已生成" : isCharacter ? "来自章节分析，确认后为文本角色设定" : "未生成资产图，暂不能确认"}
+                                                    可选{categoryLabel(candidate.category)} · {candidate.previewResourceId ? "资产图已生成" : isCharacter ? "已有角色图时可直接使用已有角色" : "不生成也可以忽略并继续"}
                                                     {candidate.previewModel ? ` · ${candidate.previewModel}` : ""}
                                                     {candidate.previewPoints ? ` · ${candidate.previewPoints} 积分` : ""}
                                                 </div>
-                                                {!isCharacter && !candidate.previewResourceId ? <div className="mt-1 text-[var(--fs-tiny)] leading-4 text-foreground/38">请先生成资产图。未生成资产图的内容不能绑定镜头或参与分镜生图。</div> : null}
+                                                {!isCharacter && !candidate.previewResourceId ? <div className="mt-1 text-[var(--fs-tiny)] leading-4 text-foreground/38">需要视觉参考时再生成；不需要时选择“不使用”，不会阻止进入分镜。</div> : null}
                                                 <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1">
                                                     <Button type="text" size="small" icon={<Pencil className="size-3.5" />} disabled={generatingImage} onClick={() => { setCandidatePromptEditing(candidate); setCandidatePromptDraft(assetCandidatePromptValue(candidate)); }}>修改提示词</Button>
                                                     {matchingExistingAssets.length ? <Dropdown trigger={["click"]} menu={{ items: matchingExistingAssets.map((asset) => ({ key: asset.id, label: asset.title })), onClick: ({ key }) => confirmMutation.mutate({ candidateId: candidate.id, targetAssetId: key }) }}><Button type="text" size="small" disabled={Boolean(confirmingCandidateId && !confirming) || generatingImage}>使用已有素材<ChevronDown className="size-3" /></Button></Dropdown> : null}
                                                     {!isCharacter ? <Button type="text" size="small" icon={<Sparkles className="size-3.5" />} loading={generatingImage} disabled={generatingImage} onClick={() => void candidateImageGeneration.generate(candidate)}>{candidate.previewResourceId ? "重新生成资产图" : "生成资产图"}</Button> : null}
                                                     {candidate.previews?.length ? <Button type="text" size="small" icon={<ImageIcon className="size-3.5" />} disabled={generatingImage} onClick={() => setCandidateHistoryId(candidate.id)}>历史 {candidate.previews.filter((preview) => preview.status !== "deleted").length}</Button> : null}
+                                                    {isCharacter && characterAssets.length ? <Dropdown trigger={["click"]} menu={{ items: characterAssets.map((asset) => ({ key: asset.id, label: asset.title })), onClick: ({ key }) => confirmMutation.mutate({ candidateId: candidate.id, targetAssetId: key }) }}><Button type="text" size="small" disabled={Boolean(confirmingCandidateId)}>使用已有角色<ChevronDown className="size-3" /></Button></Dropdown> : null}
                                                     <Button type="text" size="small" icon={<Check className="size-3.5" />} loading={confirming} disabled={(Boolean(confirmingCandidateId) && !confirming) || generatingImage || (!isCharacter && !candidate.previewResourceId)} title={isCharacter ? "确认角色设定并加入下方「已确认资产」" : "将当前资产图设为正式项目资产；确认后会移到下方「已确认资产」，可绑定到镜头"} onClick={() => confirmMutation.mutate({ candidateId: candidate.id })}>{isCharacter ? "确认并加入角色库" : candidate.previewResourceId ? "确认并加入资产库" : "需先生成资产图"}</Button>
-                                                    {isCharacter && characterAssets.length ? <Dropdown trigger={["click"]} menu={{ items: characterAssets.map((asset) => ({ key: asset.id, label: asset.title })), onClick: ({ key }) => confirmMutation.mutate({ candidateId: candidate.id, targetAssetId: key }) }}><Button type="text" size="small" disabled={Boolean(confirmingCandidateId)}>归并到角色<ChevronDown className="size-3" /></Button></Dropdown> : null}
+                                                    <Button type="text" danger size="small" icon={<XCircle className="size-3.5" />} loading={ignoring} disabled={generatingImage || confirming || Boolean(ignoringCandidateId && !ignoring)} title="不做成资产，也不会阻止进入分镜" onClick={() => ignoreMutation.mutate(candidate.id)}>不使用</Button>
                                                 </div>
                                             </div>
                                         </article>
@@ -868,7 +884,39 @@ function CharacterEditorModal({ open, editing, form, loading, onClose, onSave }:
     const input = (key: CharacterFormKey) => <Form.Item name={key} label={field(key)[1]}><Input /></Form.Item>;
     return <Modal className="workspace-modal workspace-modal-wide library-modal" title={null} open={open} forceRender okText={editing ? "保存角色设定" : "创建角色卡"} cancelText="取消" okButtonProps={{ loading }} onCancel={onClose} onOk={onSave} styles={{ body: { paddingTop: 0 } }}>
         <div className="mb-1 pb-4"><div className="text-[var(--fs-label)] font-medium text-foreground/52">角色设定</div><h2 className="mt-1 text-xl font-semibold">{editing ? "调整角色设定" : "建立一张角色卡"}</h2></div>
-        <Form form={form} layout="vertical" requiredMark={false} className="pt-2"><Form.Item name="name" label="角色名称" rules={[{ required: true, message: "请输入角色名称" }]}><Input size="large" placeholder="例如：林默" /></Form.Item><Tabs items={[{ key: "identity", label: "身份与外观", forceRender: true, children: <div className="grid gap-x-5 sm:grid-cols-2">{input("role")}{input("aliases")}{textArea("appearance", 4)}{input("physique")}{input("clothing")}{input("props")}{textArea("consistencyPrompt", 4)}{textArea("multiViewPrompt", 3)}</div> }, { key: "performance", label: "表演与声音", forceRender: true, children: <div className="grid gap-x-5 sm:grid-cols-2">{textArea("personality", 4)}{input("voiceLanguage")}{input("voiceAge")}{input("voiceTimbre")}</div> }]} /></Form>
+        <Form form={form} layout="vertical" requiredMark={false} className="pt-2">
+            <div className="mb-4 rounded-lg border border-border/70 bg-foreground/[.025] px-3 py-2 text-xs leading-5 text-foreground/52">
+                只需要名称和一张角色图。剧情定位、外貌、服装、声音等均可留空，不影响进入分镜。
+            </div>
+            <Form.Item name="name" label="角色名称" rules={[{ required: true, message: "请输入角色名称" }]}>
+                <Input size="large" placeholder="例如：林默" />
+            </Form.Item>
+            <Collapse
+                ghost
+                size="small"
+                items={[{
+                    key: "optional-details",
+                    forceRender: true,
+                    label: "补充设定（可选）",
+                    children: (
+                        <div className="grid gap-x-5 pt-1 sm:grid-cols-2">
+                            {input("role")}
+                            {input("aliases")}
+                            {textArea("appearance", 3)}
+                            {input("physique")}
+                            {input("clothing")}
+                            {input("props")}
+                            {textArea("consistencyPrompt", 3)}
+                            {textArea("multiViewPrompt", 3)}
+                            {textArea("personality", 3)}
+                            {input("voiceLanguage")}
+                            {input("voiceAge")}
+                            {input("voiceTimbre")}
+                        </div>
+                    ),
+                }]}
+            />
+        </Form>
     </Modal>;
 }
 

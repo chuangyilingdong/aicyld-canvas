@@ -11,6 +11,7 @@ import { WorkspacePage } from "@/components/layout/workspace-page";
 import { ASSET_CATEGORY_LABELS, normalizeAssetCategory, type AssetCategory } from "@/lib/asset-category";
 import { createStyleProfileSnapshot, serializeStyleProfile } from "@/lib/canvas/style-profile";
 import type { SmartFilmScriptReference } from "@/lib/canvas/smart-film-scripts";
+import { characterReferenceDisplayName, needsPlatformDefaultSkillConfirmation, SMART_FILM_LAST_SKILL_STORAGE_KEY } from "@/lib/canvas/smart-film-reference-defaults";
 import { uploadWorkspaceAssetFiles } from "@/services/workspace-asset-upload";
 import { createSmartFilmBatch, saveSmartFilmBatchScripts, type SmartFilmReferenceRole, type SmartFilmSkillSnapshot } from "@/services/api/smart-film-batches";
 import { backendProviderConfig } from "@/services/api/generation-task";
@@ -35,7 +36,7 @@ const REFERENCE_ROLE_OPTIONS: Array<{ value: BatchReferenceRole; label: string; 
 
 export default function SmartFilmBatchNewPage() {
     const navigate = useNavigate();
-    const { message } = App.useApp();
+    const { message, modal } = App.useApp();
     const effectiveConfig = useEffectiveConfig();
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const assets = useAssetStore((state) => state.assets);
@@ -46,7 +47,14 @@ export default function SmartFilmBatchNewPage() {
     const [productAssetIds, setProductAssetIds] = useState<string[]>([]);
     const [referenceRoles, setReferenceRoles] = useState<Record<string, BatchReferenceRole>>({});
     const [referenceNames, setReferenceNames] = useState<Record<string, string>>({});
-    const [selectedSkillId, setSelectedSkillId] = useState("");
+    const [selectedSkillId, setSelectedSkillId] = useState(() => {
+        if (typeof window === "undefined") return "";
+        try {
+            return window.localStorage.getItem(SMART_FILM_LAST_SKILL_STORAGE_KEY) || "";
+        } catch {
+            return "";
+        }
+    });
     const [scriptCount, setScriptCount] = useState<number | null>(3);
     const [aspectRatio, setAspectRatio] = useState("9:16");
     const [selectedStyle, setSelectedStyle] = useState<CanvasStylePreset | null>(null);
@@ -74,6 +82,11 @@ export default function SmartFilmBatchNewPage() {
         productAssets.filter((asset) => (referenceRoles[asset.id] || "prop") === option.value),
     ])) as Record<BatchReferenceRole, ImageAsset[]>;
     const selectedSkill = useMemo<Skill | undefined>(() => installedSkills.find((skill) => skill.skillId === selectedSkillId), [installedSkills, selectedSkillId]);
+    useEffect(() => {
+        if (skillsLoading || !selectedSkillId) return;
+        if (installedSkills.some((skill) => skill.skillId === selectedSkillId)) return;
+        setSelectedSkillId("");
+    }, [installedSkills, selectedSkillId, skillsLoading]);
     const productPickerItems = useMemo<AssetLibraryPickerItem[]>(() => assets
         .filter((asset) => asset.kind === "image" && asset.status !== "archived")
         .map((asset) => ({
@@ -116,6 +129,7 @@ export default function SmartFilmBatchNewPage() {
     const createBatch = async () => {
         const sourceText = idea.trim();
         const resolvedScriptCount = Number(scriptCount) || 0;
+        if (skillsLoading) return message.warning("正在读取技能库，请稍候再生成剧本");
         const resolvedTextModel = textModel || effectiveConfig.textModel;
         const resolvedImageModel = imageModel || effectiveConfig.imageModel;
         const resolvedVideoModel = videoModel || effectiveConfig.videoModel;
@@ -123,11 +137,27 @@ export default function SmartFilmBatchNewPage() {
         if (resolvedScriptCount < 1 || resolvedScriptCount > 10) return message.warning("剧本数量需要在 1–10 条之间");
         if (productAssetIds.length > MAX_BATCH_PRODUCT_IMAGES) return message.warning(`参考图最多 ${MAX_BATCH_PRODUCT_IMAGES} 张`);
         const characterAssets = productAssets.filter((asset) => referenceRoles[asset.id] === "character");
-        const inputAssetNames = Object.fromEntries(characterAssets.map((asset) => [asset.id, (referenceNames[asset.id] || asset.title).trim()]));
+        const inputAssetNames = Object.fromEntries(characterAssets.map((asset, index) => [
+            asset.id,
+            (referenceNames[asset.id] || characterReferenceDisplayName(asset.title, index)).trim(),
+        ]));
         if (characterAssets.some((asset) => !inputAssetNames[asset.id])) return message.warning("请为每个人物参考图填写人物名称");
         if (!resolvedTextModel || !resolvedImageModel || !resolvedVideoModel) return message.warning("请先选择文本、图片和视频模型");
         if ([resolvedTextModel, resolvedImageModel, resolvedVideoModel].some((model) => !isAiConfigReady(effectiveConfig, model))) {
             return message.warning("所选模型当前不可用，请先检查模型配置");
+        }
+        if (needsPlatformDefaultSkillConfirmation(installedSkills.length, selectedSkillId)) {
+            const usePlatformDefault = await new Promise<boolean>((resolve) => {
+                modal.confirm({
+                    title: "本批次未选择制作 Skill",
+                    content: "继续后将使用平台默认规则，不会加载你已经安装的 Skill。角色、资产、分镜和视频阶段都会使用平台规则。",
+                    okText: "使用平台默认",
+                    cancelText: "返回选择 Skill",
+                    onOk: () => resolve(true),
+                    onCancel: () => resolve(false),
+                });
+            });
+            if (!usePlatformDefault) return;
         }
         setGenerating(true);
         setGenerationProgress(5);
@@ -238,7 +268,7 @@ export default function SmartFilmBatchNewPage() {
                                         </div>
                                     </header>
                                     <div className="smart-film-product-grid">
-                                        {roleAssets.map((asset) => (
+                                        {roleAssets.map((asset, index) => (
                                             <div className="smart-film-product-card" key={asset.id}>
                                                 <CachedResourceImage storageKey={asset.data.storageKey} src={asset.data.dataUrl} alt={asset.title} eager />
                                                 {option.value === "character" ? (
@@ -246,7 +276,7 @@ export default function SmartFilmBatchNewPage() {
                                                         size="small"
                                                         className="smart-film-character-name"
                                                         maxLength={80}
-                                                        value={referenceNames[asset.id] ?? asset.title}
+                                                        value={referenceNames[asset.id] ?? characterReferenceDisplayName(asset.title, index)}
                                                         placeholder="填写人物名称"
                                                         aria-label={`${asset.title} 的人物名称`}
                                                         onChange={(event) => setReferenceNames((current) => ({ ...current, [asset.id]: event.target.value }))}
@@ -260,11 +290,11 @@ export default function SmartFilmBatchNewPage() {
                             );
                         })}
                     </div>
-                    <small className="smart-film-product-hint">参考图合计最多 {MAX_BATCH_PRODUCT_IMAGES} 张；人物参考必须填写名称。同一人物的正面、侧面、背面等视图请使用相同名称，系统会按该名称归为一组并一起引用。</small>
+                    <small className="smart-film-product-hint">参考图合计最多 {MAX_BATCH_PRODUCT_IMAGES} 张。人物图会自动使用素材名；素材名为“生成图片”时会依次命名为“角色 1、角色 2”，你可以直接使用或修改。</small>
                     <div className="smart-film-skill-select-row">
                         <div>
                             <strong>制作技能</strong>
-                            <span>整个批次固定使用一个完整 Skill 包；不选择时使用平台默认规则。</span>
+                            <span>{selectedSkillId ? "整个批次固定使用这个 Skill；创建项目后不可更换。" : installedSkills.length ? "当前未选择 Skill；继续制作前会再次确认使用平台默认规则。" : "整个批次固定使用一个完整 Skill 包；没有安装 Skill 时使用平台默认规则。"}</span>
                         </div>
                         <div className="smart-film-skill-select-actions">
                             <Select
@@ -276,7 +306,15 @@ export default function SmartFilmBatchNewPage() {
                                 optionFilterProp="label"
                                 placeholder="选择一个已安装技能（可选）"
                                 options={installedSkills.map((skill) => ({ value: skill.skillId, label: `${skill.skillName} · ${skill.version}` }))}
-                                onChange={(value) => setSelectedSkillId(value || "")}
+                                onChange={(value) => {
+                                    const next = value || "";
+                                    setSelectedSkillId(next);
+                                    try {
+                                        window.localStorage.setItem(SMART_FILM_LAST_SKILL_STORAGE_KEY, next);
+                                    } catch {
+                                        // 浏览器禁用本地存储时只保留当前页面选择。
+                                    }
+                                }}
                                 notFoundContent={skillsLoading ? "正在读取技能库" : "还没有已安装技能"}
                                 aria-label="本批次使用的单一技能"
                             />
@@ -318,8 +356,8 @@ export default function SmartFilmBatchNewPage() {
                         <span>每条剧本都可以单独重新生成、修改和选择是否制作。</span>
                         {generating ? <div className="smart-film-generation-progress"><Progress percent={generationProgress} size="small" /><small>{status || "正在生成剧本候选"}</small></div> : null}
                     </div>
-                    <Button type="primary" size="large" loading={generating || Boolean(uploadingRole)} icon={<Sparkles className="size-4" />} onClick={() => void createBatch()}>
-                        {generating ? `${generationProgress}%` : `生成 ${scriptCount || 0} 条剧本`}
+                    <Button type="primary" size="large" loading={generating || Boolean(uploadingRole) || skillsLoading} icon={<Sparkles className="size-4" />} onClick={() => void createBatch()}>
+                        {generating ? `${generationProgress}%` : skillsLoading ? "正在读取技能库" : `生成 ${scriptCount || 0} 条剧本`}
                     </Button>
                 </div>
             </main>

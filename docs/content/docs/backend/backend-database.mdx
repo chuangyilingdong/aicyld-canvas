@@ -238,6 +238,7 @@ HTTPS 图片提交前读取同源 `/models` 元数据，仅成功响应明确声
 | `GET /api/projects/:id/canvases` | 项目画布与当前页章节关联，使用 `page`、`pageSize` |
 | `GET /api/projects/:id/assets` | 项目资产分页、分类/目录计数，支持分类、媒体类型、目录和关键词筛选 |
 | `GET /api/projects/:id/asset-candidates` | 资产候选分页，支持章节、状态、分类和名称关键词筛选 |
+| `POST /api/projects/:id/asset-candidates/:candidateId/ignore` | 忽略可选资产候选；不创建项目资产，但解除智能成片资产阶段的确认阻塞 |
 
 旧 `GET /api/projects/:id` 暂时保留给尚未迁移的调用方；短剧工作台页面不得重新依赖该整包接口。
 

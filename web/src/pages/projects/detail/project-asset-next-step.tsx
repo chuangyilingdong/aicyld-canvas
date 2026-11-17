@@ -22,7 +22,7 @@ export function ProjectAssetNextStep({
     analysisFailed: boolean;
 }) {
     const navigate = useNavigate();
-    const ready = !analysisRunning && !analysisFailed && !pendingLoading && pendingCount === 0 && hasAssets;
+    const ready = !analysisRunning && !analysisFailed && !pendingLoading && pendingCount === 0;
     const nextHref = unitId ? `/projects/${projectId}/workflow/${unitId}/storyboard` : `/projects/${projectId}/workflow`;
     const title = analysisRunning ? "正在识别剧本资产…" : analysisFailed ? "资产识别失败" : pendingCount > 0 ? `还有 ${pendingCount} 个资产待确认` : ready ? "资产已就绪" : "先准备资产";
     const detail = analysisRunning
@@ -32,8 +32,10 @@ export function ProjectAssetNextStep({
           : pendingCount > 0
             ? "逐项生成并确认资产图，确认后会移入下方「已确认资产」。全部确认后，这里会出现「下一步：分镜制作」。"
             : ready
-              ? "下一步：进入分镜制作，检查并修改分镜提示词，确认后再生成分镜图。"
-              : "上传或引用产品、人物、场景和道具；缺失资产可先生成提示词再确认。";
+              ? hasAssets
+                  ? "下一步：进入分镜制作，检查并修改分镜提示词，确认后再生成分镜图。"
+                  : "可以不生成资产直接进入分镜。未生成资产图的角色、场景和道具会作为文字设定使用。"
+              : "上传或引用产品、人物、场景和道具；也可以在资产库中忽略不需要的识别项。";
     return (
         <section className="mb-4 flex flex-col gap-3 rounded-xl border border-border/70 bg-surface px-4 py-3 sm:flex-row sm:items-center sm:justify-between" aria-label="资产制作下一步" aria-live="polite">
             <div className="min-w-0">

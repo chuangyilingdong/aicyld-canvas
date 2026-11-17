@@ -62,7 +62,7 @@ func TestChapterAssetPromptCarriesExistingAssetsAndDedupRule(t *testing.T) {
 		"项目名称": "咖啡短片", "章节名称": "办公室", "项目画风": "写实电影感", "章节正文": "林夏拿起咖啡杯。",
 		"已有资产": `[{"title":"产品参考","category":"prop"}]`,
 	})
-	if !strings.Contains(protected, `"title":"产品参考"`) || !strings.Contains(protected, "不要再次输出与已有资产表示同一实体") || !strings.Contains(protected, "chapter-assets/v1") {
+	if !strings.Contains(protected, `"title":"产品参考"`) || !strings.Contains(protected, "不要再次输出与已有资产表示同一实体") || !strings.Contains(protected, "characters 必须返回空数组") || !strings.Contains(protected, "【最小资产集】") || !strings.Contains(protected, "chapter-assets/v1") {
 		t.Fatalf("chapter asset prompt missing existing asset context or dedup rule: %q", protected)
 	}
 }

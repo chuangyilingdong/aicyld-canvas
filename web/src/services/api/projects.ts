@@ -704,6 +704,11 @@ export function confirmProjectAssetCandidate(projectId: string, candidateId: str
     return http.post<{ asset: ProjectAsset }>(`/projects/${encodeURIComponent(projectId)}/asset-candidates/${encodeURIComponent(candidateId)}/confirm`, { assetId: assetId || "" });
 }
 
+export function ignoreProjectAssetCandidate(projectId: string, candidateId: string) {
+    return http.post<{ candidate: ProjectAssetCandidate }>(`/projects/${encodeURIComponent(projectId)}/asset-candidates/${encodeURIComponent(candidateId)}/ignore`, {})
+        .then((result) => ({ candidate: normalizeProjectAssetCandidate(result.candidate) }));
+}
+
 export function updateProjectAssetCandidatePreview(projectId: string, candidateId: string, input: {
     resourceId: string;
     taskId?: string;

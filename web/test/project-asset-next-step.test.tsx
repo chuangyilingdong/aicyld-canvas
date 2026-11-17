@@ -29,4 +29,12 @@ describe("project asset next step", () => {
         expect(html).toContain("已完成当前步骤");
         expect(html).toContain("下一步：分镜制作");
     });
+
+    test("does not require a generated or confirmed asset before storyboard", () => {
+        const html = render({ hasAssets: false });
+
+        expect(html).toContain("资产已就绪");
+        expect(html).toContain("可以不生成资产直接进入分镜");
+        expect(html).toContain("下一步：分镜制作");
+    });
 });

@@ -262,28 +262,29 @@ type SmartFilmProductionRunControlRequest struct {
 }
 
 type SmartFilmAssetExtractionWorkItem struct {
-	RunID              string
-	Attempts           int
-	UserID             string
-	BatchID            string
-	ScriptID           string
-	ProjectID          string
-	UnitID             string
-	ProjectName        string
-	ProjectStyle       string
-	ExistingAssets     []SmartFilmStoryboardAsset
-	ScriptTitle        string
-	ScriptContent      string
-	TextModel          string
-	TextConfig         map[string]any
-	LogicalModelID     string
-	ConfigurationError string
-	AssetTaskID        string
-	AssetStatus        string
-	SkillID            string
-	SkillVersionID     string
-	SkillContentHash   string
-	SkillContext       string
+	RunID               string
+	Attempts            int
+	UserID              string
+	BatchID             string
+	ScriptID            string
+	ProjectID           string
+	UnitID              string
+	ProjectName         string
+	ProjectStyle        string
+	ExistingAssets      []SmartFilmStoryboardAsset
+	FixedCharacterCount int
+	ScriptTitle         string
+	ScriptContent       string
+	TextModel           string
+	TextConfig          map[string]any
+	LogicalModelID      string
+	ConfigurationError  string
+	AssetTaskID         string
+	AssetStatus         string
+	SkillID             string
+	SkillVersionID      string
+	SkillContentHash    string
+	SkillContext        string
 }
 
 type SmartFilmStoryboardAsset struct {

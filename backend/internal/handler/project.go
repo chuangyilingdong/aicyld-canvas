@@ -980,25 +980,7 @@ func RegisterProjectRoutes(r *gin.RouterGroup, owners workspaceOwners, projects 
 		}
 		ok(c, result)
 	})
-	r.POST("/projects/:id/asset-candidates/:candidateId/confirm", func(c *gin.Context) {
-		user, err := currentUser(c, owners)
-		if err != nil {
-			failService(c, err)
-			return
-		}
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 64<<10)
-		var req localproject.ConfirmProjectAssetCandidateRequest
-		if err := c.ShouldBindJSON(&req); err != nil {
-			fail(c, http.StatusBadRequest, err)
-			return
-		}
-		asset, err := projects.ConfirmProjectAssetCandidate(user.ID, c.Param("id"), c.Param("candidateId"), req)
-		if err != nil {
-			failService(c, err)
-			return
-		}
-		ok(c, gin.H{"asset": asset})
-	})
+	RegisterProjectAssetCandidateMutationRoutes(r, owners, projects)
 	r.GET("/projects/:id/chapter-apply-receipts", func(c *gin.Context) {
 		user, err := currentUser(c, owners)
 		if err != nil {

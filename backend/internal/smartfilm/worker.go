@@ -256,8 +256,23 @@ func (w *Worker) applyAssetExtraction(item localproject.SmartFilmAssetExtraction
 	if err != nil {
 		return nil, err
 	}
+	candidates := assetExtractionCandidateInputs(item, payload)
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+	return w.Projects.CreateProjectAssetCandidates(item.UserID, item.ProjectID, localproject.CreateAssetCandidatesRequest{
+		Candidates: candidates, Source: localproject.AssetCandidateSourceChapterCharacter, SourceTaskID: task.ID,
+	})
+}
+
+func assetExtractionCandidateInputs(item localproject.SmartFilmAssetExtractionWorkItem, payload map[string]any) []localproject.AssetCandidateInput {
 	candidates := make([]localproject.AssetCandidateInput, 0)
+	characterCount := len(JSONArray(payload["characters"]))
+	skipExtractedCharacters := item.FixedCharacterCount > 0 && item.FixedCharacterCount >= characterCount
 	for _, raw := range JSONArray(payload["characters"]) {
+		if skipExtractedCharacters {
+			break
+		}
 		details := JSONMap(raw)
 		name := strings.TrimSpace(JSONString(details["name"]))
 		if name == "" {
@@ -278,12 +293,7 @@ func (w *Worker) applyAssetExtraction(item localproject.SmartFilmAssetExtraction
 			candidates = append(candidates, localproject.AssetCandidateInput{UnitID: item.UnitID, Name: name, Category: group.category, Details: details})
 		}
 	}
-	if len(candidates) == 0 {
-		return nil, nil
-	}
-	return w.Projects.CreateProjectAssetCandidates(item.UserID, item.ProjectID, localproject.CreateAssetCandidatesRequest{
-		Candidates: candidates, Source: localproject.AssetCandidateSourceChapterCharacter, SourceTaskID: task.ID,
-	})
+	return candidates
 }
 
 func (w *Worker) submitStoryboard(item localproject.SmartFilmStoryboardWorkItem) (*model.Task, error) {

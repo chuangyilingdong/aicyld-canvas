@@ -128,6 +128,28 @@ func TestWorkerProcessSubmitsAndCompletesStoryboardWithEncryptedCustomConfig(t *
 	}
 }
 
+func TestAssetExtractionCandidateInputsKeepsFixedCharacterCast(t *testing.T) {
+	payload := map[string]any{
+		"characters": []any{
+			map[string]any{"name": "小满"},
+			map[string]any{"name": "阿豆"},
+		},
+		"scenes": []any{map[string]any{"name": "发光水母灯海", "description": "海底灯海", "prompt": "海底灯海"}},
+		"props":  []any{map[string]any{"name": "手电", "description": "手电", "prompt": "手电"}},
+	}
+	inputs := assetExtractionCandidateInputs(localproject.SmartFilmAssetExtractionWorkItem{
+		UnitID: "unit-1", FixedCharacterCount: 2,
+	}, payload)
+	if len(inputs) != 2 {
+		t.Fatalf("candidate count = %d, want scene and prop only", len(inputs))
+	}
+	for _, input := range inputs {
+		if input.Category == "character" {
+			t.Fatalf("fixed character cast leaked back as candidate: %+v", input)
+		}
+	}
+}
+
 func TestWorkerAssetFailureKeepsTaskIDForRetry(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:"+kernel.NewID()+"?mode=memory&cache=shared"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	testutil.CloseDBOnCleanup(t, db)

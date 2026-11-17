@@ -1174,6 +1174,35 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
+  /projects/{id}/asset-candidates/{candidateId}/ignore:
+    parameters:
+      - { $ref: "#/components/parameters/ProjectId" }
+      - { $ref: "#/components/parameters/CandidateId" }
+    post:
+      tags: [projects]
+      summary: 忽略可选的资产候选
+      description: |
+        将待确认候选标记为 `ignored`，不创建项目资产，也不再阻止智能成片进入分镜。
+        正在生成资产图的候选需等待任务结束后才能忽略；被忽略的候选仍保留原始识别信息。
+      responses:
+        "200":
+          description: "`data.candidate` 为已忽略的资产候选"
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: "#/components/schemas/Envelope" }
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          candidate: { $ref: "#/components/schemas/ProjectAssetCandidate" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
   /projects/{id}/asset-candidates/{candidateId}/previews/{previewId}/select:
     parameters:
       - { $ref: "#/components/parameters/ProjectId" }

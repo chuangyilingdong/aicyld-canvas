@@ -305,18 +305,36 @@ func (s *Service) SmartFilmAssetExtractionWorkItems(limit int) ([]SmartFilmAsset
 		}
 		textModel, textConfig, snapshotErr := s.smartFilmTextStageConfig(config, batch)
 		existingAssets, _ := s.smartFilmStoryboardAssets(run.UserID, run.ProjectID)
+		fixedCharacterCount := smartFilmFixedCharacterCount(config)
 		skillID, skillVersionID, skillContentHash, skillContext := smartFilmSkillStage(config, SmartFilmSkillStageAssets)
 		items = append(items, SmartFilmAssetExtractionWorkItem{
 			RunID: run.ID, Attempts: run.Attempts, UserID: run.UserID, BatchID: run.BatchID, ScriptID: run.ScriptID,
 			ProjectID: run.ProjectID, UnitID: run.UnitID, ProjectName: project.Name, ProjectStyle: stylePrompt,
-			ExistingAssets: existingAssets,
-			ScriptTitle:    script.Title, ScriptContent: script.Content,
+			ExistingAssets:      existingAssets,
+			FixedCharacterCount: fixedCharacterCount,
+			ScriptTitle:         script.Title, ScriptContent: script.Content,
 			TextModel: textModel, TextConfig: textConfig, LogicalModelID: stringValue(textConfig["logicalModelId"]), ConfigurationError: errorText(snapshotErr),
 			AssetTaskID: run.AssetTaskID, AssetStatus: run.AssetStatus,
 			SkillID: skillID, SkillVersionID: skillVersionID, SkillContentHash: skillContentHash, SkillContext: skillContext,
 		})
 	}
 	return items, nil
+}
+
+func smartFilmFixedCharacterCount(config SmartFilmBatchConfig) int {
+	names := make(map[string]struct{})
+	for assetID, role := range config.InputAssetRoles {
+		if strings.TrimSpace(role) != "character" {
+			continue
+		}
+		name := strings.TrimSpace(config.InputAssetNames[assetID])
+		switch model.AssetCandidateNameKey(name) {
+		case "", "生成图片", "图片", "未命名", "未命名图片", "image", "untitled":
+			name = assetID
+		}
+		names[name] = struct{}{}
+	}
+	return len(names)
 }
 
 func (s *Service) SmartFilmStoryboardWorkItems(limit int) ([]SmartFilmStoryboardWorkItem, error) {
