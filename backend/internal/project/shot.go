@@ -573,18 +573,17 @@ func marshalProjectDetails(value map[string]any) (string, error) {
 }
 
 func validateCharacterCandidateDetails(details map[string]any) error {
-	text := func(key string) string {
-		value, _ := details[key].(string)
-		return strings.TrimSpace(value)
-	}
-	descriptiveCount := 0
-	for _, key := range []string{"appearance", "clothing", "physique", "personality", "consistencyPrompt", "multiViewPrompt"} {
-		if text(key) != "" {
-			descriptiveCount++
+	for _, key := range []string{
+		"role", "appearance", "clothing", "physique", "personality",
+		"consistencyPrompt", "multiViewPrompt", "voiceLanguage", "voiceAge", "voiceTimbre",
+	} {
+		value, exists := details[key]
+		if !exists || value == nil {
+			continue
 		}
-	}
-	if text("role") == "" || descriptiveCount < 3 || text("voiceLanguage") == "" || text("voiceAge") == "" || text("voiceTimbre") == "" {
-		return kernel.BadAuthRequest("角色候选必须包含剧情定位、稳定设定和声音画像")
+		if _, ok := value.(string); !ok {
+			return kernel.BadAuthRequest("角色候选设定字段格式无效")
+		}
 	}
 	return nil
 }

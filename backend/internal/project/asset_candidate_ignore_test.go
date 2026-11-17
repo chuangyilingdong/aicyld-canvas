@@ -73,3 +73,40 @@ func TestSmartFilmFixedCharacterCountUsesDistinctMeaningfulNames(t *testing.T) {
 		t.Fatalf("generic titles must remain distinct references = %d, want 2", got)
 	}
 }
+
+func TestSparseCharacterCandidateCanReuseExistingGenericRole(t *testing.T) {
+	svc, _ := newTestService(t, &recordingWorkflows{})
+	project, err := svc.CreateProject("user-1", CreateProjectRequest{Name: "固定角色"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	unit, err := svc.CreateProjectUnit("user-1", project.ID, CreateProjectUnitRequest{Title: "第一场", SourceText: "小邮送信"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	character, err := svc.CreateProjectCharacter("user-1", project.ID, CreateProjectCharacterRequest{
+		Name: "生成图片",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidates, err := svc.CreateProjectAssetCandidates("user-1", project.ID, CreateAssetCandidatesRequest{
+		Source: AssetCandidateSourceChapterCharacter,
+		Candidates: []AssetCandidateInput{{
+			UnitID: unit.ID, Name: "小邮", Category: string(model.AssetCategoryCharacter),
+			Details: map[string]any{"role": "负责送信的邮差"},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	confirmed, err := svc.ConfirmProjectAssetCandidate("user-1", project.ID, candidates[0].ID, ConfirmProjectAssetCandidateRequest{
+		AssetID: character.Asset.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if confirmed.ID != character.Asset.ID || confirmed.Title != "小邮" {
+		t.Fatalf("confirmed reused role = %+v, want generic title replaced by candidate name", confirmed)
+	}
+}

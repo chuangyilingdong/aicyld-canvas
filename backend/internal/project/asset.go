@@ -464,8 +464,12 @@ func (s *Service) ConfirmProjectAssetCandidate(userID string, projectID string, 
 		if mergeErr != nil {
 			return AssetSummary{}, mergeErr
 		}
+		nextTitle := asset.Title
+		if genericCharacterAssetTitle(nextTitle) {
+			nextTitle = candidate.Name
+		}
 		expectedPrimary := asset.PrimaryVersionID
-		nextAsset, nextVersion, representations, voice, prepareErr := s.prepareNextCharacterVersion(asset, asset.Title, definition, nil, nil, false)
+		nextAsset, nextVersion, representations, voice, prepareErr := s.prepareNextCharacterVersion(asset, nextTitle, definition, nil, nil, false)
 		if prepareErr != nil {
 			return AssetSummary{}, prepareErr
 		}
@@ -552,6 +556,15 @@ func (s *Service) ConfirmProjectAssetCandidate(userID string, projectID string, 
 	}
 	s.markSmartFilmAssetsConfirmedIfReady(projectID, candidate.UnitID)
 	return summary, nil
+}
+
+func genericCharacterAssetTitle(title string) bool {
+	switch model.AssetCandidateNameKey(title) {
+	case "", "生成图片", "图片", "未命名", "未命名图片", "image", "untitled":
+		return true
+	default:
+		return false
+	}
 }
 
 // IgnoreProjectAssetCandidate lets a creator keep an extracted asset as text
