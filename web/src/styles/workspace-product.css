@@ -84,7 +84,7 @@
 .libtv-project-subbar-actions { color: var(--user-ink-muted); font-size: 12px; font-weight: 400; }
 .app-user-workspace .lib-tv-project-page .canvas-collection-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 24px 16px; }
 .libtv-create-project-entry { min-width: 0; align-self: start; }
-.libtv-create-project-card { display: flex; min-width: 0; align-self: start; aspect-ratio: 16 / 9; flex-direction: column; align-items: center; justify-content: center; gap: 8px; border: 1px solid transparent; border-radius: 16px; background: var(--user-surface-muted); color: var(--user-ink); cursor: pointer; transition: border-color var(--user-motion), background var(--user-motion), transform var(--user-motion); }
+.libtv-create-project-card { display: flex; width: 100%; min-width: 0; align-self: start; aspect-ratio: 16 / 9; flex-direction: column; align-items: center; justify-content: center; gap: 8px; border: 1px solid transparent; border-radius: 16px; background: var(--user-surface-muted); padding: 0; color: var(--user-ink); cursor: pointer; font: inherit; text-align: center; transition: border-color var(--user-motion), background var(--user-motion), transform var(--user-motion); }
 .libtv-create-project-card:hover { border-color: var(--user-accent); background: var(--user-surface-hover); transform: translateY(-1px); }
 .libtv-create-project-card:focus-visible { outline: 2px solid var(--user-accent); outline-offset: 3px; }
 .libtv-create-project-icon { display: grid; width: 16px; height: 16px; place-items: center; color: var(--user-ink-soft); }

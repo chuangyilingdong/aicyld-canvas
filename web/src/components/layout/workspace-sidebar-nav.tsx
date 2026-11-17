@@ -46,13 +46,13 @@ function buildNav(features: FeatureAvailability): { groups: WorkspaceNavGroup[];
     const groups: WorkspaceNavGroup[] = [
         {
             items: [
-                { id: "new", title: "新建项目", icon: Plus, to: "/canvas?mode=new" },
+                { id: "new", title: "新建项目", icon: Plus, to: "/projects?mode=new" },
             ],
         },
         {
             items: [
                 { id: "home", title: "首页", icon: Home, to: "/" },
-                { ...toolItem("canvas", "/project"), title: "项目" },
+                { ...toolItem("canvas", "/projects"), title: "项目" },
                 { ...toolItem("assets", "/assets"), title: "资产" },
                 { ...toolItem("skills", "/skills"), title: "技能" },
                 { id: "settings:channels", title: "模型配置", icon: Settings2, to: "/settings?section=channels" },
@@ -266,8 +266,8 @@ export function WorkspaceSidebarNav({ collapsed, onNavigate, onOpenSearch, onExp
     const { groups, footer } = useMemo(() => buildNav(features), [features]);
 
     const rawSlug = pathname.split("/").filter(Boolean)[0] || "home";
-    // `/project` is the LibTV-compatible alias for the existing canvas library route.
-    const slug = rawSlug === "project" ? "canvas" : rawSlug;
+    // 旧项目库地址仍应高亮“项目”，画布编辑器也属于同一项目域。
+    const slug = rawSlug === "project" || rawSlug === "projects" ? "canvas" : rawSlug;
     const section = searchParams.get("section");
     const activeId = slug === "settings" && section ? `settings:${section}` : slug;
 

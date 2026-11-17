@@ -32,18 +32,18 @@ export default function SmartFilmBatchListPage() {
 
     const deleteBatch = (batch: SmartFilmBatch) => {
         modal.confirm({
-            title: `删除批次「${batch.title}」？`,
-            content: "批次记录、剧本和批次运行记录会被删除；已经创建的项目会保留并转为独立项目。生成中的批次需要等待任务结束后才能删除。",
-            okText: "删除批次",
+            title: `删除剧本生成记录「${batch.title}」？`,
+            content: "生成记录、剧本和后台运行记录会被删除；已经创建的项目会保留并转为独立项目。生成中的记录需要等待任务结束后才能删除。",
+            okText: "删除记录",
             okButtonProps: { danger: true },
             cancelText: "取消",
             onOk: async () => {
                 try {
                     await deleteSmartFilmBatch(batch.id);
-                    message.success("批次已删除，已有项目已保留");
+                    message.success("生成记录已删除，已有项目已保留");
                     await queryClient.invalidateQueries({ queryKey: ["smart-film-batches"] });
                 } catch (error) {
-                    message.error(error instanceof Error ? error.message : "批次删除失败");
+                    message.error(error instanceof Error ? error.message : "生成记录删除失败");
                     throw error;
                 }
             },
@@ -54,13 +54,13 @@ export default function SmartFilmBatchListPage() {
         <WorkspacePage className="smart-film-page smart-film-batch-page">
             <header className="smart-film-hero">
                 <div>
-                    <span className="smart-film-eyebrow"><Clapperboard className="size-3.5" /> FILM BATCHES</span>
-                    <h1>多剧本批次</h1>
-                    <p>找回已经生成或正在后台制作的批次，继续确认资产、分镜和镜头视频。</p>
+                    <span className="smart-film-eyebrow"><Clapperboard className="size-3.5" /> FILM RECORDS</span>
+                    <h1>剧本生成记录</h1>
+                    <p>找回已经生成或正在后台制作的多剧本记录，继续确认资产、分镜和镜头视频。</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                     <Button icon={<ArrowLeft className="size-4" />} onClick={() => navigate("/smart-film")}>返回智能成片</Button>
-                    <Button type="primary" icon={<Plus className="size-4" />} onClick={() => navigate("/smart-film/batches/new")}>新建批次</Button>
+                    <Button type="primary" icon={<Plus className="size-4" />} onClick={() => navigate("/smart-film/batches/new")}>新建多剧本项目</Button>
                 </div>
             </header>
 
@@ -78,19 +78,19 @@ export default function SmartFilmBatchListPage() {
                                 { value: "confirmed", label: "已确认" },
                             ]}
                         />
-                        <span className="text-xs text-foreground/45">共 {listQuery.data?.total || 0} 个批次</span>
+                        <span className="text-xs text-foreground/45">共 {listQuery.data?.total || 0} 条记录</span>
                     </div>
                     <Button icon={<RefreshCcw className="size-4" />} loading={listQuery.isFetching} onClick={() => void listQuery.refetch()}>刷新</Button>
                 </div>
 
                 {listQuery.isLoading ? (
-                    <div className="smart-film-batch-empty">正在读取批次…</div>
+                    <div className="smart-film-batch-empty">正在读取生成记录…</div>
                 ) : !listQuery.data?.batches.length ? (
                     <div className="smart-film-script-empty">
                         <Clapperboard className="size-7 text-foreground/30" />
-                        <strong>还没有符合条件的批次</strong>
-                        <span>新建一个批次，让每条剧本成为独立视频项目。</span>
-                        <Button type="primary" onClick={() => navigate("/smart-film/batches/new")}>新建批次</Button>
+                        <strong>还没有符合条件的生成记录</strong>
+                        <span>从一条想法生成多条剧本，再让每条剧本成为独立视频项目。</span>
+                        <Button type="primary" onClick={() => navigate("/smart-film/batches/new")}>新建多剧本项目</Button>
                     </div>
                 ) : (
                     <div className="smart-film-batch-list-grid">

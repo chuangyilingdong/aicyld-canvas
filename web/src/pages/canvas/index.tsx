@@ -2,10 +2,10 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useS
 import { getCanvasHydrationHealth,subscribeCanvasHydrationHealth } from "@/services/canvas-hydration-health";
 import { useNavigate, useSearchParams } from "react-router";
 import { preloadWorkspaceRoute } from "@/lib/workspace-route-modules";
-import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { App, Button, Dropdown, Input, Modal } from "antd";
 import { Select } from "@/components/ui/base/select";
-import { Clapperboard, Download, FolderPlus, Image as ImageIcon, MoreHorizontal, Pencil, Plus, Trash2, Upload } from "lucide-react";
+import { Archive, Clapperboard, Download, FolderPlus, Image as ImageIcon, MoreHorizontal, Pencil, Plus, Settings2, Trash2, Upload } from "lucide-react";
 
 import { CollectionGrid, PageHeader, WorkspacePage } from "@/components/layout/workspace-page";
 import { ExpandableSearch } from "@/components/layout/expandable-search";
@@ -29,7 +29,7 @@ import { beginLocalCanvasProject, deleteLocalCanvasProjects, hydrateLocalCanvasP
 import { createWorkspaceCanvasProject } from "@/services/workspace-project-repository";
 import { listWorkspaceCanvasProjectsPage, type CanvasLibrarySummary } from "@/services/api/workspace-data";
 import { useUserStore } from "@/stores/use-user-store";
-import { deleteProject, duplicateProject, listProjects, type ProjectSummary } from "@/services/api/projects";
+import { deleteProject, duplicateProject, listProjects, updateProject as updateProjectRecord, type ProjectSummary } from "@/services/api/projects";
 import { projectSummaryStage } from "@/lib/project-workbench";
 import { loadCanvasProjectPage } from "@/lib/workspace-route-modules";
 import { useSyncProgressStore } from "@/stores/use-sync-progress-store";
@@ -53,6 +53,8 @@ export default function CanvasPage() {
     const [sort, setSort] = useState<"updated" | "name" | "nodes">("updated");
     const [projectFilter, setProjectFilter] = useState("all");
     const [folderFilter, setFolderFilter] = useState("all");
+    const [renamingStudioProject, setRenamingStudioProject] = useState<ProjectSummary["project"] | null>(null);
+    const [studioProjectRenameValue, setStudioProjectRenameValue] = useState("");
     const [folderDialogOpen, setFolderDialogOpen] = useState(false);
     const [folderName, setFolderName] = useState("");
     const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
@@ -157,6 +159,29 @@ export default function CanvasPage() {
             message.error(error instanceof Error ? error.message : "创建项目副本失败");
         }
     };
+    const renameStudioProject = useMutation({
+        mutationFn: ({ projectId, name }: { projectId: string; name: string }) => updateProjectRecord(projectId, { name }),
+        onSuccess: async (result) => {
+            setRenamingStudioProject(null);
+            setStudioProjectRenameValue("");
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: ["projects"] }),
+                queryClient.invalidateQueries({ queryKey: ["project", result.project.id] }),
+            ]);
+            message.success("项目已重命名");
+        },
+        onError: (error) => message.error(error instanceof Error ? error.message : "项目重命名失败"),
+    });
+    const toggleStudioProjectArchive = async (item: ProjectSummary) => {
+        try {
+            const nextStatus = item.project.status === "archived" ? "active" : "archived";
+            await updateProjectRecord(item.project.id, { status: nextStatus });
+            await queryClient.invalidateQueries({ queryKey: ["projects"] });
+            message.success(nextStatus === "archived" ? "项目已归档" : "项目已恢复");
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "项目状态更新失败");
+        }
+    };
 
     const mode = searchParams.get("mode");
     const agentMode = mode === "new" || mode === "recent" || mode === "choose";
@@ -235,7 +260,7 @@ export default function CanvasPage() {
     const visibleFolders = folderFilter === "all" ? folders : [];
     const libraryFolders = focusBatchId ? [] : visibleFolders;
     const activeFolder = folderFilter === "all" ? undefined : folders.find((folder) => folder.id === folderFilter);
-    const projectFilterItems = useMemo(() => [{ key: "all", label: "全部画布" }, { key: "independent", label: "自由画布" }, ...(projectQuery.data?.projects || []).map(({ project }) => ({ key: project.id, label: project.name }))], [projectQuery.data]);
+    const projectFilterItems = useMemo(() => [{ key: "all", label: "全部项目" }, { key: "independent", label: "自由项目" }, ...(projectQuery.data?.projects || []).map(({ project }) => ({ key: project.id, label: project.name }))], [projectQuery.data]);
     const saveFolderRename = () => {
         const nextName = folderName.trim() || "未命名文件夹";
         const id = editingFolderId;
@@ -351,7 +376,7 @@ export default function CanvasPage() {
 
     useEffect(() => {
         // Local desktop canvases do not depend on a browser login session. Waiting
-        // for session hydration here can leave /canvas?mode=new on the opening
+        // for session hydration here can leave /projects?mode=new on the opening
         // screen forever after an app restart, even though the local store is
         // already ready. Hosted mode still waits for both session and library.
         if (!hydrated || (remoteMode && (!sessionHydrated || !libraryQuery.isSuccess)) || autoOpenRef.current || (mode !== "new" && mode !== "recent" && mode !== "handoff")) return;
@@ -378,8 +403,8 @@ export default function CanvasPage() {
     return (
         <WorkspacePage className="studio-collection-page lib-tv-project-page">
             <PageHeader
-                title={activeFolder?.name || "全部项目"}
-                leading={activeFolder ? <button type="button" className="libtv-project-breadcrumb-button" onClick={() => setFolderFilter("all")}>全部项目 /</button> : undefined}
+                title={activeFolder?.name || "项目库"}
+                leading={activeFolder ? <button type="button" className="libtv-project-breadcrumb-button" onClick={() => setFolderFilter("all")}>项目库 /</button> : undefined}
                 actions={(
                     <div className="libtv-project-actions">
                     <Button icon={<Clapperboard />} onClick={() => navigate("/smart-film")}>智能成片</Button>
@@ -398,7 +423,7 @@ export default function CanvasPage() {
             <div className="collection-content">
                 {selectedIds.length || exportProgress ? (
                     <div className="collection-selection-bar">
-                        <strong className="mr-auto font-medium">{exportProgress ? "正在导出画布" : `已选 ${selectedIds.length} 个项目`}</strong>
+                        <strong className="mr-auto font-medium">{exportProgress ? "正在导出项目" : `已选 ${selectedIds.length} 个对象`}</strong>
                         {remoteMode ? <>
                             <Button
                                 size="small"
@@ -438,9 +463,9 @@ export default function CanvasPage() {
 
                 {exportError ? <p role="alert" className="mb-4 whitespace-pre-wrap break-words text-sm text-destructive">{exportError}</p> : null}
                 {focusBatchId && visibleStudioProjects.length ? (
-                    <section className="project-batch-focus" role="status" aria-live="polite">
+                    <section className="project-batch-focus" aria-label="刚刚创建的项目">
                         <div>
-                            <strong>刚刚创建的 {visibleStudioProjects.length} 个项目已置顶</strong>
+                            <strong role="status" aria-live="polite">刚刚创建的 {visibleStudioProjects.length} 个项目已置顶</strong>
                             <span>这些项目来自同一批已确认剧本，已高亮并排在最前面。</span>
                         </div>
                         <button type="button" onClick={clearBatchFocus}>查看全部项目</button>
@@ -456,12 +481,13 @@ export default function CanvasPage() {
                     <WorkspaceLoadingState label="正在整理刚创建的项目" detail="确认同批次项目与制作状态" />
                 ) : visibleProjects.length || visibleStudioProjects.length || (!focusBatchId && !keyword && projectFilter === "all") ? (
                     <CollectionGrid className="canvas-collection-grid">
+                        {visibleStudioProjects.length ? <div className="project-library-group-heading"><strong>智能成片项目</strong><span>{visibleStudioProjects.length} 个项目</span></div> : null}
                         {!focusBatchId ? <div className="libtv-create-project-entry">
-                            <article className="libtv-create-project-card" role="button" tabIndex={0} onClick={() => createAndEnter()} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); createAndEnter(); } }}>
+                            <button type="button" className="libtv-create-project-card" onClick={() => createAndEnter()}>
                                 <div className="libtv-create-project-icon"><Plus /></div>
                                 <strong>开始创作</strong>
-                            </article>
-                            <p className="libtv-create-project-subtitle">创建新的视频项目</p>
+                            </button>
+                            <p className="libtv-create-project-subtitle">新建视频项目</p>
                         </div> : null}
                         {libraryFolders.map((folder) => <CanvasLibraryFolderTile key={folder.id} folder={folder} onOpen={() => setFolderFilter(folder.id)} onRename={() => { setFolderName(folder.name); setEditingFolderId(folder.id); setFolderDialogOpen(true); } } onExport={() => void exportFolderProjects(folder)} onDelete={() => setDeletingFolder({ id: folder.id, name: folder.name })} onCoverChange={(dataUrl) => {
                             void persistCanvasFolderCover(folder.id, dataUrl).then(() => {
@@ -477,9 +503,16 @@ export default function CanvasPage() {
                                 onOpen={() => navigate(`/projects/${item.project.id}/overview`)}
                                 onDelete={() => requestDeleteStudioProject(item)}
                                 onDuplicate={() => duplicateStudioProject(item)}
+                                onRename={() => {
+                                    setRenamingStudioProject(item.project);
+                                    setStudioProjectRenameValue(item.project.name);
+                                }}
+                                onOpenSettings={() => navigate(`/projects/${item.project.id}/settings`)}
+                                onArchive={() => void toggleStudioProjectArchive(item)}
                                 newBatch={Boolean(focusBatchId && item.project.batchId === focusBatchId)}
                             />
                         ))}
+                        {visibleProjects.length ? <div className="project-library-group-heading"><strong>项目画布</strong><span>{visibleProjects.length} 个画布</span></div> : null}
                         {visibleProjects.map((project) => (
                             <CanvasFolderCard
                                 key={project.id}
@@ -545,6 +578,37 @@ export default function CanvasPage() {
                 <Input autoFocus value={folderName} placeholder="例如：短片项目" onChange={(event) => setFolderName(event.target.value)} onPressEnter={saveFolderRename} />
             </Modal>
             <Modal
+                title="重命名项目"
+                open={Boolean(renamingStudioProject)}
+                okText="保存"
+                cancelText="取消"
+                confirmLoading={renameStudioProject.isPending}
+                okButtonProps={{ disabled: !studioProjectRenameValue.trim() || renameStudioProject.isPending }}
+                onCancel={() => {
+                    if (renameStudioProject.isPending) return;
+                    setRenamingStudioProject(null);
+                    setStudioProjectRenameValue("");
+                }}
+                onOk={() => {
+                    const name = studioProjectRenameValue.trim();
+                    if (!renamingStudioProject || !name || renameStudioProject.isPending) return;
+                    renameStudioProject.mutate({ projectId: renamingStudioProject.id, name });
+                }}
+            >
+                <Input
+                    autoFocus
+                    maxLength={80}
+                    value={studioProjectRenameValue}
+                    placeholder="请输入项目名称"
+                    onChange={(event) => setStudioProjectRenameValue(event.target.value)}
+                    onPressEnter={() => {
+                        const name = studioProjectRenameValue.trim();
+                        if (!renamingStudioProject || !name || renameStudioProject.isPending) return;
+                        renameStudioProject.mutate({ projectId: renamingStudioProject.id, name });
+                    }}
+                />
+            </Modal>
+            <Modal
                 title="加入项目"
                 open={associationOpen}
                 okText="保存关联"
@@ -577,7 +641,7 @@ export default function CanvasPage() {
     );
 }
 
-function StudioProjectCard({ item, onOpen, onDelete, onDuplicate, newBatch }: { item: ProjectSummary; onOpen: () => void; onDelete: () => void; onDuplicate: () => void; newBatch: boolean }) {
+function StudioProjectCard({ item, onOpen, onDelete, onDuplicate, onRename, onOpenSettings, onArchive, newBatch }: { item: ProjectSummary; onOpen: () => void; onDelete: () => void; onDuplicate: () => void; onRename: () => void; onOpenSettings: () => void; onArchive: () => void; newBatch: boolean }) {
     const stage = projectSummaryStage(item);
     return (
         <LibraryCardShell
@@ -602,7 +666,10 @@ function StudioProjectCard({ item, onOpen, onDelete, onDuplicate, newBatch }: { 
                             onClick: ({ domEvent }) => domEvent.stopPropagation(),
                             items: [
                                 { key: "open", label: "打开项目", onClick: onOpen },
+                                { key: "rename", icon: <Pencil className="size-3.5" />, label: "重命名", onClick: onRename },
                                 { key: "duplicate", label: "创建副本", onClick: onDuplicate },
+                                { key: "settings", icon: <Settings2 className="size-3.5" />, label: "项目设置", onClick: onOpenSettings },
+                                { key: "archive", icon: <Archive className="size-3.5" />, label: item.project.status === "archived" ? "恢复项目" : "归档项目", onClick: onArchive },
                                 { type: "divider" },
                                 { key: "delete", danger: true, label: "删除项目", onClick: onDelete },
                             ],

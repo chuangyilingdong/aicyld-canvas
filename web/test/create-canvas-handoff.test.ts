@@ -168,7 +168,7 @@ test("creation results hand off exact asset ids to one new canvas and consume th
     expect(typeof module.consumeCanvasAssetHandoff).toBe("function");
 
     const path = module.creationCanvasHandoffPath(["asset one", "asset/two", "asset one", ""]);
-    expect(path).toBe("/canvas?mode=handoff&asset=asset+one&asset=asset%2Ftwo");
+    expect(path).toBe("/projects?mode=handoff&asset=asset+one&asset=asset%2Ftwo");
     expect(module.creationCanvasHandoffPath(["asset/two"], 2)).toBeUndefined();
 
     const params = new URLSearchParams("mode=new&asset=asset+one&asset=asset%2Ftwo&asset=asset+one&keep=1");

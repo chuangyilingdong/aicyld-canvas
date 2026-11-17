@@ -146,7 +146,7 @@ export function CanvasSyncStatus({ projectId, onLoadLatest, onOpenVersions }: { 
             if (write.op === "canvas.create") {
                 useCanvasStore.getState().deleteProjects([projectId]);
                 if (typeof window !== "undefined") {
-                    window.location.assign("/canvas");
+                    window.location.assign("/projects");
                 }
                 return;
             }

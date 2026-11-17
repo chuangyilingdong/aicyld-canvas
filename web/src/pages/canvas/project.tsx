@@ -1370,7 +1370,7 @@ function InfiniteCanvasPage() {
             <main className="flex h-full flex-col items-center justify-center gap-4">
                 <p role="alert">{loadError}</p>
                 <Button onClick={retryLoad}>重新加载</Button>
-                <Link to="/canvas">返回画布库</Link>
+                <Link to="/projects">返回项目库</Link>
             </main>
         );
     if (!projectLoaded) return <CanvasRefreshShell />;

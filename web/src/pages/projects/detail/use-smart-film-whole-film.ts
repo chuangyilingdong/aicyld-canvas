@@ -36,7 +36,7 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
         queryFn: ({ signal }) => listGenerationTasks(30, { projectId }, undefined, signal),
         enabled: Boolean(projectId),
         refetchInterval: smartWholeFilm ? 3_000 : 5_000,
-        refetchIntervalInBackground: true,
+        refetchIntervalInBackground: false,
         staleTime: 1_000,
     });
     const unitArtifactsQuery = useQuery({

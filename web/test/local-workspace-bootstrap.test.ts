@@ -31,7 +31,7 @@ test("local workspace bootstrap is the product startup contract", () => {
     expect(router).toContain('path: "/project"');
     expect(router).toContain('path: "/project/:projectId"');
     expect(router).toContain('path: "/project/:projectId/*"');
-    expect(homeDashboard).toContain('to="/project"');
+    expect(homeDashboard).toContain('to="/projects"');
     expect(appTopNav).not.toContain("app-workspace-local-announcement");
     expect(appTopNav).not.toContain("BannerAnnouncementsSlider");
     expect(workspaceProductCss).not.toContain("app-workspace-local-announcement");

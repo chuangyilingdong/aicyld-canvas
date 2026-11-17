@@ -6457,7 +6457,11 @@ html:not(.dark) .creation-studio-control:hover,
     .project-workspace-title { display: flex; min-width: 0; flex-wrap: nowrap; align-items: center; gap: 8px; }
     .project-workspace-title h1 { min-width: 0; max-width: 22ch; margin: 0; overflow: hidden; color: var(--user-ink, var(--foreground)); font-size: 15px; font-weight: 650; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
     .project-workspace-status { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 999px; font-size: 11px; font-weight: 600; line-height: 1; white-space: nowrap; }
-    .project-workspace-status.is-active { background: var(--user-accent-soft, var(--workspace-accent-soft)); color: var(--user-accent, var(--workspace-accent)); }
+    .project-workspace-status.is-in-progress { background: var(--user-accent-soft, var(--workspace-accent-soft)); color: var(--user-accent, var(--workspace-accent)); }
+    .project-workspace-status.is-generating { background: color-mix(in srgb, var(--status-warning) 14%, transparent); color: color-mix(in srgb, var(--status-warning) 78%, var(--user-ink)); }
+    .project-workspace-status.is-draft { background: color-mix(in srgb, var(--foreground) 6%, transparent); color: color-mix(in srgb, var(--foreground) 56%, transparent); }
+    .project-workspace-status.is-attention { background: color-mix(in srgb, var(--status-warning) 16%, transparent); color: color-mix(in srgb, var(--status-warning) 72%, var(--user-ink)); }
+    .project-workspace-status.is-ready { background: color-mix(in srgb, var(--status-success) 14%, transparent); color: color-mix(in srgb, var(--status-success) 76%, var(--user-ink)); }
     .project-workspace-status.is-archived { background: color-mix(in srgb, var(--foreground) 7%, transparent); color: color-mix(in srgb, var(--foreground) 48%, transparent); }
     .project-workspace-tabs {
         display: flex;
@@ -6598,12 +6602,18 @@ html:not(.dark) .creation-studio-control:hover,
     .project-standard-flow-index { position: absolute; top: 13px; right: 13px; display: grid; width: 20px; height: 20px; place-items: center; border: 1px solid var(--border); border-radius: 50%; color: color-mix(in srgb, var(--foreground) 40%, transparent); font-size: var(--fs-micro); font-variant-numeric: tabular-nums; }
     .project-standard-flow-track > a.is-complete { border-color: color-mix(in srgb, var(--status-success) 20%, var(--library-border)); }
     .project-standard-flow-track > a.is-complete .project-standard-flow-index { border-color: color-mix(in srgb, var(--status-success) 45%, transparent); background: color-mix(in srgb, var(--status-success) 12%, transparent); color: var(--status-success); }
+    .project-standard-flow-track > a.is-active { border-color: color-mix(in srgb, var(--workspace-accent) 26%, var(--library-border)); }
+    .project-standard-flow-track > a.is-attention { border-color: color-mix(in srgb, var(--status-warning) 34%, var(--library-border)); }
     .project-standard-flow-index svg { width: 12px; height: 12px; }
     .project-standard-flow-icon { display: grid; width: 28px; height: 28px; place-items: center; border-radius: var(--r-sm); background: color-mix(in srgb, var(--foreground) 6%, transparent); color: color-mix(in srgb, var(--foreground) 58%, transparent); }
     .project-standard-flow-icon svg { width: 15px; height: 15px; }
     .project-standard-flow-track > a > strong { margin-top: 10px; overflow: hidden; font-size: var(--fs-caption); font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
     .project-standard-flow-track > a > p { margin-top: 5px; color: color-mix(in srgb, var(--foreground) 45%, transparent); font-size: var(--fs-label); line-height: 1.55; }
-    .project-standard-flow-track > a > em { align-self: end; margin-top: 12px; color: color-mix(in srgb, var(--foreground) 62%, transparent); font-size: var(--fs-micro); font-style: normal; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .project-standard-flow-track > a > em { margin-top: 12px; color: color-mix(in srgb, var(--foreground) 62%, transparent); font-size: var(--fs-micro); font-style: normal; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .project-standard-flow-state { align-self: end; width: fit-content; margin-top: 8px; border-radius: var(--r-full); background: color-mix(in srgb, var(--foreground) 6%, transparent); padding: 3px 8px; color: color-mix(in srgb, var(--foreground) 52%, transparent); font-size: var(--fs-label); font-weight: 600; }
+    .is-complete > .project-standard-flow-state { background: color-mix(in srgb, var(--status-success) 11%, transparent); color: color-mix(in srgb, var(--status-success) 76%, var(--foreground)); }
+    .is-active > .project-standard-flow-state { background: color-mix(in srgb, var(--workspace-accent) 10%, transparent); color: color-mix(in srgb, var(--workspace-accent) 76%, var(--foreground)); }
+    .is-attention > .project-standard-flow-state { background: color-mix(in srgb, var(--status-warning) 12%, transparent); color: color-mix(in srgb, var(--status-warning) 72%, var(--foreground)); }
     .project-standard-flow-arrow { position: absolute; right: -14px; top: 76px; z-index: 2; width: 17px; height: 17px; padding: 3px; border: 1px solid var(--library-border); border-radius: 50%; background: var(--library-surface); color: color-mix(in srgb, var(--foreground) 38%, transparent); }
     .project-standard-flow-track > a:last-child .project-standard-flow-arrow { display: none; }
     .project-standard-flow-footer { display: grid; grid-template-columns: 1fr auto; gap: 24px; padding: 14px 24px 16px; }
@@ -6740,6 +6750,12 @@ html:not(.dark) .creation-studio-control:hover,
     }
 
     /* 画布与资产网格：呼吸感与统一表面 */
+    .project-workbench-page {
+        --fs-micro: 11px;
+        --fs-tiny: 11px;
+        --fs-label: 12px;
+    }
+
     .project-workbench-page .project-library-grid {
         gap: 26px 20px;
     }

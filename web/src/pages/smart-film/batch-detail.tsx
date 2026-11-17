@@ -242,10 +242,10 @@ export default function SmartFilmBatchDetailPage() {
             const snapshot = skillToApply ? await createSmartFilmSkillSnapshot(skillToApply, installedSkills) : undefined;
             const result = await updateSmartFilmBatchSkill(batch.id, snapshot, batch.revision);
             updateBatch(result.batch);
-            if (snapshot && batch.scripts.length) message.warning("批次技能已更换；已有剧本不会自动重写，请重新生成剧本后再创建项目");
-            else message.success(snapshot ? `本批次已固定使用「${snapshot.name}」` : "本批次已切换为平台默认技能规则");
+            if (snapshot && batch.scripts.length) message.warning("项目技能已更换；已有剧本不会自动重写，请重新生成剧本后再创建项目");
+            else message.success(snapshot ? `本次多剧本项目已固定使用「${snapshot.name}」` : "本次多剧本项目已切换为平台默认技能规则");
         } catch (error) {
-            message.error(error instanceof Error ? error.message : "批次技能更新失败");
+            message.error(error instanceof Error ? error.message : "项目技能更新失败");
         } finally {
             setSkillSaving(false);
         }
@@ -504,9 +504,9 @@ export default function SmartFilmBatchDetailPage() {
             const result = await confirmSmartFilmBatchScripts(batch.id, recoverableScripts.map((script) => script.id), batch.revision);
             updateBatch(result.batch);
             await queryClient.invalidateQueries({ queryKey: ["projects"] });
-            message.success("批次创建已恢复");
+            message.success("多剧本项目创建已恢复");
         } catch (error) {
-            message.error(error instanceof Error ? error.message : "批次恢复失败");
+            message.error(error instanceof Error ? error.message : "多剧本项目恢复失败");
             await refresh();
         } finally {
             setBusy("");
@@ -561,7 +561,7 @@ export default function SmartFilmBatchDetailPage() {
         const run = runsByScript.get(script.id);
         if (!run) return;
         const stage = smartFilmRecoveryStage(run.failedStep);
-        if (!stage) return message.warning("当前失败发生在项目创建阶段，请使用批次修复入口");
+        if (!stage) return message.warning("当前失败发生在项目创建阶段，请使用生成记录中的修复入口");
         setBusy(mode === "regenerate" ? `正在重新生成「${script.title}」…` : `正在重试「${script.title}」…`);
         try {
             const result = await controlSmartFilmProductionRun(batch.id, run.id, mode, stage);
@@ -601,10 +601,10 @@ export default function SmartFilmBatchDetailPage() {
     };
 
     if (batchQuery.isLoading) {
-        return <WorkspacePage className="smart-film-page"><div className="smart-film-generating"><LoaderCircle className="size-7 animate-spin" /><strong>正在读取多剧本批次…</strong></div></WorkspacePage>;
+        return <WorkspacePage className="smart-film-page"><div className="smart-film-generating"><LoaderCircle className="size-7 animate-spin" /><strong>正在读取多剧本项目…</strong></div></WorkspacePage>;
     }
     if (!batch) {
-        return <WorkspacePage className="smart-film-page"><div className="smart-film-script-empty"><strong>没有找到这个批次</strong><span>它可能已被删除，或者不属于当前账号。</span><Button onClick={() => navigate("/smart-film")}>返回智能成片</Button></div></WorkspacePage>;
+        return <WorkspacePage className="smart-film-page"><div className="smart-film-script-empty"><strong>没有找到这条生成记录</strong><span>它可能已被删除，或者不属于当前账号。</span><Button onClick={() => navigate("/smart-film")}>返回智能成片</Button></div></WorkspacePage>;
     }
 
     return (
@@ -638,8 +638,8 @@ export default function SmartFilmBatchDetailPage() {
                 <section className="smart-film-production-config smart-film-skill-edit">
                     <div className="smart-film-production-config-head">
                         <div>
-                            <strong>批次制作技能</strong>
-                            <span>整个批次只能固定一个完整 Skill 包。已有项目开始制作后不可更换。</span>
+                            <strong>项目制作技能</strong>
+                            <span>一次多剧本生成只能固定一个完整 Skill 包。已有项目开始制作后不可更换。</span>
                         </div>
                         <Tag bordered={false}>{productionLocked ? "已锁定" : skillDirty ? "有修改" : currentSkillSnapshot ? "已固定" : "平台默认"}</Tag>
                     </div>
@@ -658,10 +658,10 @@ export default function SmartFilmBatchDetailPage() {
                                     loading={skillsLoading}
                                     disabled={Boolean(busy) || productionSaving || skillSaving}
                                     optionFilterProp="label"
-                                    placeholder="选择本批次唯一技能"
+                                    placeholder="选择本次项目唯一技能"
                                     options={skillOptions}
                                     onChange={(value) => setSkillDraftId(value || "")}
-                                    aria-label="更换本批次唯一技能"
+                                    aria-label="更换本次项目唯一技能"
                                 />
                             )}
                         </label>
@@ -672,7 +672,7 @@ export default function SmartFilmBatchDetailPage() {
                     </div>
                     <p className="smart-film-skill-edit-note">
                         {productionLocked
-                            ? "批次已经有项目进入制作，技能和版本已锁定。"
+                            ? "已有项目进入制作，技能和版本已锁定。"
                             : batch.scripts.length
                                 ? "更换技能不会自动重写已有剧本；建议更换后重新生成剧本，再创建项目。"
                                 : "选择并应用后，后续剧本、资产、分镜和视频都会使用这一个 Skill。"}
@@ -684,7 +684,7 @@ export default function SmartFilmBatchDetailPage() {
                         <div className="smart-film-production-config-head">
                             <div>
                                 <strong>制作规格与分镜策略</strong>
-                                <span>剧本确认后再决定分镜。模型已在本批次创建时固定，后续不再重复选择。</span>
+                                <span>剧本确认后再决定分镜。模型已在创建本次项目时固定，后续不再重复选择。</span>
                             </div>
                             <Tag bordered={false}>{productionLocked ? "已锁定" : productionSaving ? "保存中" : productionConfigValid && productionDraftMatchesSaved ? "已设置" : productionModeDraft ? "待完善" : "待设置"}</Tag>
                         </div>
@@ -772,7 +772,7 @@ export default function SmartFilmBatchDetailPage() {
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                         {!batch.scripts.length ? <Button icon={<Sparkles className="size-4" />} loading={Boolean(busy)} onClick={() => void generateMissingScripts()}>生成剧本</Button> : null}
-                        {recoverableScripts.length ? <Button danger icon={<RefreshCcw className="size-4" />} disabled={Boolean(busy)} onClick={() => void retryFailedRuns()}>修复批次创建（{recoverableScripts.length}）</Button> : null}
+                        {recoverableScripts.length ? <Button danger icon={<RefreshCcw className="size-4" />} disabled={Boolean(busy)} onClick={() => void retryFailedRuns()}>修复项目创建（{recoverableScripts.length}）</Button> : null}
                         <Button icon={<Columns3 className="size-4" />} disabled={!canCompareSmartFilmScripts(selectedScripts) || Boolean(busy)} onClick={() => setComparisonOpen(true)}>对比剧本</Button>
                         <Tooltip title={createProjectHint}>
                             <span className="inline-flex"><Button type="primary" icon={<Play className="size-4" />} disabled={!selectedDraftCount || Boolean(busy) || productionSaving || !productionConfigValid || !productionDraftMatchesSaved} onClick={() => void confirmSelected()}>创建独立视频项目</Button></span>
@@ -846,7 +846,7 @@ export default function SmartFilmBatchDetailPage() {
                 ) : (
                     <div className="smart-film-script-empty">
                         <Sparkles className="size-7 text-foreground/30" />
-                        <strong>这个批次还没有剧本</strong>
+                        <strong>这次多剧本生成还没有剧本</strong>
                         <span>上次生成成功的剧本可能尚未保存。先尝试恢复上次结果；找不到时再按同一组想法和参考图重新生成 {batch.config.scriptCount} 条独立剧本。</span>
                         <div className="flex flex-wrap justify-center gap-2">
                             <Button type="primary" loading={Boolean(busy)} onClick={() => void generateMissingScripts()}>重新生成剧本</Button>

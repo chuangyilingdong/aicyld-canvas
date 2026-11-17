@@ -149,7 +149,7 @@ export default function SmartFilmBatchNewPage() {
         if (needsPlatformDefaultSkillConfirmation(installedSkills.length, selectedSkillId)) {
             const usePlatformDefault = await new Promise<boolean>((resolve) => {
                 modal.confirm({
-                    title: "本批次未选择制作 Skill",
+                    title: "本次多剧本项目未选择制作 Skill",
                     content: "继续后将使用平台默认规则，不会加载你已经安装的 Skill。角色、资产、分镜和视频阶段都会使用平台规则。",
                     okText: "使用平台默认",
                     cancelText: "返回选择 Skill",
@@ -161,7 +161,7 @@ export default function SmartFilmBatchNewPage() {
         }
         setGenerating(true);
         setGenerationProgress(5);
-        setStatus("正在创建多剧本批次…");
+        setStatus("正在创建多剧本项目…");
         let batchId = "";
         try {
             let skillSnapshot: SmartFilmSkillSnapshot | undefined;
@@ -294,7 +294,7 @@ export default function SmartFilmBatchNewPage() {
                     <div className="smart-film-skill-select-row">
                         <div>
                             <strong>制作技能</strong>
-                            <span>{selectedSkillId ? "批次会固定这组 Skill；已安装的同套件导演、分镜、全链路和剪辑 Skill 会自动组合。" : installedSkills.length ? "当前未选择 Skill；继续制作前会再次确认使用平台默认规则。" : "没有安装 Skill 时使用平台默认规则。"}</span>
+                            <span>{selectedSkillId ? "本次多剧本项目会固定这组 Skill；已安装的同套件导演、分镜、全链路和剪辑 Skill 会自动组合。" : installedSkills.length ? "当前未选择 Skill；继续制作前会再次确认使用平台默认规则。" : "没有安装 Skill 时使用平台默认规则。"}</span>
                         </div>
                         <div className="smart-film-skill-select-actions">
                             <Select
@@ -316,7 +316,7 @@ export default function SmartFilmBatchNewPage() {
                                     }
                                 }}
                                 notFoundContent={skillsLoading ? "正在读取技能库" : "还没有已安装技能"}
-                                aria-label="本批次使用的单一技能"
+                                aria-label="本次多剧本项目使用的单一技能"
                             />
                             <Button size="small" disabled={generating} onClick={() => navigate("/skills")}>管理技能</Button>
                         </div>
@@ -333,7 +333,7 @@ export default function SmartFilmBatchNewPage() {
                     <div className="smart-film-batch-style-row">
                         <div>
                             <strong>项目画风</strong>
-                            <span>{selectedStyle ? `${selectedStyle.title}，将应用到角色、场景、分镜图和镜头视频提示词` : "未指定时使用模型默认风格；可选择后统一全批次视觉基线"}</span>
+                            <span>{selectedStyle ? `${selectedStyle.title}，将应用到角色、场景、分镜图和镜头视频提示词` : "未指定时使用模型默认风格；可选择后统一本次项目的视觉基线"}</span>
                         </div>
                         <Button size="small" icon={<Palette className="size-3.5" />} disabled={generating} onClick={() => setStylePickerOpen(true)}>
                             {selectedStyle ? `画风：${selectedStyle.title}` : "选择/新建画风（可选）"}

@@ -8,6 +8,7 @@ import { getProjectCore, getProjectOverview, getProjectUnitWorkspace, linkCanvas
 import { listGenerationTasks, type GenerationTask } from "@/services/api/task-center";
 import { WorkspacePage } from "@/components/layout/workspace-page";
 import { WorkspaceErrorState, WorkspaceLoadingState } from "@/components/layout/workspace-state";
+import { projectDetailStage } from "@/lib/project-workbench";
 import type { ProjectDetail } from "@/services/api/projects";
 
 import { WorkflowChapterNavigator } from "./detail/workflow-chapter-navigator";
@@ -53,7 +54,7 @@ export default function ProjectDetailPage() {
         queryFn: () => getProjectUnitWorkspace(projectId, activeUnitId),
         enabled: Boolean(projectId && activeUnitId) && (activeView === "chapters" || activeView === "workflow"),
         refetchInterval: (query) => activeView === "workflow" && !(query.state.data?.shots?.length) ? 3_000 : false,
-        refetchIntervalInBackground: true,
+        refetchIntervalInBackground: false,
         staleTime: 1_000,
     });
     const projectTasksQuery = useQuery({
@@ -61,7 +62,7 @@ export default function ProjectDetailPage() {
         queryFn: ({ signal }) => listGenerationTasks(100, { projectId }, undefined, signal),
         enabled: Boolean(projectId) && (activeView === "chapters" || activeView === "workflow"),
         refetchInterval: activeView === "chapters" || activeView === "workflow" ? 3_000 : false,
-        refetchIntervalInBackground: true,
+        refetchIntervalInBackground: false,
         staleTime: 1_000,
     });
     const terminalTaskIdsRef = useRef<Set<string> | null>(null);
@@ -158,7 +159,7 @@ export default function ProjectDetailPage() {
     };
     if (coreQuery.isLoading || unitsQuery.isLoading) return <WorkspacePage><WorkspaceLoadingState label="正在打开项目工作台" detail="读取项目与章节索引" /></WorkspacePage>;
     // 已加载过项目时，后台刷新失败不能把整个工作台替换成“项目不可用”；保留可用数据并让局部请求自行重试。
-    if (!detail) return <WorkspacePage><WorkspaceErrorState title="项目不可用" description="项目不存在、已被删除，或当前账号没有访问权限。" actionLabel="返回项目中心" onRetry={() => navigate("/canvas")} /></WorkspacePage>;
+    if (!detail) return <WorkspacePage><WorkspaceErrorState title="项目不可用" description="项目不存在、已被删除，或当前账号没有访问权限。" actionLabel="返回项目中心" onRetry={() => navigate("/projects")} /></WorkspacePage>;
     if (!chapterId && !unitId && (!view || !views.some((item) => item.key === view))) return <Navigate to={`/projects/${projectId}/overview`} replace />;
     if (chapterId && !units.some((unit) => unit.id === chapterId)) return <Navigate to={firstUnitId ? `/projects/${projectId}/chapters/${firstUnitId}` : `/projects/${projectId}/chapters`} replace />;
     if (unitId && !units.some((unit) => unit.id === unitId)) return <Navigate to={firstUnitId ? `/projects/${projectId}/workflow/${firstUnitId}/${stage || "video"}` : `/projects/${projectId}/workflow`} replace />;
@@ -193,8 +194,8 @@ export default function ProjectDetailPage() {
 }
 
 function ProjectWorkspaceHeader({ detail, projectId, activeView, unitId, stage }: { detail: ProjectDetail; projectId: string; activeView: DetailView; unitId?: string; stage?: string }) {
-    const archived = detail.project.status === "archived";
-    const flowActive = activeView !== "settings";
+    const projectStatus = projectDetailStage(detail);
+    const overviewActive = activeView === "overview";
     return (
         <header className="project-workspace-header">
             <div className="project-workspace-identity">
@@ -204,16 +205,16 @@ function ProjectWorkspaceHeader({ detail, projectId, activeView, unitId, stage }
                 </Link>
                 <div className="project-workspace-title">
                     <h1 title={detail.project.name}>{detail.project.name}</h1>
-                    <span className={`project-workspace-status ${archived ? "is-archived" : "is-active"}`}>{archived ? "已归档" : "进行中"}</span>
+                    <span className={`project-workspace-status is-${projectStatus.tone}`} title={projectStatus.detail}>{projectStatus.label}</span>
                 </div>
             </div>
             <nav className="project-workspace-tabs" aria-label="项目导航">
                 <Link
                     to={`/projects/${projectId}/overview`}
-                    aria-current={flowActive ? "page" : undefined}
-                    className={`project-workspace-tab ${flowActive ? "is-active" : ""}`}
+                    aria-current={overviewActive ? "page" : undefined}
+                    className={`project-workspace-tab ${overviewActive ? "is-active" : ""}`}
                 >
-                    流程总览
+                    制作概览
                 </Link>
                 <Link
                     to={`/projects/${projectId}/settings`}

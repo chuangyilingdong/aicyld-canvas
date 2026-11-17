@@ -53,20 +53,20 @@ describe("asset upload entry points", () => {
 
 describe("project card actions", () => {
     test("project cards expose the LibTV-style overflow actions", () => {
-        const page = readFileSync(resolve(import.meta.dir, "../src/pages/projects/index.tsx"), "utf8");
-        expect(page).toContain('aria-label={`${row.project.name} 更多操作`}');
-        expect(page).toContain('label: "打开"');
+        const page = readFileSync(resolve(import.meta.dir, "../src/pages/canvas/index.tsx"), "utf8");
+        expect(page).toContain('aria-label={`${item.project.name} 项目操作`}');
+        expect(page).toContain('label: "打开项目"');
         expect(page).toContain('label: "重命名"');
-        expect(page).toContain('label: "修改封面"');
+        expect(page).toContain('title="重命名项目"');
+        expect(page).toContain("updateProjectRecord(projectId, { name })");
         expect(page).toContain('label: "创建副本"');
-        expect(page).toContain('label: "移动至文件夹"');
         expect(page).toContain("duplicateProject");
-        expect(page).toContain("moveProjectToFolder");
-        expect(page).toContain('label: row.project.status === "archived" ? "恢复项目" : "归档项目"');
+        expect(page).toContain('label: item.project.status === "archived" ? "恢复项目" : "归档项目"');
+        expect(page).toContain('label: "项目设置"');
         expect(page).toContain('label: "删除项目"');
         expect(page).toContain("updateProject");
         const canvasCard = readFileSync(resolve(import.meta.dir, "../src/components/canvas/canvas-folder-card.tsx"), "utf8");
-        expect(canvasCard).toContain('label: "打开"');
+        expect(canvasCard).toContain('label: "打开项目"');
         expect(canvasCard).toContain('label: "重命名"');
         expect(canvasCard).toContain('label: "移动至文件夹"');
         expect(canvasCard).toContain("<LibraryCardShell");
@@ -81,7 +81,7 @@ describe("project card actions", () => {
         expect(previewCard).toContain('preload="auto"');
         expect(previewCard).toContain("projectPreviewMediaCandidates(project.nodes, preferLatestImage).find");
         expect(previewCard).toContain("<Workflow className=\"canvas-project-empty-icon\"");
-        const canvasPage = readFileSync(resolve(import.meta.dir, "../src/pages/canvas/index.tsx"), "utf8");
+        const canvasPage = page;
         expect(canvasPage).toContain("<LibraryCardShell");
         expect(canvasPage).toContain("maxSize = 1280");
         expect(canvasPage).toContain('toDataURL("image/jpeg", 0.84)');
@@ -91,7 +91,7 @@ describe("project card actions", () => {
         expect(canvasPage).toContain('label: "更换封面"');
         expect(canvasPage).not.toContain('icon: <ImageIcon className="size-3.5" />');
         expect(canvasPage).toContain('label: "删除文件夹"');
-        expect(canvasPage).not.toContain('icon: <Pencil className="size-3.5" />');
+        expect(canvasPage).toContain('label: "重命名"');
         const recycleBin = readFileSync(resolve(import.meta.dir, "../src/components/canvas/recycle-bin-dialog.tsx"), "utf8");
         expect(recycleBin).toContain("restoreProject");
         expect(recycleBin).toContain("恢复到项目列表");

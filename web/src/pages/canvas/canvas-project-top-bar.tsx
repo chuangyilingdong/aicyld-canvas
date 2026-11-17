@@ -179,7 +179,7 @@ export function CanvasTopBar({
                     <button type="button" className="canvas-libtv-readonly-copy" onClick={() => void onDuplicateProject?.()}>
                         <CopyPlus className="size-4" />复制项目
                     </button>
-                    <Link to="/canvas" className="canvas-libtv-readonly-close" aria-label="关闭只读画布"><X className="size-5" /></Link>
+                    <Link to="/projects" className="canvas-libtv-readonly-close" aria-label="关闭只读画布"><X className="size-5" /></Link>
                 </div>
             </div>
         );
@@ -207,9 +207,9 @@ export function CanvasTopBar({
                             menu={{
                                 items: [
                                     { key: "home", label: <Link to="/">回到主页</Link> },
-                                    { key: "projects", label: <Link to="/canvas">全部项目</Link> },
+                                    { key: "projects", label: <Link to="/projects">全部项目</Link> },
                                     { type: "divider" },
-                                    { key: "new", label: <Link to="/canvas?mode=new">创建新项目</Link> },
+                                    { key: "new", label: <Link to="/projects?mode=new">创建新项目</Link> },
                                     ...(currentCanvasId ? [
                                         { key: "export-project", label: "导出项目（全部画布）", onClick: () => void runExport(currentCanvasId, false) },
                                         { key: "export-canvas", label: "导出当前画布", onClick: () => void runExport(currentCanvasId, true) },

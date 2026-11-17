@@ -51,6 +51,11 @@ function LegacyProjectAliasRoute() {
     return <Navigate to={`/projects/${projectId}${rest ? `/${rest}` : ""}`} replace />;
 }
 
+function ProjectLibraryAliasRoute() {
+    const { search } = useLocation();
+    return <Navigate to={`/projects${search}`} replace />;
+}
+
 /**
  * DEV 专用实验室路由。
  *
@@ -106,11 +111,9 @@ export const router = createWorkspaceRouter([
                 path: "/projects",
                 element: deferred(<CanvasPage />),
             },
-            // LibTV 使用单数 `/project` 作为项目库入口；直接渲染本地项目库，
-            // 保留原始 URL，避免像素复刻时出现一次重定向造成的布局/加载闪烁。
             {
                 path: "/project",
-                element: deferred(<CanvasPage />),
+                element: <ProjectLibraryAliasRoute />,
             },
             {
                 path: "/projects/:projectId",
@@ -130,7 +133,7 @@ export const router = createWorkspaceRouter([
                 path: "/projects/:projectId/workflow/:unitId/:stage",
                 element: <LocalAwareProjectRoute />,
             },
-            { path: "/canvas", element: deferred(<CanvasPage />) },
+            { path: "/canvas", element: <ProjectLibraryAliasRoute /> },
             { path: "/canvas/:id", element: <CanvasProjectPage /> },
         ],
     },

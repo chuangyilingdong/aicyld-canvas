@@ -28,9 +28,12 @@ export default function SmartFilmPage() {
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                     <Button type="primary" icon={<Clapperboard className="size-4" />} onClick={() => navigate("/smart-film/batches/new")}>
-                        多剧本成片
+                        新建多剧本项目
                     </Button>
-                    <Button icon={<Clapperboard className="size-4" />} onClick={() => navigate("/canvas")}>
+                    <Button icon={<Layers3 className="size-4" />} onClick={() => navigate("/smart-film/batches")}>
+                        剧本生成记录
+                    </Button>
+                    <Button icon={<Clapperboard className="size-4" />} onClick={() => navigate("/projects")}>
                         返回项目库
                     </Button>
                 </div>
@@ -53,11 +56,11 @@ export default function SmartFilmPage() {
                     ))}
                     <div className="smart-film-sidebar-note">
                         <Palette className="size-4" />
-                        <p>单条成片直接进入分镜工作台；多剧本批次会为每条剧本创建独立视频项目，互不合并。</p>
+                        <p>单条成片直接进入分镜工作台；多剧本模式会为每条剧本创建独立视频项目，互不合并。</p>
                     </div>
                 </aside>
                 <main className="smart-film-main">
-                    <SmartFilmStarter presentation="page" onClose={() => navigate("/canvas")} />
+                    <SmartFilmStarter presentation="page" onClose={() => navigate("/projects")} />
                 </main>
             </div>
         </WorkspacePage>

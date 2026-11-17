@@ -28,8 +28,7 @@ export function WorkspaceCommandPalette({ open, onClose }: { open: boolean; onCl
         };
         return [
             { id: "home", title: "首页", icon: Home, to: "/" },
-            toolEntry("projects", "/project"),
-            toolEntry("canvas", "/canvas"),
+            toolEntry("projects", "/projects"),
             toolEntry("assets", "/assets"),
             toolEntry("skills", "/skills"),
             toolEntry("settings", "/settings"),

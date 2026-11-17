@@ -9,7 +9,7 @@ export function creationCanvasHandoffPath(assetIds: Iterable<string>, expectedCo
     if (!ids.length || (expectedCount !== undefined && ids.length !== expectedCount)) return undefined;
     const params = new URLSearchParams({ mode: "handoff" });
     ids.forEach((id) => params.append(ASSET_PARAM, id));
-    return `/canvas?${params.toString()}`;
+    return `/projects?${params.toString()}`;
 }
 
 export function canvasAssetHandoffIds(searchParams: URLSearchParams) {

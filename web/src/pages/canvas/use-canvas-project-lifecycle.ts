@@ -498,7 +498,7 @@ export function useCanvasProjectLifecycle({
                 historyRestore?.resolve();
             }
             if (!loadedProject) {
-                if (!cachedProject) navigate("/canvas", { replace: true });
+                if (!cachedProject) navigate("/projects", { replace: true });
                 return;
             }
             const project = useCanvasStore.getState().projects.find((p) => p.id === projectId) || loadedProject;
@@ -718,7 +718,7 @@ export function useCanvasProjectLifecycle({
                 .catch(() => { message.warning("画布已删除，但部分本地绘图缓存清理失败"); });
         }
         cleanupAssetImages();
-        navigate(nextCanvas ? `/canvas/${nextCanvas.id}` : "/canvas");
+        navigate(nextCanvas ? `/canvas/${nextCanvas.id}` : "/projects");
     }, [cleanupAssetImages, localMode, message, navigate, nodesRef, projectId]);
 
     const renameCurrentProject = useCallback((title: string) => {

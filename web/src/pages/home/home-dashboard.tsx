@@ -35,7 +35,7 @@ export function HomeDashboard({ projects, loading, error, onRetry }: { projects:
                 <span className="beeftv-home-dot-base" aria-hidden />
                 <span className="beeftv-home-dot-flow" aria-hidden />
                 <span className="beeftv-home-dot-flow beeftv-home-dot-flow-delay" aria-hidden />
-                <button type="button" className="beeftv-home-create" onClick={() => navigate("/canvas?mode=new")}>
+                <button type="button" className="beeftv-home-create" onClick={() => navigate("/projects?mode=new")}>
                     <span className="beeftv-home-create-icon"><Plus /></span>
                     <span className="beeftv-home-create-title">新建画布创作</span>
                 </button>
@@ -58,7 +58,7 @@ export function HomeDashboard({ projects, loading, error, onRetry }: { projects:
             </nav>
 
             <section className="beeftv-home-section beeftv-recents">
-                <header className="beeftv-section-heading"><h2>最近项目</h2><Link to="/project">查看全部 <ArrowRight /></Link></header>
+                <header className="beeftv-section-heading"><h2>最近项目</h2><Link to="/projects">查看全部 <ArrowRight /></Link></header>
                 {error ? (
                     <button className="beeftv-home-error" type="button" onClick={onRetry}><RefreshCw />画布读取失败，点击重试</button>
                 ) : (
@@ -69,7 +69,7 @@ export function HomeDashboard({ projects, loading, error, onRetry }: { projects:
                                 <span className="beeftv-recent-copy"><strong>{project.title || "未命名"}</strong><small>{formatDate(project.updatedAt)}</small></span>
                                 <ArrowRight className="beeftv-recent-arrow" />
                             </Link>;
-                        }) : <button type="button" className="beeftv-recent-card is-empty" onClick={() => navigate("/canvas?mode=new")}><span className="beeftv-recent-preview"><Plus /></span><span className="beeftv-recent-copy"><strong>创建第一个画布</strong><small>让灵感有一个开始的地方</small></span></button>}
+                        }) : <button type="button" className="beeftv-recent-card is-empty" onClick={() => navigate("/projects?mode=new")}><span className="beeftv-recent-preview"><Plus /></span><span className="beeftv-recent-copy"><strong>创建第一个画布</strong><small>让灵感有一个开始的地方</small></span></button>}
                     </div>
                 )}
             </section>

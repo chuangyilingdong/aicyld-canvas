@@ -93,8 +93,8 @@ export function FirstCreationGuide() {
         return () => window.removeEventListener("keydown", close);
     }, [guide.status, welcome, guide.pause]);
     const routeFor = (lesson: typeof step) => {
-        const canvas = project ? `/canvas/${project.id}` : "/project";
-        return lesson === "official" ? "/settings?section=channels" : lesson === "assets" ? "/assets?tab=history" : lesson === "return" ? "/project" : lesson === "project" ? "/project" : canvas;
+        const canvas = project ? `/canvas/${project.id}` : "/projects";
+        return lesson === "official" ? "/settings?section=channels" : lesson === "assets" ? "/assets?tab=history" : lesson === "return" ? "/projects" : lesson === "project" ? "/projects" : canvas;
     };
     const goToLesson = (lesson: typeof step) => {
         const route = routeFor(lesson);

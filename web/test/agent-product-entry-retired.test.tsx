@@ -107,10 +107,10 @@ describe("旧内置 Agent 页面入口退场", () => {
         expect(markup).not.toContain('data-mode="agent"');
         expect(markup).toContain("新建画布创作");
         for (const [label, href] of [
-            ["自由画布", "/canvas?mode=new"],
-            ["视频生成", "/canvas?mode=new&amp;add=video"],
-            ["图片生成", "/canvas?mode=new&amp;add=image"],
-            ["音频生成", "/canvas?mode=new&amp;add=audio"],
+            ["自由画布", "/projects?mode=new"],
+            ["视频生成", "/projects?mode=new&amp;add=video"],
+            ["图片生成", "/projects?mode=new&amp;add=image"],
+            ["音频生成", "/projects?mode=new&amp;add=audio"],
         ] as const) {
             expect(markup).toContain(label);
             expect(markup).toContain(href);

@@ -1,4 +1,4 @@
-import type { ProjectDetail, ProjectSummary, ProjectUnit } from "@/services/api/projects";
+import type { ProjectDetail, ProjectOverviewMetrics, ProjectSummary, ProjectUnit } from "@/services/api/projects";
 
 export type ProjectActionTone = "default" | "attention" | "danger";
 
@@ -11,7 +11,13 @@ export type ProjectWorkbenchAction = {
     tone: ProjectActionTone;
 };
 
-export type ProjectSummaryTone = "generating" | "in-progress" | "draft" | "archived";
+export type ProjectStatusTone = "generating" | "in-progress" | "draft" | "archived" | "attention" | "ready";
+
+export type ProjectStatusSnapshot = {
+    label: string;
+    detail: string;
+    tone: ProjectStatusTone;
+};
 
 export type ProjectContinueTarget = {
     href: string;
@@ -25,6 +31,17 @@ export type ProjectStageCell = {
     state: "idle" | "active" | "attention" | "completed";
 };
 
+export type ProjectOverviewStageState = "idle" | "active" | "attention" | "completed";
+
+export type ProjectOverviewStageStates = {
+    story: ProjectOverviewStageState;
+    assets: ProjectOverviewStageState;
+    storyboard: ProjectOverviewStageState;
+    previz: ProjectOverviewStageState;
+    video: ProjectOverviewStageState;
+    delivery: ProjectOverviewStageState;
+};
+
 export type ProjectUnitStage = {
     unit: ProjectUnit;
     content: ProjectStageCell;
@@ -33,7 +50,7 @@ export type ProjectUnitStage = {
     canvas: ProjectStageCell;
 };
 
-export function projectSummaryStage(summary: ProjectSummary): { label: string; detail: string; tone: ProjectSummaryTone } {
+export function projectSummaryStage(summary: ProjectSummary): ProjectStatusSnapshot {
     if (summary.project.status === "archived") return { label: "已归档", detail: "可在项目设置中恢复", tone: "archived" };
     if ((summary.activeTaskCount || 0) > 0) return { label: "生成中", detail: `${summary.activeTaskCount} 个生成任务正在运行`, tone: "generating" };
     if (!summary.unitCount && !summary.assetCount && !summary.canvasCount && !summary.completedUnitCount) {
@@ -42,19 +59,58 @@ export function projectSummaryStage(summary: ProjectSummary): { label: string; d
     return { label: "制作中", detail: `${summary.unitCount} 章 · ${summary.assetCount} 项资产`, tone: "in-progress" };
 }
 
-export function projectDetailStage(detail: ProjectDetail) {
-    if (detail.project.status === "archived") return { label: "已归档", detail: "恢复项目后可继续制作" };
+export function projectDetailStage(detail: ProjectDetail): ProjectStatusSnapshot {
+    if (detail.project.status === "archived") return { label: "已归档", detail: "恢复项目后可继续制作", tone: "archived" };
     const failedSteps = detail.workflows.flatMap((workflow) => workflow.steps).filter((step) => step.status === "failed").length;
-    if (failedSteps) return { label: "需要处理", detail: `${failedSteps} 个流程步骤失败` };
+    if (failedSteps) return { label: "需要处理", detail: `${failedSteps} 个流程步骤失败`, tone: "attention" };
     const pendingCandidates = detail.assetCandidates.filter((candidate) => candidate.status === "pending_confirmation").length;
-    if (pendingCandidates) return { label: "资产确认", detail: `${pendingCandidates} 个候选待确认` };
-    if (!detail.units.length) return { label: "准备故事", detail: "添加或导入剧情章节" };
-    if (!detail.shots.length) return { label: "分镜准备", detail: "选择章节生成镜头" };
+    if (pendingCandidates) return { label: "资产待确认", detail: `${pendingCandidates} 个候选待确认`, tone: "attention" };
+    if (!detail.units.length) return { label: "准备故事", detail: "添加或导入剧情章节", tone: "draft" };
+    if (!detail.shots.length) return { label: "分镜准备", detail: "选择章节生成镜头", tone: "in-progress" };
     const runningSteps = detail.workflows.flatMap((workflow) => workflow.steps).filter((step) => step.status === "running" || step.status === "review").length;
-    if (runningSteps) return { label: "制作中", detail: `${runningSteps} 个流程步骤正在推进` };
+    if (runningSteps) return { label: "制作中", detail: `${runningSteps} 个流程步骤正在推进`, tone: "generating" };
     const completedUnits = detail.units.filter((unit) => unit.status === "completed").length;
-    if (completedUnits === detail.units.length) return { label: "检查交付", detail: "章节已完成，可检查镜头与结果" };
-    return { label: "镜头制作", detail: `${detail.shots.length} 个镜头已建立` };
+    if (completedUnits === detail.units.length) return { label: "检查交付", detail: "章节已完成，可检查镜头与结果", tone: "ready" };
+    return { label: "镜头制作", detail: `${detail.shots.length} 个镜头已建立`, tone: "in-progress" };
+}
+
+export function projectOverviewStageStates(metrics: ProjectOverviewMetrics): ProjectOverviewStageStates {
+    const story = metrics.unitCount === 0
+        ? "idle"
+        : metrics.unitsWithoutText > 0
+          ? "attention"
+          : "completed";
+    const assets = metrics.pendingCandidateCount > 0
+        ? "attention"
+        : metrics.assetCount > 0
+          ? "completed"
+          : metrics.unitCount > 0
+            ? "active"
+            : "idle";
+    const storyboard = metrics.shotCount > 0 && metrics.readyStoryboardCount === metrics.shotCount
+        ? "completed"
+        : metrics.shotCount > 0
+          ? metrics.staleArtifactCount > 0
+            ? "attention"
+            : "active"
+          : "idle";
+    const previz = metrics.shotCount > 0 && metrics.readyPrevizCount === metrics.shotCount
+        ? "completed"
+        : metrics.shotCount > 0
+          ? "active"
+          : "idle";
+    const video = metrics.shotCount > 0 && metrics.readyVideoCount === metrics.shotCount
+        ? "completed"
+        : metrics.readyVideoCount > 0
+          ? "active"
+          : "idle";
+    const deliveryReady = metrics.renderSucceededCount > 0 || (metrics.shotCount > 0 && metrics.readyVideoCount === metrics.shotCount);
+    const delivery = deliveryReady
+        ? "completed"
+        : metrics.readyVideoCount > 0 || metrics.renderSucceededCount > 0
+          ? "active"
+          : "idle";
+    return { story, assets, storyboard, previz, video, delivery };
 }
 
 export function projectAttentionCount(detail: ProjectDetail) {
