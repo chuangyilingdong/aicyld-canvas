@@ -515,7 +515,16 @@ func (s *Service) failedProtocolImageResult(ctx context.Context, task model.Task
 	if !ok {
 		return nil, "", false, nil
 	}
-	queryCtx := generation.EnsureOfficialProtocolAdapter(ctx, input.Config.InterfaceType)
+	config, ok := s.ResolveImageRecoveryConfig(task)
+	if !ok {
+		return nil, "", false, nil
+	}
+	input.Config = config
+	queryCtx := ctx
+	if s.runtime.HasAccounting() {
+		queryCtx = s.runtime.ForTask(queryCtx, task)
+	}
+	queryCtx = generation.EnsureOfficialProtocolAdapter(queryCtx, input.Config.InterfaceType)
 	if _, ok := generation.DeclarativeProtocolAdapterForContext(queryCtx, input.Config.InterfaceType); !ok {
 		return nil, "", false, nil
 	}
