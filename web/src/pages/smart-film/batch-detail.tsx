@@ -617,7 +617,7 @@ export default function SmartFilmBatchDetailPage() {
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                     {projectScripts.length ? <Button type="primary" icon={<Clapperboard className="size-4" />} onClick={() => navigate(`/projects?batch=${encodeURIComponent(batch.id)}`)}>查看已创建的 {projectScripts.length} 个项目</Button> : null}
-                    <Button icon={<ArrowLeft className="size-4" />} onClick={() => navigate("/canvas")}>返回项目库</Button>
+                    <Button icon={<ArrowLeft className="size-4" />} onClick={() => navigate("/projects")}>返回项目库</Button>
                 </div>
             </header>
 
@@ -830,7 +830,7 @@ export default function SmartFilmBatchDetailPage() {
                                                     : null
                                             ) : null}
                                             {script.status === "storyboard_ready" ? <Button size="small" type="primary" icon={<Clapperboard className="size-3.5" />} onClick={() => navigate(`/projects/${script.projectId}/workflow/${script.unitId}/storyboard`)}>查看分镜</Button> : null}
-                                            <Button size="small" icon={<CheckCircle2 className="size-3.5" />} onClick={() => navigate(`/projects/${script.projectId}/workflow/${script.unitId}/${script.status === "storyboard_ready" ? "storyboard" : "assets"}`)}>查看项目</Button>
+                                            <Button size="small" icon={<CheckCircle2 className="size-3.5" />} onClick={() => navigate(`/projects/${script.projectId}/overview`)}>查看项目</Button>
                                             {(runsByScript.get(script.id)?.status === "needs_attention" || script.status === "needs_attention") && smartFilmRecoveryStage(runsByScript.get(script.id)?.failedStep) ? (
                                                 <>
                                                     <Button size="small" icon={<RefreshCcw className="size-3.5" />} disabled={Boolean(busy)} onClick={() => void retryProject(script)}>重试并优先复用</Button>

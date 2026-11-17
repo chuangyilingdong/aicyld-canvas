@@ -1,6 +1,5 @@
 import { CollectionToolbar } from "@/components/layout/collection-toolbar";
 import { CachedResourceImage } from "@/components/cached-resource-image";
-import { MediaPlaceholder } from "@/components/ui/product/media-placeholder";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { App, Button, Dropdown, Form, Input, InputNumber, Modal, Select, Switch } from "antd";
@@ -11,12 +10,14 @@ import { CollectionGrid, PageHeader, WorkspacePage } from "@/components/layout/w
 import { WorkspaceErrorState, WorkspaceLoadingState, WorkspaceState } from "@/components/layout/workspace-state";
 import { CanvasStylePickerModal, resolveCanvasStylePreset, resolveProjectCanvasStyle, type CanvasStylePreset } from "@/components/canvas/canvas-style-picker-modal";
 import { LibraryCardShell } from "@/components/canvas/library-card-shell";
+import { ProjectLibraryCover } from "@/components/canvas/project-library-cover";
 import { resourceFileUrl } from "@/services/api/resources";
 import { ModelPicker } from "@/components/model-picker";
 import { isMusicAudioModel } from "@/lib/audio-generation";
 import { canvasFeatureModel } from "@/lib/canvas/feature-models";
 import { createStyleProfileSnapshot, parseStyleProfile, serializeStyleProfile } from "@/lib/canvas/style-profile";
 import { isValidSmartFilmShotCount, normalizeSmartFilmShotCount, SMART_FILM_DEFAULT_SHOT_COUNT, SMART_FILM_MAX_SHOT_COUNT, SMART_FILM_MIN_SHOT_COUNT } from "@/lib/canvas/smart-film-options";
+import { projectSummaryStage } from "@/lib/project-workbench";
 import { settingsPath } from "@/lib/settings-navigation";
 import { preloadWorkspaceRoute } from "@/lib/workspace-route-modules";
 import { PromptTemplateOperation, parseGeneratedStory, promptTemplateTaskPlaceholder, shortDramaOutlineVariables } from "@/lib/prompts";
@@ -697,6 +698,7 @@ function generationStepDone(label: string, status: string) {
 
 function ProjectRow({ row, folders, newBatch, onDelete, onRename, onArchive, onDuplicate, onMove }: { row: ProjectSummary; folders: { id: string; name: string }[]; newBatch: boolean; onDelete: () => void; onRename: () => void; onArchive: () => void; onDuplicate: () => Promise<void>; onMove: (folderId: string) => Promise<void> }) {
     const navigate = useNavigate();
+    const stage = projectSummaryStage(row);
     const projectStyle = resolveProjectCanvasStyle(row.project.stylePresetId, row.project.styleProfileJson);
     const coverUrl = row.project.coverResourceId ? resourceFileUrl(row.project.coverResourceId) : projectStyle?.imageUrl;
     return (
@@ -711,7 +713,7 @@ function ProjectRow({ row, folders, newBatch, onDelete, onRename, onArchive, onD
             cover={
                 <div className="canvas-collection-preview-content">
                     <div className="project-library-unified-cover">
-                        {coverUrl ? <CachedResourceImage className="project-library-cover-art" src={coverUrl} alt="" fallback={<MediaPlaceholder failed />} /> : <MediaPlaceholder label="故事由此开始" />}
+                        {coverUrl ? <CachedResourceImage className="project-library-cover-art" src={coverUrl} alt="" fallback={<ProjectLibraryCover status={stage.label} tone={stage.tone} statusDetail={stage.detail} />} /> : <ProjectLibraryCover status={stage.label} tone={stage.tone} statusDetail={stage.detail} />}
                     </div>
                 </div>
             }

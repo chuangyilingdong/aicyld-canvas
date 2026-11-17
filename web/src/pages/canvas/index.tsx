@@ -13,6 +13,7 @@ import { WorkspaceLoadingState, WorkspaceState } from "@/components/layout/works
 
 import { CanvasFolderCard } from "@/components/canvas/canvas-folder-card";
 import { CanvasDeleteConfirmation } from "@/components/canvas/canvas-delete-confirmation";
+import { ProjectLibraryCover } from "@/components/canvas/project-library-cover";
 import { RecycleBinDialog } from "@/components/canvas/recycle-bin-dialog";
 import { LibraryCardShell } from "@/components/canvas/library-card-shell";
 import { flushCanvasStorePersistence, useCanvasStore } from "@/stores/canvas/use-canvas-store";
@@ -29,7 +30,7 @@ import { createWorkspaceCanvasProject } from "@/services/workspace-project-repos
 import { listWorkspaceCanvasProjectsPage, type CanvasLibrarySummary } from "@/services/api/workspace-data";
 import { useUserStore } from "@/stores/use-user-store";
 import { deleteProject, duplicateProject, listProjects, type ProjectSummary } from "@/services/api/projects";
-import { deleteSmartFilmBatch, listSmartFilmBatches, type SmartFilmBatch } from "@/services/api/smart-film-batches";
+import { projectSummaryStage } from "@/lib/project-workbench";
 import { loadCanvasProjectPage } from "@/lib/workspace-route-modules";
 import { useSyncProgressStore } from "@/stores/use-sync-progress-store";
 import { useAppearanceStore } from "@/stores/use-appearance-store";
@@ -115,12 +116,6 @@ export default function CanvasPage() {
     const [associationProjectId, setAssociationProjectId] = useState("");
     // 本地工作区的画布、文件夹与历史完全来自浏览器本地存储；项目关系查询只在远程工作区启用。
     const projectQuery = useQuery({ queryKey: ["projects", userId], queryFn: () => listProjects(), enabled: remoteMode && sessionHydrated });
-    const batchQuery = useQuery({
-        queryKey: ["smart-film-batches", "project-library", userId],
-        queryFn: () => listSmartFilmBatches({ page: 1, pageSize: 100 }),
-        enabled: remoteMode && sessionHydrated,
-        refetchInterval: (query) => (query.state.data?.batches || []).some((batch) => batch.control.queuedCount + batch.control.runningCount > 0) ? 3_000 : false,
-    });
     const studioProjects = useMemo(() => remoteMode ? projectQuery.data?.projects || [] : [], [projectQuery.data, remoteMode]);
     const visibleStudioProjects = useMemo(() => {
         if (folderFilter !== "all") return [];
@@ -129,40 +124,10 @@ export default function CanvasPage() {
             .filter(({ project }) => (projectFilter === "all" || projectFilter === project.id) && (!query || project.name.toLowerCase().includes(query)))
             .sort((left, right) => sort === "name" ? left.project.name.localeCompare(right.project.name, "zh-CN") : right.project.updatedAt.localeCompare(left.project.updatedAt));
     }, [debouncedKeyword, focusBatchId, folderFilter, projectFilter, studioProjects, sort]);
-    const visibleBatches = useMemo(() => {
-        if (focusBatchId || folderFilter !== "all") return [];
-        const query = debouncedKeyword.toLowerCase();
-        return (batchQuery.data?.batches || [])
-            .filter((batch) => projectFilter === "all" || batch.scripts.some((script) => script.projectId === projectFilter))
-            .filter((batch) => !query || `${batch.title} ${batch.sourceText}`.toLowerCase().includes(query))
-            .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
-    }, [batchQuery.data?.batches, debouncedKeyword, focusBatchId, folderFilter, projectFilter]);
     const clearBatchFocus = () => {
         const next = new URLSearchParams(searchParams);
         next.delete("batch");
         setSearchParams(next, { replace: true });
-    };
-    const requestDeleteBatch = (batch: SmartFilmBatch) => {
-        modal.confirm({
-            title: `删除批次「${batch.title}」？`,
-            content: "批次记录、剧本和运行记录会删除；已经创建的项目会保留并转为独立项目。生成中的任务需要结束后才能删除。",
-            okText: "删除批次",
-            cancelText: "取消",
-            okButtonProps: { danger: true },
-            onOk: async () => {
-                try {
-                    await deleteSmartFilmBatch(batch.id);
-                    message.success("批次已删除，已有项目已保留");
-                    await Promise.all([
-                        queryClient.invalidateQueries({ queryKey: ["smart-film-batches"] }),
-                        queryClient.invalidateQueries({ queryKey: ["projects"] }),
-                    ]);
-                } catch (error) {
-                    message.error(error instanceof Error ? error.message : "批次删除失败");
-                    throw error;
-                }
-            },
-        });
     };
     const requestDeleteStudioProject = (item: ProjectSummary) => {
         modal.confirm({
@@ -489,7 +454,7 @@ export default function CanvasPage() {
                     <WorkspaceLoadingState label="正在恢复画布" detail="读取本地缓存与账号同步状态" />
                 ) : focusBatchId && projectQuery.isPending ? (
                     <WorkspaceLoadingState label="正在整理刚创建的项目" detail="确认同批次项目与制作状态" />
-                ) : visibleProjects.length || visibleStudioProjects.length || visibleBatches.length || (!focusBatchId && !keyword && projectFilter === "all") ? (
+                ) : visibleProjects.length || visibleStudioProjects.length || (!focusBatchId && !keyword && projectFilter === "all") ? (
                     <CollectionGrid className="canvas-collection-grid">
                         {!focusBatchId ? <div className="libtv-create-project-entry">
                             <article className="libtv-create-project-card" role="button" tabIndex={0} onClick={() => createAndEnter()} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); createAndEnter(); } }}>
@@ -505,9 +470,6 @@ export default function CanvasPage() {
                                 message.error(error instanceof Error ? error.message : "封面没有保存成功");
                             });
                         }} />)}
-                        {visibleBatches.map((batch) => (
-                            <SmartFilmBatchCard key={`smart-film-batch-${batch.id}`} batch={batch} onOpen={() => navigate(`/smart-film/batches/${batch.id}`)} onDelete={() => requestDeleteBatch(batch)} />
-                        ))}
                         {visibleStudioProjects.map((item) => (
                             <StudioProjectCard
                                 key={`studio-project-${item.project.id}`}
@@ -615,46 +577,8 @@ export default function CanvasPage() {
     );
 }
 
-function SmartFilmBatchCard({ batch, onOpen, onDelete }: { batch: SmartFilmBatch; onOpen: () => void; onDelete: () => void }) {
-    return (
-        <LibraryCardShell
-            ariaLabel={`打开批次 ${batch.title}`}
-            className="canvas-collection-card"
-            updatedAt={batch.updatedAt}
-            onOpen={onOpen}
-            onPointerEnter={() => preloadWorkspaceRoute(`/smart-film/batches/${batch.id}`)}
-            cover={
-                <div className="canvas-collection-preview-content">
-                    <div className="project-collection-generated-cover" />
-                </div>
-            }
-            title={batch.title}
-            actions={
-                <div className="canvas-collection-actions" onClick={(event) => event.stopPropagation()}>
-                    <Dropdown
-                        trigger={["click"]}
-                        placement="bottomRight"
-                        overlayClassName="project-library-menu"
-                        menu={{
-                            onClick: ({ domEvent }) => domEvent.stopPropagation(),
-                            items: [
-                                { key: "open", label: "打开批次", onClick: onOpen },
-                                { type: "divider" },
-                                { key: "delete", danger: true, label: "删除批次", onClick: onDelete },
-                            ],
-                        }}
-                    >
-                        <button type="button" className="product-icon-button canvas-collection-more" aria-label={`${batch.title} 批次操作`} title="更多操作" onClick={(event) => event.stopPropagation()}>
-                            <MoreHorizontal />
-                        </button>
-                    </Dropdown>
-                </div>
-            }
-        />
-    );
-}
-
 function StudioProjectCard({ item, onOpen, onDelete, onDuplicate, newBatch }: { item: ProjectSummary; onOpen: () => void; onDelete: () => void; onDuplicate: () => void; newBatch: boolean }) {
+    const stage = projectSummaryStage(item);
     return (
         <LibraryCardShell
             ariaLabel={`打开智能成片项目 ${item.project.name}`}
@@ -664,7 +588,7 @@ function StudioProjectCard({ item, onOpen, onDelete, onDuplicate, newBatch }: { 
             onPointerEnter={() => preloadWorkspaceRoute(`/projects/${item.project.id}/overview`)}
             cover={
                 <div className="canvas-collection-preview-content">
-                    <div className="project-collection-generated-cover" />
+                    <ProjectLibraryCover status={stage.label} tone={stage.tone} statusDetail={stage.detail} />
                 </div>
             }
             title={item.project.name}

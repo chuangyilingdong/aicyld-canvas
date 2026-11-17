@@ -52,6 +52,9 @@ export default function ProjectDetailPage() {
         queryKey: ["project", projectId, "unit-workspace", activeUnitId],
         queryFn: () => getProjectUnitWorkspace(projectId, activeUnitId),
         enabled: Boolean(projectId && activeUnitId) && (activeView === "chapters" || activeView === "workflow"),
+        refetchInterval: (query) => activeView === "workflow" && !(query.state.data?.shots?.length) ? 3_000 : false,
+        refetchIntervalInBackground: true,
+        staleTime: 1_000,
     });
     const projectTasksQuery = useQuery({
         queryKey: ["project", projectId, "generation-tasks"],

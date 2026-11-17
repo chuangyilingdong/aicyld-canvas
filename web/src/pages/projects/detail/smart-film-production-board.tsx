@@ -94,7 +94,7 @@ export function SmartFilmStoryboardBoard({ detail, shots, readyCount, busy, subm
                     <p className="mt-2 text-xs leading-6 text-foreground/48">
                         系统正在根据剧本和已识别资产拆分镜头。完成后会自动显示逐镜提示词，通常需要约 30–90 秒。
                     </p>
-                    <p className="mt-1 text-[var(--fs-tiny)] text-foreground/34">如果长时间没有出现镜头，返回“角色与资产”再次点击“下一步：分镜制作”。</p>
+                    <p className="mt-1 text-[var(--fs-tiny)] text-foreground/34">页面会自动刷新；超过 2 分钟仍无镜头，请返回“角色与资产”检查生成失败原因。</p>
                 </div>
             </section>
         );
