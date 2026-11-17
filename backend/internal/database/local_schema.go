@@ -15,7 +15,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion int64 = 45
+const CurrentSchemaVersion int64 = 46
 
 type localSchemaMigration struct {
 	Version   int64 `gorm:"primaryKey;autoIncrement:false"`
@@ -190,10 +190,61 @@ func canonicalLocalMigrations() []localMigration {
 		}},
 		{version: 44, name: "shot-review", apply: func(tx *gorm.DB) error { return tx.AutoMigrate(&model.Shot{}) }},
 		{version: 45, name: "repair-video-only-stale-storyboards", apply: migrateRepairVideoOnlyStaleStoryboards},
+		{version: 46, name: "repair-gpt-image-26-reference-capability", apply: migrateRepairGPTImage26ReferenceCapability},
 	}
 }
 
+func migrateRepairGPTImage26ReferenceCapability(tx *gorm.DB) error {
+	if !tx.Migrator().HasTable(&model.ChannelModel{}) {
+		return nil
+	}
+	var models []model.ChannelModel
+	if err := tx.Where("model_key = ?", "zhenzhen-image-g-v2.6-lowprice").Find(&models).Error; err != nil {
+		return err
+	}
+	for _, channelModel := range models {
+		var config map[string]any
+		if err := json.Unmarshal([]byte(channelModel.CapabilityConfigJSON), &config); err != nil {
+			return fmt.Errorf("解析 GPT Image 2.6 能力配置失败: %w", err)
+		}
+		image, _ := config["image"].(map[string]any)
+		references, _ := image["references"].(map[string]any)
+		if references == nil {
+			continue
+		}
+		changed := false
+		if references["maxImages"] != float64(16) {
+			references["maxImages"] = 16
+			changed = true
+		}
+		if references["promptMaxChars"] != float64(32000) {
+			references["promptMaxChars"] = 32000
+			changed = true
+		}
+		if !changed {
+			continue
+		}
+		encoded, err := json.Marshal(config)
+		if err != nil {
+			return err
+		}
+		if err := tx.Model(&model.ChannelModel{}).
+			Where("id = ?", channelModel.ID).
+			Updates(map[string]any{
+				"capability_config_json": string(encoded),
+				"capability_version":     channelModel.CapabilityVersion + 1,
+				"updated_at":             time.Now(),
+			}).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func migrateRepairVideoOnlyStaleStoryboards(tx *gorm.DB) error {
+	if !tx.Migrator().HasTable(&model.ShotArtifact{}) {
+		return nil
+	}
 	var artifacts []model.ShotArtifact
 	if err := tx.Where("type = ? AND status = ? AND resource_id <> ''", "storyboard", "stale").
 		Order("shot_id, version DESC").Find(&artifacts).Error; err != nil {

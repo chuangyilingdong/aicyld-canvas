@@ -308,7 +308,7 @@ const defaultImageCapabilityConfig = `{
 const zhenzhenGPTImage26CapabilityConfig = `{
   "version": 1,
   "image": {
-    "references": { "promptMaxChars": 5000, "maxImages": 2, "maxImageBytes": 31457280, "maskSupported": false },
+    "references": { "promptMaxChars": 32000, "maxImages": 16, "maxImageBytes": 31457280, "maskSupported": false },
     "size": {
       "parameter": "aspect_ratio",
       "values": ["auto", "1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "5:4", "4:5", "21:9", "9:21", "1:2", "2:1", "10:16", "16:10"],

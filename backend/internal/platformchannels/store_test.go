@@ -108,7 +108,7 @@ func TestDefaultsIncludeGPTImage26Capabilities(t *testing.T) {
 	if err := json.Unmarshal(found.CapabilityConfig, &config); err != nil {
 		t.Fatal(err)
 	}
-	if config.Image.References.PromptMaxChars != 5000 || config.Image.References.MaxImages != 2 || config.Image.MaxOutputs != 1 || config.Image.Quality.Default != "1k" || len(config.Image.Quality.Values) != 1 {
+	if config.Image.References.PromptMaxChars != 32000 || config.Image.References.MaxImages != 16 || config.Image.MaxOutputs != 1 || config.Image.Quality.Default != "1k" || len(config.Image.Quality.Values) != 1 {
 		t.Fatalf("GPT Image 2.6 capability = %#v", config.Image)
 	}
 }
