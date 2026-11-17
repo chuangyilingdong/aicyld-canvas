@@ -331,7 +331,7 @@ export function SmartFilmVideoBoard({ detail, shots, readyCount, targetSeconds, 
                         <strong className="text-sm">生成整片视频</strong>
                         <span className="text-xs text-foreground/42">分镜图可用 {readyCount}/{shots.length} · 目标 {formatDuration(targetSeconds * 1000)}</span>
                     </div>
-                    <p className="mt-1 text-xs leading-5 text-foreground/48">每镜动作说明会压缩为一份整片提示词，并分别引用图片1至图片{shots.length}；不要求每张图对应固定硬切点。</p>
+                    <p className="mt-1 text-xs leading-5 text-foreground/48">下面的逐镜说明只用于组装一份整片提示词；本次提交 1 个视频任务，并引用图片1至图片{shots.length}，不要求每张图对应固定硬切点。</p>
                     {!allReady ? <p className="mt-1 text-[var(--fs-tiny)] text-amber-500">{staleCount ? `有 ${staleCount} 张分镜图已过期，请回到分镜步骤重新生成。` : "仍有分镜图未生成，暂时不能生成整片视频。"}</p> : null}
                     {staleWholeFilm && !latestResourceId ? <p className="mt-1 text-[var(--fs-tiny)] text-amber-500">上一版整片视频已因分镜变化而过期，请重新生成后再交付。</p> : null}
                     {generationError ? <p className="mt-1 text-[var(--fs-tiny)] text-rose-500">{generationError}</p> : null}
@@ -348,7 +348,7 @@ export function SmartFilmVideoBoard({ detail, shots, readyCount, targetSeconds, 
                 <div className="rounded-xl border border-border/70 bg-surface p-3">
                     <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs font-medium">
                         <span className="flex items-center gap-2"><Clapperboard className="size-4" />参考分镜清单</span>
-                        <span className="text-foreground/38">每个镜头单独一排；提示词修改只作用于本镜</span>
+                        <span className="text-foreground/38">逐镜编辑总提示词，不是逐镜生成任务</span>
                     </div>
                     <div className="grid gap-3">
                         {shots.map((shot, index) => (

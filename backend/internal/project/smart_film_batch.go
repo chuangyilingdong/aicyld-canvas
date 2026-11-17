@@ -487,7 +487,10 @@ func (s *Service) EnsureSmartFilmVideoTaskAllowed(userID, projectID string, inpu
 		if err != nil {
 			return err
 		}
-		return s.ensureSmartFilmStoryboardsApproved(projectID, shots)
+		// Whole-film prompt edits create normal shot revisions, but they do not
+		// change the approved storyboard image. The whole-film task therefore
+		// depends on ready storyboards, not the per-shot prompt confirmation state.
+		return s.ensureSmartFilmStoryboardsReady(projectID, shots)
 	}
 	shotID, _ := metadata["shotId"].(string)
 	if strings.TrimSpace(shotID) == "" {
@@ -503,23 +506,29 @@ func (s *Service) EnsureSmartFilmVideoTaskAllowed(userID, projectID string, inpu
 	return s.ensureSmartFilmStoryboardsApproved(projectID, []model.Shot{*shot})
 }
 
+func (s *Service) ensureSmartFilmStoryboardsReady(projectID string, shots []model.Shot) error {
+	if len(shots) == 0 {
+		return kernel.BadAuthRequest("当前章节还没有可生成视频的镜头")
+	}
+	artifactByShot, err := s.smartFilmStoryboardArtifactMap(projectID, shots)
+	if err != nil {
+		return err
+	}
+	for _, shot := range shots {
+		if _, ok := artifactByShot[shot.ID]; !ok {
+			return kernel.BadAuthRequest(fmt.Sprintf("镜头「%s」还没有已生成的分镜图", shot.Title))
+		}
+	}
+	return nil
+}
+
 func (s *Service) ensureSmartFilmStoryboardsApproved(projectID string, shots []model.Shot) error {
 	if len(shots) == 0 {
 		return kernel.BadAuthRequest("当前章节还没有可生成视频的镜头")
 	}
-	artifacts, err := s.repo.ProjectUnitShotArtifacts(projectID, shots[0].UnitID)
+	artifactByShot, err := s.smartFilmStoryboardArtifactMap(projectID, shots)
 	if err != nil {
 		return err
-	}
-	artifactByShot := make(map[string]model.ShotArtifact, len(artifacts))
-	for _, artifact := range artifacts {
-		if artifact.Type != "storyboard" || artifact.Status != "ready" || strings.TrimSpace(artifact.ResourceID) == "" {
-			continue
-		}
-		current, ok := artifactByShot[artifact.ShotID]
-		if !ok || artifact.Version > current.Version || (artifact.Selected && !current.Selected) {
-			artifactByShot[artifact.ShotID] = artifact
-		}
 	}
 	for _, shot := range shots {
 		if shot.Status != "confirmed" {
@@ -533,6 +542,24 @@ func (s *Service) ensureSmartFilmStoryboardsApproved(projectID string, shots []m
 		}
 	}
 	return nil
+}
+
+func (s *Service) smartFilmStoryboardArtifactMap(projectID string, shots []model.Shot) (map[string]model.ShotArtifact, error) {
+	artifacts, err := s.repo.ProjectUnitShotArtifacts(projectID, shots[0].UnitID)
+	if err != nil {
+		return nil, err
+	}
+	artifactByShot := make(map[string]model.ShotArtifact, len(artifacts))
+	for _, artifact := range artifacts {
+		if artifact.Type != "storyboard" || artifact.Status != "ready" || strings.TrimSpace(artifact.ResourceID) == "" {
+			continue
+		}
+		current, ok := artifactByShot[artifact.ShotID]
+		if !ok || artifact.Version > current.Version || (artifact.Selected && !current.Selected) {
+			artifactByShot[artifact.ShotID] = artifact
+		}
+	}
+	return artifactByShot, nil
 }
 
 func (s *Service) smartFilmBatchView(batch model.SmartFilmBatch) (SmartFilmBatchView, error) {
