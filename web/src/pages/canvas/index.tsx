@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ChangeEvent } from "react";
 import { getCanvasHydrationHealth,subscribeCanvasHydrationHealth } from "@/services/canvas-hydration-health";
 import { useNavigate, useSearchParams } from "react-router";
+import { preloadWorkspaceRoute } from "@/lib/workspace-route-modules";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { App, Button, Dropdown, Input, Modal } from "antd";
 import { Select } from "@/components/ui/base/select";
@@ -573,6 +574,7 @@ function SmartFilmBatchCard({ batch, onOpen, onDelete }: { batch: SmartFilmBatch
             className="canvas-collection-card"
             updatedAt={batch.updatedAt}
             onOpen={onOpen}
+            onPointerEnter={() => preloadWorkspaceRoute(`/smart-film/batches/${batch.id}`)}
             cover={
                 <div className="canvas-collection-preview-content">
                     <div className="flex size-full flex-col justify-between bg-[radial-gradient(circle_at_top_right,color-mix(in_srgb,#38bdf8_20%,transparent),transparent_58%),linear-gradient(145deg,color-mix(in_srgb,var(--foreground)_5%,transparent),transparent)] p-4">
@@ -626,6 +628,7 @@ function StudioProjectCard({ item, onOpen }: { item: ProjectSummary; onOpen: () 
             className="canvas-collection-card"
             updatedAt={item.project.updatedAt}
             onOpen={onOpen}
+            onPointerEnter={() => preloadWorkspaceRoute(`/projects/${item.project.id}/overview`)}
             cover={
                 <div className="canvas-collection-preview-content">
                     <div className="flex size-full flex-col justify-between bg-[radial-gradient(circle_at_top_right,color-mix(in_srgb,var(--workspace-accent)_28%,transparent),transparent_58%),linear-gradient(145deg,color-mix(in_srgb,var(--foreground)_5%,transparent),transparent)] p-4">

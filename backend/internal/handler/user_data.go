@@ -25,6 +25,14 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func parsePositiveInt(value string) int {
+	parsed, _ := strconv.Atoi(strings.TrimSpace(value))
+	if parsed < 0 {
+		return 0
+	}
+	return parsed
+}
+
 // userDataUsage is the storage meter the resource page still reads from the
 // composition root. Playback preparation stays there because it reloads the
 // resource after the domain prepares it.
@@ -268,7 +276,7 @@ func registerUserDataRoutes(r *gin.RouterGroup, owners workspaceOwners, canvasDa
 		}
 		delivery, err := resources.PrepareDelivery(user.ID, c.Param("id"), assets.ResourceDeliveryOptions{
 			ForceDirect: c.Query("direct") == "1",
-			ForceProxy:  c.Query("proxy") == "1",
+			ForceProxy:  c.Query("proxy") == "1" || c.Query("thumbnail") != "",
 		})
 		if err != nil {
 			failService(c, err)
@@ -316,6 +324,23 @@ func registerUserDataRoutes(r *gin.RouterGroup, owners workspaceOwners, canvasDa
 				return
 			}
 			defer stream.Body.Close()
+		}
+		if thumbnailWidth := normalizeResourceThumbnailWidth(parsePositiveInt(c.Query("thumbnail"))); thumbnailWidth > 0 && strings.HasPrefix(resource.MimeType, "image/") {
+			thumbnailETag := fmt.Sprintf("%s-thumb-%d", serveETag, thumbnailWidth)
+			c.Header("Cache-Control", "private, max-age=2592000, stale-while-revalidate=86400")
+			c.Header("ETag", thumbnailETag)
+			c.Header("X-Content-Type-Options", "nosniff")
+			if ifNoneMatch(c.GetHeader("If-None-Match"), thumbnailETag) {
+				c.Status(http.StatusNotModified)
+				return
+			}
+			content, renderErr := renderResourceThumbnail(stream.Body, thumbnailWidth)
+			if renderErr != nil {
+				fail(c, http.StatusUnprocessableEntity, renderErr)
+				return
+			}
+			c.Data(http.StatusOK, "image/jpeg", content)
+			return
 		}
 		// 资源 ID 内容不可变（上传永远生成新 ID，不会原地覆盖）：图片可以放心交给浏览器
 		// 磁盘强缓存 30 天，大画布二次打开零请求直读磁盘缓存。视频/音频涉及转码副本

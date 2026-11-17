@@ -18,6 +18,7 @@ import { createStyleProfileSnapshot, parseStyleProfile, serializeStyleProfile } 
 import { isValidSmartFilmShotCount, normalizeSmartFilmShotCount, SMART_FILM_DEFAULT_SHOT_COUNT, SMART_FILM_MAX_SHOT_COUNT, SMART_FILM_MIN_SHOT_COUNT } from "@/lib/canvas/smart-film-options";
 import { projectSummaryCompletion, projectSummaryStage } from "@/lib/project-workbench";
 import { settingsPath } from "@/lib/settings-navigation";
+import { preloadWorkspaceRoute } from "@/lib/workspace-route-modules";
 import { PromptTemplateOperation, parseGeneratedStory, promptTemplateTaskPlaceholder, shortDramaOutlineVariables } from "@/lib/prompts";
 import { prepareBackendGenerationTask, runBackendGenerationTask } from "@/services/api/generation-task";
 import { quoteGenerationTask } from "@/services/api/task-billing";
@@ -685,7 +686,7 @@ function ProjectRow({ row, folders, onDelete, onRename, onArchive, onDuplicate, 
     const coverUrl = row.project.coverResourceId ? resourceFileUrl(row.project.coverResourceId) : projectStyle?.imageUrl;
     const statusTone = row.project.status === "archived" ? "is-muted" : stage.label.includes("确认") || stage.label.includes("处理") ? "is-attention" : stage.label.includes("生成") || stage.label === "制作中" || stage.label.includes("镜头") ? "is-active" : "is-ready";
     return (
-        <Link to={`/projects/${row.project.id}/overview`} className="product-collection-card library-card project-library-card group">
+        <Link to={`/projects/${row.project.id}/overview`} className="product-collection-card library-card project-library-card group" onPointerEnter={() => preloadWorkspaceRoute(`/projects/${row.project.id}/overview`)} onFocus={() => preloadWorkspaceRoute(`/projects/${row.project.id}/overview`)}>
             <span className="project-library-cover">
                 {coverUrl ? <CachedResourceImage className="project-library-cover-art" src={coverUrl} alt="" fallback={<MediaPlaceholder failed />} /> : <MediaPlaceholder label="故事由此开始" />}
                 <span className="project-library-cover-scrim" />

@@ -1,10 +1,11 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Alert, App } from "antd";
 import { ArrowLeft } from "lucide-react";
 import { Link, Navigate, useNavigate, useParams } from "react-router";
 
 import { getProjectCore, getProjectOverview, getProjectUnitWorkspace, linkCanvasUnit, listProjectUnits } from "@/services/api/projects";
+import { listGenerationTasks } from "@/services/api/task-center";
 import { WorkspacePage } from "@/components/layout/workspace-page";
 import { WorkspaceErrorState, WorkspaceLoadingState } from "@/components/layout/workspace-state";
 import type { ProjectDetail } from "@/services/api/projects";
@@ -51,8 +52,28 @@ export default function ProjectDetailPage() {
         queryKey: ["project", projectId, "unit-workspace", activeUnitId],
         queryFn: () => getProjectUnitWorkspace(projectId, activeUnitId),
         enabled: Boolean(projectId && activeUnitId) && (activeView === "chapters" || activeView === "workflow"),
-        refetchInterval: (query) => (query.state.data?.tasks || []).some((task) => task.clientContext?.shotId && (task.status === "queued" || task.status === "running")) ? 2_000 : false,
     });
+    const projectTasksQuery = useQuery({
+        queryKey: ["project", projectId, "generation-tasks"],
+        queryFn: ({ signal }) => listGenerationTasks(100, { projectId }, undefined, signal),
+        enabled: Boolean(projectId) && (activeView === "chapters" || activeView === "workflow"),
+        refetchInterval: activeView === "chapters" || activeView === "workflow" ? 3_000 : false,
+        refetchIntervalInBackground: true,
+        staleTime: 1_000,
+    });
+    const terminalTaskIdsRef = useRef<Set<string> | null>(null);
+    useEffect(() => {
+        const tasks = projectTasksQuery.data;
+        if (!tasks) return;
+        const terminal = new Set(tasks.filter((task) => task.status === "succeeded" || task.status === "failed" || task.status === "cancelled").map((task) => task.id));
+        const previous = terminalTaskIdsRef.current;
+        terminalTaskIdsRef.current = terminal;
+        if (!previous) return;
+        if (Array.from(terminal).some((id) => !previous.has(id))) {
+            void queryClient.invalidateQueries({ queryKey: ["project", projectId, "unit-workspace", activeUnitId] });
+            void queryClient.invalidateQueries({ queryKey: ["project-unit-artifacts", projectId, activeUnitId] });
+        }
+    }, [activeUnitId, projectId, projectTasksQuery.data, queryClient]);
     const project = coreQuery.data?.project;
     const workspace = workspaceQuery.data;
     const detail: ProjectDetail | undefined = project ? {
@@ -69,7 +90,7 @@ export default function ProjectDetailPage() {
         shotArtifacts: workspace?.shotArtifacts || [],
         shotReferences: workspace?.shotReferences || [],
         assetCandidates: workspace?.assetCandidates || [],
-        tasks: workspace?.tasks || [],
+        tasks: Array.from(new Map([...(workspace?.tasks || []), ...(projectTasksQuery.data || [])].map((task) => [task.id, task])).values()).sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
     } : undefined;
     const refreshProject = () => { void queryClient.invalidateQueries({ queryKey: ["project", projectId] }); void queryClient.invalidateQueries({ queryKey: ["projects"] }); };
     const createCanvas = async () => {

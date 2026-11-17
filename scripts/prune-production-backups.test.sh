@@ -9,7 +9,7 @@ trap 'rm -rf -- "$fixture"' EXIT
 
 backup_root="$fixture/canvas/backups"
 web_root="$fixture/canvas"
-mkdir -p "$backup_root" "$web_root/web-dist" "$web_root/web-dist.new-current"
+mkdir -p "$backup_root" "$backup_root/bundles" "$web_root/web-dist" "$web_root/web-dist.new-current"
 printf 'active frontend\n' >"$web_root/web-dist/index.html"
 printf 'staging frontend\n' >"$web_root/web-dist.new-current/index.html"
 
@@ -50,6 +50,10 @@ for day in 01 02 03 04; do
     make_dir "$backup_root/pre-aicyld$day" "$day"
     make_file "$backup_root/backend.pre-$day" "$day"
 done
+for day in 01 02 03 04 05 06 07; do
+    make_file "$backup_root/bundles/aicyld-canvas-v2.1.3-test.$day.tar.gz" "$day"
+    make_file "$backup_root/bundles/aicyld-canvas-v2.1.3-test.$day.tar.gz.sha256" "$day"
+done
 
 "$prune" \
     --backup-root "$backup_root" \
@@ -59,6 +63,7 @@ done
     --keep-web-tarballs 2 \
     --keep-web-dirs 2 \
     --keep-release-dirs 2 \
+    --keep-bundles 3 \
     --keep "$backup_root/infinite-canvas-backend.01" \
     >"$fixture/dry-run.log"
 
@@ -80,6 +85,7 @@ test -f "$web_root/web-dist.new-current/index.html"
     --keep-web-tarballs 2 \
     --keep-web-dirs 2 \
     --keep-release-dirs 2 \
+    --keep-bundles 3 \
     --keep "$backup_root/infinite-canvas-backend.01" \
     --apply \
     >"$fixture/apply.log"
@@ -132,5 +138,13 @@ done
 
 test -f "$web_root/web-dist/index.html"
 test -f "$web_root/web-dist.new-current/index.html"
+for day in 05 06 07; do
+    test -f "$backup_root/bundles/aicyld-canvas-v2.1.3-test.$day.tar.gz"
+    test -f "$backup_root/bundles/aicyld-canvas-v2.1.3-test.$day.tar.gz.sha256"
+done
+for day in 01 02 03 04; do
+    test ! -e "$backup_root/bundles/aicyld-canvas-v2.1.3-test.$day.tar.gz"
+    test ! -e "$backup_root/bundles/aicyld-canvas-v2.1.3-test.$day.tar.gz.sha256"
+done
 
 printf 'prune-production-backups tests passed\n'

@@ -456,6 +456,10 @@ export function resourceFileUrl(id: string) {
     const base = String(apiBaseURL).replace(/\/+$/, "");
     return `${base}/resources/${encodeURIComponent(id)}/file`;
 }
+export function resourceThumbnailUrl(id: string, width = 480) {
+    const base = String(apiBaseURL).replace(/\/+$/, "");
+    return `${base}/resources/${encodeURIComponent(id)}/file?thumbnail=${Math.max(64, Math.min(1280, Math.round(width)))}`;
+}
 
 function resourceProxyFileUrl(id: string) {
     const base = String(apiBaseURL).replace(/\/+$/, "");

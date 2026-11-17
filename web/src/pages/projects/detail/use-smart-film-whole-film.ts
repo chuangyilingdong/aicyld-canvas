@@ -1,13 +1,13 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { modelCapabilityConfigFor, normalizeVideoValue } from "@/lib/model-capabilities";
 import { resolveModelVideoBooleanOptions } from "@/lib/model-selection";
-import { buildBackendGenerationTaskQuoteInput, runBackendGenerationTask } from "@/services/api/generation-task";
+import { buildBackendGenerationTaskQuoteInput, parseBackendGenerationResult, runBackendGenerationTask } from "@/services/api/generation-task";
 import { listProjectUnitArtifacts, registerProjectUnitArtifact, type ProjectDetail, type ProjectShot } from "@/services/api/projects";
 import { ownedResourceIdFromMediaRef, resourceIdFromStorageKey } from "@/services/api/resources";
 import { getSmartFilmBatch } from "@/services/api/smart-film-batches";
-import type { GenerationTask } from "@/services/api/task-center";
+import { listGenerationTasks, type GenerationTask } from "@/services/api/task-center";
 import type { SmartFilmSkillStage } from "@/services/api/smart-film-batches";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { approvedStoryboardArtifact, currentArtifact } from "./workflow-shared";
@@ -19,6 +19,8 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const [smartFilmGenerating, setSmartFilmGenerating] = useState(false);
     const [smartFilmTask, setSmartFilmTask] = useState<GenerationTask | null>(null);
+    const [smartFilmRecoveryError, setSmartFilmRecoveryError] = useState("");
+    const recoveringTaskIdsRef = useRef(new Set<string>());
     const smartFilmBatchQuery = useQuery({
         queryKey: ["smart-film-batch", detail.project.batchId, activeStage === "video" ? "video" : "image"],
         queryFn: () => getSmartFilmBatch(detail.project.batchId!, undefined, (activeStage === "video" ? "video" : "image") as SmartFilmSkillStage).then((result) => result.batch),
@@ -26,6 +28,14 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
     });
     const smartWholeFilm = smartFilmBatchQuery.data?.config.productionMode === "smart";
     const smartFilmConfigurationPending = Boolean(detail.project.batchId) && smartFilmBatchQuery.isPending;
+    const projectTasksQuery = useQuery({
+        queryKey: ["project-generation-tasks", projectId, "smart-film"],
+        queryFn: ({ signal }) => listGenerationTasks(30, { projectId }, undefined, signal),
+        enabled: Boolean(projectId),
+        refetchInterval: smartWholeFilm ? 3_000 : 5_000,
+        refetchIntervalInBackground: true,
+        staleTime: 1_000,
+    });
     const unitArtifactsQuery = useQuery({
         queryKey: ["project-unit-artifacts", projectId, unitId],
         queryFn: ({ signal }) => listProjectUnitArtifacts(projectId, unitId, signal).then((result) => result.artifacts),
@@ -42,12 +52,40 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
         }).length,
         [detail, shots],
     );
-    const activeSmartFilmTask = useMemo(
-        () => (detail.tasks || [])
-            .filter((task) => task.projectId === projectId && task.type === "canvas_video" && (task.status === "queued" || task.status === "running"))
-            .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0],
-        [detail.tasks, projectId],
-    );
+    const latestSmartFilmTask = useMemo(() => {
+        const merged = new Map<string, GenerationTask>();
+        for (const task of [...(detail.tasks || []), ...(projectTasksQuery.data || [])]) merged.set(task.id, task);
+        return Array.from(merged.values())
+            .filter((task) => task.projectId === projectId && task.type === "canvas_video"
+                && (task.clientContext?.artifactType === "smart_film" || task.clientContext?.source === "smart-film-whole-video"))
+            .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
+    }, [detail.tasks, projectId, projectTasksQuery.data]);
+    const activeSmartFilmTask = latestSmartFilmTask?.status === "queued" || latestSmartFilmTask?.status === "running" ? latestSmartFilmTask : undefined;
+
+    useEffect(() => {
+        const task = latestSmartFilmTask;
+        if (!task || task.status !== "succeeded" || !unitArtifactsQuery.isSuccess || recoveringTaskIdsRef.current.has(task.id)) return;
+        if ((unitArtifactsQuery.data || []).some((artifact) => artifact.taskId === task.id)) return;
+        recoveringTaskIdsRef.current.add(task.id);
+        void (async () => {
+            try {
+                const result = parseBackendGenerationResult(task);
+                const resourceId = ownedResourceIdFromMediaRef(result.video?.storageKey, result.video?.url) || resourceIdFromStorageKey(result.video?.storageKey);
+                if (!resourceId) throw new Error("任务已完成，但没有取得可登记的整片视频资源");
+                await registerProjectUnitArtifact(projectId, unitId, {
+                    taskId: task.id,
+                    resourceId,
+                    type: "smart_film",
+                    metadataJson: JSON.stringify({ recoveredFromTask: true, model: task.model || "", resultState: task.resultState || "" }),
+                });
+                setSmartFilmRecoveryError("");
+                await unitArtifactsQuery.refetch();
+            } catch (error) {
+                recoveringTaskIdsRef.current.delete(task.id);
+                setSmartFilmRecoveryError(error instanceof Error ? error.message : "整片视频产物恢复失败");
+            }
+        })();
+    }, [latestSmartFilmTask, projectId, unitArtifactsQuery, unitId]);
 
     const generateSmartWholeFilm = async (confirmQuote: (input: ReturnType<typeof buildBackendGenerationTaskQuoteInput>) => Promise<boolean>, notifyError: (message: string) => void) => {
         if (smartFilmGenerating) return;
@@ -155,5 +193,5 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
         }
     };
 
-    return { smartWholeFilm, smartFilmConfigurationPending, smartFilmGenerating, smartFilmTask: smartFilmTask || activeSmartFilmTask, latestSmartWholeFilm, readyStoryboardCount, smartFilmBatch: smartFilmBatchQuery.data, generateSmartWholeFilm };
+    return { smartWholeFilm, smartFilmConfigurationPending, smartFilmGenerating, smartFilmTask: smartFilmTask || latestSmartFilmTask, smartFilmRecoveryError, latestSmartWholeFilm, readyStoryboardCount, smartFilmBatch: smartFilmBatchQuery.data, generateSmartWholeFilm };
 }

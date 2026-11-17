@@ -17,6 +17,7 @@ Options:
   --keep-web-tarballs N  Keep newest frontend tarballs (default: 5)
   --keep-web-dirs N      Keep newest frontend directories (default: 2)
   --keep-release-dirs N  Keep newest full release rollback sets (default: 2)
+  --keep-bundles N       Keep newest deployable release bundles (default: 5)
   --keep PATH            Always keep PATH; may be repeated
   --apply                Delete candidates; otherwise only print the plan
   -h, --help             Show this help
@@ -57,6 +58,7 @@ keep_databases=7
 keep_web_tarballs=5
 keep_web_dirs=2
 keep_release_dirs=2
+keep_bundles=5
 declare -a keep_paths=()
 
 while (($#)); do
@@ -96,6 +98,11 @@ while (($#)); do
             keep_release_dirs="$2"
             shift 2
             ;;
+        --keep-bundles)
+            [[ $# -ge 2 ]] || die "--keep-bundles requires a value"
+            keep_bundles="$2"
+            shift 2
+            ;;
         --keep)
             [[ $# -ge 2 ]] || die "--keep requires a value"
             keep_paths+=("$2")
@@ -120,6 +127,7 @@ require_uint "$keep_databases" "--keep-databases"
 require_uint "$keep_web_tarballs" "--keep-web-tarballs"
 require_uint "$keep_web_dirs" "--keep-web-dirs"
 require_uint "$keep_release_dirs" "--keep-release-dirs"
+require_uint "$keep_bundles" "--keep-bundles"
 
 [[ -d "$backup_root" ]] || die "backup root does not exist: $backup_root"
 backup_root="$(realpath -e -- "$backup_root")"
@@ -217,13 +225,17 @@ printf 'web root:    %s\n' "$web_root"
 
 prune_entries "backend binaries" "$backup_root" file "$keep_backends" 'infinite-canvas-backend*'
 prune_entries "database snapshots" "$backup_root" file "$keep_databases" 'open_ai_canvas.db.*'
+prune_entries "database copies" "$backup_root" file "$keep_databases" '*.db'
 prune_entries "frontend tarballs" "$backup_root" file "$keep_web_tarballs" 'web-dist*.tar.gz'
 prune_entries "frontend backup directories" "$backup_root" dir "$keep_web_dirs" 'web-dist*'
 prune_entries "release rollback directories" "$backup_root" dir "$keep_release_dirs" 'pre-release-*'
 prune_entries "legacy release rollback directories" "$backup_root" dir "$keep_release_dirs" 'pre-aicyld*'
 prune_entries "backend rollback files" "$backup_root" file "$keep_release_dirs" 'backend.pre-*'
+prune_entries "legacy backend rollback directories" "$backup_root" dir "$keep_release_dirs" 'backend.pre-*'
 prune_entries "root frontend rollbacks" "$web_root" dir "$keep_web_dirs" "web-dist.prev*"
 prune_entries "root hidden frontend rollbacks" "$web_root" dir "$keep_web_dirs" ".web-dist.prev*"
+prune_entries "release bundles" "$backup_root/bundles" file "$keep_bundles" 'aicyld-canvas-v*.tar.gz'
+prune_entries "release bundle checksums" "$backup_root/bundles" file "$keep_bundles" 'aicyld-canvas-v*.tar.gz.sha256'
 prune_entries "root failed frontend directories" "$web_root" dir 0 ".web-dist.failed*"
 
 printf '\nSummary: kept=%d delete=%d reclaim=%s\n' \

@@ -12,12 +12,15 @@
 | --- | ---: |
 | `infinite-canvas-backend*` 后端二进制 | 7 |
 | `open_ai_canvas.db.*` 数据库快照 | 7 |
+| `*.db` 数据库副本 | 7 |
 | `web-dist*.tar.gz` 前端压缩包 | 5 |
 | `backups/web-dist*` 前端目录快照 | 2 |
 | 生产根目录 `web-dist.prev*` 前端回滚目录 | 2 |
 | `backups/pre-release-*` 完整发布回滚集 | 2 |
 | `backups/pre-aicyld*` 旧版完整发布回滚集 | 2 |
-| `backups/backend.pre-*` 旧后端回滚二进制 | 2 |
+| `backups/backend.pre-*` 旧后端回滚文件与目录 | 2 |
+| `backups/bundles/aicyld-canvas-v*.tar.gz` 可部署发行包 | 5 |
+| `backups/bundles/aicyld-canvas-v*.tar.gz.sha256` 发行包校验文件 | 5 |
 
 以下内容不在清理范围：
 

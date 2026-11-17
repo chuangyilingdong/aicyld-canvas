@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { CanvasResourceMentionTextarea } from "@/components/canvas/canvas-resource-mention-textarea";
 import { canvasResourceMentionToken } from "@/lib/canvas/canvas-resource-references";
-import { resourceFileUrl } from "@/services/api/resources";
+import { resourceFileUrl, resourceThumbnailUrl } from "@/services/api/resources";
 import type { ProjectDetail, ProjectShot, ShotArtifact, ShotRevision } from "@/services/api/projects";
 import type { GenerationTask } from "@/services/api/task-center";
 
@@ -40,6 +40,24 @@ export function SmartFilmStoryboardBoard({ detail, shots, readyCount, busy, subm
     const confirmedImageCount = shots.filter(imageConfirmed).length;
     const allImagesConfirmed = shots.length > 0 && confirmedImageCount === shots.length;
     const assetTitles = new Map(detail.assets.map((asset) => [asset.id, asset.title]));
+    const issues: Array<{ key: string; label: string; tone: "warning" | "danger" }> = [];
+    for (const task of detail.tasks || []) {
+        if (task.status !== "failed" || !["storyboard", "smart_film"].includes(task.clientContext?.artifactType || "")) continue;
+        const shotTitle = shots.find((shot) => shot.id === task.clientContext?.shotId)?.title;
+        issues.push({ key: `task:${task.id}`, label: `${shotTitle || "生成任务"}失败：${task.error || "请重新提交"}`, tone: "danger" });
+    }
+    for (const shot of shots) {
+        const artifact = currentArtifact(detail, shot.id, "storyboard");
+        if (shot.status !== "confirmed") issues.push({ key: `prompt:${shot.id}`, label: `${shot.title || "镜头"}尚未确认提示词`, tone: "warning" });
+        if (artifact?.status === "stale") issues.push({ key: `stale:${shot.id}`, label: `${shot.title || "镜头"}的分镜图已过期，需要重新生成`, tone: "danger" });
+        if (artifact?.status === "ready" && !imageConfirmed(shot)) issues.push({ key: `review:${shot.id}`, label: `${shot.title || "镜头"}的分镜图尚未确认`, tone: "warning" });
+        const revision = currentRevision(detail, shot);
+        if (!revision) continue;
+        const context = buildShotAssetReferenceContext(detail, shot.id);
+        const bound = new Set(context.mentionReferences.flatMap((reference) => reference.assetId ? [reference.assetId] : []));
+        const stale = new Set(Array.from(`${revision.imagePrompt || ""}\n${revision.videoPrompt || ""}`.matchAll(/@\[asset:([^\]]+)\]/g), (match) => match[1]).filter((assetId) => !bound.has(assetId)));
+        if (stale.size) issues.push({ key: `refs:${shot.id}`, label: `${shot.title || "镜头"}提示词含 ${stale.size} 个未绑定资产引用，提交时会自动忽略`, tone: "warning" });
+    }
 
     const confirmShot = async (shot: ProjectShot) => {
         setConfirmingShotId(shot.id);
@@ -84,6 +102,14 @@ export function SmartFilmStoryboardBoard({ detail, shots, readyCount, busy, subm
                 </div>
             </header>
 
+            {issues.length ? <details className="mb-4 rounded-xl border border-amber-300/35 bg-amber-400/[.06] px-4 py-3" open={issues.some((issue) => issue.tone === "danger")}>
+                <summary className="cursor-pointer text-xs font-medium text-amber-700 dark:text-amber-300">待处理问题 {issues.length} 项</summary>
+                <ul className="mt-3 grid gap-2 text-xs leading-5 text-foreground/65">
+                    {issues.slice(0, 12).map((issue) => <li key={issue.key} className={issue.tone === "danger" ? "text-rose-500" : "text-amber-600 dark:text-amber-400"}>{issue.label}</li>)}
+                </ul>
+                {issues.length > 12 ? <p className="mt-2 text-[var(--fs-tiny)] text-foreground/40">另有 {issues.length - 12} 项问题，修正当前问题后会自动更新。</p> : null}
+            </details> : null}
+
             <div className="grid gap-3">
                 {shots.map((shot, index) => {
                     const revision = currentRevision(detail, shot);
@@ -97,7 +123,7 @@ export function SmartFilmStoryboardBoard({ detail, shots, readyCount, busy, subm
                     return (
                         <article key={shot.id} className="grid gap-3 rounded-xl border border-border/70 bg-surface p-3 lg:grid-cols-[220px_minmax(0,1fr)_170px]">
                             <button type="button" className="relative aspect-video self-start overflow-hidden rounded-lg border border-border/60 bg-black/20" disabled={!artifact?.resourceId} onClick={() => artifact && onPreviewImage(artifact)} aria-label={`查看${shot.title}分镜图`}>
-                                {artifact?.resourceId ? <img src={resourceFileUrl(artifact.resourceId)} alt={`${shot.title}分镜图`} className="h-full w-full object-contain" loading="lazy" /> : <span className="grid h-full place-items-center text-foreground/24"><ImageIcon className="size-7" /></span>}
+                                {artifact?.resourceId ? <img src={resourceThumbnailUrl(artifact.resourceId, 480)} alt={`${shot.title}分镜图`} className="h-full w-full object-contain" loading="lazy" decoding="async" /> : <span className="grid h-full place-items-center text-foreground/24"><ImageIcon className="size-7" /></span>}
                             </button>
 
                             <div className="min-w-0">
@@ -128,13 +154,14 @@ export function SmartFilmStoryboardBoard({ detail, shots, readyCount, busy, subm
     );
 }
 
-export function SmartFilmVideoBoard({ detail, shots, readyCount, targetSeconds, generating, generationTask, latestResourceId, onBack, onSaveShotPrompt, onGenerate, onDownload }: {
+export function SmartFilmVideoBoard({ detail, shots, readyCount, targetSeconds, generating, generationTask, recoveryError, latestResourceId, onBack, onSaveShotPrompt, onGenerate, onDownload }: {
     detail: ProjectDetail;
     shots: ProjectShot[];
     readyCount: number;
     targetSeconds: number;
     generating: boolean;
     generationTask?: GenerationTask;
+    recoveryError?: string;
     latestResourceId?: string;
     onBack: () => void;
     onSaveShotPrompt: (shot: ProjectShot, videoPrompt: string, status: PromptSaveStatus) => Promise<void>;
@@ -161,7 +188,7 @@ export function SmartFilmVideoBoard({ detail, shots, readyCount, targetSeconds, 
                         <span className="text-xs text-foreground/42">分镜图可用 {readyCount}/{shots.length} · 目标 {formatDuration(targetSeconds * 1000)}</span>
                     </div>
                     <p className="mt-1 text-xs leading-5 text-foreground/48">请逐个检查并编辑本镜视频提示词与动作节拍，修改后直接确认。已确认 {confirmedCount}/{shots.length}；分镜图可用 {readyCount}/{shots.length}。</p>
-                    {!allReady ? <p className="mt-1 text-[var(--fs-tiny)] text-amber-500">{staleCount ? `有 ${staleCount} 张分镜图已过期，请回到分镜步骤重新生成。` : "仍有分镜图未生成，暂时不能生成整片视频。"}</p> : null}
+                    {!allReady ? <p className="mt-1 text-[var(--fs-tiny)] text-amber-500">{staleCount ? `有 ${staleCount} 张分镜图已过期，请回到分镜步骤重新生成。` : "仍有分镜图未生成，暂时不能生成整片视频。"}</p> : null}`n                    {recoveryError ? <p className="mt-1 text-[var(--fs-tiny)] text-rose-500">产物恢复失败：{recoveryError}</p> : null}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                     <Button icon={<ArrowLeft className="size-4" />} onClick={onBack}>返回分镜图</Button>
@@ -271,7 +298,7 @@ function SmartFilmVideoShotRow({ detail, shot, index, artifact, revision, target
     return (
         <article className={`grid gap-3 rounded-xl border bg-foreground/[.025] p-3 lg:grid-cols-[220px_minmax(0,1fr)_160px] ${confirmed ? "border-emerald-500/35" : "border-border/60"}`}>
             <div className="relative aspect-video self-start overflow-hidden rounded-lg border border-border/60 bg-foreground/[.04]">
-                {artifact?.resourceId ? <img src={resourceFileUrl(artifact.resourceId)} alt={`${shot.title}分镜图`} className="h-full w-full object-contain" loading="lazy" /> : <span className="grid h-full place-items-center text-foreground/25"><ImageIcon className="size-7" /></span>}
+                {artifact?.resourceId ? <img src={resourceThumbnailUrl(artifact.resourceId, 480)} alt={`${shot.title}分镜图`} className="h-full w-full object-contain" loading="lazy" decoding="async" /> : <span className="grid h-full place-items-center text-foreground/25"><ImageIcon className="size-7" /></span>}
             </div>
 
             <div className="min-w-0">
