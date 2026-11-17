@@ -339,6 +339,26 @@ export default function WorkflowProductionWorkbench(props: Props) {
         await onRefresh();
     };
 
+    const saveSmartFilmStoryboardPrompt = async (shot: ProjectShot, imagePrompt: string) => {
+        const shotIndex = shots.findIndex((item) => item.id === shot.id);
+        const context = buildShotAssetReferenceContext(detail, shot.id);
+        const values = {
+            ...shotEditorValues(detail, shot, Math.max(0, shotIndex), context),
+            imagePrompt,
+        };
+        await saveProjectShot(projectId, {
+            id: shot.id,
+            unitId,
+            title: values.title,
+            description: values.plotDescription,
+            position: shot.position,
+            durationMs: Math.round(values.durationSeconds * 1000),
+            status: shot.status,
+            revision: revisionInput(values),
+        });
+        await onRefresh();
+    };
+
     const saveSmartFilmVideoPrompt = async (shot: ProjectShot, videoPrompt: string, status: "draft" | "confirmed") => {
         const shotIndex = shots.findIndex((item) => item.id === shot.id);
         const context = buildShotAssetReferenceContext(detail, shot.id);
@@ -723,7 +743,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
         await generateAllArtifacts({ shotIds: [selectedShot.id], singleShot: true, force: true });
     };
 
-    const generateAllArtifacts = async (options?: { automatic?: boolean; shotIds?: readonly string[]; singleShot?: boolean; force?: boolean }) => {
+    const generateAllArtifacts = async (options?: { automatic?: boolean; shotIds?: readonly string[]; singleShot?: boolean; force?: boolean; imagePromptOverride?: { shotId: string; prompt: string } }) => {
         if (batchProgress || submittingShotIds.size) {
             message.warning("已有镜头正在提交生成任务，请稍候");
             return;
@@ -831,9 +851,12 @@ export default function WorkflowProductionWorkbench(props: Props) {
                     const rawValues = shot.id === selectedShot?.id && currentValues
                         ? currentValues
                         : shotEditorValues(detail, shot, shotIndex, context);
+                    const imagePrompt = options?.imagePromptOverride?.shotId === shot.id
+                        ? options.imagePromptOverride.prompt
+                        : rawValues.imagePrompt || "";
                     const values = {
                         ...rawValues,
-                        imagePrompt: stripUnboundShotAssetMentions(rawValues.imagePrompt || "", context),
+                        imagePrompt: stripUnboundShotAssetMentions(imagePrompt, context),
                         videoPrompt: stripUnboundShotAssetMentions(rawValues.videoPrompt || "", context),
                     };
                     const generation = generationConfigForShot({
@@ -846,7 +869,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                         resolution,
                         imageQuality,
                     });
-                    const persistRevision = shot.id === selectedShot?.id ? editorDirty : !currentRevision(detail, shot)?.id;
+                    const persistRevision = options?.imagePromptOverride?.shotId === shot.id || (shot.id === selectedShot?.id ? editorDirty : !currentRevision(detail, shot)?.id);
                     preparedItems.push(await prepareShotGeneration({ shot, values, context, productionStep, model: generation.model, config: generation.config, persistRevision }));
                 } catch (error) {
                     const reason = error instanceof Error ? error.message : "准备提交失败";
@@ -920,8 +943,13 @@ export default function WorkflowProductionWorkbench(props: Props) {
             setBatchProgress(null);
         }
     };
-    const generateSmartFilmStoryboardShot = async (shot: ProjectShot) => {
-        await generateAllArtifacts({ shotIds: [shot.id], singleShot: true, force: true });
+    const generateSmartFilmStoryboardShot = async (shot: ProjectShot, imagePrompt?: string) => {
+        await generateAllArtifacts({
+            shotIds: [shot.id],
+            singleShot: true,
+            force: true,
+            ...(imagePrompt !== undefined ? { imagePromptOverride: { shotId: shot.id, prompt: imagePrompt } } : {}),
+        });
     };
 
     useEffect(() => {
@@ -956,10 +984,10 @@ export default function WorkflowProductionWorkbench(props: Props) {
                 readyCount={readyStoryboardCount}
                 busy={Boolean(batchProgress) || submittingShotIds.size > 0}
                 submittingShotIds={submittingShotIds}
-                onConfirmShot={confirmSmartFilmStoryboardShot}
                 onConfirmImage={confirmSmartFilmStoryboardImage}
+                onSaveShotPrompt={saveSmartFilmStoryboardPrompt}
                 onGenerateAll={() => void generateAllArtifacts()}
-                onGenerateShot={(shot) => void generateSmartFilmStoryboardShot(shot)}
+                onGenerateShot={(shot, imagePrompt) => void generateSmartFilmStoryboardShot(shot, imagePrompt)}
                 onPreviewImage={setImagePreviewArtifact}
                 onNext={() => navigate(`/projects/${projectId}/workflow/${unitId}/video`)}
             />

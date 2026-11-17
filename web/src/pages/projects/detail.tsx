@@ -71,11 +71,15 @@ export default function ProjectDetailPage() {
         const terminal = new Set(tasks.filter((task) => task.status === "succeeded" || task.status === "failed" || task.status === "cancelled").map((task) => task.id));
         const previous = terminalTaskIdsRef.current;
         terminalTaskIdsRef.current = terminal;
-        if (!previous) return;
-        if (Array.from(terminal).some((id) => !previous.has(id))) {
+        const changed = !previous || Array.from(terminal).some((id) => !previous.has(id));
+        if (!changed) return;
+        const refreshArtifacts = () => {
             void queryClient.invalidateQueries({ queryKey: ["project", projectId, "unit-workspace", activeUnitId] });
             void queryClient.invalidateQueries({ queryKey: ["project-unit-artifacts", projectId, activeUnitId] });
-        }
+        };
+        refreshArtifacts();
+        const retryTimer = window.setTimeout(refreshArtifacts, 2_000);
+        return () => window.clearTimeout(retryTimer);
     }, [activeUnitId, projectId, projectTasksQuery.data, queryClient]);
     const project = coreQuery.data?.project;
     const workspace = workspaceQuery.data;
