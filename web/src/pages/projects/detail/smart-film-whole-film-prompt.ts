@@ -2,7 +2,7 @@ import type { ProjectDetail, ProjectShot, ShotArtifact } from "@/services/api/pr
 import { resourceFileUrl } from "@/services/api/resources";
 import type { ReferenceImage } from "@/types/image";
 
-import { buildShotAssetReferenceContext, resolveShotAssetMentionPrompt } from "./workflow-shot-references";
+import { buildShotAssetReferenceContext, resolveShotAssetMentionPrompt, stripUnboundShotAssetMentions } from "./workflow-shot-references";
 import { currentRevision } from "./workflow-shared";
 
 type StoryboardEntry = {
@@ -47,8 +47,8 @@ export function buildSmartFilmWholeFilmPrompt(detail: ProjectDetail, entries: St
     const shotPrompts = shotPlans.map(({ shot, storyboardImageIndex, context }, index) => {
         const revision = currentRevision(detail, shot);
         const motion = [
-            revision?.videoPrompt || revision?.plotDescription || shot.description || shot.title,
-            revision?.action,
+            stripUnboundShotAssetMentions(revision?.videoPrompt || revision?.plotDescription || shot.description || shot.title, context),
+            stripUnboundShotAssetMentions(revision?.action || "", context),
         ].filter(Boolean).join("\n");
         const resolved = resolveShotAssetMentionPrompt(motion, context, {
             dialogue: revision?.dialogue,

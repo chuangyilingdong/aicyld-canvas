@@ -50,7 +50,7 @@ describe("smart film whole-film prompt", () => {
                 cameraMovement: "",
                 durationMs: 2000,
                 imagePrompt: "",
-                videoPrompt: "暗黑沧龙保持静止站立姿态，背景是落灰展示柜与桌面",
+                videoPrompt: "暗黑沧龙保持静止站立姿态，背景是落灰展示柜与桌面 @[asset:missing]",
                 negativePrompt: "",
                 continuityNotes: "",
                 actionBeatsJson: "",
@@ -68,6 +68,7 @@ describe("smart film whole-film prompt", () => {
         expect(plan.prompt).toContain("使用第 1 张分镜图");
         expect(plan.prompt).toContain("暗黑沧龙 图片3保持静止站立姿态");
         expect(plan.prompt).toContain("落灰展示柜与桌面 图片2");
+        expect(plan.prompt).not.toContain("@[asset:missing]");
     });
 });
 
