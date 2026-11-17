@@ -260,13 +260,24 @@ func (w *Worker) applyAssetExtraction(item localproject.SmartFilmAssetExtraction
 	if len(candidates) == 0 {
 		return nil, nil
 	}
-	return w.Projects.CreateProjectAssetCandidates(item.UserID, item.ProjectID, localproject.CreateAssetCandidatesRequest{
+	created, err := w.Projects.CreateProjectAssetCandidates(item.UserID, item.ProjectID, localproject.CreateAssetCandidatesRequest{
 		Candidates: candidates, Source: localproject.AssetCandidateSourceChapterCharacter, SourceTaskID: task.ID,
 	})
+	if err != nil {
+		return nil, err
+	}
+	if err := w.bindInputProductCandidate(item, created); err != nil {
+		return nil, err
+	}
+	return created, nil
 }
 
 func assetExtractionCandidateInputs(item localproject.SmartFilmAssetExtractionWorkItem, payload map[string]any) []localproject.AssetCandidateInput {
 	candidates := make([]localproject.AssetCandidateInput, 0)
+	known := make(map[string]struct{}, len(item.ExistingAssets))
+	for _, asset := range item.ExistingAssets {
+		known[smartFilmCandidateIdentity(asset.Title, asset.Category)] = struct{}{}
+	}
 	characterCount := len(JSONArray(payload["characters"]))
 	skipExtractedCharacters := item.FixedCharacterCount > 0 && item.FixedCharacterCount >= characterCount
 	for _, raw := range JSONArray(payload["characters"]) {
@@ -276,6 +287,9 @@ func assetExtractionCandidateInputs(item localproject.SmartFilmAssetExtractionWo
 		details := JSONMap(raw)
 		name := strings.TrimSpace(JSONString(details["name"]))
 		if name == "" {
+			continue
+		}
+		if _, exists := known[smartFilmCandidateIdentity(name, "character")]; exists {
 			continue
 		}
 		candidates = append(candidates, localproject.AssetCandidateInput{UnitID: item.UnitID, Name: name, Category: "character", Details: details})
@@ -290,10 +304,87 @@ func assetExtractionCandidateInputs(item localproject.SmartFilmAssetExtractionWo
 			if name == "" {
 				continue
 			}
+			if _, exists := known[smartFilmCandidateIdentity(name, group.category)]; exists {
+				continue
+			}
 			candidates = append(candidates, localproject.AssetCandidateInput{UnitID: item.UnitID, Name: name, Category: group.category, Details: details})
 		}
 	}
 	return candidates
+}
+
+func (w *Worker) bindInputProductCandidate(item localproject.SmartFilmAssetExtractionWorkItem, candidates []model.ProjectAssetCandidate) error {
+	productAssets := make([]localproject.SmartFilmStoryboardAsset, 0)
+	for _, asset := range item.ExistingAssets {
+		if asset.InputRole == "product" && asset.VisualReference {
+			productAssets = append(productAssets, asset)
+		}
+	}
+	if len(candidates) == 0 || len(productAssets) == 0 {
+		return nil
+	}
+	alias := smartFilmProductAliasForWorker(item, candidates)
+	if alias == "" {
+		return nil
+	}
+	for _, candidate := range candidates {
+		if candidate.Category != model.AssetCategoryProp || !strings.EqualFold(strings.TrimSpace(candidate.Name), alias) {
+			continue
+		}
+		if candidate.Status != "pending_confirmation" {
+			return nil
+		}
+		_, err := w.Projects.ConfirmProjectAssetCandidate(item.UserID, item.ProjectID, candidate.ID, localproject.ConfirmProjectAssetCandidateRequest{AssetID: productAssets[0].ID})
+		return err
+	}
+	return nil
+}
+
+func smartFilmProductAliasForWorker(item localproject.SmartFilmAssetExtractionWorkItem, candidates []model.ProjectAssetCandidate) string {
+	names := make(map[string]struct{})
+	for assetID, role := range item.InputAssetRoles {
+		if strings.TrimSpace(role) != "product" {
+			continue
+		}
+		name := smartFilmMeaningfulInputNameForWorker(item.InputAssetNames[assetID])
+		if name != "" {
+			names[name] = struct{}{}
+		}
+	}
+	if len(names) == 1 {
+		for name := range names {
+			return name
+		}
+	}
+	if len(names) > 0 || strings.TrimSpace(item.ProjectName) == "" {
+		return ""
+	}
+	projectKey := strings.ToLower(strings.TrimSpace(item.ProjectName))
+	best := ""
+	for _, candidate := range candidates {
+		if candidate.Category != model.AssetCategoryProp {
+			continue
+		}
+		name := strings.TrimSpace(candidate.Name)
+		if name != "" && strings.Contains(projectKey, strings.ToLower(name)) && len(name) > len(best) {
+			best = name
+		}
+	}
+	return best
+}
+
+func smartFilmMeaningfulInputNameForWorker(value string) string {
+	name := strings.TrimSpace(value)
+	switch model.AssetCandidateNameKey(name) {
+	case "", "生成图片", "图片", "未命名", "未命名图片", "image", "untitled", "产品", "道具", "场景", "资产", "人物", "角色":
+		return ""
+	default:
+		return name
+	}
+}
+
+func smartFilmCandidateIdentity(title, category string) string {
+	return strings.ToLower(strings.TrimSpace(category)) + "\x00" + model.AssetCandidateNameKey(title)
 }
 
 func (w *Worker) submitStoryboard(item localproject.SmartFilmStoryboardWorkItem) (*model.Task, error) {
@@ -494,7 +585,7 @@ func storyboardPrompt(item localproject.SmartFilmStoryboardWorkItem, assetsJSON 
 		"【剧情】\n" + item.ScriptContent,
 		"【项目画风】\n" + DefaultString(item.ProjectStyle, "保持视觉描述中性、可执行。"),
 		"【当前可用资产】\n" + string(assetsJSON),
-		"【执行约束】\n- " + durationRule + "\n- " + countRule + "\n- visualReference=true 表示有资产图，可作为视觉参考；visualReference=false 是仅文字设定，必须使用其 prompt/definition 理解角色、场景和道具。\n- characters 必须原样填写当前可用人物资产的 title，不得改写人物名称或使用泛称。\n- 每个镜头只绑定实际出现的角色、场景和道具；禁止把全部资产无差别塞入每个镜头。\n- assetRefs 只能使用 visualReference=true 的资产 ID；没有相关视觉资产时返回空数组。\n- 禁止把 visualReference=false 的资产写入 assetRefs，也禁止在提示词里生成对应的 @[asset:*]。\n- 单镜头最多 2 名主要角色、1 个主运镜、一条主要动作链、3 个 timeBeats 和 3 个 mustHave。\n- dialogue 只写本镜头实际念出的台词或简短旁白。\n- 只返回一个 JSON 对象，不要 Markdown、代码块或解释。",
+		"【执行约束】\n- " + durationRule + "\n- " + countRule + "\n- visualReference=true 表示有资产图，可作为视觉参考；visualReference=false 是仅文字设定，必须使用其 prompt/definition 理解角色、场景和道具。\n- characters 必须原样填写当前可用人物资产的 title，不得改写人物名称或使用泛称。\n- 每个镜头只绑定实际出现的角色、场景和道具；禁止把全部资产无差别塞入每个镜头。\n- assetRefs 只能使用 visualReference=true 的资产 ID；没有相关视觉资产时返回空数组。\n- 禁止把 visualReference=false 的资产写入 assetRefs，也禁止在提示词里生成对应的 @[asset:*]。\n- 如果画面点名了某个 visualReference=true 的资产，assetRefs 必须包含它，不能只写文字描述。\n- 角色与产品必须沿用资产 title 或 aliases 的语义名称；多张参考图属于同一产品时使用同一名称，不得把产品当普通场景道具忽略。\n- 人物和产品的位置、身份一一对应，不得互换；图片提示词明确写“图片N=资产名称”。\n- 用户未明确指定写实或真人风格时，必须保持输入参考图中的人物年龄、比例、服装、造型和产品结构；禁止擅自成年化、换脸、换装、改写产品外形或改成写实真人。\n- 单镜头最多 2 名主要角色、1 个主运镜、一条主要动作链、3 个 timeBeats 和 3 个 mustHave。\n- dialogue 只写本镜头实际念出的台词或简短旁白。\n- 只返回一个 JSON 对象，不要 Markdown、代码块或解释。",
 		"【输出结构】\n" + `{"title":"string","rows":[{"shotNumber":1,"durationSeconds":5,"plotDescription":"","dialogue":"","characters":[],"narrativeIntent":"","viewerPOV":"","performanceBlocking":"","shotSize":"","emotion":"","lightingAndAtmosphere":"","audioEffects":"","camera":"","motion":"","timeBeats":"","imageGenerationPrompt":"","videoMotionPrompt":"","continuityOut":"","negativePrompt":"","mustHave":[],"optionalDetails":[],"assetRefs":[{"nodeId":"asset-id","role":"character","priority":100}]}]}`,
 	}, "\n\n")
 }
@@ -667,7 +758,7 @@ func storyboardRowAssets(row map[string]any, assets []localproject.SmartFilmStor
 	for _, raw := range JSONArray(row["characters"]) {
 		if character := strings.ToLower(storyboardCharacterName(raw)); character != "" {
 			for _, asset := range assets {
-				if strings.EqualFold(asset.Title, character) {
+				if storyboardAssetMatchesName(asset, character) {
 					add(asset.ID)
 				}
 			}
@@ -678,8 +769,7 @@ func storyboardRowAssets(row map[string]any, assets []localproject.SmartFilmStor
 		rowString(row["imageGenerationPrompt"]), rowString(row["videoMotionPrompt"]),
 	}, "\n"))
 	for _, asset := range assets {
-		title := strings.ToLower(strings.TrimSpace(asset.Title))
-		if title != "" && strings.Contains(haystack, title) {
+		if storyboardAssetMatchesText(asset, haystack) {
 			add(asset.ID)
 		}
 	}
@@ -698,6 +788,34 @@ func storyboardRowAssets(row map[string]any, assets []localproject.SmartFilmStor
 		roles = append(roles, localproject.ShotAssetRole{AssetID: asset.ID, VersionID: asset.PrimaryVersionID, Title: asset.Title, Role: role})
 	}
 	return ids, versions, roles
+}
+
+func storyboardAssetMatchesName(asset localproject.SmartFilmStoryboardAsset, name string) bool {
+	key := strings.ToLower(strings.TrimSpace(name))
+	if key == "" {
+		return false
+	}
+	if strings.EqualFold(strings.TrimSpace(asset.Title), key) {
+		return true
+	}
+	for _, alias := range asset.Aliases {
+		if strings.EqualFold(strings.TrimSpace(alias), key) {
+			return true
+		}
+	}
+	return false
+}
+
+func storyboardAssetMatchesText(asset localproject.SmartFilmStoryboardAsset, text string) bool {
+	if title := strings.ToLower(strings.TrimSpace(asset.Title)); title != "" && strings.Contains(text, title) {
+		return true
+	}
+	for _, alias := range asset.Aliases {
+		if value := strings.ToLower(strings.TrimSpace(alias)); value != "" && strings.Contains(text, value) {
+			return true
+		}
+	}
+	return false
 }
 
 func storyboardCharacterName(raw any) string {

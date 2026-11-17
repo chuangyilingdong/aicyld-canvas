@@ -64,7 +64,7 @@ import {
     formatDuration,
     type ShortDramaWorkflowStage,
 } from "./workflow-shared";
-import { buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, resolveShotAssetMentionPrompt, stripUnboundShotAssetMentions } from "./workflow-shot-references";
+import { buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, missingPrimaryProductReferences, resolveShotAssetMentionPrompt, smartFilmPrimaryProductName, stripUnboundShotAssetMentions, withPrimaryProductReferences } from "./workflow-shot-references";
 import { isProjectAssetVisualReference, linkedShotAssetReferences, parseShotAssetRoles, shotAssetRoleLabel } from "./shot-asset-roles";
 import { useSmartFilmWholeFilm } from "./use-smart-film-whole-film";
 import { SmartFilmStoryboardBoard, SmartFilmVideoBoard } from "./smart-film-production-board";
@@ -568,7 +568,26 @@ export default function WorkflowProductionWorkbench(props: Props) {
         const mode = generationCapability;
         if (!isAiConfigReady(input.config, input.model)) throw new Error("当前模型渠道配置不完整，请先到设置中补齐");
         if (detail.project.batchId && !smartFilmBatch) throw new Error("正在读取本批次技能配置，请稍后重试");
-        const shotAssetReferenceContext = mode === "video" ? withStoryboardVideoReference(detail, input.shot, input.context) : input.context;
+        const productName = smartFilmPrimaryProductName(smartFilmBatch?.config.inputAssetRoles, smartFilmBatch?.config.inputAssetNames, detail.assetCandidates, detail.project.name);
+        const supplementedContext = withPrimaryProductReferences(
+            input.context,
+            detail,
+            smartFilmBatch?.config.inputAssetRoles,
+            productName,
+            `${input.values.imagePrompt || input.values.plotDescription}\n${input.values.action}`,
+        );
+        if (mode === "image") {
+            const missingProducts = missingPrimaryProductReferences(
+                `${input.values.imagePrompt || input.values.plotDescription}\n${input.values.action}`,
+                detail.project.name,
+                supplementedContext.mentionReferences,
+                detail.assetCandidates,
+            );
+            if (missingProducts.length) {
+                throw new Error(`本镜出现核心产品“${missingProducts.join("、")}”，但当前没有绑定产品参考图。请先在镜头资产中添加对应产品图`);
+            }
+        }
+        const shotAssetReferenceContext = mode === "video" ? withStoryboardVideoReference(detail, input.shot, supplementedContext) : supplementedContext;
         const hasStoryboardReference = mode === "video" && shotAssetReferenceContext.referenceImages.some((image) => image.id === `storyboard:${input.shot.id}`);
         const existingRevision = currentRevision(detail, input.shot);
         let savedShot = input.shot;

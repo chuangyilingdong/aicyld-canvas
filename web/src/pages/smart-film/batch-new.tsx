@@ -11,7 +11,7 @@ import { WorkspacePage } from "@/components/layout/workspace-page";
 import { ASSET_CATEGORY_LABELS, normalizeAssetCategory, type AssetCategory } from "@/lib/asset-category";
 import { createStyleProfileSnapshot, serializeStyleProfile } from "@/lib/canvas/style-profile";
 import type { SmartFilmScriptReference } from "@/lib/canvas/smart-film-scripts";
-import { characterReferenceDisplayName, needsPlatformDefaultSkillConfirmation, SMART_FILM_LAST_SKILL_STORAGE_KEY } from "@/lib/canvas/smart-film-reference-defaults";
+import { needsPlatformDefaultSkillConfirmation, referenceDefaultName, SMART_FILM_LAST_SKILL_STORAGE_KEY } from "@/lib/canvas/smart-film-reference-defaults";
 import { uploadWorkspaceAssetFiles } from "@/services/workspace-asset-upload";
 import { createSmartFilmBatch, saveSmartFilmBatchScripts, type SmartFilmReferenceRole, type SmartFilmSkillSnapshot } from "@/services/api/smart-film-batches";
 import { backendProviderConfig } from "@/services/api/generation-task";
@@ -136,12 +136,11 @@ export default function SmartFilmBatchNewPage() {
         if (!sourceText) return message.warning("请先填写视频想法");
         if (resolvedScriptCount < 1 || resolvedScriptCount > 10) return message.warning("剧本数量需要在 1–10 条之间");
         if (productAssetIds.length > MAX_BATCH_PRODUCT_IMAGES) return message.warning(`参考图最多 ${MAX_BATCH_PRODUCT_IMAGES} 张`);
-        const characterAssets = productAssets.filter((asset) => referenceRoles[asset.id] === "character");
-        const inputAssetNames = Object.fromEntries(characterAssets.map((asset, index) => [
+        const inputAssetNames = Object.fromEntries(productAssets.map((asset, index) => [
             asset.id,
-            (referenceNames[asset.id] || characterReferenceDisplayName(asset.title, index)).trim(),
+            (referenceNames[asset.id] || referenceDefaultName(asset.title, referenceRoles[asset.id] || "prop", index)).trim(),
         ]));
-        if (characterAssets.some((asset) => !inputAssetNames[asset.id])) return message.warning("请为每个人物参考图填写人物名称");
+        if (productAssets.some((asset) => !inputAssetNames[asset.id])) return message.warning("请为每张参考图填写可用于剧情和提示词的资产名称");
         if (!resolvedTextModel || !resolvedImageModel || !resolvedVideoModel) return message.warning("请先选择文本、图片和视频模型");
         if ([resolvedTextModel, resolvedImageModel, resolvedVideoModel].some((model) => !isAiConfigReady(effectiveConfig, model))) {
             return message.warning("所选模型当前不可用，请先检查模型配置");
@@ -271,17 +270,15 @@ export default function SmartFilmBatchNewPage() {
                                         {roleAssets.map((asset, index) => (
                                             <div className="smart-film-product-card" key={asset.id}>
                                                 <CachedResourceImage storageKey={asset.data.storageKey} src={asset.data.dataUrl} alt={asset.title} eager />
-                                                {option.value === "character" ? (
-                                                    <Input
-                                                        size="small"
-                                                        className="smart-film-character-name"
-                                                        maxLength={80}
-                                                        value={referenceNames[asset.id] ?? characterReferenceDisplayName(asset.title, index)}
-                                                        placeholder="填写人物名称"
-                                                        aria-label={`${asset.title} 的人物名称`}
-                                                        onChange={(event) => setReferenceNames((current) => ({ ...current, [asset.id]: event.target.value }))}
-                                                    />
-                                                ) : <span title={asset.title}>{asset.title}</span>}
+                                                <Input
+                                                    size="small"
+                                                    className="smart-film-character-name"
+                                                    maxLength={80}
+                                                    value={referenceNames[asset.id] ?? referenceDefaultName(asset.title, option.value, index)}
+                                                    placeholder={option.value === "character" ? "填写人物名称" : `填写${option.label}名称`}
+                                                    aria-label={`${asset.title} 的${option.label}名称`}
+                                                    onChange={(event) => setReferenceNames((current) => ({ ...current, [asset.id]: event.target.value }))}
+                                                />
                                                 <button type="button" aria-label={`移除 ${asset.title}`} onClick={() => { setProductAssetIds((current) => current.filter((id) => id !== asset.id)); setReferenceRoles((current) => { const next = { ...current }; delete next[asset.id]; return next; }); setReferenceNames((current) => { const next = { ...current }; delete next[asset.id]; return next; }); }}><Trash2 className="size-3.5" /></button>
                                             </div>
                                         ))}
@@ -290,7 +287,7 @@ export default function SmartFilmBatchNewPage() {
                             );
                         })}
                     </div>
-                    <small className="smart-film-product-hint">参考图合计最多 {MAX_BATCH_PRODUCT_IMAGES} 张。人物图会自动使用素材名；素材名为“生成图片”时会依次命名为“角色 1、角色 2”，你可以直接使用或修改。</small>
+                    <small className="smart-film-product-hint">参考图合计最多 {MAX_BATCH_PRODUCT_IMAGES} 张。所有参考图都需要填写剧情中的语义名称；同一产品的多张图请填写同一个名称，例如都写“机甲狂鲨”。名称会用于资产提取、分镜和 @ 引用。</small>
                     <div className="smart-film-skill-select-row">
                         <div>
                             <strong>制作技能</strong>

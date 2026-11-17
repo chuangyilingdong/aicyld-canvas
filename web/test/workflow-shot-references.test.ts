@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 import { canvasResourceMentionToken } from "@/lib/canvas/canvas-resource-references";
-import type { ProjectAsset, ProjectDetail } from "@/services/api/projects";
-import { buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, resolveShotAssetMentionPrompt, stripUnboundShotAssetMentions } from "@/pages/projects/detail/workflow-shot-references";
+import type { ProjectAsset, ProjectAssetCandidate, ProjectDetail } from "@/services/api/projects";
+import { buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, missingPrimaryProductReferences, resolveShotAssetMentionPrompt, smartFilmPrimaryProductName, stripUnboundShotAssetMentions, withPrimaryProductReferences } from "@/pages/projects/detail/workflow-shot-references";
 
 describe("workflow shot asset references", () => {
     test("builds ordered image references for bound media and characters", () => {
@@ -145,6 +145,66 @@ describe("workflow shot asset references", () => {
         expect(second.match(/【资产参考】/g)).toHaveLength(1);
         expect(second.match(/林默：人物参考/g)).toHaveLength(1);
         expect(second.match(/雨夜街道：场景参考/g)).toHaveLength(1);
+    });
+
+    test("adds strict identity and product locks after resolving references", () => {
+        const context = buildShotAssetReferenceContext(detail(), "shot-1");
+        const prompt = resolveShotAssetMentionPrompt("林默站在雨夜街道", context);
+
+        expect(prompt).toContain("【参考图一致性】");
+        expect(prompt).toContain("禁止互换人物身份或产品");
+        expect(prompt).toContain("沿用参考图本身的视觉风格");
+    });
+
+    test("blocks the primary product from being generated without a product reference", () => {
+        const context = buildShotAssetReferenceContext(detail(), "shot-1");
+        const candidate = {
+            id: "candidate-product",
+            projectId: "project-1",
+            name: "机甲狂鲨",
+            category: "prop",
+            status: "pending_confirmation",
+        } as ProjectAssetCandidate;
+
+        expect(missingPrimaryProductReferences("画面出现机甲狂鲨", "机甲狂鲨海底急救赛", context.mentionReferences, [candidate])).toEqual(["机甲狂鲨"]);
+        expect(missingPrimaryProductReferences("画面出现机甲狂鲨", "机甲狂鲨海底急救赛", [{ category: "prop" }], [candidate])).toEqual([]);
+    });
+
+    test("automatically adds mapped input product images and uses the semantic alias", () => {
+        const value = detail();
+        value.assets.push({
+            id: "asset-product",
+            title: "03",
+            mediaType: "image",
+            category: "prop",
+            status: "confirmed",
+            primaryVersionId: "version-product",
+            versionCount: 1,
+            usages: [],
+            position: 4,
+            storageKey: "resource:product-image",
+            updatedAt: "2026-08-29T00:00:06Z",
+        } satisfies ProjectAsset);
+        const candidate = {
+            id: "candidate-product",
+            projectId: "project-1",
+            name: "机甲狂鲨",
+            category: "prop",
+            status: "pending_confirmation",
+        } as ProjectAssetCandidate;
+        const productName = smartFilmPrimaryProductName({ "asset-product": "product" }, {}, [candidate], "机甲狂鲨海底急救赛");
+        const context = withPrimaryProductReferences(
+            buildShotAssetReferenceContext(value, "shot-1"),
+            value,
+            { "asset-product": "product" },
+            productName,
+            "机甲狂鲨从海沟冲出",
+        );
+
+        expect(productName).toBe("机甲狂鲨");
+        expect(context.mentionReferences.find((reference) => reference.assetId === "asset-product")?.title).toBe("机甲狂鲨");
+        expect(context.referenceImages.map((image) => image.id)).toContain("asset-product");
+        expect(missingPrimaryProductReferences("机甲狂鲨从海沟冲出", "机甲狂鲨海底急救赛", context.mentionReferences, [candidate])).toEqual([]);
     });
 });
 

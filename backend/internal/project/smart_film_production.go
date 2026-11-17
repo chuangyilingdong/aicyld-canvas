@@ -289,7 +289,7 @@ func (s *Service) SmartFilmAssetExtractionWorkItems(limit int) ([]SmartFilmAsset
 			}
 		}
 		textModel, textConfig, snapshotErr := s.smartFilmTextStageConfig(config, batch)
-		existingAssets, _ := s.smartFilmStoryboardAssets(run.UserID, run.ProjectID, "", false)
+		existingAssets, _ := s.smartFilmStoryboardAssetsForBatch(run.UserID, run.ProjectID, "", false, config, project.Name)
 		fixedCharacterCount := smartFilmFixedCharacterCount(config)
 		skillID, skillVersionID, skillContentHash, skillContext := smartFilmSkillStage(config, SmartFilmSkillStageAssets)
 		items = append(items, SmartFilmAssetExtractionWorkItem{
@@ -297,7 +297,8 @@ func (s *Service) SmartFilmAssetExtractionWorkItems(limit int) ([]SmartFilmAsset
 			ProjectID: run.ProjectID, UnitID: run.UnitID, ProjectName: project.Name, ProjectStyle: stylePrompt,
 			ExistingAssets:      existingAssets,
 			FixedCharacterCount: fixedCharacterCount,
-			ScriptTitle:         script.Title, ScriptContent: script.Content,
+			InputAssetRoles:     config.InputAssetRoles, InputAssetNames: config.InputAssetNames,
+			ScriptTitle: script.Title, ScriptContent: script.Content,
 			TextModel: textModel, TextConfig: textConfig, LogicalModelID: stringValue(textConfig["logicalModelId"]), ConfigurationError: errorText(snapshotErr),
 			AssetTaskID: run.AssetTaskID, AssetStatus: run.AssetStatus,
 			SkillID: skillID, SkillVersionID: skillVersionID, SkillContentHash: skillContentHash, SkillContext: skillContext,
@@ -367,7 +368,7 @@ func (s *Service) SmartFilmStoryboardWorkItems(limit int) ([]SmartFilmStoryboard
 			}
 		}
 		textModel, textConfig, snapshotErr := s.smartFilmTextStageConfig(config, batch)
-		assets, assetErr := s.smartFilmStoryboardAssets(run.UserID, run.ProjectID, run.UnitID, true)
+		assets, assetErr := s.smartFilmStoryboardAssetsForBatch(run.UserID, run.ProjectID, run.UnitID, true, config, project.Name)
 		if assetErr != nil {
 			continue
 		}
@@ -387,7 +388,7 @@ func (s *Service) SmartFilmStoryboardWorkItems(limit int) ([]SmartFilmStoryboard
 			TextModel: textModel, TextConfig: textConfig, LogicalModelID: stringValue(textConfig["logicalModelId"]), ConfigurationError: errorText(snapshotErr),
 			ShotCount: config.ShotCount, ShotDurationSeconds: config.ShotDurationSeconds,
 			ShotDurationsSeconds: config.ShotDurationsSeconds, TargetDurationSeconds: config.TargetDurationSeconds,
-			Assets: assets, ExistingShotIDs: existingIDs,
+			Assets: assets, InputAssetRoles: config.InputAssetRoles, InputAssetNames: config.InputAssetNames, ExistingShotIDs: existingIDs,
 			StoryboardTaskID: run.StoryboardTaskID, StoryboardStatus: run.StoryboardStatus,
 			SkillID: skillID, SkillVersionID: skillVersionID, SkillContentHash: skillContentHash, SkillContext: skillContext,
 		})
@@ -396,10 +397,22 @@ func (s *Service) SmartFilmStoryboardWorkItems(limit int) ([]SmartFilmStoryboard
 }
 
 func (s *Service) smartFilmStoryboardAssets(userID, projectID, unitID string, includePendingCandidates bool) ([]SmartFilmStoryboardAsset, error) {
+	return s.smartFilmStoryboardAssetsForBatch(userID, projectID, unitID, includePendingCandidates, SmartFilmBatchConfig{}, "")
+}
+
+func (s *Service) smartFilmStoryboardAssetsForBatch(userID, projectID, unitID string, includePendingCandidates bool, config SmartFilmBatchConfig, projectName string) ([]SmartFilmStoryboardAsset, error) {
 	assets, err := s.ProjectAssets(userID, projectID)
 	if err != nil {
 		return nil, err
 	}
+	var candidates []model.ProjectAssetCandidate
+	if includePendingCandidates {
+		candidates, err = s.repo.ProjectAssetCandidates(projectID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	productAlias := smartFilmProductAlias(config, candidates, projectName)
 	result := make([]SmartFilmStoryboardAsset, 0, len(assets))
 	for _, asset := range assets {
 		if asset.Status != model.AssetVersionStatusConfirmed || asset.PrimaryVersionID == "" {
@@ -417,16 +430,26 @@ func (s *Service) smartFilmStoryboardAssets(userID, projectID, unitID string, in
 		if prompt == "" {
 			prompt = asset.Title
 		}
+		title := asset.Title
+		aliases := make([]string, 0, 2)
+		inputRole := strings.TrimSpace(config.InputAssetRoles[asset.ID])
+		if inputName := smartFilmMeaningfulInputName(config.InputAssetNames[asset.ID]); inputName != "" {
+			if !strings.EqualFold(inputName, title) {
+				aliases = append(aliases, title)
+			}
+			title = inputName
+		} else if inputRole == "product" && productAlias != "" {
+			if !strings.EqualFold(productAlias, title) {
+				aliases = append(aliases, title)
+			}
+			title = productAlias
+		}
 		result = append(result, SmartFilmStoryboardAsset{
-			ID: asset.ID, Title: asset.Title, Category: string(asset.Category), MediaType: asset.MediaType, VisualReference: smartFilmAssetHasVisualReference(asset),
+			ID: asset.ID, Title: title, Aliases: aliases, Category: string(asset.Category), InputRole: inputRole, MediaType: asset.MediaType, VisualReference: smartFilmAssetHasVisualReference(asset),
 			PrimaryVersionID: asset.PrimaryVersionID, Prompt: truncateSmartFilmText(prompt, 1200), Definition: definition,
 		})
 	}
 	if includePendingCandidates {
-		candidates, candidateErr := s.repo.ProjectAssetCandidates(projectID)
-		if candidateErr != nil {
-			return nil, candidateErr
-		}
 		known := make(map[string]struct{}, len(result))
 		for _, asset := range result {
 			known[assetCandidateIdentity(asset.Title, asset.Category)] = struct{}{}
@@ -452,6 +475,48 @@ func (s *Service) smartFilmStoryboardAssets(userID, projectID, unitID string, in
 		}
 	}
 	return result, nil
+}
+
+func smartFilmProductAlias(config SmartFilmBatchConfig, candidates []model.ProjectAssetCandidate, projectName string) string {
+	names := make(map[string]struct{})
+	for assetID, role := range config.InputAssetRoles {
+		if strings.TrimSpace(role) != "product" {
+			continue
+		}
+		if name := smartFilmMeaningfulInputName(config.InputAssetNames[assetID]); name != "" {
+			names[name] = struct{}{}
+		}
+	}
+	if len(names) == 1 {
+		for name := range names {
+			return name
+		}
+	}
+	if len(names) > 0 || strings.TrimSpace(projectName) == "" {
+		return ""
+	}
+	projectKey := strings.ToLower(strings.TrimSpace(projectName))
+	best := ""
+	for _, candidate := range candidates {
+		if candidate.Category != model.AssetCategoryProp {
+			continue
+		}
+		name := strings.TrimSpace(candidate.Name)
+		if name != "" && strings.Contains(projectKey, strings.ToLower(name)) && len(name) > len(best) {
+			best = name
+		}
+	}
+	return best
+}
+
+func smartFilmMeaningfulInputName(value string) string {
+	name := strings.TrimSpace(value)
+	switch model.AssetCandidateNameKey(name) {
+	case "", "生成图片", "图片", "未命名", "未命名图片", "image", "untitled", "产品", "道具", "场景", "资产", "人物", "角色":
+		return ""
+	default:
+		return name
+	}
 }
 
 func assetCandidateIdentity(title, category string) string {

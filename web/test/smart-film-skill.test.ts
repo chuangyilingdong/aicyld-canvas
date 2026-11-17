@@ -44,6 +44,8 @@ describe("smart film single skill context", () => {
         expect(videoPrompt.length).toBeLessThanOrEqual(4_000);
         expect(imagePrompt).toContain("图片任务-");
         expect(videoPrompt).toContain("视频任务-");
+        expect(imagePrompt).toContain("【图片阶段规则】");
+        expect(imagePrompt).not.toContain("图片规则图片规则图片规则");
     });
 
     it("requires scripts to preserve supplied character names", () => {

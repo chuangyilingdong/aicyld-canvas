@@ -274,6 +274,8 @@ type SmartFilmAssetExtractionWorkItem struct {
 	ProjectStyle        string
 	ExistingAssets      []SmartFilmStoryboardAsset
 	FixedCharacterCount int
+	InputAssetRoles     map[string]string
+	InputAssetNames     map[string]string
 	ScriptTitle         string
 	ScriptContent       string
 	TextModel           string
@@ -291,7 +293,9 @@ type SmartFilmAssetExtractionWorkItem struct {
 type SmartFilmStoryboardAsset struct {
 	ID               string         `json:"id"`
 	Title            string         `json:"title"`
+	Aliases          []string       `json:"aliases,omitempty"`
 	Category         string         `json:"category"`
+	InputRole        string         `json:"inputRole,omitempty"`
 	MediaType        string         `json:"mediaType"`
 	VisualReference  bool           `json:"visualReference"`
 	PrimaryVersionID string         `json:"primaryVersionId,omitempty"`
@@ -321,6 +325,8 @@ type SmartFilmStoryboardWorkItem struct {
 	ShotDurationsSeconds  []float64
 	TargetDurationSeconds float64
 	Assets                []SmartFilmStoryboardAsset
+	InputAssetRoles       map[string]string
+	InputAssetNames       map[string]string
 	ExistingShotIDs       []string
 	StoryboardTaskID      string
 	StoryboardStatus      string

@@ -1,7 +1,7 @@
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import { assetCategoryLabel, normalizeAssetCategory } from "@/lib/asset-category";
 import { resourceFileUrl, resourceIdFromStorageKey, resourceStorageKey } from "@/services/api/resources";
-import type { CharacterRepresentation, ProjectAsset, ProjectDetail, ShotAssetReference } from "@/services/api/projects";
+import type { CharacterRepresentation, ProjectAsset, ProjectAssetCandidate, ProjectDetail, ShotAssetReference } from "@/services/api/projects";
 import type { AssetCategory } from "@/stores/use-asset-store";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio } from "@/types/media";
@@ -24,7 +24,7 @@ export type ShotPromptAssetReference = {
     dialogue?: string;
 };
 
-const managedShotAssetReferenceMarkers = ["【角色参考】", "【场景与道具参考】", "【资产引用】", "【资产参考】"];
+const managedShotAssetReferenceMarkers = ["【角色参考】", "【场景与道具参考】", "【资产引用】", "【资产参考】", "【参考图一致性】"];
 
 export function buildShotAssetReferenceContext(detail: ProjectDetail, shotId: string): ShotAssetReferenceContext {
     const assetByVersionId = new Map(detail.assets.filter((asset) => asset.primaryVersionId).map((asset) => [asset.primaryVersionId as string, asset]));
@@ -96,6 +96,83 @@ export function stripUnboundShotAssetMentions(prompt: string, context: ShotAsset
         .replace(/[ \t]+([，。；：、！？])/g, "$1")
         .trim();
 }
+
+export function missingPrimaryProductReferences(prompt: string, projectName: string, references: Array<Pick<CanvasResourceReference, "category">>, candidates: ProjectAssetCandidate[]) {
+    const projectKey = projectName.toLocaleLowerCase();
+    const promptKey = prompt.toLocaleLowerCase();
+    const primaryProductNames = Array.from(new Set(candidates
+        .filter((candidate) => candidate.category === "prop" && candidate.status !== "ignored")
+        .map((candidate) => candidate.name.trim())
+        .filter((name) => name && projectKey.includes(name.toLocaleLowerCase()) && promptKey.includes(name.toLocaleLowerCase()))));
+    if (!primaryProductNames.length) return [];
+    return references.some((reference) => reference.category === "prop") ? [] : primaryProductNames;
+}
+
+export function smartFilmPrimaryProductName(inputAssetRoles: Record<string, string> | undefined, inputAssetNames: Record<string, string> | undefined, candidates: ProjectAssetCandidate[], projectName: string) {
+    const names = new Set<string>();
+    for (const [assetId, role] of Object.entries(inputAssetRoles || {})) {
+        if (role !== "product") continue;
+        const name = meaningfulReferenceName(inputAssetNames?.[assetId]);
+        if (name) names.add(name);
+    }
+    if (names.size === 1) return Array.from(names)[0] || "";
+    if (names.size > 1) return "";
+    const projectKey = projectName.toLocaleLowerCase();
+    return candidates
+        .filter((candidate) => candidate.category === "prop")
+        .map((candidate) => candidate.name.trim())
+        .filter((name) => name && projectKey.includes(name.toLocaleLowerCase()))
+        .sort((left, right) => right.length - left.length)[0] || "";
+}
+
+export function withPrimaryProductReferences(
+    context: ShotAssetReferenceContext,
+    detail: ProjectDetail,
+    inputAssetRoles: Record<string, string> | undefined,
+    productName: string,
+    prompt: string,
+): ShotAssetReferenceContext {
+    if (!productName.trim() || !prompt.toLocaleLowerCase().includes(productName.toLocaleLowerCase())) return context;
+    const productAssetIds = new Set(Object.entries(inputAssetRoles || {}).filter(([, role]) => role === "product").map(([assetId]) => assetId));
+    if (!productAssetIds.size) return context;
+    const mentionReferences = context.mentionReferences.map((reference) => reference.assetId && productAssetIds.has(reference.assetId)
+        ? { ...reference, label: productName, title: productName, category: "prop" as const }
+        : reference);
+    const assetReferences = context.assetReferences.map((reference) => productAssetIds.has(reference.assetId)
+        ? { ...reference, title: productName, category: "prop" }
+        : reference);
+    const seen = new Set(mentionReferences.flatMap((reference) => reference.assetId ? [reference.assetId] : []));
+    const addedImages: ReferenceImage[] = [];
+    const addedReferences: ShotPromptAssetReference[] = [];
+    for (const asset of detail.assets) {
+        if (!productAssetIds.has(asset.id) || seen.has(asset.id)) continue;
+        const image = projectAssetReferenceImage(asset);
+        if (!image) continue;
+        seen.add(asset.id);
+        addedImages.push(image);
+        const imageIndex = mentionReferences.length + addedImages.length;
+        mentionReferences.push({
+            id: `project-asset:${asset.id}`,
+            nodeId: "",
+            assetId: asset.id,
+            kind: "image",
+            label: productName,
+            title: productName,
+            previewUrl: image.url,
+            storageKey: image.storageKey,
+            active: true,
+            category: "prop",
+        });
+        addedReferences.push({ assetId: asset.id, title: productName, category: "prop", imageIndex });
+    }
+    return {
+        mentionReferences,
+        referenceImages: [...context.referenceImages, ...addedImages],
+        referenceAudios: context.referenceAudios,
+        assetReferences: [...assetReferences, ...addedReferences],
+        resolvedCharacterVersions: context.resolvedCharacterVersions,
+    };
+}
 export function resolveShotAssetMentionPrompt(prompt: string, context: ShotAssetReferenceContext, options: {
     dialogue?: string;
     imageIndexByAssetId?: ReadonlyMap<string, number>;
@@ -124,7 +201,15 @@ export function resolveShotAssetMentionPrompt(prompt: string, context: ShotAsset
     const dialogueContext = withShotDialogue(assetReferences, options.dialogue);
     const assetBlock = compileShotAssetReferencePrompt(dialogueContext.references);
     const dialogueBlock = dialogueContext.unassignedDialogue ? `【镜头台词】\n\n${dialogueContext.unassignedDialogue}` : "";
-    return [resolved.trim(), assetBlock, dialogueBlock].filter(Boolean).join("\n\n");
+    const referenceLock = context.referenceImages.length
+        ? [
+            "【参考图一致性】",
+            "- 图片编号与资产名称一一对应，禁止互换人物身份或产品。",
+            "- 保持参考图中的年龄、人物比例、服装、发型、产品结构、颜色、材质和标志；不得成年化、换脸、换装或改成另一种产品。",
+            "- 未明确指定目标画风时，沿用参考图本身的视觉风格；文字中的“写实”不得覆盖参考图的童趣、3D 或插画风格。",
+        ].join("\n")
+        : "";
+    return [resolved.trim(), referenceLock, assetBlock, dialogueBlock].filter(Boolean).join("\n\n");
 }
 
 /** Keep an explicit asset name glued to its own image token, so a later @ cannot drift to another character. */
@@ -206,7 +291,7 @@ export function compileShotAssetReferencePrompt(references: ShotPromptAssetRefer
             : `图片${group.imageIndices[0]}`;
         const media = [imageLabel, group.audioIndices.length ? `声音参考：音频${group.audioIndices.join("、")}` : ""].filter(Boolean).join("；");
         return [
-            `- ${group.title}：${visualLabel}：${media}`,
+            `- ${group.title}：${visualLabel}：${media}；只使用对应图片中的该${group.category === "character" ? "人物" : "产品/道具"}，不得替换为其他对象`,
             ...Array.from(group.voiceDescriptions, (voice) => `  声音画像：${voice}`),
             ...Array.from(group.dialogues, (dialogue) => `  镜头台词：${dialogue}`),
         ];
@@ -295,6 +380,11 @@ function characterVoiceDescription(asset: ProjectAsset) {
 
 function stringValue(value: unknown) {
     return typeof value === "string" ? value.trim() : "";
+}
+
+function meaningfulReferenceName(value: string | undefined) {
+    const name = (value || "").trim();
+    return ["", "产品", "道具", "场景", "资产", "人物", "角色", "生成图片", "图片", "未命名", "未命名图片"].includes(name.toLocaleLowerCase()) ? "" : name;
 }
 
 function escapeRegExp(value: string) {

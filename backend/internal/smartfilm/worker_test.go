@@ -316,6 +316,37 @@ func TestStoryboardRowAssetsIncludesAllSameNameCharacterViews(t *testing.T) {
 	}
 }
 
+func TestStoryboardRowAssetsBindsEveryViewSharingAProductAlias(t *testing.T) {
+	assets := []localproject.SmartFilmStoryboardAsset{
+		{ID: "product-front", Title: "机甲狂鲨", Aliases: []string{"03"}, Category: "prop", MediaType: "image", VisualReference: true, PrimaryVersionID: "front-v1", InputRole: "product"},
+		{ID: "product-side", Title: "机甲狂鲨", Aliases: []string{"生成图片"}, Category: "prop", MediaType: "image", VisualReference: true, PrimaryVersionID: "side-v1", InputRole: "product"},
+	}
+	ids, versions, roles := storyboardRowAssets(map[string]any{
+		"plotDescription":       "巨型机甲狂鲨从海沟冲出",
+		"imageGenerationPrompt": "机甲狂鲨保持银蓝装甲和双涡轮",
+		"assetRefs":             []any{},
+	}, assets)
+	if len(ids) != 2 || !slices.Contains(ids, "product-front") || !slices.Contains(ids, "product-side") {
+		t.Fatalf("product views were not both bound: ids=%v versions=%v roles=%v", ids, versions, roles)
+	}
+}
+
+func TestAssetExtractionSkipsAlreadyMappedProductCandidate(t *testing.T) {
+	item := localproject.SmartFilmAssetExtractionWorkItem{
+		ExistingAssets: []localproject.SmartFilmStoryboardAsset{
+			{ID: "product-front", Title: "机甲狂鲨", Category: "prop", MediaType: "image", VisualReference: true},
+		},
+	}
+	candidates := assetExtractionCandidateInputs(item, map[string]any{
+		"characters": []any{},
+		"scenes":     []any{},
+		"props":      []any{map[string]any{"name": "机甲狂鲨", "prompt": "产品设定"}},
+	})
+	if len(candidates) != 0 {
+		t.Fatalf("mapped product candidate was duplicated: %+v", candidates)
+	}
+}
+
 func TestSanitizeAssetMentionsDropsTextOnlyReferences(t *testing.T) {
 	prompt := "雨夜街角 @[asset:text-setting] 咖啡杯 @[asset:product-image]"
 	cleaned := sanitizeAssetMentions(prompt, []string{"product-image"})

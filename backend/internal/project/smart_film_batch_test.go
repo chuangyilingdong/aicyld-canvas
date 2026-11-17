@@ -1641,3 +1641,27 @@ func TestSmartFilmScriptSourceChangeInvalidatesConfirmedShots(t *testing.T) {
 		t.Fatal("video task was allowed after script source changed")
 	}
 }
+
+func TestSmartFilmProductAliasUsesSharedInputName(t *testing.T) {
+	config := SmartFilmBatchConfig{
+		InputAssetRoles: map[string]string{"product-front": "product", "product-side": "product"},
+		InputAssetNames: map[string]string{"product-front": "机甲狂鲨", "product-side": "机甲狂鲨"},
+	}
+	if got := smartFilmProductAlias(config, nil, "其他项目"); got != "机甲狂鲨" {
+		t.Fatalf("product alias = %q, want 机甲狂鲨", got)
+	}
+}
+
+func TestSmartFilmProductAliasFallsBackToProjectNameCandidate(t *testing.T) {
+	config := SmartFilmBatchConfig{
+		InputAssetRoles: map[string]string{"product-front": "product"},
+		InputAssetNames: map[string]string{"product-front": "产品"},
+	}
+	candidates := []model.ProjectAssetCandidate{
+		{Name: "急救运输舱", Category: model.AssetCategoryProp},
+		{Name: "机甲狂鲨", Category: model.AssetCategoryProp},
+	}
+	if got := smartFilmProductAlias(config, candidates, "机甲狂鲨：60秒海底急救赛"); got != "机甲狂鲨" {
+		t.Fatalf("fallback product alias = %q, want 机甲狂鲨", got)
+	}
+}
