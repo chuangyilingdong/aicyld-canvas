@@ -340,7 +340,8 @@ func (s *Service) ConfirmSmartFilmBatchScripts(userID, batchID string, req Confi
 					Name: smartFilmProjectName(*script), Type: "smart-film", AspectRatio: config.AspectRatio,
 					SourceType: "text", Description: script.Content, StylePresetID: config.StylePresetID,
 					StyleProfileJSON: config.StyleProfileJSON, DefaultImageModel: strings.TrimSpace(config.DefaultImageModel),
-					DefaultVideoModel: strings.TrimSpace(config.DefaultVideoModel), BatchID: batchID, SourceRunID: run.ID, SourceScriptID: script.ID,
+					DefaultVideoModel: strings.TrimSpace(config.DefaultVideoModel), DefaultVideoResolution: strings.TrimSpace(config.DefaultVideoResolution),
+					BatchID: batchID, SourceRunID: run.ID, SourceScriptID: script.ID,
 				})
 				if createErr != nil {
 					return createErr

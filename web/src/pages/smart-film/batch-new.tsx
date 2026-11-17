@@ -9,6 +9,7 @@ import { CanvasStylePickerModal, type CanvasStylePreset } from "@/components/can
 import { ModelPicker } from "@/components/model-picker";
 import { WorkspacePage } from "@/components/layout/workspace-page";
 import { ASSET_CATEGORY_LABELS, normalizeAssetCategory, type AssetCategory } from "@/lib/asset-category";
+import { defaultModelCapabilityConfig, modelCapabilityConfigFor, normalizeVideoValue } from "@/lib/model-capabilities";
 import { createStyleProfileSnapshot, serializeStyleProfile } from "@/lib/canvas/style-profile";
 import type { SmartFilmScriptReference } from "@/lib/canvas/smart-film-scripts";
 import { needsPlatformDefaultSkillConfirmation, referenceDefaultName, SMART_FILM_LAST_SKILL_STORAGE_KEY } from "@/lib/canvas/smart-film-reference-defaults";
@@ -64,6 +65,7 @@ export default function SmartFilmBatchNewPage() {
     const [textModel, setTextModel] = useState("");
     const [imageModel, setImageModel] = useState("");
     const [videoModel, setVideoModel] = useState("");
+    const [videoResolution, setVideoResolution] = useState("");
     const [uploadingRole, setUploadingRole] = useState<BatchReferenceRole | null>(null);
     const [generating, setGenerating] = useState(false);
     const [generationProgress, setGenerationProgress] = useState(0);
@@ -82,6 +84,9 @@ export default function SmartFilmBatchNewPage() {
         productAssets.filter((asset) => (referenceRoles[asset.id] || "prop") === option.value),
     ])) as Record<BatchReferenceRole, ImageAsset[]>;
     const selectedSkill = useMemo<Skill | undefined>(() => installedSkills.find((skill) => skill.skillId === selectedSkillId), [installedSkills, selectedSkillId]);
+    const selectedVideoModel = videoModel || effectiveConfig.videoModel;
+    const videoProfile = useMemo(() => modelCapabilityConfigFor(effectiveConfig, selectedVideoModel).video || defaultModelCapabilityConfig(undefined, selectedVideoModel).video!, [effectiveConfig, selectedVideoModel]);
+    const resolvedVideoResolution = normalizeVideoValue(videoProfile, { resolution: videoResolution || effectiveConfig.vquality || videoProfile.defaultResolution }).resolution;
     useEffect(() => {
         if (skillsLoading || !selectedSkillId) return;
         if (installedSkills.some((skill) => skill.skillId === selectedSkillId)) return;
@@ -184,6 +189,7 @@ export default function SmartFilmBatchNewPage() {
                     defaultTextModel: resolvedTextModel,
                     defaultImageModel: resolvedImageModel,
                     defaultVideoModel: resolvedVideoModel,
+                    defaultVideoResolution: resolvedVideoResolution,
                     inputAssetRoles: referenceRoles,
                     inputAssetNames,
                     ...(skillSnapshot ? { skillSnapshot } : {}),
@@ -326,6 +332,10 @@ export default function SmartFilmBatchNewPage() {
                     <div className="smart-film-batch-number-grid">
                         <label><span>生成剧本数量</span><InputNumber min={1} max={10} precision={0} value={scriptCount} onChange={setScriptCount} addonAfter="条" /></label>
                         <label><span>成片画幅</span><Select value={aspectRatio} onChange={setAspectRatio} disabled={generating} options={[{ label: "9:16 竖屏", value: "9:16" }, { label: "16:9 横屏", value: "16:9" }, { label: "1:1 方形", value: "1:1" }]} /></label>
+                        <label>
+                            <span>清晰度</span>
+                            <Select value={resolvedVideoResolution || undefined} onChange={setVideoResolution} disabled={generating || !videoProfile.resolutions.length} placeholder="模型默认" options={videoProfile.resolutions.map((value) => ({ value, label: value.toUpperCase() }))} />
+                        </label>
                     </div>
                     <div className="smart-film-batch-style-row">
                         <div>

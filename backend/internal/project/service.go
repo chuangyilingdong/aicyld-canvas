@@ -266,7 +266,8 @@ func (s *Service) CreateProject(userID string, req CreateProjectRequest) (model.
 	item := model.Project{
 		ID: kernel.NewID(), UserID: userID, Name: name, Type: projectType, AspectRatio: aspectRatio, SourceType: sourceType,
 		Description: strings.TrimSpace(req.Description), StylePresetID: stylePresetID, StyleProfileJSON: styleProfileJSON,
-		DefaultImageModel: defaultImageModel, DefaultVideoModel: defaultVideoModel, Status: model.ProjectStatusActive,
+		DefaultImageModel: defaultImageModel, DefaultVideoModel: defaultVideoModel,
+		DefaultVideoResolution: strings.TrimSpace(req.DefaultVideoResolution), Status: model.ProjectStatusActive,
 		BatchID: strings.TrimSpace(req.BatchID), SourceRunID: strings.TrimSpace(req.SourceRunID), SourceScriptID: strings.TrimSpace(req.SourceScriptID),
 		Revision: 1, CreatedAt: now, UpdatedAt: now,
 	}
@@ -345,6 +346,9 @@ func (s *Service) UpdateProject(userID string, id string, req UpdateProjectReque
 			return model.Project{}, modelErr
 		}
 		item.DefaultVideoModel = defaultVideoModel
+	}
+	if req.DefaultVideoResolution != nil {
+		item.DefaultVideoResolution = strings.TrimSpace(*req.DefaultVideoResolution)
 	}
 	if err := prompts.ValidateStyleProfilePreset(item.StylePresetID, item.StyleProfileJSON); err != nil {
 		return model.Project{}, kernel.BadAuthRequest(err.Error())

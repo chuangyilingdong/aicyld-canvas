@@ -7,32 +7,34 @@ import (
 )
 
 type CreateProjectRequest struct {
-	Name              string `json:"name"`
-	Type              string `json:"type"`
-	AspectRatio       string `json:"aspectRatio"`
-	SourceType        string `json:"sourceType"`
-	Description       string `json:"description"`
-	StylePresetID     string `json:"stylePresetId"`
-	StyleProfileJSON  string `json:"styleProfileJson"`
-	DefaultImageModel string `json:"defaultImageModel"`
-	DefaultVideoModel string `json:"defaultVideoModel"`
-	BatchID           string `json:"-"`
-	SourceRunID       string `json:"-"`
-	SourceScriptID    string `json:"-"`
+	Name                   string `json:"name"`
+	Type                   string `json:"type"`
+	AspectRatio            string `json:"aspectRatio"`
+	SourceType             string `json:"sourceType"`
+	Description            string `json:"description"`
+	StylePresetID          string `json:"stylePresetId"`
+	StyleProfileJSON       string `json:"styleProfileJson"`
+	DefaultImageModel      string `json:"defaultImageModel"`
+	DefaultVideoModel      string `json:"defaultVideoModel"`
+	DefaultVideoResolution string `json:"defaultVideoResolution"`
+	BatchID                string `json:"-"`
+	SourceRunID            string `json:"-"`
+	SourceScriptID         string `json:"-"`
 }
 
 type UpdateProjectRequest struct {
-	Name              string  `json:"name"`
-	Type              string  `json:"type"`
-	AspectRatio       string  `json:"aspectRatio"`
-	SourceType        string  `json:"sourceType"`
-	Description       *string `json:"description"`
-	CoverResourceID   *string `json:"coverResourceId"`
-	StylePresetID     *string `json:"stylePresetId"`
-	StyleProfileJSON  *string `json:"styleProfileJson"`
-	DefaultImageModel *string `json:"defaultImageModel"`
-	DefaultVideoModel *string `json:"defaultVideoModel"`
-	Status            string  `json:"status"`
+	Name                   string  `json:"name"`
+	Type                   string  `json:"type"`
+	AspectRatio            string  `json:"aspectRatio"`
+	SourceType             string  `json:"sourceType"`
+	Description            *string `json:"description"`
+	CoverResourceID        *string `json:"coverResourceId"`
+	StylePresetID          *string `json:"stylePresetId"`
+	StyleProfileJSON       *string `json:"styleProfileJson"`
+	DefaultImageModel      *string `json:"defaultImageModel"`
+	DefaultVideoModel      *string `json:"defaultVideoModel"`
+	DefaultVideoResolution *string `json:"defaultVideoResolution"`
+	Status                 string  `json:"status"`
 }
 
 type CreateProjectUnitRequest struct {

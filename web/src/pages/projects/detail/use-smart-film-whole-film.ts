@@ -179,9 +179,9 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
             ? normalizeVideoValue(profile, {
                   seconds: String(targetSeconds),
                   ratio: detail.project.aspectRatio,
-                  resolution: effectiveConfig.vquality,
+                  resolution: detail.project.defaultVideoResolution || effectiveConfig.vquality,
               })
-            : { seconds: String(targetSeconds), ratio: detail.project.aspectRatio, resolution: effectiveConfig.vquality };
+            : { seconds: String(targetSeconds), ratio: detail.project.aspectRatio, resolution: detail.project.defaultVideoResolution || effectiveConfig.vquality };
         const videoBooleanOptions = resolveModelVideoBooleanOptions(effectiveConfig, model, {}, {
             videoGenerateAudio: effectiveConfig.videoGenerateAudio,
             videoWatermark: effectiveConfig.videoWatermark,

@@ -17,6 +17,7 @@ export type Project = {
     styleProfileJson?: string;
     defaultImageModel?: string;
     defaultVideoModel?: string;
+    defaultVideoResolution?: string;
     batchId?: string;
     sourceRunId?: string;
     sourceScriptId?: string;
@@ -527,11 +528,11 @@ function normalizeProjectDetail(detail: ProjectDetail): ProjectDetail {
     };
 }
 
-export function createProject(input: { name: string; type: string; aspectRatio: string; sourceType: string; description?: string; stylePresetId?: string; styleProfileJson?: string; defaultImageModel?: string; defaultVideoModel?: string }) {
+export function createProject(input: { name: string; type: string; aspectRatio: string; sourceType: string; description?: string; stylePresetId?: string; styleProfileJson?: string; defaultImageModel?: string; defaultVideoModel?: string; defaultVideoResolution?: string }) {
     return http.post<{ project: Project }>("/projects", input);
 }
 
-export function updateProject(projectId: string, input: Partial<Pick<Project, "name" | "type" | "aspectRatio" | "sourceType" | "description" | "coverResourceId" | "stylePresetId" | "styleProfileJson" | "defaultImageModel" | "defaultVideoModel" | "status">>) {
+export function updateProject(projectId: string, input: Partial<Pick<Project, "name" | "type" | "aspectRatio" | "sourceType" | "description" | "coverResourceId" | "stylePresetId" | "styleProfileJson" | "defaultImageModel" | "defaultVideoModel" | "defaultVideoResolution" | "status">>) {
     return http.patch<{ project: Project }>(`/projects/${encodeURIComponent(projectId)}`, input);
 }
 

@@ -79,6 +79,19 @@ func TestSeedanceDefaultCapabilityFollowsDocumentedLimits(t *testing.T) {
 	}
 }
 
+func TestSeedance25FlashMultiUsesSharedReferenceAndResolutionContract(t *testing.T) {
+	video := DefaultModelCapabilityConfigForModel("newapi", "seedance-2.5-flash-multi").Video
+	if video.References.MaxImages != 10 || video.References.MaxVideos != 5 || video.References.MaxAudios != 5 {
+		t.Fatalf("reference counts = %d/%d/%d", video.References.MaxImages, video.References.MaxVideos, video.References.MaxAudios)
+	}
+	if !slices.Equal(video.Resolutions, []string{"480p", "720p"}) || video.DefaultResolution != "720p" {
+		t.Fatalf("resolutions = %v, default = %q", video.Resolutions, video.DefaultResolution)
+	}
+	if !slices.Contains(video.Operations, "reference_to_video") {
+		t.Fatalf("operations = %v", video.Operations)
+	}
+}
+
 func seedanceVideoTaskInput(protocol, modelName, seconds string) TaskInput {
 	return TaskInput{Config: TaskConfig{InterfaceType: protocol, Model: modelName, VideoSeconds: seconds}}
 }

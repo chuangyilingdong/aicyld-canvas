@@ -214,13 +214,13 @@ func TestSmartFilmBatchValidatesInputAssetsAndPerShotConfig(t *testing.T) {
 		Title: "配置完整", SourceText: "产品短视频", InputAssetIDs: []string{ownedAsset.ID},
 		Config: SmartFilmBatchConfig{
 			AspectRatio: "16:9", StylePresetID: "", ScriptCount: 3, ShotCount: 2,
-			ShotDurationSeconds: 5, ShotDurationsSeconds: []float64{4, 7}, InputAssetRoles: map[string]string{ownedAsset.ID: "product"},
+			DefaultVideoResolution: "480p", ShotDurationSeconds: 5, ShotDurationsSeconds: []float64{4, 7}, InputAssetRoles: map[string]string{ownedAsset.ID: "product"},
 		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if created.Config.AspectRatio != "16:9" || len(created.Config.ShotDurationsSeconds) != 2 || created.Config.ShotDurationsSeconds[1] != 7 || created.Config.InputAssetRoles[ownedAsset.ID] != "product" {
+	if created.Config.AspectRatio != "16:9" || created.Config.DefaultVideoResolution != "480p" || len(created.Config.ShotDurationsSeconds) != 2 || created.Config.ShotDurationsSeconds[1] != 7 || created.Config.InputAssetRoles[ownedAsset.ID] != "product" {
 		t.Fatalf("created config = %+v", created.Config)
 	}
 
@@ -1573,6 +1573,28 @@ func TestSmartFilmVideoTaskRequiresConfirmedShot(t *testing.T) {
 				t.Fatalf("approved storyboard was rejected: %v", err)
 			}
 		})
+	}
+}
+
+func TestProjectPersistsDefaultVideoResolution(t *testing.T) {
+	svc, _ := newTestService(t, &recordingWorkflows{})
+	project, err := svc.CreateProject("user-1", CreateProjectRequest{
+		Name: "清晰度项目", Type: "smart-film", AspectRatio: "9:16", SourceType: "text",
+		DefaultVideoModel: "beefapi::seedance-2.5-flash-multi", DefaultVideoResolution: "480p",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if project.DefaultVideoResolution != "480p" {
+		t.Fatalf("created resolution = %q", project.DefaultVideoResolution)
+	}
+	resolution := "720p"
+	updated, err := svc.UpdateProject("user-1", project.ID, UpdateProjectRequest{DefaultVideoResolution: &resolution})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.DefaultVideoResolution != "720p" {
+		t.Fatalf("updated resolution = %q", updated.DefaultVideoResolution)
 	}
 }
 

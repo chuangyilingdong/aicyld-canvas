@@ -70,6 +70,15 @@ const contracts: VideoContract[] = [
         duration: { min: 5, max: 15, default: 5 },
     },
     {
+        models: ["seedance-2.5-flash-multi"],
+        allowSuffix: false,
+        protocol: "newapi",
+        inlineMedia: true,
+        maxReferences: { image: 10, video: 5, audio: 5 },
+        operations: ["text_to_video", "image_to_video", "reference_to_video"],
+        resolutions: ["480p", "720p"],
+    },
+    {
         models: ["seedance-2.0", "seedance-2.5"],
         allowSuffix: true,
         protocol: "newapi",

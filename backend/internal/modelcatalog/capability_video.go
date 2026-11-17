@@ -198,6 +198,30 @@ func defaultVideoCapabilityConfig(protocol string, modelName string) *VideoCapab
 			video.Operations = appendUniqueString(appendUniqueString(video.Operations, "inpaint"), "extend")
 		}
 	}
+	if contract, ok := providerpreset.BeefAPIVideoContract(modelName); ok && contract.Protocol == protocol {
+		if len(contract.Resolutions) > 0 {
+			video.Resolutions = append([]string(nil), contract.Resolutions...)
+			if !containsCapabilityString(video.Resolutions, video.DefaultResolution) {
+				video.DefaultResolution = video.Resolutions[0]
+			}
+		}
+		for kind, limit := range contract.MaxReferences {
+			switch kind {
+			case "image":
+				video.References.MaxImages = min(video.References.MaxImages, limit)
+			case "video":
+				video.References.MaxVideos = min(video.References.MaxVideos, limit)
+			case "audio":
+				video.References.MaxAudios = min(video.References.MaxAudios, limit)
+			}
+		}
+		if len(contract.Operations) > 0 {
+			video.Operations = append([]string(nil), contract.Operations...)
+			if !containsCapabilityString(video.Operations, video.DefaultOperation) {
+				video.DefaultOperation = video.Operations[0]
+			}
+		}
+	}
 	return video
 }
 

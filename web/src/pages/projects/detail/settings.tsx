@@ -8,6 +8,7 @@ import { AssetLibraryPickerModal, type AssetLibraryPickerItem } from "@/componen
 import { CanvasStyleDetailModal, CanvasStylePickerModal, resolveProjectCanvasStyle, type CanvasStylePreset } from "@/components/canvas/canvas-style-picker-modal";
 import { ModelPicker } from "@/components/model-picker";
 import { createStyleProfileSnapshot, parseStyleProfile, resolveStyleExecutionPlan, serializeStyleProfile } from "@/lib/canvas/style-profile";
+import { defaultModelCapabilityConfig, modelCapabilityConfigFor } from "@/lib/model-capabilities";
 import { resourceFileUrl, resourceIdFromStorageKey } from "@/services/api/resources";
 import { listProjectAssetsPage, updateProject } from "@/services/api/projects";
 import { uploadImage } from "@/services/image-storage";
@@ -43,6 +44,7 @@ function ProjectSettingsSession({ detail, refreshProject }: ProjectDetailViewPro
     const [styleProfileJson, setStyleProfileJson] = useState(project.styleProfileJson || "");
     const [defaultImageModel, setDefaultImageModel] = useState(project.defaultImageModel || "");
     const [defaultVideoModel, setDefaultVideoModel] = useState(project.defaultVideoModel || "");
+    const [defaultVideoResolution, setDefaultVideoResolution] = useState(project.defaultVideoResolution || "");
     const [styleDetail, setStyleDetail] = useState<CanvasStylePreset | null>(null);
     const [stylePickerOpen, setStylePickerOpen] = useState(false);
     const [styleEditorRequested, setStyleEditorRequested] = useState(false);
@@ -56,8 +58,10 @@ function ProjectSettingsSession({ detail, refreshProject }: ProjectDetailViewPro
         enabled: coverPickerOpen,
     });
     const projectCoverAssets = coverAssetsQuery.data?.assets || [];
-    useEffect(() => { setName(project.name); setDescription(project.description || ""); setAspectRatio(project.aspectRatio); setSourceType(project.sourceType); setStylePresetId(project.stylePresetId || ""); setStyleProfileJson(project.styleProfileJson || ""); setDefaultImageModel(project.defaultImageModel || ""); setDefaultVideoModel(project.defaultVideoModel || ""); }, [project]);
-    const dirty = useMemo(() => name.trim() !== project.name || description !== (project.description || "") || aspectRatio !== project.aspectRatio || sourceType !== project.sourceType || stylePresetId !== (project.stylePresetId || "") || styleProfileJson !== (project.styleProfileJson || "") || defaultImageModel !== (project.defaultImageModel || "") || defaultVideoModel !== (project.defaultVideoModel || ""), [aspectRatio, defaultImageModel, defaultVideoModel, description, name, project, sourceType, stylePresetId, styleProfileJson]);
+    useEffect(() => { setName(project.name); setDescription(project.description || ""); setAspectRatio(project.aspectRatio); setSourceType(project.sourceType); setStylePresetId(project.stylePresetId || ""); setStyleProfileJson(project.styleProfileJson || ""); setDefaultImageModel(project.defaultImageModel || ""); setDefaultVideoModel(project.defaultVideoModel || ""); setDefaultVideoResolution(project.defaultVideoResolution || ""); }, [project]);
+    const dirty = useMemo(() => name.trim() !== project.name || description !== (project.description || "") || aspectRatio !== project.aspectRatio || sourceType !== project.sourceType || stylePresetId !== (project.stylePresetId || "") || styleProfileJson !== (project.styleProfileJson || "") || defaultImageModel !== (project.defaultImageModel || "") || defaultVideoModel !== (project.defaultVideoModel || "") || defaultVideoResolution !== (project.defaultVideoResolution || ""), [aspectRatio, defaultImageModel, defaultVideoModel, defaultVideoResolution, description, name, project, sourceType, stylePresetId, styleProfileJson]);
+    const resolvedVideoModel = defaultVideoModel || effectiveConfig.videoModel;
+    const videoProfile = modelCapabilityConfigFor(effectiveConfig, resolvedVideoModel).video || defaultModelCapabilityConfig(undefined, resolvedVideoModel).video!;
     const selectedStyle = useMemo(() => resolveProjectCanvasStyle(stylePresetId, styleProfileJson), [stylePresetId, styleProfileJson]);
     const styleProfile = useMemo(() => parseStyleProfile(styleProfileJson) || selectedStyle?.profile || (selectedStyle ? createStyleProfileSnapshot(selectedStyle) : null), [selectedStyle, styleProfileJson]);
     const enabledStyleAssets = styleProfile?.assets.filter((asset) => asset.enabled !== false) || [];
@@ -160,7 +164,7 @@ function ProjectSettingsSession({ detail, refreshProject }: ProjectDetailViewPro
 
     return (
         <div>
-            <header className="flex items-end justify-between gap-3 pb-3"><div><h2 className="text-lg font-semibold">项目设置</h2><p className="mt-1 text-xs text-foreground/48">基础信息、项目画风与归档管理</p></div><Button type={dirty ? "primary" : "default"} icon={dirty ? <Save className="size-3.5" /> : <Check className="size-3.5" />} disabled={!dirty || !name.trim()} loading={saveMutation.isPending} onClick={() => saveMutation.mutate({ projectId: mountedProjectId, payload: { name: name.trim(), description, aspectRatio, sourceType, stylePresetId, styleProfileJson, defaultImageModel, defaultVideoModel } })}>{dirty ? "保存设置" : "已保存"}</Button></header>
+            <header className="flex items-end justify-between gap-3 pb-3"><div><h2 className="text-lg font-semibold">项目设置</h2><p className="mt-1 text-xs text-foreground/48">基础信息、项目画风与归档管理</p></div><Button type={dirty ? "primary" : "default"} icon={dirty ? <Save className="size-3.5" /> : <Check className="size-3.5" />} disabled={!dirty || !name.trim()} loading={saveMutation.isPending} onClick={() => saveMutation.mutate({ projectId: mountedProjectId, payload: { name: name.trim(), description, aspectRatio, sourceType, stylePresetId, styleProfileJson, defaultImageModel, defaultVideoModel, defaultVideoResolution } })}>{dirty ? "保存设置" : "已保存"}</Button></header>
 
             <section className="py-5">
                 <h3 className="mb-3 text-sm font-semibold">基础设置</h3>
@@ -186,6 +190,9 @@ function ProjectSettingsSession({ detail, refreshProject }: ProjectDetailViewPro
                             <ModelPicker config={effectiveConfig} value={defaultVideoModel} capability="video" onChange={setDefaultVideoModel} fullWidth placeholder={`跟随全局 · ${modelDisplayName(effectiveConfig, effectiveConfig.videoModel) || "未配置"}`} />
                             {defaultVideoModel ? <Button type="text" size="small" onClick={() => setDefaultVideoModel("")}>跟随全局</Button> : null}
                         </div>
+                    </Field>
+                    <Field label="默认清晰度">
+                        <Select className="w-full" value={defaultVideoResolution || undefined} onChange={setDefaultVideoResolution} options={videoProfile.resolutions.map((value) => ({ value, label: value.toUpperCase() }))} placeholder={`跟随全局 · ${(effectiveConfig.vquality || "模型默认").toUpperCase()}`} allowClear ariaLabel="项目默认视频清晰度" />
                     </Field>
                 </div>
             </section>

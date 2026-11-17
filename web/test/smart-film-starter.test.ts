@@ -1,7 +1,15 @@
 import { expect, test } from "bun:test";
+import { beefAPIVideoContract } from "../src/lib/beefapi-video-contracts";
 import { defaultModelCapabilityConfig } from "../src/lib/model-capabilities";
 import { isValidSmartFilmShotCount, normalizeSmartFilmShotCount, normalizeSmartFilmShotSeconds, resizeSmartFilmShotDurations, smartFilmMaxClipSeconds } from "../src/lib/canvas/smart-film-options";
 import { smartFilmScriptPrompt } from "../src/lib/canvas/smart-film-scripts";
+
+test("seedance 2.5 flash multi uses the declared references and resolution tiers", () => {
+    const contract = beefAPIVideoContract("seedance-2.5-flash-multi");
+    expect(contract?.protocol).toBe("newapi");
+    expect(contract?.maxReferences).toEqual({ image: 10, video: 5, audio: 5 });
+    expect(contract?.resolutions).toEqual(["480p", "720p"]);
+});
 
 test("smart film script prompt preserves product, character and scene reference roles", () => {
     const prompt = smartFilmScriptPrompt({

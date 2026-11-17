@@ -33,6 +33,10 @@ func TestVideoContractBoundaries(t *testing.T) {
 	if !ok || wan.Protocol != "newapi-channel-2" || wan.InlineMedia || !wan.RequiresHTTPReferences {
 		t.Fatalf("Wan must use uploaded HTTP references: %#v", wan)
 	}
+	multi, ok := BeefAPIVideoContract("seedance-2.5-flash-multi")
+	if !ok || multi.Protocol != "newapi" || !multi.InlineMedia || multi.MaxReferences["image"] != 10 || multi.MaxReferences["video"] != 5 || multi.MaxReferences["audio"] != 5 || len(multi.Resolutions) != 2 || multi.Resolutions[0] != "480p" || multi.Resolutions[1] != "720p" {
+		t.Fatalf("Seedance 2.5 Flash Multi contract = %#v", multi)
+	}
 	for _, name := range []string{"wan3.0-video-prime", "wan4.0-video", "seedance-2.50", "future-video"} {
 		if _, ok := BeefAPIVideoContract(name); ok {
 			t.Fatalf("unverified model matched: %s", name)

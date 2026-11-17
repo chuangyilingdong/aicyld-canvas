@@ -15,7 +15,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion int64 = 46
+const CurrentSchemaVersion int64 = 47
 
 type localSchemaMigration struct {
 	Version   int64 `gorm:"primaryKey;autoIncrement:false"`
@@ -191,6 +191,9 @@ func canonicalLocalMigrations() []localMigration {
 		{version: 44, name: "shot-review", apply: func(tx *gorm.DB) error { return tx.AutoMigrate(&model.Shot{}) }},
 		{version: 45, name: "repair-video-only-stale-storyboards", apply: migrateRepairVideoOnlyStaleStoryboards},
 		{version: 46, name: "repair-gpt-image-26-reference-capability", apply: migrateRepairGPTImage26ReferenceCapability},
+		{version: 47, name: "project-video-resolution", apply: func(tx *gorm.DB) error {
+			return ensureSQLiteColumn(tx, "projects", "default_video_resolution", "TEXT")
+		}},
 	}
 }
 
@@ -739,6 +742,11 @@ func RequireLocalSchema(db *gorm.DB) error {
 		} else if !has {
 			return fmt.Errorf("本地任务结构缺失列 %s", col)
 		}
+	}
+	if has, err := sqliteHasColumn(db, "projects", "default_video_resolution"); err != nil {
+		return err
+	} else if !has {
+		return fmt.Errorf("本地项目结构缺失列 default_video_resolution")
 	}
 	if err := requireAssistantContinuations(db); err != nil {
 		return err

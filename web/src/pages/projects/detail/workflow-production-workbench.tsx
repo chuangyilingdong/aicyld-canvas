@@ -142,7 +142,7 @@ export default function WorkflowProductionWorkbench(props: WorkflowProductionWor
     const modelScope = `${projectId}:${generationCapability}`;
     const modelScopeRef = useRef(modelScope);
     const [aspectRatio, setAspectRatio] = useState(detail.project.aspectRatio || "16:9");
-    const [resolution, setResolution] = useState(effectiveConfig.vquality || "720");
+    const [resolution, setResolution] = useState(detail.project.defaultVideoResolution || effectiveConfig.vquality || "720");
     const [imageQuality, setImageQuality] = useState(effectiveConfig.quality || "auto");
     const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
     const { skills: availableSkills, loading: skillsLoading } = useSkillRuntimeCatalog();
@@ -217,7 +217,7 @@ export default function WorkflowProductionWorkbench(props: WorkflowProductionWor
             const normalized = normalizeVideoValue(profile.video, {
                 seconds: effectiveConfig.videoSeconds,
                 ratio: detail.project.aspectRatio || effectiveConfig.size,
-                resolution: effectiveConfig.vquality,
+                resolution: detail.project.defaultVideoResolution || effectiveConfig.vquality,
             });
             setAspectRatio(normalized.ratio);
             setResolution(normalized.resolution);
@@ -227,7 +227,7 @@ export default function WorkflowProductionWorkbench(props: WorkflowProductionWor
             setAspectRatio(normalized.size);
             setImageQuality(normalized.quality);
         }
-    }, [detail.project.aspectRatio, effectiveConfig, form, generationCapability, initialModel, modelScope]);
+    }, [detail.project.aspectRatio, detail.project.defaultVideoResolution, effectiveConfig, form, generationCapability, initialModel, modelScope]);
 
     useEffect(() => {
         const shotDurationSeconds = Math.max(0.5, (revision?.durationMs || selectedShot?.durationMs || 3000) / 1000);

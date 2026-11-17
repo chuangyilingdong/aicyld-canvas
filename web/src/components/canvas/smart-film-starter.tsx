@@ -8,7 +8,7 @@ import { CanvasStylePickerModal, type CanvasStylePreset } from "@/components/can
 import { ModelPicker } from "@/components/model-picker";
 import { isMusicAudioModel } from "@/lib/audio-generation";
 import { canvasFeatureModel } from "@/lib/canvas/feature-models";
-import { modelCapabilityConfigFor } from "@/lib/model-capabilities";
+import { defaultModelCapabilityConfig, modelCapabilityConfigFor, normalizeVideoValue } from "@/lib/model-capabilities";
 import { createStyleProfileSnapshot, serializeStyleProfile } from "@/lib/canvas/style-profile";
 import {
     isValidSmartFilmShotCount,
@@ -52,6 +52,7 @@ export function SmartFilmStarter({ open = true, initialTopic = "", onClose, pres
     const [textModel, setTextModel] = useState("");
     const [imageModel, setImageModel] = useState("");
     const [videoModel, setVideoModel] = useState("");
+    const [videoResolution, setVideoResolution] = useState("");
     const [autoRun, setAutoRun] = useState(false);
     const [generating, setGenerating] = useState(false);
     const [status, setStatus] = useState("");
@@ -60,7 +61,8 @@ export function SmartFilmStarter({ open = true, initialTopic = "", onClose, pres
     const [createdProject, setCreatedProject] = useState<{ id: string; name: string; unitId?: string } | null>(null);
     const musicModel = useMemo(() => canvasFeatureModel("audio.music") || (effectiveConfig.audioModels || []).find(isMusicAudioModel) || "", [effectiveConfig]);
     const resolvedVideoModel = videoModel || effectiveConfig.videoModel;
-    const videoProfile = useMemo(() => modelCapabilityConfigFor(effectiveConfig, resolvedVideoModel).video, [effectiveConfig, resolvedVideoModel]);
+    const videoProfile = useMemo(() => modelCapabilityConfigFor(effectiveConfig, resolvedVideoModel).video || defaultModelCapabilityConfig(undefined, resolvedVideoModel).video!, [effectiveConfig, resolvedVideoModel]);
+    const resolvedVideoResolution = normalizeVideoValue(videoProfile, { resolution: videoResolution || effectiveConfig.vquality || videoProfile.defaultResolution }).resolution;
     const durationOptions = useMemo(() => smartFilmDurationOptions(videoProfile), [videoProfile]);
     const maxClipSeconds = smartFilmMaxClipSeconds(videoProfile);
     const defaultShotSeconds = smartFilmDefaultShotSeconds(videoProfile);
@@ -76,10 +78,11 @@ export function SmartFilmStarter({ open = true, initialTopic = "", onClose, pres
         setTextModel(effectiveConfig.textModel || "");
         setImageModel(effectiveConfig.imageModel || "");
         setVideoModel(effectiveConfig.videoModel || "");
+        setVideoResolution(effectiveConfig.vquality || "");
         setAutoRun(false);
         setCreatedProject(null);
         setStep(1);
-    }, [effectiveConfig.imageModel, effectiveConfig.textModel, effectiveConfig.videoModel, initialTopic, open]);
+    }, [effectiveConfig.imageModel, effectiveConfig.textModel, effectiveConfig.videoModel, effectiveConfig.vquality, initialTopic, open]);
 
     useEffect(() => {
         if (!open || !shotCountValid) return;
@@ -145,6 +148,7 @@ export function SmartFilmStarter({ open = true, initialTopic = "", onClose, pres
                 description: cleanTopic,
                 defaultImageModel: resolvedImageModel,
                 defaultVideoModel: resolvedVideoModel,
+                defaultVideoResolution: resolvedVideoResolution,
                 ...(selectedStyle
                     ? {
                           stylePresetId: selectedStyle.id,
@@ -156,6 +160,7 @@ export function SmartFilmStarter({ open = true, initialTopic = "", onClose, pres
             await updateProject(project.project.id, {
                 defaultImageModel: resolvedImageModel,
                 defaultVideoModel: resolvedVideoModel,
+                defaultVideoResolution: resolvedVideoResolution,
                 ...(selectedStyle
                     ? {
                           stylePresetId: selectedStyle.id,
@@ -296,7 +301,7 @@ export function SmartFilmStarter({ open = true, initialTopic = "", onClose, pres
                     placeholder="例如：为什么冬天更容易静电？用 4 个镜头做一个通俗科普短视频。"
                 />
             </label>
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-3">
                 <label className="space-y-1.5 text-xs font-medium text-foreground/60">
                     <span>分镜数量</span>
                     <InputNumber className="w-full" value={shotCount} onChange={setShotCount} disabled={generating} min={SMART_FILM_MIN_SHOT_COUNT} max={SMART_FILM_MAX_SHOT_COUNT} step={1} precision={0} suffix="镜" aria-label="分镜数量" />
@@ -313,6 +318,17 @@ export function SmartFilmStarter({ open = true, initialTopic = "", onClose, pres
                             { label: "16:9 横屏", value: "16:9" },
                             { label: "1:1 方形", value: "1:1" },
                         ]}
+                    />
+                </label>
+                <label className="space-y-1.5 text-xs font-medium text-foreground/60">
+                    <span>清晰度</span>
+                    <Select
+                        className="w-full"
+                        value={resolvedVideoResolution || undefined}
+                        onChange={setVideoResolution}
+                        disabled={generating || !videoProfile.resolutions.length}
+                        placeholder="模型默认"
+                        options={videoProfile.resolutions.map((value) => ({ value, label: value.toUpperCase() }))}
                     />
                 </label>
             </div>
@@ -388,7 +404,7 @@ export function SmartFilmStarter({ open = true, initialTopic = "", onClose, pres
             {step === 3 ? <>
             <section className="grid gap-3 rounded-xl border border-border/70 bg-foreground/[0.025] p-4 sm:grid-cols-2">
                 <div className="min-w-0 sm:col-span-2"><span className="text-[var(--fs-micro)] text-foreground/42">主题或文案</span><p className="mt-1 line-clamp-3 text-sm leading-6">{topic.trim()}</p></div>
-                <div><span className="text-[var(--fs-micro)] text-foreground/42">成片规格</span><p className="mt-1 text-sm">{normalizedShotCount} 镜 · {aspectRatio} · 共 {totalDurationSeconds} 秒</p></div>
+                <div><span className="text-[var(--fs-micro)] text-foreground/42">成片规格</span><p className="mt-1 text-sm">{normalizedShotCount} 镜 · {aspectRatio} · {resolvedVideoResolution.toUpperCase()} · 共 {totalDurationSeconds} 秒</p></div>
                 <div><span className="text-[var(--fs-micro)] text-foreground/42">画风</span><p className="mt-1 text-sm">{selectedStyle?.title || "未指定，使用模型默认风格"}</p></div>
                 <div><span className="text-[var(--fs-micro)] text-foreground/42">生成模型</span><p className="mt-1 truncate text-sm">{modelDisplayName(effectiveConfig, textModel || effectiveConfig.textModel)} / {modelDisplayName(effectiveConfig, imageModel || effectiveConfig.imageModel)} / {modelDisplayName(effectiveConfig, resolvedVideoModel)}</p></div>
                 <div><span className="text-[var(--fs-micro)] text-foreground/42">执行方式</span><p className="mt-1 text-sm">{autoRun ? "生成分镜后继续自动成片" : "先只生成分镜，之后在工作台逐步制作"}</p></div>

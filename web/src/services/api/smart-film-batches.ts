@@ -23,6 +23,7 @@ export type SmartFilmBatchConfig = {
     defaultTextModel?: string;
     defaultImageModel?: string;
     defaultVideoModel?: string;
+    defaultVideoResolution?: string;
     inputAssetRoles?: Record<string, SmartFilmReferenceRole>;
     inputAssetNames?: Record<string, string>;
     skillSnapshot?: SmartFilmSkillSnapshot;

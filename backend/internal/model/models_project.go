@@ -208,26 +208,27 @@ type CharacterVoiceBinding struct {
 
 // Project 是短剧领域聚合根；CanvasProject 仍代表可独立创作的画布文档。
 type Project struct {
-	ID                string        `json:"id" gorm:"primaryKey;size:36"`
-	UserID            string        `json:"userId" gorm:"index;size:36;uniqueIndex:idx_projects_user_name,priority:1"`
-	Name              string        `json:"name" gorm:"size:240;uniqueIndex:idx_projects_user_name,priority:2"`
-	Type              string        `json:"type" gorm:"size:32;index"`
-	AspectRatio       string        `json:"aspectRatio" gorm:"size:16"`
-	SourceType        string        `json:"sourceType" gorm:"size:32"`
-	Description       string        `json:"description" gorm:"type:text"`
-	FolderID          string        `json:"folderId,omitempty" gorm:"index;size:36"`
-	CoverResourceID   string        `json:"coverResourceId,omitempty" gorm:"index;size:36"`
-	StylePresetID     string        `json:"stylePresetId" gorm:"size:64"`
-	StyleProfileJSON  string        `json:"styleProfileJson" gorm:"type:text"`
-	DefaultImageModel string        `json:"defaultImageModel,omitempty" gorm:"size:500"`
-	DefaultVideoModel string        `json:"defaultVideoModel,omitempty" gorm:"size:500"`
-	BatchID           string        `json:"batchId,omitempty" gorm:"index;size:36"`
-	SourceRunID       string        `json:"sourceRunId,omitempty" gorm:"index;size:36"`
-	SourceScriptID    string        `json:"sourceScriptId,omitempty" gorm:"index;size:36"`
-	Status            ProjectStatus `json:"status" gorm:"index;size:24"`
-	Revision          int64         `json:"revision"`
-	CreatedAt         time.Time     `json:"createdAt"`
-	UpdatedAt         time.Time     `json:"updatedAt" gorm:"index"`
+	ID                     string        `json:"id" gorm:"primaryKey;size:36"`
+	UserID                 string        `json:"userId" gorm:"index;size:36;uniqueIndex:idx_projects_user_name,priority:1"`
+	Name                   string        `json:"name" gorm:"size:240;uniqueIndex:idx_projects_user_name,priority:2"`
+	Type                   string        `json:"type" gorm:"size:32;index"`
+	AspectRatio            string        `json:"aspectRatio" gorm:"size:16"`
+	SourceType             string        `json:"sourceType" gorm:"size:32"`
+	Description            string        `json:"description" gorm:"type:text"`
+	FolderID               string        `json:"folderId,omitempty" gorm:"index;size:36"`
+	CoverResourceID        string        `json:"coverResourceId,omitempty" gorm:"index;size:36"`
+	StylePresetID          string        `json:"stylePresetId" gorm:"size:64"`
+	StyleProfileJSON       string        `json:"styleProfileJson" gorm:"type:text"`
+	DefaultImageModel      string        `json:"defaultImageModel,omitempty" gorm:"size:500"`
+	DefaultVideoModel      string        `json:"defaultVideoModel,omitempty" gorm:"size:500"`
+	DefaultVideoResolution string        `json:"defaultVideoResolution,omitempty" gorm:"size:32"`
+	BatchID                string        `json:"batchId,omitempty" gorm:"index;size:36"`
+	SourceRunID            string        `json:"sourceRunId,omitempty" gorm:"index;size:36"`
+	SourceScriptID         string        `json:"sourceScriptId,omitempty" gorm:"index;size:36"`
+	Status                 ProjectStatus `json:"status" gorm:"index;size:24"`
+	Revision               int64         `json:"revision"`
+	CreatedAt              time.Time     `json:"createdAt"`
+	UpdatedAt              time.Time     `json:"updatedAt" gorm:"index"`
 }
 
 // SmartFilmBatch groups independent smart-film scripts. Each script owns its
