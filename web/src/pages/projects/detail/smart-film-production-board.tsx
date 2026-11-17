@@ -245,7 +245,7 @@ export function SmartFilmVideoBoard({ detail, shots, readyCount, targetSeconds, 
                         <strong className="text-sm">生成整片视频</strong>
                         <span className="text-xs text-foreground/42">分镜图可用 {readyCount}/{shots.length} · 目标 {formatDuration(targetSeconds * 1000)}</span>
                     </div>
-                    <p className="mt-1 text-xs leading-5 text-foreground/48">可检查并编辑本镜视频提示词与动作节拍；分镜图全部可用后即可生成整片视频。</p>
+                    <p className="mt-1 text-xs leading-5 text-foreground/48">每镜动作说明会压缩为一份整片提示词，并分别引用图片1至图片{shots.length}；不要求每张图对应固定硬切点。</p>
                     {!allReady ? <p className="mt-1 text-[var(--fs-tiny)] text-amber-500">{staleCount ? `有 ${staleCount} 张分镜图已过期，请回到分镜步骤重新生成。` : "仍有分镜图未生成，暂时不能生成整片视频。"}</p> : null}
                     {generationError ? <p className="mt-1 text-[var(--fs-tiny)] text-rose-500">{generationError}</p> : null}
                     {recoveryError ? <p className="mt-1 text-[var(--fs-tiny)] text-rose-500">产物恢复失败：{recoveryError}</p> : null}

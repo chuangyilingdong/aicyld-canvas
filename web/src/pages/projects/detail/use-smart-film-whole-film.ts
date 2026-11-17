@@ -11,8 +11,8 @@ import { listGenerationTasks, type GenerationTask } from "@/services/api/task-ce
 import type { SmartFilmSkillStage } from "@/services/api/smart-film-batches";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { currentArtifact } from "./workflow-shared";
-import { buildSmartFilmWholeFilmPromptWithinLimit } from "./smart-film-whole-film-prompt";
-import { smartFilmSkillMetadata, smartFilmSkillStagePrompt } from "@/services/smart-film-skill";
+import { buildSmartFilmWholeFilmPrompt } from "./smart-film-whole-film-prompt";
+import { smartFilmSkillMetadata } from "@/services/smart-film-skill";
 
 const recoveringSmartFilmTaskKeys = new Set<string>();
 
@@ -126,18 +126,15 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
             fail("智能整片缺少目标总时长，请返回批次设置制作规格");
             return;
         }
-        const promptPlan = buildSmartFilmWholeFilmPromptWithinLimit(
+        const promptLimit = profile?.references.promptMaxChars || 4_000;
+        const promptPlan = buildSmartFilmWholeFilmPrompt(
             detail,
             storyboardArtifacts,
             targetSeconds,
-            maxImages,
+            { maxChars: promptLimit },
         );
         const skillSnapshot = smartFilmBatchQuery.data?.config.skillSnapshot;
-        if (skillSnapshot && !skillSnapshot.stages?.video) {
-            fail(`技能「${skillSnapshot.name}」缺少整片视频阶段规则`);
-            return;
-        }
-        const prompt = smartFilmSkillStagePrompt(skillSnapshot, "video", promptPlan.prompt);
+        const prompt = promptPlan.prompt;
         if (promptPlan.referenceImages.length > maxImages) {
             fail(maxImages < storyboardArtifacts.length
                 ? `当前视频模型最多支持 ${maxImages} 张参考图，本片有 ${storyboardArtifacts.length} 张分镜图，请更换支持更多参考图的模型`

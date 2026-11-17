@@ -2,7 +2,7 @@ import type { ProjectDetail, ProjectShot, ShotArtifact } from "@/services/api/pr
 import { resourceFileUrl } from "@/services/api/resources";
 import type { ReferenceImage } from "@/types/image";
 
-import { buildShotAssetReferenceContext, resolveShotAssetMentionPrompt, stripUnboundShotAssetMentions } from "./workflow-shot-references";
+import { promptWithoutAssetMentions } from "./smart-film-storyboard-prompt";
 import { currentRevision } from "./workflow-shared";
 
 type StoryboardEntry = {
@@ -14,81 +14,86 @@ export function buildSmartFilmWholeFilmPrompt(
     detail: ProjectDetail,
     entries: StoryboardEntry[],
     targetSeconds: number,
-    options: { includeShotAssetImages?: boolean } = {},
+    options: { maxChars?: number } = {},
 ) {
-    const includeShotAssetImages = options.includeShotAssetImages !== false;
-    const referenceImages: ReferenceImage[] = [];
-    const imageIndexByStorageKey = new Map<string, number>();
-    const imageIndexByAssetId = new Map<string, number>();
-
-    const addImage = (image: ReferenceImage) => {
-        const key = image.storageKey || image.url || image.id;
-        const existing = imageIndexByStorageKey.get(key);
-        if (existing) return existing;
-        referenceImages.push(image);
-        const index = referenceImages.length;
-        imageIndexByStorageKey.set(key, index);
-        return index;
-    };
-
-    const shotPlans = entries.map(({ shot, artifact }, shotIndex) => {
-        const storyboardStorageKey = `resource:${artifact.resourceId}`;
-        const storyboardImageIndex = addImage({
+    const maxChars = Math.max(1_000, Math.floor(options.maxChars || 4_000));
+    const referenceImages: ReferenceImage[] = entries.map(({ shot, artifact }, shotIndex) => ({
             id: `smart-film-storyboard-${shotIndex}`,
-            name: `分镜 ${shotIndex + 1} · ${shot.title}`,
+            name: `图片${shotIndex + 1} · ${shot.title}`,
             type: "image/*",
             dataUrl: "",
             url: resourceFileUrl(artifact.resourceId!),
-            storageKey: storyboardStorageKey,
-        });
-        const context = buildShotAssetReferenceContext(detail, shot.id);
-        if (includeShotAssetImages) {
-            context.referenceImages.forEach((image, assetIndex) => {
-                const assetId = context.assetReferences[assetIndex]?.assetId;
-                const imageIndex = addImage(image);
-                if (assetId) imageIndexByAssetId.set(assetId, imageIndex);
-            });
-        }
-        return {
-            shot,
-            storyboardImageIndex,
-            context: includeShotAssetImages ? context : {
-                ...context,
-                referenceImages: [],
-                assetReferences: [],
-                mentionReferences: [],
-            },
-        };
-    });
-
-    const shotPrompts = shotPlans.map(({ shot, storyboardImageIndex, context }, index) => {
+            storageKey: `resource:${artifact.resourceId}`,
+    }));
+    const timings = shotTimings(entries, targetSeconds);
+    const intro = `参考图片1至图片${entries.length}，生成一个完整的 ${formatSeconds(targetSeconds)} 秒视频。把这些图片作为同一部作品的有序视觉参考，保持角色、产品、场景、画风和光线一致；允许模型按动作连续性自然衔接，不要求每张图片对应固定硬切点。`;
+    const outro = "保留对白、动作音效、环境声和项目设定的背景音乐，不新增无关旁白。";
+    const dialogue = compactDialogue(detail, entries, Math.min(600, Math.floor(maxChars * 0.15)));
+    const fixedLength = intro.length + outro.length + dialogue.length + entries.length * 24;
+    const cueBudget = Math.max(72, Math.floor((maxChars - fixedLength) / Math.max(1, entries.length)));
+    const shotPrompts = entries.map(({ shot }, index) => {
         const revision = currentRevision(detail, shot);
-        const motion = [
-            stripUnboundShotAssetMentions(revision?.videoPrompt || revision?.plotDescription || shot.description || shot.title, context),
-            stripUnboundShotAssetMentions(revision?.action || "", context),
+        const source = [
+            revision?.videoPrompt || revision?.plotDescription || shot.description || shot.title,
+            revision?.action || "",
         ].filter(Boolean).join("\n");
-        const resolved = resolveShotAssetMentionPrompt(motion, context, {
-            dialogue: revision?.dialogue,
-            imageIndexByAssetId,
-        });
-        const seconds = Math.max(0.5, shot.durationMs / 1000);
-        return `第 ${index + 1} 镜（计划 ${seconds} 秒，使用第 ${storyboardImageIndex} 张分镜图）：\n${resolved}`;
+        const cue = fitText(primaryShotDirection(source), cueBudget);
+        const timing = timings[index];
+        return `图片${index + 1}（${formatSeconds(timing.start)}–${formatSeconds(timing.end)} 秒）：${cue}`;
     });
+    const prompt = [
+        intro,
+        ...shotPrompts,
+        dialogue ? `对白顺序：${dialogue}` : "",
+        outro,
+    ].filter(Boolean).join("\n");
 
     return {
-        prompt: `把以下已确认分镜图按顺序生成一个完整的 ${targetSeconds} 秒视频。保持角色、产品、场景和画风一致，镜头之间自然衔接。\n${shotPrompts.join("\n\n")}`,
+        prompt: prompt.slice(0, maxChars),
         referenceImages,
         storyboardResourceIds: entries.map(({ artifact }) => artifact.resourceId!),
     };
 }
 
-export function buildSmartFilmWholeFilmPromptWithinLimit(
-    detail: ProjectDetail,
-    entries: StoryboardEntry[],
-    targetSeconds: number,
-    maxImages: number,
-) {
-    const complete = buildSmartFilmWholeFilmPrompt(detail, entries, targetSeconds);
-    if (complete.referenceImages.length <= maxImages || entries.length > maxImages) return complete;
-    return buildSmartFilmWholeFilmPrompt(detail, entries, targetSeconds, { includeShotAssetImages: false });
+function shotTimings(entries: StoryboardEntry[], targetSeconds: number) {
+    const rawDurations = entries.map(({ shot }) => Math.max(0.1, shot.durationMs / 1000));
+    const total = rawDurations.reduce((sum, value) => sum + value, 0) || entries.length;
+    let cursor = 0;
+    return rawDurations.map((duration, index) => {
+        const start = cursor;
+        const end = index === entries.length - 1
+            ? targetSeconds
+            : Math.min(targetSeconds, cursor + duration / total * targetSeconds);
+        cursor = end;
+        return { start, end };
+    });
+}
+
+function primaryShotDirection(value: string) {
+    const normalized = promptWithoutAssetMentions(value)
+        .replace(/\r/g, "")
+        .replace(/[ \t]+/g, " ")
+        .trim();
+    const section = normalized.search(/\n\s*(?:叙事意图|表演调度|时间节拍|动作与时间节拍|情绪|光线与氛围|声音|【镜头台词】)[：:]?/);
+    return (section > 0 ? normalized.slice(0, section) : normalized).replace(/\s+/g, " ").trim();
+}
+
+function compactDialogue(detail: ProjectDetail, entries: StoryboardEntry[], budget: number) {
+    const parts = entries.flatMap(({ shot }, index) => {
+        const dialogue = promptWithoutAssetMentions(currentRevision(detail, shot)?.dialogue || "")
+            .replace(/\s+/g, " ")
+            .trim();
+        return dialogue ? [`图片${index + 1}「${fitText(dialogue, 72)}」`] : [];
+    });
+    return fitText(parts.join("；"), budget);
+}
+
+function fitText(value: string, maxChars: number) {
+    const normalized = value.trim();
+    if (normalized.length <= maxChars) return normalized;
+    return `${normalized.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
+}
+
+function formatSeconds(value: number) {
+    return String(Math.round(Math.max(0, value) * 10) / 10);
 }
