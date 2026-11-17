@@ -29,6 +29,9 @@ func invalidateShotsReferencingAssetTx(tx *gorm.DB, projectID, assetID string, u
 			Updates(map[string]any{"status": "stale", "selected": false, "updated_at": updatedAt}).Error; err != nil {
 			return err
 		}
+		if err := invalidateProjectUnitArtifactsTx(tx, projectID, shot.UnitID, updatedAt); err != nil {
+			return err
+		}
 		if err := invalidateUnitWorkflowTx(tx, projectID, shot.UnitID, "storyboard", updatedAt); err != nil {
 			return err
 		}

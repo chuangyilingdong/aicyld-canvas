@@ -8,8 +8,7 @@ import { getProjectCore, getProjectOverview, getProjectUnitWorkspace, linkCanvas
 import { listGenerationTasks, type GenerationTask } from "@/services/api/task-center";
 import { WorkspacePage } from "@/components/layout/workspace-page";
 import { WorkspaceErrorState, WorkspaceLoadingState } from "@/components/layout/workspace-state";
-import { projectDetailStage } from "@/lib/project-workbench";
-import type { ProjectDetail } from "@/services/api/projects";
+import type { ProjectDetail, ProjectStatusSnapshot } from "@/services/api/projects";
 
 import { WorkflowChapterNavigator } from "./detail/workflow-chapter-navigator";
 import { createLocalCanvasProject } from "@/services/local-workspace-repository";
@@ -83,6 +82,7 @@ export default function ProjectDetailPage() {
         return () => window.clearTimeout(retryTimer);
     }, [activeUnitId, projectId, projectTasksQuery.data, queryClient]);
     const project = coreQuery.data?.project;
+    const projectStatus = coreQuery.data?.status;
     const workspace = workspaceQuery.data;
     const mergedTasks = (() => {
         const merged = new Map<string, GenerationTask>();
@@ -173,6 +173,7 @@ export default function ProjectDetailPage() {
                     activeView={activeView}
                     unitId={unitId}
                     stage={stage}
+                    status={projectStatus}
                 />
                 {detail.project.status === "archived" ? <Alert type="warning" showIcon banner message="项目已归档，恢复后才能创建画布和生成任务" className="!border-x-0 !border-t-0" /> : null}
                 <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
@@ -193,8 +194,7 @@ export default function ProjectDetailPage() {
     );
 }
 
-function ProjectWorkspaceHeader({ detail, projectId, activeView, unitId, stage }: { detail: ProjectDetail; projectId: string; activeView: DetailView; unitId?: string; stage?: string }) {
-    const projectStatus = projectDetailStage(detail);
+function ProjectWorkspaceHeader({ detail, projectId, activeView, unitId, stage, status }: { detail: ProjectDetail; projectId: string; activeView: DetailView; unitId?: string; stage?: string; status?: ProjectStatusSnapshot }) {
     const overviewActive = activeView === "overview";
     return (
         <header className="project-workspace-header">
@@ -205,7 +205,7 @@ function ProjectWorkspaceHeader({ detail, projectId, activeView, unitId, stage }
                 </Link>
                 <div className="project-workspace-title">
                     <h1 title={detail.project.name}>{detail.project.name}</h1>
-                    <span className={`project-workspace-status is-${projectStatus.tone}`} title={projectStatus.detail}>{projectStatus.label}</span>
+                    {status ? <span className={`project-workspace-status is-${status.tone}`} title={status.detail}>{status.label}</span> : null}
                 </div>
             </div>
             <nav className="project-workspace-tabs" aria-label="项目导航">
@@ -225,6 +225,7 @@ function ProjectWorkspaceHeader({ detail, projectId, activeView, unitId, stage }
                 </Link>
             </nav>
             <div className="project-workspace-actions">
+                {detail.project.batchId ? <Link to={`/smart-film/batches/${detail.project.batchId}`} className="project-workspace-batch-link">返回生成记录</Link> : null}
                 {activeView === "workflow" ? <WorkflowChapterNavigator projectId={projectId} units={detail.units} unitId={unitId} stage={stage} /> : null}
             </div>
         </header>

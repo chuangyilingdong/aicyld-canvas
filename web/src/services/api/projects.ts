@@ -26,6 +26,20 @@ export type Project = {
     updatedAt: string;
 };
 
+export type ProjectStatusTone = "generating" | "in-progress" | "draft" | "archived" | "attention" | "ready";
+
+export type ProjectStatusSnapshot = {
+    label: string;
+    detail: string;
+    tone: ProjectStatusTone;
+    productionMode?: "fixed" | "smart" | string;
+    activeTaskCount: number;
+    failedStepCount: number;
+    pendingCandidateCount: number;
+    staleArtifactCount: number;
+    deliveryReady: boolean;
+};
+
 export type ProjectFolder = { id: string; userId: string; parentId?: string; name: string; createdAt: string; updatedAt: string };
 
 export type ProjectCanvas = {
@@ -278,6 +292,7 @@ export type ProjectSummary = {
     unitCount: number;
     completedUnitCount: number;
     activeTaskCount?: number;
+    status: ProjectStatusSnapshot;
 };
 
 export type ProjectListPage = {
@@ -305,7 +320,7 @@ export type ProjectDetail = {
 	tasks: GenerationTask[];
 };
 
-export type ProjectCore = { project: Project };
+export type ProjectCore = { project: Project; status: ProjectStatusSnapshot };
 
 export type ProjectOverviewMetrics = {
     unitCount: number;
@@ -322,6 +337,12 @@ export type ProjectOverviewMetrics = {
     readyVideoCount: number;
     renderSucceededCount: number;
     staleArtifactCount: number;
+    activeTaskCount: number;
+    failedStepCount: number;
+    runningStepCount: number;
+    readySmartFilmCount: number;
+    deliveryReady: boolean;
+    productionMode?: "fixed" | "smart" | string;
 };
 
 export type ProjectOverviewUnit = {
@@ -331,7 +352,7 @@ export type ProjectOverviewUnit = {
     canvasCount: number;
 };
 
-export type ProjectOverview = { metrics: ProjectOverviewMetrics; units: ProjectOverviewUnit[] };
+export type ProjectOverview = { metrics: ProjectOverviewMetrics; units: ProjectOverviewUnit[]; status: ProjectStatusSnapshot };
 
 export type ProjectUnitWorkspace = {
     unit: ProjectUnit;

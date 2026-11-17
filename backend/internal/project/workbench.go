@@ -11,7 +11,11 @@ func (s *Service) ProjectCore(userID string, projectID string) (Core, error) {
 	if err != nil {
 		return Core{}, err
 	}
-	return Core{Project: *item}, nil
+	status, err := s.projectStatusForProject(userID, *item)
+	if err != nil {
+		return Core{}, err
+	}
+	return Core{Project: *item, Status: status}, nil
 }
 
 func (s *Service) ProjectUnitSummaries(userID string, projectID string) (UnitSummaries, error) {
@@ -38,11 +42,13 @@ func (s *Service) ProjectUnitSummaries(userID string, projectID string) (UnitSum
 }
 
 func (s *Service) ProjectOverview(userID string, projectID string) (Overview, error) {
-	if _, err := s.Owned(userID, projectID); err != nil {
+	project, err := s.Owned(userID, projectID)
+	if err != nil {
 		return Overview{}, err
 	}
 	var metrics OverviewMetrics
 	var units []OverviewUnit
+	var status StatusSnapshot
 	var group errgroup.Group
 	group.Go(func() error {
 		row, err := s.repo.ProjectOverviewMetrics(projectID)
@@ -55,8 +61,15 @@ func (s *Service) ProjectOverview(userID string, projectID string) (Overview, er
 			AssetCount: row.AssetCount, ShotCount: row.ShotCount, PendingCandidateCount: row.PendingCandidateCount,
 			ReadyStoryboardCount: row.ReadyStoryboardCount, ReadyPrevizCount: row.ReadyPrevizCount, ReadyVideoCount: row.ReadyVideoCount,
 			RenderSucceededCount: row.TimelineRenderSucceededCount, StaleArtifactCount: row.StaleArtifactCount,
+			FailedStepCount: row.FailedWorkflowStepCount, RunningStepCount: row.RunningWorkflowStepCount,
+			ReadySmartFilmCount: row.ReadySmartFilmCount,
 		}
 		return nil
+	})
+	group.Go(func() error {
+		var err error
+		status, err = s.projectStatusForProject(userID, *project)
+		return err
 	})
 	group.Go(func() error {
 		rows, err := s.repo.ProjectOverviewUnits(projectID, 8)
@@ -72,7 +85,10 @@ func (s *Service) ProjectOverview(userID string, projectID string) (Overview, er
 	if err := group.Wait(); err != nil {
 		return Overview{}, err
 	}
-	return Overview{Metrics: metrics, Units: units}, nil
+	metrics.ActiveTaskCount = status.ActiveTaskCount
+	metrics.ProductionMode = status.ProductionMode
+	metrics.DeliveryReady = status.DeliveryReady
+	return Overview{Metrics: metrics, Units: units, Status: status}, nil
 }
 
 func (s *Service) ProjectCanvasesPage(userID string, projectID string, page int, pageSize int) (CanvasPage, error) {

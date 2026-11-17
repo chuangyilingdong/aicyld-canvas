@@ -1,4 +1,4 @@
-import type { ProjectDetail, ProjectOverviewMetrics, ProjectSummary, ProjectUnit } from "@/services/api/projects";
+import type { ProjectDetail, ProjectOverviewMetrics, ProjectStatusSnapshot, ProjectSummary, ProjectUnit } from "@/services/api/projects";
 
 export type ProjectActionTone = "default" | "attention" | "danger";
 
@@ -9,14 +9,6 @@ export type ProjectWorkbenchAction = {
     href: string;
     actionLabel: string;
     tone: ProjectActionTone;
-};
-
-export type ProjectStatusTone = "generating" | "in-progress" | "draft" | "archived" | "attention" | "ready";
-
-export type ProjectStatusSnapshot = {
-    label: string;
-    detail: string;
-    tone: ProjectStatusTone;
 };
 
 export type ProjectContinueTarget = {
@@ -51,27 +43,7 @@ export type ProjectUnitStage = {
 };
 
 export function projectSummaryStage(summary: ProjectSummary): ProjectStatusSnapshot {
-    if (summary.project.status === "archived") return { label: "已归档", detail: "可在项目设置中恢复", tone: "archived" };
-    if ((summary.activeTaskCount || 0) > 0) return { label: "生成中", detail: `${summary.activeTaskCount} 个生成任务正在运行`, tone: "generating" };
-    if (!summary.unitCount && !summary.assetCount && !summary.canvasCount && !summary.completedUnitCount) {
-        return { label: "草稿", detail: "还没有开始制作", tone: "draft" };
-    }
-    return { label: "制作中", detail: `${summary.unitCount} 章 · ${summary.assetCount} 项资产`, tone: "in-progress" };
-}
-
-export function projectDetailStage(detail: ProjectDetail): ProjectStatusSnapshot {
-    if (detail.project.status === "archived") return { label: "已归档", detail: "恢复项目后可继续制作", tone: "archived" };
-    const failedSteps = detail.workflows.flatMap((workflow) => workflow.steps).filter((step) => step.status === "failed").length;
-    if (failedSteps) return { label: "需要处理", detail: `${failedSteps} 个流程步骤失败`, tone: "attention" };
-    const pendingCandidates = detail.assetCandidates.filter((candidate) => candidate.status === "pending_confirmation").length;
-    if (pendingCandidates) return { label: "资产待确认", detail: `${pendingCandidates} 个候选待确认`, tone: "attention" };
-    if (!detail.units.length) return { label: "准备故事", detail: "添加或导入剧情章节", tone: "draft" };
-    if (!detail.shots.length) return { label: "分镜准备", detail: "选择章节生成镜头", tone: "in-progress" };
-    const runningSteps = detail.workflows.flatMap((workflow) => workflow.steps).filter((step) => step.status === "running" || step.status === "review").length;
-    if (runningSteps) return { label: "制作中", detail: `${runningSteps} 个流程步骤正在推进`, tone: "generating" };
-    const completedUnits = detail.units.filter((unit) => unit.status === "completed").length;
-    if (completedUnits === detail.units.length) return { label: "检查交付", detail: "章节已完成，可检查镜头与结果", tone: "ready" };
-    return { label: "镜头制作", detail: `${detail.shots.length} 个镜头已建立`, tone: "in-progress" };
+    return summary.status;
 }
 
 export function projectOverviewStageStates(metrics: ProjectOverviewMetrics): ProjectOverviewStageStates {
@@ -94,20 +66,28 @@ export function projectOverviewStageStates(metrics: ProjectOverviewMetrics): Pro
             ? "attention"
             : "active"
           : "idle";
-    const previz = metrics.shotCount > 0 && metrics.readyPrevizCount === metrics.shotCount
+    const smartWholeFilm = metrics.productionMode === "smart";
+    const previz = smartWholeFilm
         ? "completed"
-        : metrics.shotCount > 0
-          ? "active"
-          : "idle";
-    const video = metrics.shotCount > 0 && metrics.readyVideoCount === metrics.shotCount
+        : metrics.shotCount > 0 && metrics.readyPrevizCount === metrics.shotCount
+          ? "completed"
+          : metrics.shotCount > 0
+            ? "active"
+            : "idle";
+    const video = smartWholeFilm
+        ? metrics.readySmartFilmCount > 0
+            ? "completed"
+            : metrics.shotCount > 0 && metrics.readyStoryboardCount === metrics.shotCount
+              ? "active"
+              : "idle"
+        : metrics.shotCount > 0 && metrics.readyVideoCount === metrics.shotCount
+          ? "completed"
+          : metrics.readyVideoCount > 0
+            ? "active"
+            : "idle";
+    const delivery = metrics.deliveryReady
         ? "completed"
-        : metrics.readyVideoCount > 0
-          ? "active"
-          : "idle";
-    const deliveryReady = metrics.renderSucceededCount > 0 || (metrics.shotCount > 0 && metrics.readyVideoCount === metrics.shotCount);
-    const delivery = deliveryReady
-        ? "completed"
-        : metrics.readyVideoCount > 0 || metrics.renderSucceededCount > 0
+        : metrics.readyVideoCount > 0 || metrics.readySmartFilmCount > 0 || metrics.renderSucceededCount > 0
           ? "active"
           : "idle";
     return { story, assets, storyboard, previz, video, delivery };
@@ -163,12 +143,16 @@ export function projectNextActions(detail: ProjectDetail, limit = 4): ProjectWor
 
     const failedSteps = detail.workflows.flatMap((workflow) => workflow.steps).filter((step) => step.status === "failed");
     if (failedSteps.length) {
+        const firstUnitId = [...detail.units].sort(byPosition)[0]?.id;
+        const failedHref = firstUnitId
+            ? `${projectRoot}/workflow/${firstUnitId}/${failedSteps[0].stepKey}`
+            : `${projectRoot}/overview`;
         actions.push({
             id: "failed-steps",
             title: `处理 ${failedSteps.length} 个失败步骤`,
             description: failedSteps[0].error?.trim() || "查看失败原因和输入后，仅重试受影响的任务。",
-            href: "/tasks?status=failed",
-            actionLabel: "查看失败任务",
+            href: failedHref,
+            actionLabel: "处理失败步骤",
             tone: "danger",
         });
     }
@@ -227,8 +211,8 @@ export function projectNextActions(detail: ProjectDetail, limit = 4): ProjectWor
             id: "create-canvas",
             title: "建立第一张项目画布",
             description: "把章节、分镜和参考资产放进同一个制作空间。",
-            href: `${projectRoot}/canvases`,
-            actionLabel: "查看项目画布",
+            href: `${projectRoot}/overview`,
+            actionLabel: "返回制作概览",
             tone: "default",
         });
     }

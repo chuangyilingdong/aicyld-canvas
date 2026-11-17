@@ -76,6 +76,9 @@ func (r *Repository) SaveShotWithRevisionActive(userID string, shot *model.Shot,
 					Updates(map[string]any{"status": "stale", "selected": false, "updated_at": shot.UpdatedAt}).Error; err != nil {
 					return err
 				}
+				if err := invalidateProjectUnitArtifactsTx(tx, shot.ProjectID, shot.UnitID, shot.UpdatedAt); err != nil {
+					return err
+				}
 			}
 			if previousRevision.ID == "" || !previousRevision.StoryboardInputsEqual(*revision) {
 				if err := invalidateUnitWorkflowTx(tx, shot.ProjectID, shot.UnitID, "storyboard", shot.UpdatedAt); err != nil {

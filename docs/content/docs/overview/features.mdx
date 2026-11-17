@@ -344,7 +344,7 @@ Windows 安装包自带视频处理工具，无需另外安装 FFmpeg。预览�
 - **预设面板**：左侧“添加”分类提供 8 个内置片段/字幕插件，按分类分组接入同一插槽注册链，第三方插件可与内置面板共存。
 - **权限与执行边界**：命令执行遵循失败关闭（fail-closed）策略，`timeline.command` 权限与全局 `plugins.run` 权限分开控制；未授权插件或命令不会被执行或回显。
 - **语音转写（字幕）**：对时间线音视频发起转写任务，转写进度沿任务 SSE 回流，完成后生成字幕轨。
-- **成片导出（渲染）**：发起渲染任务，由服务端 ffmpeg 按渲染计划输出成片；渲染成功后在项目概览的“剪辑成片”步骤卡呈现“已输出 N 个成片”，并作为该步骤完成度的判定依据。
+- **成片导出（渲染）**：发起渲染任务，由服务端 ffmpeg 按渲染计划输出成片；项目概览只把当前镜头和素材没有过期时的最新渲染结果视为可交付，历史成功任务不会继续占用“已完成”状态。
 - **AI 编辑助手**：可以用自然语言描述剪辑意图，系统将其解析为受支持的命令序列；不超过 3 条命令时直接执行，多于 3 条先给出差异预览，确认后才批量执行。
 
 ### 运行环境要求
@@ -364,4 +364,4 @@ Windows 安装包自带视频处理工具，无需另外安装 FFmpeg。预览�
 - `web/src/services/api/timeline-tasks.ts`：转写、渲染任务与只读渲染计划客户端。
 - `backend/internal/editing`：语义渲染计划编译。
 - `backend/internal/task`：本机转写/渲染/深度捕捉准入。`backend/internal/app/task_timeline.go`、`backend/internal/app/task_render.go`：领取后的转写与 native 渲染执行。
-- `backend/internal/repository/project_workbench_read.go`：项目概览指标聚合（含成片完成度计数）。
+- `backend/internal/repository/project_workbench_read.go`：项目概览指标聚合（当前修订产物、过期产物、制作步骤和整片交付状态）。

@@ -49,7 +49,7 @@
 .workflow-smart-film-copy small {
     margin-top: 8px;
     color: color-mix(in srgb, var(--foreground) 42%, transparent);
-    font-size: 10px;
+    font-size: 11px;
 }
 
 .workflow-smart-film-video {
@@ -108,7 +108,7 @@
 
 .shot-revision-history-list small {
     color: color-mix(in srgb, var(--foreground) 38%, transparent);
-    font-size: 10px;
+    font-size: 11px;
 }
 
 .shot-revision-history-list p {
@@ -146,7 +146,7 @@
 
 .shot-revision-history-diff > header span {
     color: color-mix(in srgb, var(--foreground) 38%, transparent);
-    font-size: 10px;
+    font-size: 11px;
 }
 
 .shot-revision-history-fields {

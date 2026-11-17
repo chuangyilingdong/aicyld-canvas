@@ -170,7 +170,7 @@
 
 .smart-film-duration-grid label > span {
     color: color-mix(in srgb, var(--foreground) 42%, transparent);
-    font-size: 10px;
+    font-size: 11px;
 }
 
 .smart-film-created {
@@ -231,7 +231,7 @@
     place-items: center;
     border: 1px solid color-mix(in srgb, var(--foreground) 15%, transparent);
     border-radius: 999px;
-    font-size: 10px;
+    font-size: 11px;
     font-variant-numeric: tabular-nums;
 }
 

@@ -153,33 +153,16 @@ func (s *Service) summarizeProjects(userID string, projects []model.Project) ([]
 		if err := requireDurableRevision(summary); err != nil {
 			return nil, err
 		}
-		units, unitsErr := s.repo.ProjectUnitSummaries(item.ID)
-		if unitsErr != nil {
-			return nil, unitsErr
+		metrics, activeTaskCount, productionMode, metricsErr := s.projectStatusInputs(userID, item)
+		if metricsErr != nil {
+			return nil, metricsErr
 		}
-		canvases, canvasesErr := s.repo.ProjectCanvasSummaries(userID, item.ID)
-		if canvasesErr != nil {
-			return nil, canvasesErr
-		}
-		assetCount, assetCountErr := s.repo.ProjectAssetCount(item.ID)
-		if assetCountErr != nil {
-			return nil, assetCountErr
-		}
-		activeTaskCount, activeTaskErr := s.repo.ActiveTaskCountForProjectIDs(userID, []string{item.ID})
-		if activeTaskErr != nil {
-			return nil, activeTaskErr
-		}
-		completed := 0
-		for _, unit := range units {
-			if unit.Status == model.ProjectUnitStatusCompleted {
-				completed++
-			}
-		}
-		summary.CanvasCount = len(canvases)
-		summary.AssetCount = assetCount
-		summary.UnitCount = len(units)
-		summary.CompletedUnitCount = completed
+		summary.CanvasCount = int(metrics.CanvasCount)
+		summary.AssetCount = metrics.AssetCount
+		summary.UnitCount = int(metrics.UnitCount)
+		summary.CompletedUnitCount = int(metrics.CompletedUnitCount)
 		summary.ActiveTaskCount = activeTaskCount
+		summary.Status = buildProjectStatus(item, metrics, activeTaskCount, productionMode)
 		result = append(result, summary)
 	}
 	return result, nil

@@ -50,8 +50,8 @@ export default function CanvasPage() {
     const inputRef = useRef<HTMLInputElement>(null);
     const autoOpenRef = useRef(false);
     const [keyword, setKeyword] = useState("");
-    const [sort, setSort] = useState<"updated" | "name" | "nodes">("updated");
-    const [projectFilter, setProjectFilter] = useState("all");
+    const sort = "updated" as "updated" | "name" | "nodes";
+    const projectFilter = "all" as string;
     const [folderFilter, setFolderFilter] = useState("all");
     const [renamingStudioProject, setRenamingStudioProject] = useState<ProjectSummary["project"] | null>(null);
     const [studioProjectRenameValue, setStudioProjectRenameValue] = useState("");
@@ -105,7 +105,6 @@ export default function CanvasPage() {
     const projects = useMemo<CanvasLibrarySummary[]>(() => remoteMode
         ? libraryQuery.data?.pages.flatMap((page) => page.projects) || []
         : listCanvasWorkspaceProjectRoots(localProjects).map((project) => ({ ...project, nodeCount: project.nodes.length, previewNodes: previewNodesForWorkspaceProject(localProjects, canvasWorkspaceProjectId(project)) })), [libraryQuery.data, localProjects, remoteMode]);
-    const totalProjects = remoteMode ? libraryQuery.data?.pages[0]?.total || 0 : projects.length;
     const selectedIds = useCanvasUiStore((state) => state.selectedProjectIds);
     const deleteDialogOpen = useCanvasUiStore((state) => state.deleteProjectIds.length > 0);
     const setDeleteIds = useCanvasUiStore((state) => state.setDeleteProjectIds);
@@ -260,7 +259,6 @@ export default function CanvasPage() {
     const visibleFolders = folderFilter === "all" ? folders : [];
     const libraryFolders = focusBatchId ? [] : visibleFolders;
     const activeFolder = folderFilter === "all" ? undefined : folders.find((folder) => folder.id === folderFilter);
-    const projectFilterItems = useMemo(() => [{ key: "all", label: "全部项目" }, { key: "independent", label: "自由项目" }, ...(projectQuery.data?.projects || []).map(({ project }) => ({ key: project.id, label: project.name }))], [projectQuery.data]);
     const saveFolderRename = () => {
         const nextName = folderName.trim() || "未命名文件夹";
         const id = editingFolderId;
@@ -473,6 +471,15 @@ export default function CanvasPage() {
                 ) : null}
 
                 {!remoteMode && canvasHealth.error ? <div role="alert" className="mb-4 flex flex-wrap items-center gap-3 text-sm"><span>{canvasHealth.error}</span><Button loading={canvasHealth.loading} onClick={()=>void hydrateLocalCanvasProjectsFromBackend()}>重试加载</Button></div> : null}
+                {remoteMode && projectQuery.isError ? (
+                    <div role="alert" className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-destructive/25 bg-destructive/5 px-3 py-2 text-sm">
+                        <span>智能成片项目读取失败，项目画布仍可继续使用。</span>
+                        <Button size="small" loading={projectQuery.isFetching} onClick={() => void projectQuery.refetch()}>重试加载项目</Button>
+                    </div>
+                ) : null}
+                {remoteMode && projectQuery.isPending && !focusBatchId ? (
+                    <div role="status" className="mb-4 rounded-lg bg-foreground/[.035] px-3 py-2 text-sm text-foreground/55">正在读取智能成片项目…</div>
+                ) : null}
                 {remoteMode && libraryQuery.isError ? (
                     <div role="alert">画布列表读取失败<Button onClick={() => void libraryQuery.refetch()}>重试</Button></div>
                 ) : !hydrated || (remoteMode && libraryQuery.isPending) ? (

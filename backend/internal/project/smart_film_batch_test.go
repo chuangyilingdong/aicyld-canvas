@@ -933,6 +933,13 @@ func TestPromoteTextAssetToVisualCreatesImageVersionAndInvalidatesShots(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
+	wholeFilm := model.ProjectUnitArtifact{
+		ID: "whole-film-stale-after-asset", ProjectID: project.ID, UnitID: unit.ID, TaskID: "task-whole-film",
+		Type: "smart_film", Version: 1, ResourceID: "resource-whole-film", Status: "ready", Selected: true,
+	}
+	if err := db.Create(&wholeFilm).Error; err != nil {
+		t.Fatal(err)
+	}
 	promoted, err := svc.PromoteProjectAssetVisual("user-1", project.ID, asset.ID, PromoteProjectAssetVisualRequest{
 		ResourceID: image.ID, TaskID: "task-promote-cup", Model: "image-model", Prompt: "白色陶瓷咖啡杯，干净背景", ExpectedRevision: latestProject.Revision,
 	})
@@ -966,6 +973,13 @@ func TestPromoteTextAssetToVisualCreatesImageVersionAndInvalidatesShots(t *testi
 	}
 	if storedArtifact.Status != "stale" || storedArtifact.Selected {
 		t.Fatalf("artifact = %+v, want stale and unselected", storedArtifact)
+	}
+	var storedWholeFilm model.ProjectUnitArtifact
+	if err := db.First(&storedWholeFilm, "id = ?", wholeFilm.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if storedWholeFilm.Status != "stale" || storedWholeFilm.Selected {
+		t.Fatalf("whole film artifact = %+v, want stale and unselected", storedWholeFilm)
 	}
 }
 

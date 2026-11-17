@@ -28,9 +28,13 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
         queryKey: ["smart-film-batch", detail.project.batchId, activeStage === "video" ? "video" : "image"],
         queryFn: () => getSmartFilmBatch(detail.project.batchId!, undefined, (activeStage === "video" ? "video" : "image") as SmartFilmSkillStage).then((result) => result.batch),
         enabled: Boolean(detail.project.batchId),
+        refetchInterval: activeStage === "storyboard" && shots.length === 0 ? 3_000 : false,
     });
     const smartWholeFilm = smartFilmBatchQuery.data?.config.productionMode === "smart";
     const smartFilmConfigurationPending = Boolean(detail.project.batchId) && smartFilmBatchQuery.isPending;
+    const smartFilmConfigurationError = Boolean(detail.project.batchId) && smartFilmBatchQuery.isError
+        ? smartFilmBatchQuery.error instanceof Error ? smartFilmBatchQuery.error.message : "智能成片配置读取失败"
+        : "";
     const projectTasksQuery = useQuery({
         queryKey: ["project-generation-tasks", projectId, "smart-film"],
         queryFn: ({ signal }) => listGenerationTasks(30, { projectId }, undefined, signal),
@@ -45,7 +49,11 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
         enabled: smartWholeFilm,
     });
     const latestSmartWholeFilm = useMemo(
-        () => (unitArtifactsQuery.data || []).filter((artifact) => artifact.type === "smart_film" && artifact.resourceId).sort((left, right) => right.version - left.version)[0],
+        () => (unitArtifactsQuery.data || []).filter((artifact) => artifact.type === "smart_film" && artifact.resourceId && artifact.status === "ready").sort((left, right) => right.version - left.version)[0],
+        [unitArtifactsQuery.data],
+    );
+    const staleSmartWholeFilm = useMemo(
+        () => (unitArtifactsQuery.data || []).some((artifact) => artifact.type === "smart_film" && artifact.status === "stale"),
         [unitArtifactsQuery.data],
     );
     const smartFilmEditPrompt = useMemo(() => {
@@ -225,5 +233,5 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
         }
     };
 
-    return { smartWholeFilm, smartFilmConfigurationPending, smartFilmGenerating, smartFilmError, smartFilmTask: smartFilmTask || latestSmartFilmTask, smartFilmRecoveryError, latestSmartWholeFilm, smartFilmEditPrompt, readyStoryboardCount, smartFilmBatch: smartFilmBatchQuery.data, generateSmartWholeFilm };
+    return { smartWholeFilm, smartFilmConfigurationPending, smartFilmConfigurationError, retrySmartFilmConfiguration: () => smartFilmBatchQuery.refetch(), smartFilmGenerating, smartFilmError, smartFilmTask: smartFilmTask || latestSmartFilmTask, smartFilmRecoveryError, latestSmartWholeFilm, staleSmartWholeFilm, smartFilmEditPrompt, readyStoryboardCount, smartFilmBatch: smartFilmBatchQuery.data, generateSmartWholeFilm };
 }

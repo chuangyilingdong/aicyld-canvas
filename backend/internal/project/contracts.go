@@ -77,12 +77,13 @@ type WorkflowSeed struct {
 // Summary is the local list card. Collaborator counts stay numeric so the
 // composition root does not leak asset or task document types into this port.
 type Summary struct {
-	Project            model.Project `json:"project"`
-	CanvasCount        int           `json:"canvasCount"`
-	AssetCount         int64         `json:"assetCount"`
-	UnitCount          int           `json:"unitCount"`
-	CompletedUnitCount int           `json:"completedUnitCount"`
-	ActiveTaskCount    int64         `json:"activeTaskCount"`
+	Project            model.Project  `json:"project"`
+	CanvasCount        int            `json:"canvasCount"`
+	AssetCount         int64          `json:"assetCount"`
+	UnitCount          int            `json:"unitCount"`
+	CompletedUnitCount int            `json:"completedUnitCount"`
+	ActiveTaskCount    int64          `json:"activeTaskCount"`
+	Status             StatusSnapshot `json:"status"`
 }
 
 type ListPage struct {
@@ -94,7 +95,8 @@ type ListPage struct {
 }
 
 type Core struct {
-	Project model.Project `json:"project"`
+	Project model.Project  `json:"project"`
+	Status  StatusSnapshot `json:"status"`
 }
 
 type UnitSummaries struct {
@@ -105,23 +107,42 @@ type UnitSummaries struct {
 type Overview struct {
 	Metrics OverviewMetrics `json:"metrics"`
 	Units   []OverviewUnit  `json:"units"`
+	Status  StatusSnapshot  `json:"status"`
+}
+
+type StatusSnapshot struct {
+	Label                 string `json:"label"`
+	Detail                string `json:"detail"`
+	Tone                  string `json:"tone"`
+	ProductionMode        string `json:"productionMode,omitempty"`
+	ActiveTaskCount       int64  `json:"activeTaskCount"`
+	FailedStepCount       int64  `json:"failedStepCount"`
+	PendingCandidateCount int64  `json:"pendingCandidateCount"`
+	StaleArtifactCount    int64  `json:"staleArtifactCount"`
+	DeliveryReady         bool   `json:"deliveryReady"`
 }
 
 type OverviewMetrics struct {
-	UnitCount             int64 `json:"unitCount"`
-	CompletedUnitCount    int64 `json:"completedUnitCount"`
-	TotalWordCount        int64 `json:"totalWordCount"`
-	UnitsWithoutText      int64 `json:"unitsWithoutText"`
-	UnitsWithoutShots     int64 `json:"unitsWithoutShots"`
-	CanvasCount           int64 `json:"canvasCount"`
-	AssetCount            int64 `json:"assetCount"`
-	ShotCount             int64 `json:"shotCount"`
-	PendingCandidateCount int64 `json:"pendingCandidateCount"`
-	ReadyStoryboardCount  int64 `json:"readyStoryboardCount"`
-	ReadyPrevizCount      int64 `json:"readyPrevizCount"`
-	ReadyVideoCount       int64 `json:"readyVideoCount"`
-	RenderSucceededCount  int64 `json:"renderSucceededCount"`
-	StaleArtifactCount    int64 `json:"staleArtifactCount"`
+	UnitCount             int64  `json:"unitCount"`
+	CompletedUnitCount    int64  `json:"completedUnitCount"`
+	TotalWordCount        int64  `json:"totalWordCount"`
+	UnitsWithoutText      int64  `json:"unitsWithoutText"`
+	UnitsWithoutShots     int64  `json:"unitsWithoutShots"`
+	CanvasCount           int64  `json:"canvasCount"`
+	AssetCount            int64  `json:"assetCount"`
+	ShotCount             int64  `json:"shotCount"`
+	PendingCandidateCount int64  `json:"pendingCandidateCount"`
+	ReadyStoryboardCount  int64  `json:"readyStoryboardCount"`
+	ReadyPrevizCount      int64  `json:"readyPrevizCount"`
+	ReadyVideoCount       int64  `json:"readyVideoCount"`
+	RenderSucceededCount  int64  `json:"renderSucceededCount"`
+	StaleArtifactCount    int64  `json:"staleArtifactCount"`
+	ActiveTaskCount       int64  `json:"activeTaskCount"`
+	FailedStepCount       int64  `json:"failedStepCount"`
+	RunningStepCount      int64  `json:"runningStepCount"`
+	ReadySmartFilmCount   int64  `json:"readySmartFilmCount"`
+	DeliveryReady         bool   `json:"deliveryReady"`
+	ProductionMode        string `json:"productionMode,omitempty"`
 }
 
 type OverviewUnit struct {

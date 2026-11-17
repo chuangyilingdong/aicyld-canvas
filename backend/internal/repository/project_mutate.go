@@ -34,10 +34,11 @@ type WorkflowOutputCurrent struct {
 // WorkflowOutputPlan is the mutation derived from WorkflowOutputCurrent.
 // A nil Step means the workflow rows stay untouched.
 type WorkflowOutputPlan struct {
-	Step     *model.WorkflowStepInstance
-	Next     *model.WorkflowStepInstance
-	Instance *model.WorkflowInstance
-	Artifact *model.ShotArtifact
+	Step                    *model.WorkflowStepInstance
+	Next                    *model.WorkflowStepInstance
+	Instance                *model.WorkflowInstance
+	Artifact                *model.ShotArtifact
+	InvalidateUnitArtifacts bool
 }
 
 // WorkflowTaskOutputRecords are the identity-keyed rows for a task output.
@@ -225,6 +226,9 @@ func (r *Repository) UpdateProjectUnitActive(userID string, expectedRevision int
 				return err
 			}
 			if err := tx.Model(&model.ShotArtifact{}).Where("project_id = ? AND unit_id = ? AND status NOT IN ?", unit.ProjectID, unit.ID, []string{"failed", "stale"}).Updates(map[string]any{"status": "stale", "selected": false, "updated_at": unit.UpdatedAt}).Error; err != nil {
+				return err
+			}
+			if err := invalidateProjectUnitArtifactsTx(tx, unit.ProjectID, unit.ID, unit.UpdatedAt); err != nil {
 				return err
 			}
 			if err := invalidateUnitWorkflowTx(tx, unit.ProjectID, unit.ID, "story", unit.UpdatedAt); err != nil {
@@ -546,6 +550,15 @@ func (r *Repository) RegisterWorkflowTaskOutputActive(userID, projectID, stepID,
 			}
 			if err := persistWorkflowTaskOutputRecordsTx(tx, records, plan.Artifact); err != nil {
 				return err
+			}
+			if plan.InvalidateUnitArtifacts && shot != nil {
+				updatedAt := time.Now()
+				if plan.Artifact != nil {
+					updatedAt = plan.Artifact.UpdatedAt
+				}
+				if err := invalidateProjectUnitArtifactsTx(tx, projectID, shot.UnitID, updatedAt); err != nil {
+					return err
+				}
 			}
 			if plan.Step != nil {
 				if plan.Instance == nil {
@@ -1001,6 +1014,9 @@ func (r *Repository) UpsertShotAssetReferenceActive(userID, projectID string, re
 		}).Error; err != nil {
 			return err
 		}
+		if err := invalidateProjectUnitArtifactsTx(tx, projectID, shot.UnitID, updatedAt); err != nil {
+			return err
+		}
 		if err := invalidateUnitWorkflowTx(tx, projectID, shot.UnitID, "storyboard", updatedAt); err != nil {
 			return err
 		}
@@ -1032,6 +1048,9 @@ func (r *Repository) DeleteShotAssetReferenceActive(userID, projectID, shotID, r
 		if err := tx.Model(&model.Shot{}).Where("id = ? AND project_id = ?", shot.ID, projectID).Updates(map[string]any{
 			"status": "draft", "updated_at": updatedAt,
 		}).Error; err != nil {
+			return err
+		}
+		if err := invalidateProjectUnitArtifactsTx(tx, projectID, shot.UnitID, updatedAt); err != nil {
 			return err
 		}
 		if err := invalidateUnitWorkflowTx(tx, projectID, shot.UnitID, "storyboard", updatedAt); err != nil {

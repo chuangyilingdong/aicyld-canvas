@@ -98,7 +98,7 @@
 .smart-film-reference-group > header small {
     margin-top: 2px;
     color: color-mix(in srgb, var(--foreground) 42%, transparent);
-    font-size: 10px;
+    font-size: 11px;
 }
 
 .smart-film-reference-group-actions {
@@ -118,7 +118,7 @@
     background: color-mix(in srgb, var(--foreground) 3%, transparent);
     padding: 0 9px;
     color: color-mix(in srgb, var(--foreground) 62%, transparent);
-    font-size: 10px;
+    font-size: 11px;
 }
 
 .smart-film-reference-group-actions button:hover:not(:disabled) {
@@ -158,7 +158,7 @@
     border-color: rgb(255 255 255 / 18%);
     background: rgb(0 0 0 / 68%);
     color: white;
-    font-size: 10px;
+    font-size: 11px;
 }
 
 .smart-film-product-card .smart-film-character-name::placeholder {
@@ -180,7 +180,7 @@
     padding: 16px 8px 7px;
     background: linear-gradient(transparent, rgb(0 0 0 / 72%));
     color: white;
-    font-size: 10px;
+    font-size: 11px;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -201,7 +201,7 @@
 .smart-film-product-hint {
     margin-top: -8px;
     color: color-mix(in srgb, var(--foreground) 40%, transparent);
-    font-size: 10px;
+    font-size: 11px;
 }
 
 .smart-film-skill-select-row {
@@ -229,7 +229,7 @@
 .smart-film-skill-select-row span {
     margin-top: 3px;
     color: color-mix(in srgb, var(--foreground) 42%, transparent);
-    font-size: 10px;
+    font-size: 11px;
 }
 
 .smart-film-skill-select-actions {
@@ -268,7 +268,7 @@
 .smart-film-skill-edit-note {
     margin: 0;
     color: color-mix(in srgb, var(--foreground) 42%, transparent);
-    font-size: 10px;
+    font-size: 11px;
     line-height: 1.6;
 }
 
@@ -316,7 +316,7 @@
 .smart-film-batch-style-row span {
     margin-top: 3px;
     color: color-mix(in srgb, var(--foreground) 44%, transparent);
-    font-size: 10px;
+    font-size: 11px;
     line-height: 1.6;
 }
 
@@ -349,7 +349,7 @@
 .smart-film-generation-progress small {
     margin-top: 5px;
     color: color-mix(in srgb, var(--foreground) 48%, transparent);
-    font-size: 10px;
+    font-size: 11px;
 }
 
 .smart-film-batch-submit strong { font-size: 14px; }
@@ -385,7 +385,7 @@
 
 .smart-film-batch-summary-stats span {
     color: color-mix(in srgb, var(--foreground) 42%, transparent);
-    font-size: 10px;
+    font-size: 11px;
 }
 
 .smart-film-batch-summary-stats strong {
@@ -429,7 +429,7 @@
     margin-top: 3px;
     overflow: hidden;
     color: color-mix(in srgb, var(--foreground) 45%, transparent);
-    font-size: 10px;
+    font-size: 11px;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -451,7 +451,7 @@
 
 .smart-film-budget-stats span {
     color: color-mix(in srgb, var(--foreground) 43%, transparent);
-    font-size: 10px;
+    font-size: 11px;
 }
 
 .smart-film-budget-stats strong {
@@ -633,7 +633,7 @@
     flex-wrap: wrap;
     gap: 12px;
     color: color-mix(in srgb, var(--foreground) 44%, transparent);
-    font-size: 10px;
+    font-size: 11px;
 }
 
 .smart-film-batch-list-stats strong {
@@ -654,7 +654,7 @@
     flex: 1 1 170px;
     overflow: hidden;
     color: color-mix(in srgb, var(--foreground) 42%, transparent);
-    font-size: 10px;
+    font-size: 11px;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -698,7 +698,7 @@
 .smart-film-script-compare-index {
     color: color-mix(in srgb, var(--foreground) 38%, transparent);
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: 11px;
     letter-spacing: .08em;
 }
 
@@ -711,7 +711,7 @@
 
 .smart-film-script-compare-section span {
     color: color-mix(in srgb, var(--foreground) 42%, transparent);
-    font-size: 10px;
+    font-size: 11px;
 }
 
 .smart-film-script-compare-section p {
@@ -734,7 +734,7 @@
     background: color-mix(in srgb, var(--foreground) 5%, transparent);
     padding: 8px 10px;
     color: color-mix(in srgb, var(--foreground) 42%, transparent);
-    font-size: 10px;
+    font-size: 11px;
     line-height: 1.6;
 }
 
@@ -802,7 +802,7 @@
     gap: 4px 12px;
     margin-top: 7px;
     color: color-mix(in srgb, var(--foreground) 48%, transparent);
-    font-size: 10px;
+    font-size: 11px;
     line-height: 1.6;
 }
 

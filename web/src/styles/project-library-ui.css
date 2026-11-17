@@ -304,6 +304,134 @@
     font-variant-numeric: tabular-nums;
 }
 
+.project-workspace-batch-link {
+    display: inline-flex;
+    height: 32px;
+    flex: 0 0 auto;
+    align-items: center;
+    border: 1px solid var(--workspace-border);
+    border-radius: var(--r-md);
+    padding-inline: 10px;
+    color: color-mix(in srgb, var(--foreground) 66%, transparent);
+    font-size: 12px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: background-color var(--motion-instant) ease-out, color var(--motion-instant) ease-out, border-color var(--motion-instant) ease-out;
+}
+
+.project-workspace-batch-link:hover,
+.project-workspace-batch-link:focus-visible {
+    border-color: color-mix(in srgb, var(--workspace-accent) 34%, var(--workspace-border));
+    background: var(--surface-hover);
+    color: var(--foreground);
+    outline: none;
+}
+
+@layer utilities {
+    /* 项目概览头部：主区留白撑开、标题字阶拉高、右栏用背景色而非边框分隔。 */
+    .project-workspace-header {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 16px 20px;
+        width: 100%;
+        min-width: 0;
+        flex: 0 0 auto;
+        min-height: 56px;
+        padding: 8px 20px;
+        border-bottom: 1px solid color-mix(in srgb, var(--foreground) 7%, transparent);
+        background: transparent;
+        color: var(--user-ink, var(--foreground));
+    }
+    .project-workspace-identity { display: flex; min-width: 0; align-items: center; gap: 8px; }
+    .project-workspace-back, .project-workspace-create {
+        display: inline-flex;
+        height: 32px;
+        flex: 0 0 auto;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        border: 0;
+        border-radius: 10px;
+        background: transparent;
+        color: color-mix(in srgb, var(--foreground) 48%, transparent);
+        transition: background-color var(--motion-instant), color var(--motion-instant);
+    }
+    .project-workspace-back { width: 32px; }
+    .project-workspace-create { padding: 0 10px 0 8px; }
+    .project-workspace-header a { color: inherit; text-decoration: none; }
+    .project-workspace-create span { font-size: 12px; font-weight: 600; }
+    .project-workspace-back:hover, .project-workspace-create:hover { background: var(--user-surface-muted, var(--surface-hover)); color: var(--user-ink, var(--foreground)); }
+    .project-workspace-back:focus-visible, .project-workspace-create:focus-visible, .project-workspace-tab:focus-visible { outline: 2px solid var(--user-accent, var(--ring)); outline-offset: 2px; }
+    .project-workspace-back svg, .project-workspace-create svg { width: 16px; height: 16px; stroke-width: 1.8; }
+    .project-workspace-title { display: flex; min-width: 0; flex-wrap: nowrap; align-items: center; gap: 8px; }
+    .project-workspace-title h1 { min-width: 0; max-width: 22ch; margin: 0; overflow: hidden; color: var(--user-ink, var(--foreground)); font-size: 15px; font-weight: 650; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
+    .project-workspace-status { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 999px; font-size: 11px; font-weight: 600; line-height: 1; white-space: nowrap; }
+    .project-workspace-status.is-in-progress { background: var(--user-accent-soft, var(--workspace-accent-soft)); color: var(--user-accent, var(--workspace-accent)); }
+    .project-workspace-status.is-generating { background: color-mix(in srgb, var(--status-warning) 14%, transparent); color: color-mix(in srgb, var(--status-warning) 78%, var(--user-ink)); }
+    .project-workspace-status.is-draft { background: color-mix(in srgb, var(--foreground) 6%, transparent); color: color-mix(in srgb, var(--foreground) 56%, transparent); }
+    .project-workspace-status.is-attention { background: color-mix(in srgb, var(--status-warning) 16%, transparent); color: color-mix(in srgb, var(--status-warning) 72%, var(--user-ink)); }
+    .project-workspace-status.is-ready { background: color-mix(in srgb, var(--status-success) 14%, transparent); color: color-mix(in srgb, var(--status-success) 76%, var(--user-ink)); }
+    .project-workspace-status.is-archived { background: color-mix(in srgb, var(--foreground) 7%, transparent); color: color-mix(in srgb, var(--foreground) 48%, transparent); }
+    .project-workspace-tabs {
+        display: flex;
+        min-width: 0;
+        width: fit-content;
+        max-width: 100%;
+        height: 40px;
+        align-items: center;
+        gap: 2px;
+        justify-self: start;
+        padding: 3px;
+        overflow-x: auto;
+        overscroll-behavior-x: contain;
+        scrollbar-width: none;
+        border-radius: 12px;
+        background: var(--user-surface-muted, color-mix(in srgb, var(--foreground) 5%, transparent));
+        mask-image: linear-gradient(90deg, transparent, #000 12px, #000 calc(100% - 12px), transparent);
+    }
+    .project-workspace-tabs:not(:hover) { mask-image: none; }
+    .project-workspace-tabs::-webkit-scrollbar { display: none; width: 0; height: 0; }
+    .project-workspace-tab {
+        display: inline-flex;
+        height: 34px;
+        flex: 0 0 auto;
+        align-items: center;
+        justify-content: center;
+        padding: 0 12px;
+        border-radius: 9px;
+        color: var(--user-ink-muted, color-mix(in srgb, var(--foreground) 48%, transparent));
+        font-size: 13px;
+        font-weight: 560;
+        line-height: 1;
+        white-space: nowrap;
+        transition: background-color var(--motion-instant), color var(--motion-instant), box-shadow var(--motion-instant);
+    }
+    .project-workspace-tab:hover { color: var(--user-ink, var(--foreground)); }
+    .project-workspace-tab.is-active {
+        background: var(--user-surface, var(--background));
+        color: var(--user-ink, var(--foreground));
+        font-weight: 650;
+        box-shadow: 0 1px 2px color-mix(in srgb, var(--foreground) 8%, transparent);
+    }
+    .project-workspace-actions { display: flex; min-width: 0; align-items: center; justify-content: flex-end; gap: 8px; }
+    @media (max-width: 1180px) {
+        .project-workspace-header { grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px 14px; padding-inline: 16px; }
+        .project-workspace-tab { padding-inline: 10px; font-size: 12px; }
+        .project-workspace-create span { display: none; }
+        .project-workspace-create { width: 32px; padding: 0; }
+    }
+    @media (max-width: 900px) {
+        .project-workspace-header { grid-template-columns: minmax(0, 1fr) auto; padding: 8px 14px 10px; }
+        .project-workspace-tabs { grid-column: 1 / -1; width: 100%; justify-self: stretch; }
+        .project-workspace-title h1 { font-size: 14px; }
+    }
+    @media (max-width: 640px) {
+        .project-workspace-header { padding-inline: 12px; gap: 10px; }
+        .project-workspace-tab { padding-inline: 9px; }
+    }
+}
+
 @media (max-width: 640px) {
     .project-batch-focus {
         align-items: flex-start;

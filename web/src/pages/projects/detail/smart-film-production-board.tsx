@@ -1,6 +1,7 @@
 import { App, Button, Input, Progress } from "antd";
-import { AlertTriangle, ArrowLeft, ArrowRight, Clapperboard, Copy, Download, Edit3, Film, Image as ImageIcon, LoaderCircle, Save, Sparkles, Video, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, CheckCircle2, Clapperboard, Copy, Download, Edit3, Film, Image as ImageIcon, LoaderCircle, Save, Sparkles, Video, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router";
 
 import { CanvasResourceMentionTextarea } from "@/components/canvas/canvas-resource-mention-textarea";
 import { AppModal } from "@/components/ui/product/app-modal/app-modal";
@@ -9,6 +10,8 @@ import { canvasResourceMentionToken } from "@/lib/canvas/canvas-resource-referen
 import { resourceFileUrl, resourceIdFromStorageKey, resourceThumbnailUrl } from "@/services/api/resources";
 import type { ProjectDetail, ProjectShot, ShotArtifact, ShotRevision } from "@/services/api/projects";
 import type { GenerationTask } from "@/services/api/task-center";
+import type { SmartFilmBatch, SmartFilmProductionRun } from "@/services/api/smart-film-batches";
+import { controlSmartFilmProductionRun } from "@/services/api/smart-film-batches";
 
 import { promptAssetDisplayTitle, promptAssetIds, promptWithoutAssetMentions } from "./smart-film-storyboard-prompt";
 import { autoMentionShotAssetReferences, buildShotAssetReferenceContext, ensureShotAssetMentionPrompt } from "./workflow-shot-references";
@@ -16,8 +19,9 @@ import { ArtifactStatus, currentArtifact, currentRevision, formatDuration } from
 
 type PromptSaveStatus = "draft" | "confirmed";
 
-export function SmartFilmStoryboardBoard({ detail, shots, readyCount, busy, submittingShotIds, onSaveShotPrompt, onGenerateAll, onGenerateShot, onNext }: {
+export function SmartFilmStoryboardBoard({ detail, batch, shots, readyCount, busy, submittingShotIds, onSaveShotPrompt, onGenerateAll, onGenerateShot, onNext }: {
     detail: ProjectDetail;
+    batch?: SmartFilmBatch;
     shots: ProjectShot[];
     readyCount: number;
     busy: boolean;
@@ -71,18 +75,7 @@ export function SmartFilmStoryboardBoard({ detail, shots, readyCount, busy, subm
     };
 
     if (!shots.length) {
-        return (
-            <section className="grid h-full min-h-[320px] place-items-center px-6 text-center">
-                <div className="max-w-md">
-                    <LoaderCircle className="mx-auto size-7 animate-spin text-foreground/45" />
-                    <strong className="mt-4 block text-sm">正在生成分镜脚本</strong>
-                    <p className="mt-2 text-xs leading-6 text-foreground/48">
-                        系统正在根据剧本和已识别资产拆分镜头。完成后会自动显示逐镜提示词，通常需要约 30–90 秒。
-                    </p>
-                    <p className="mt-1 text-[var(--fs-tiny)] text-foreground/34">页面会自动刷新；超过 2 分钟仍无镜头，请返回“角色与资产”检查生成失败原因。</p>
-                </div>
-            </section>
-        );
+        return <StoryboardPreparingState detail={detail} batch={batch} />;
     }
 
     return (
@@ -205,7 +198,96 @@ export function SmartFilmStoryboardBoard({ detail, shots, readyCount, busy, subm
     );
 }
 
-export function SmartFilmVideoBoard({ detail, shots, readyCount, targetSeconds, generating, generationError, generationTask, recoveryError, latestResourceId, editPrompt, onBack, onSaveShotPrompt, onGenerate, onDownload }: {
+function StoryboardPreparingState({ detail, batch }: { detail: ProjectDetail; batch?: SmartFilmBatch }) {
+    const { message } = App.useApp();
+    const run = batch?.productionRuns.find((item) =>
+        item.scriptId === detail.project.sourceScriptId
+        || item.resources.projectId === detail.project.id,
+    );
+    const task = detail.tasks
+        .filter((item) => item.id === run?.storyboardTaskId || (item.type === "canvas_text" && item.operation === "storyboard"))
+        .slice()
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
+    const waitState = resolveStoryboardWaitState(task, run);
+    const taskActive = waitState === "running";
+    const [clock, setClock] = useState(Date.now());
+    const [retrying, setRetrying] = useState(false);
+    const [retrySubmitted, setRetrySubmitted] = useState(false);
+    useEffect(() => {
+        if (!taskActive) return;
+        setClock(Date.now());
+        const timer = window.setInterval(() => setClock(Date.now()), 1_000);
+        return () => window.clearInterval(timer);
+    }, [taskActive, task?.id]);
+    useEffect(() => {
+        if (waitState !== "failed") setRetrySubmitted(false);
+    }, [waitState]);
+    const startedAt = Date.parse(task?.startedAt || task?.createdAt || run?.updatedAt || "");
+    const elapsed = taskActive && Number.isFinite(startedAt) ? formatDuration(Math.max(0, clock - startedAt)) : "";
+    const error = run?.error || task?.error || "";
+    const batchHref = detail.project.batchId ? `/smart-film/batches/${detail.project.batchId}` : "";
+    const assetsHref = `/projects/${detail.project.id}/assets`;
+    const retryStoryboard = async () => {
+        if (!batch || !run || retrying) return;
+        setRetrying(true);
+        try {
+            await controlSmartFilmProductionRun(batch.id, run.id, "retry", "storyboard");
+            setRetrySubmitted(true);
+            message.success("分镜生成已重新排队");
+        } catch (retryError) {
+            message.error(retryError instanceof Error ? retryError.message : "分镜重试失败");
+        } finally {
+            setRetrying(false);
+        }
+    };
+
+    if (waitState === "failed") {
+        return <section className="grid h-full min-h-[320px] place-items-center px-6 text-center" role="alert">
+            <div className="max-w-lg rounded-xl border border-rose-300/35 bg-rose-500/[.05] px-6 py-7">
+                <X className="mx-auto size-8 text-rose-500" />
+                <strong className="mt-4 block text-sm text-rose-600 dark:text-rose-400">分镜脚本生成失败</strong>
+                <p className="mt-2 whitespace-pre-wrap break-words text-xs leading-6 text-foreground/60">{error || "模型没有返回可用分镜，请检查生成记录后重试。"}</p>
+                <p className="mt-2 text-[var(--fs-tiny)] leading-5 text-foreground/42">失败任务不会继续占用后台。可以直接重试；已有可用结果会被优先复用。</p>
+                <div className="mt-4 flex flex-wrap justify-center gap-2">
+                    {batch && run ? <Button type="primary" loading={retrying} disabled={retrySubmitted} onClick={() => void retryStoryboard()}>{retrySubmitted ? "已重新排队" : "重试分镜生成"}</Button> : null}
+                    {batchHref ? <Link to={batchHref}><Button>打开生成记录</Button></Link> : null}
+                    <Link to={assetsHref}><Button>检查角色与资产</Button></Link>
+                </div>
+            </div>
+        </section>;
+    }
+
+    const copied = waitState === "syncing";
+    return <section className="grid h-full min-h-[320px] place-items-center px-6 text-center" role="status" aria-live="polite">
+        <div className="max-w-lg">
+            {copied ? <CheckCircle2 className="mx-auto size-8 text-emerald-500" /> : <LoaderCircle className="mx-auto size-8 animate-spin text-foreground/45" />}
+            <strong className="mt-4 block text-sm">{copied ? "分镜脚本已返回，正在同步镜头" : taskActive ? "正在生成分镜脚本" : "分镜任务正在排队"}</strong>
+            <p className="mt-2 text-xs leading-6 text-foreground/48">
+                {copied ? "模型已经完成文本生成，系统正在写入镜头列表，页面会自动刷新。" : "系统正在结合剧本、确认资产和制作规格拆分镜头。"}
+            </p>
+            <p className="mt-1 text-[var(--fs-tiny)] leading-5 text-foreground/38">
+                {taskActive ? `任务已运行 ${elapsed || "不到 1 秒"}。` : ""}当前文本模型通常需要约 3–6 分钟；失败或完成后都会在这里明确显示。
+            </p>
+            {batchHref ? <Link to={batchHref}><Button className="mt-4">查看后台生成记录</Button></Link> : null}
+        </div>
+    </section>;
+}
+
+export function resolveStoryboardWaitState(task?: GenerationTask, run?: SmartFilmProductionRun): "failed" | "running" | "syncing" | "waiting" {
+    if (task?.status === "failed" || task?.status === "cancelled"
+        || run?.status === "needs_attention" || run?.status === "failed"
+        || run?.storyboardStatus === "needs_attention") {
+        return "failed";
+    }
+    if (task?.status === "succeeded") return "syncing";
+    if (task?.status === "queued" || task?.status === "running"
+        || run?.storyboardStatus === "queued" || run?.storyboardStatus === "running") {
+        return "running";
+    }
+    return "waiting";
+}
+
+export function SmartFilmVideoBoard({ detail, shots, readyCount, targetSeconds, generating, generationError, generationTask, recoveryError, latestResourceId, staleWholeFilm, editPrompt, onBack, onSaveShotPrompt, onGenerate, onDownload }: {
     detail: ProjectDetail;
     shots: ProjectShot[];
     readyCount: number;
@@ -215,6 +297,7 @@ export function SmartFilmVideoBoard({ detail, shots, readyCount, targetSeconds, 
     generationTask?: GenerationTask;
     recoveryError?: string;
     latestResourceId?: string;
+    staleWholeFilm?: boolean;
     editPrompt?: string;
     onBack: () => void;
     onSaveShotPrompt: (shot: ProjectShot, videoPrompt: string, status: PromptSaveStatus) => Promise<void>;
@@ -250,6 +333,7 @@ export function SmartFilmVideoBoard({ detail, shots, readyCount, targetSeconds, 
                     </div>
                     <p className="mt-1 text-xs leading-5 text-foreground/48">每镜动作说明会压缩为一份整片提示词，并分别引用图片1至图片{shots.length}；不要求每张图对应固定硬切点。</p>
                     {!allReady ? <p className="mt-1 text-[var(--fs-tiny)] text-amber-500">{staleCount ? `有 ${staleCount} 张分镜图已过期，请回到分镜步骤重新生成。` : "仍有分镜图未生成，暂时不能生成整片视频。"}</p> : null}
+                    {staleWholeFilm && !latestResourceId ? <p className="mt-1 text-[var(--fs-tiny)] text-amber-500">上一版整片视频已因分镜变化而过期，请重新生成后再交付。</p> : null}
                     {generationError ? <p className="mt-1 text-[var(--fs-tiny)] text-rose-500">{generationError}</p> : null}
                     {recoveryError ? <p className="mt-1 text-[var(--fs-tiny)] text-rose-500">产物恢复失败：{recoveryError}</p> : null}
                 </div>
@@ -293,7 +377,7 @@ export function SmartFilmVideoBoard({ detail, shots, readyCount, targetSeconds, 
                             <p className="mt-4 text-xs font-medium text-foreground/70">{taskStage}{taskElapsed ? ` · 已运行 ${taskElapsed}` : ""}</p>
                             <Progress className="mt-3 w-full" percent={taskProgress || 5} showInfo={false} status="active" />
                             <p className="mt-2 text-[var(--fs-tiny)] text-foreground/35">{generationTask?.referenceProgress ? "正在准备参考素材，完成后自动进入视频生成" : "视频生成需要一些时间，完成后会显示在这里"}</p>
-                        </div> : generationTask?.status === "failed" ? <div className="max-w-sm text-center text-rose-400"><Film className="mx-auto size-9" /><p className="mt-3 text-xs font-medium">整片视频生成失败</p><p className="mt-2 text-[var(--fs-tiny)] leading-5 text-foreground/45">{generationTask.error || "请调整参数后重试"}</p></div> : <div className="text-center text-foreground/38"><Film className="mx-auto size-10" /><p className="mt-2 text-xs">还没有生成整片视频</p><p className="mt-1 text-[var(--fs-tiny)] text-foreground/30">{allReady ? "分镜图已全部就绪，可以开始生成" : "等待分镜图全部生成"}</p></div>}
+                        </div> : generationTask?.status === "failed" ? <div className="max-w-sm text-center text-rose-400"><Film className="mx-auto size-9" /><p className="mt-3 text-xs font-medium">整片视频生成失败</p><p className="mt-2 text-[var(--fs-tiny)] leading-5 text-foreground/45">{generationTask.error || "请调整参数后重试"}</p></div> : <div className="text-center text-foreground/38"><Film className="mx-auto size-10" /><p className="mt-2 text-xs">{staleWholeFilm ? "上一版整片视频已过期" : "还没有生成整片视频"}</p><p className="mt-1 text-[var(--fs-tiny)] text-foreground/30">{staleWholeFilm ? "重新生成整片后再交付" : allReady ? "分镜图已全部就绪，可以开始生成" : "等待分镜图全部生成"}</p></div>}
                     </div>
                 </div>
             </div>

@@ -230,8 +230,8 @@ HTTPS 图片提交前读取同源 `/models` 元数据，仅成功响应明确声
 
 | 接口 | 返回范围 |
 | --- | --- |
-| `GET /api/projects/:id/core` | 项目基础设置，不包含业务集合 |
-| `GET /api/projects/:id/overview` | 项目聚合计数与前 8 个章节进度 |
+| `GET /api/projects/:id/core` | 项目基础设置与统一状态快照，不包含业务集合 |
+| `GET /api/projects/:id/overview` | 项目聚合计数、统一状态快照、当前有效产物与前 8 个章节进度 |
 | `GET /api/projects/:id/units` | 全部章节摘要与字数，不包含正文 |
 | `GET /api/projects/:id/units/:unitId` | 单章正文 |
 | `GET /api/projects/:id/units/:unitId/workspace` | 当前章节的镜头、版本、产物、引用、候选、相关任务和已绑定资产 |

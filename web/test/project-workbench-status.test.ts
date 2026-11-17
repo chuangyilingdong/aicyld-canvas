@@ -24,22 +24,32 @@ function summary(overrides: Partial<ProjectSummary> = {}): ProjectSummary {
         unitCount: 0,
         completedUnitCount: 0,
         activeTaskCount: 0,
+        status: {
+            label: "草稿",
+            detail: "还没有开始制作",
+            tone: "draft",
+            activeTaskCount: 0,
+            failedStepCount: 0,
+            pendingCandidateCount: 0,
+            staleArtifactCount: 0,
+            deliveryReady: false,
+        },
         ...overrides,
     };
 }
 
-test("只有存在活动生成任务时才显示生成中", () => {
-    expect(projectSummaryStage(summary({ activeTaskCount: 2 }))).toMatchObject({ label: "生成中", tone: "generating" });
-});
-
-test("尚未开始的项目显示草稿", () => {
-    expect(projectSummaryStage(summary())).toMatchObject({ label: "草稿", tone: "draft" });
-});
-
-test("已有章节或资产但未在生成的项目显示制作中", () => {
-    expect(projectSummaryStage(summary({ unitCount: 1 }))).toMatchObject({ label: "制作中", tone: "in-progress" });
-    expect(projectSummaryStage(summary({ assetCount: 3 }))).toMatchObject({ label: "制作中", tone: "in-progress" });
-    expect(projectSummaryStage(summary({ completedUnitCount: 1 }))).toMatchObject({ label: "制作中", tone: "in-progress" });
+test("项目卡片直接使用后端状态快照", () => {
+    const status = {
+        label: "生成中",
+        detail: "2 个生成任务正在运行",
+        tone: "generating" as const,
+        activeTaskCount: 2,
+        failedStepCount: 0,
+        pendingCandidateCount: 0,
+        staleArtifactCount: 0,
+        deliveryReady: false,
+    };
+    expect(projectSummaryStage(summary({ status }))).toBe(status);
 });
 
 function metrics(overrides: Partial<ProjectOverviewMetrics> = {}): ProjectOverviewMetrics {
@@ -58,6 +68,12 @@ function metrics(overrides: Partial<ProjectOverviewMetrics> = {}): ProjectOvervi
         readyVideoCount: 0,
         renderSucceededCount: 0,
         staleArtifactCount: 0,
+        activeTaskCount: 0,
+        failedStepCount: 0,
+        runningStepCount: 0,
+        readySmartFilmCount: 0,
+        deliveryReady: false,
+        productionMode: "fixed",
         ...overrides,
     };
 }
@@ -71,7 +87,12 @@ test("待确认资产会阻止资产阶段显示完成", () => {
     expect(projectOverviewStageStates(metrics({ unitCount: 1, assetCount: 3, pendingCandidateCount: 2 })).assets).toBe("attention");
 });
 
-test("只有存在有效交付产物时才标记交付完成", () => {
+test("只有后端确认当前交付有效时才标记交付完成", () => {
     expect(projectOverviewStageStates(metrics({ shotCount: 3, readyVideoCount: 1 })).delivery).toBe("active");
-    expect(projectOverviewStageStates(metrics({ shotCount: 3, renderSucceededCount: 1 })).delivery).toBe("completed");
+    expect(projectOverviewStageStates(metrics({ shotCount: 3, renderSucceededCount: 1, staleArtifactCount: 1 })).delivery).toBe("active");
+    expect(projectOverviewStageStates(metrics({ shotCount: 3, renderSucceededCount: 1, deliveryReady: true })).delivery).toBe("completed");
+});
+
+test("智能整片使用整片产物而不是逐镜视频判断视频阶段", () => {
+    expect(projectOverviewStageStates(metrics({ productionMode: "smart", shotCount: 3, readyStoryboardCount: 3, readyVideoCount: 0, readySmartFilmCount: 1 })).video).toBe("completed");
 });

@@ -85,6 +85,13 @@ export default function SmartFilmBatchListPage() {
 
                 {listQuery.isLoading ? (
                     <div className="smart-film-batch-empty">正在读取生成记录…</div>
+                ) : listQuery.isError ? (
+                    <div className="smart-film-batch-empty" role="alert">
+                        <Clapperboard className="size-7 text-rose-500" />
+                        <strong>生成记录读取失败</strong>
+                        <span>当前无法连接项目服务，已有数据没有被删除。</span>
+                        <Button loading={listQuery.isFetching} onClick={() => void listQuery.refetch()}>重新读取</Button>
+                    </div>
                 ) : !listQuery.data?.batches.length ? (
                     <div className="smart-film-script-empty">
                         <Clapperboard className="size-7 text-foreground/30" />
@@ -97,20 +104,29 @@ export default function SmartFilmBatchListPage() {
                         {listQuery.data.batches.map((batch) => {
                             const projectCount = batch.scripts.filter((script) => Boolean(script.projectId)).length;
                             const readyCount = batch.scripts.filter((script) => script.status === "storyboard_ready").length;
+                            const attentionCount = batch.scripts.filter((script) =>
+                                script.status === "needs_attention"
+                                || script.status === "failed"
+                                || batch.productionRuns.some((run) => run.scriptId === script.id && (run.status === "needs_attention" || run.status === "failed")),
+                            ).length;
                             return (
                                 <article className="smart-film-batch-list-card" key={batch.id}>
                                     <div className="smart-film-batch-list-card-head">
                                         <div>
-                                            <span className="text-[10px] font-mono text-foreground/35">BATCH {batch.id.slice(0, 8)}</span>
+                                            <span className="text-[11px] text-foreground/40">生成记录</span>
                                             <h2>{batch.title}</h2>
                                         </div>
-                                        <Tag color={batch.status === "confirmed" ? "green" : batch.status === "partially_confirmed" ? "blue" : "default"}>{statusLabels[batch.status]}</Tag>
+                                        <div className="flex flex-wrap items-center justify-end gap-1">
+                                            {attentionCount ? <Tag color="red">{attentionCount} 项待处理</Tag> : null}
+                                            <Tag color={batch.status === "confirmed" ? "green" : batch.status === "partially_confirmed" ? "blue" : "default"}>{statusLabels[batch.status]}</Tag>
+                                        </div>
                                     </div>
                                     <p>{batch.sourceText}</p>
                                     <div className="smart-film-batch-list-stats">
                                         <span><strong>{batch.scripts.length}</strong> 条剧本</span>
                                         <span><strong>{projectCount}</strong> 个项目</span>
                                         <span><strong>{readyCount}</strong> 个分镜完成</span>
+                                        <span><strong>{attentionCount}</strong> 个待处理</span>
                                         <span><strong>{batch.control.queuedCount + batch.control.runningCount}</strong> 个后台任务</span>
                                     </div>
                                     <div className="smart-film-batch-list-card-foot">

@@ -10,6 +10,17 @@ function row(id: string, batchId: string | undefined, updatedAt: string) {
         assetCount: 0,
         unitCount: 0,
         completedUnitCount: 0,
+        activeTaskCount: 0,
+        status: {
+            label: "草稿",
+            detail: "还没有开始制作",
+            tone: "draft",
+            activeTaskCount: 0,
+            failedStepCount: 0,
+            pendingCandidateCount: 0,
+            staleArtifactCount: 0,
+            deliveryReady: false,
+        },
     } as ProjectSummary;
 }
 

@@ -150,6 +150,35 @@ func TestProjectOverviewCountsSucceededTimelineRenders(t *testing.T) {
 	}
 }
 
+func TestProjectOverviewCountsOnlyArtifactsForCurrentShotRevision(t *testing.T) {
+	service, db := newProjectWorkbenchReadTestService(t)
+	project := seedWorkbenchProject(t, db)
+	unit := model.ProjectUnit{ID: "unit-current", ProjectID: project.ID, Title: "当前章节", Status: model.ProjectUnitStatusReady}
+	if err := db.Create(&unit).Error; err != nil {
+		t.Fatal(err)
+	}
+	shot := model.Shot{ID: "shot-current", ProjectID: project.ID, UnitID: unit.ID, Position: 0, CurrentRevisionID: "revision-current"}
+	if err := db.Create(&shot).Error; err != nil {
+		t.Fatal(err)
+	}
+	artifacts := []model.ShotArtifact{
+		{ID: "artifact-old", ProjectID: project.ID, UnitID: unit.ID, ShotID: shot.ID, RevisionID: "revision-old", Type: "storyboard", Version: 1, ResourceID: "resource-old", Status: "ready", Selected: true},
+		{ID: "artifact-current", ProjectID: project.ID, UnitID: unit.ID, ShotID: shot.ID, RevisionID: "revision-current", Type: "storyboard", Version: 2, ResourceID: "resource-current", Status: "ready", Selected: true},
+	}
+	for _, artifact := range artifacts {
+		if err := db.Create(&artifact).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	overview, err := service.ProjectService().ProjectOverview("user-1", project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if overview.Metrics.ReadyStoryboardCount != 1 {
+		t.Fatalf("current storyboard count = %d, want 1", overview.Metrics.ReadyStoryboardCount)
+	}
+}
+
 func TestProjectUnitWorkspaceIsolatesShotsAndBoundAssetsByUnit(t *testing.T) {
 	service, db := newProjectWorkbenchReadTestService(t)
 	project := seedWorkbenchProject(t, db)

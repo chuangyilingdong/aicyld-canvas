@@ -51,6 +51,23 @@ func TestPlanRegisteredTaskOutputReplacesCompletedUnitStep(t *testing.T) {
 	}
 }
 
+func TestPlanRegisteredStoryboardInvalidatesWholeFilm(t *testing.T) {
+	now := time.Now()
+	shot := &model.Shot{ID: "shot-1", ProjectID: "project-1", UnitID: "unit-1", CurrentRevisionID: "revision-1"}
+	current := repository.WorkflowOutputCurrent{
+		Step:     model.WorkflowStepInstance{ID: "storyboard-step", StepKey: "storyboard", Status: model.WorkflowStepStatusRunning},
+		Instance: model.WorkflowInstance{ID: "workflow-instance", Status: model.WorkflowStatusActive, Revision: 1},
+		Shot:     shot,
+	}
+	plan, err := planRegisteredTaskOutput(now, "storyboard-task", `{"resourceId":"new"}`, "", "new-resource", "storyboard", shot.CurrentRevisionID, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !plan.InvalidateUnitArtifacts {
+		t.Fatal("current storyboard output should invalidate the previous whole film")
+	}
+}
+
 func TestRegisterTaskOutputFromTaskUsesNestedMetadataAndCanonicalResource(t *testing.T) {
 	svc, db := newTestService(t, nil)
 	project, unit, video, shot := seedWorkflowOutputFixture(t, svc, db)

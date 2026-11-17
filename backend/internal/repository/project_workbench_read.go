@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"fmt"
 	"strings"
 
 	"infinite-canvas/backend/internal/model"
@@ -21,6 +22,9 @@ type ProjectOverviewMetrics struct {
 	ReadyVideoCount              int64 `gorm:"column:ready_video_count"`
 	TimelineRenderSucceededCount int64 `gorm:"column:timeline_render_succeeded_count"`
 	StaleArtifactCount           int64 `gorm:"column:stale_artifact_count"`
+	FailedWorkflowStepCount      int64 `gorm:"column:failed_workflow_step_count"`
+	RunningWorkflowStepCount     int64 `gorm:"column:running_workflow_step_count"`
+	ReadySmartFilmCount          int64 `gorm:"column:ready_smart_film_count"`
 }
 
 type ProjectOverviewUnitRow struct {
@@ -49,7 +53,13 @@ func (r *Repository) ProjectUnitCanvasCounts(projectID string) (map[string]int64
 
 func (r *Repository) ProjectOverviewMetrics(projectID string) (ProjectOverviewMetrics, error) {
 	var metrics ProjectOverviewMetrics
-	err := r.db.Raw(`
+	staleUnitArtifacts := "0"
+	readySmartFilm := "0"
+	if r.db.Migrator().HasTable(&model.ProjectUnitArtifact{}) {
+		staleUnitArtifacts = "(SELECT COUNT(*) FROM project_unit_artifacts WHERE project_id = ? AND status = 'stale')"
+		readySmartFilm = "(SELECT COUNT(*) FROM project_unit_artifacts WHERE project_id = ? AND type = 'smart_film' AND status = 'ready' AND resource_id <> '')"
+	}
+	query := fmt.Sprintf(`
 		SELECT
 			(SELECT COUNT(*) FROM project_units WHERE project_id = ?) AS unit_count,
 			(SELECT COUNT(*) FROM project_units WHERE project_id = ? AND status = ?) AS completed_unit_count,
@@ -60,12 +70,29 @@ func (r *Repository) ProjectOverviewMetrics(projectID string) (ProjectOverviewMe
 			(SELECT COUNT(*) FROM project_asset_links WHERE project_id = ?) AS asset_count,
 			(SELECT COUNT(*) FROM shots WHERE project_id = ?) AS shot_count,
 			(SELECT COUNT(*) FROM project_asset_candidates WHERE project_id = ? AND status = 'pending_confirmation') AS pending_candidate_count,
-			(SELECT COUNT(DISTINCT shot_id) FROM shot_artifacts WHERE project_id = ? AND type = 'storyboard' AND selected = ? AND status = 'ready') AS ready_storyboard_count,
-			(SELECT COUNT(DISTINCT shot_id) FROM shot_artifacts WHERE project_id = ? AND type = 'action_board' AND selected = ? AND status = 'ready') AS ready_previz_count,
-			(SELECT COUNT(DISTINCT shot_id) FROM shot_artifacts WHERE project_id = ? AND type = 'video' AND selected = ? AND status = 'ready') AS ready_video_count,
-			(SELECT COUNT(*) FROM tasks WHERE project_id = ? AND type = ? AND status = ?) AS timeline_render_succeeded_count,
-			(SELECT COUNT(*) FROM shot_artifacts WHERE project_id = ? AND status = 'stale') AS stale_artifact_count
-`, projectID, projectID, model.ProjectUnitStatusCompleted, projectID, projectID, projectID, model.ProjectUnitStatusDraft, projectID, projectID, projectID, projectID, projectID, true, projectID, true, projectID, true, projectID, model.TaskTypeTimelineRender, model.TaskStatusSucceeded, projectID).Scan(&metrics).Error
+			(SELECT COUNT(DISTINCT sa.shot_id) FROM shot_artifacts sa JOIN shots s ON s.id = sa.shot_id WHERE sa.project_id = ? AND sa.type = 'storyboard' AND sa.selected = ? AND sa.status = 'ready' AND sa.revision_id = s.current_revision_id) AS ready_storyboard_count,
+			(SELECT COUNT(DISTINCT sa.shot_id) FROM shot_artifacts sa JOIN shots s ON s.id = sa.shot_id WHERE sa.project_id = ? AND sa.type = 'action_board' AND sa.selected = ? AND sa.status = 'ready' AND sa.revision_id = s.current_revision_id) AS ready_previz_count,
+			(SELECT COUNT(DISTINCT sa.shot_id) FROM shot_artifacts sa JOIN shots s ON s.id = sa.shot_id WHERE sa.project_id = ? AND sa.type = 'video' AND sa.selected = ? AND sa.status = 'ready' AND sa.revision_id = s.current_revision_id) AS ready_video_count,
+			(SELECT COUNT(*) FROM tasks t WHERE t.project_id = ? AND t.type = ? AND t.status = ? AND t.updated_at >= COALESCE((SELECT MAX(sr.created_at) FROM shot_revisions sr JOIN shots s ON s.id = sr.shot_id WHERE s.project_id = ?), '')) AS timeline_render_succeeded_count,
+			((SELECT COUNT(*) FROM shot_artifacts WHERE project_id = ? AND status = 'stale') + %s) AS stale_artifact_count,
+			(SELECT COUNT(*) FROM workflow_step_instances wsi JOIN workflow_instances wi ON wi.id = wsi.workflow_instance_id WHERE wi.project_id = ? AND wsi.status = 'failed') AS failed_workflow_step_count,
+			(SELECT COUNT(*) FROM workflow_step_instances wsi JOIN workflow_instances wi ON wi.id = wsi.workflow_instance_id WHERE wi.project_id = ? AND wsi.status IN ('running', 'review')) AS running_workflow_step_count,
+			%s AS ready_smart_film_count
+	`, staleUnitArtifacts, readySmartFilm)
+	args := []any{
+		projectID, projectID, model.ProjectUnitStatusCompleted, projectID, projectID, projectID,
+		model.ProjectUnitStatusDraft, projectID, projectID, projectID, projectID, projectID, true,
+		projectID, true, projectID, true, projectID, model.TaskTypeTimelineRender,
+		model.TaskStatusSucceeded, projectID, projectID,
+	}
+	if r.db.Migrator().HasTable(&model.ProjectUnitArtifact{}) {
+		args = append(args, projectID)
+	}
+	args = append(args, projectID, projectID)
+	if r.db.Migrator().HasTable(&model.ProjectUnitArtifact{}) {
+		args = append(args, projectID)
+	}
+	err := r.db.Raw(query, args...).Scan(&metrics).Error
 	return metrics, err
 }
 

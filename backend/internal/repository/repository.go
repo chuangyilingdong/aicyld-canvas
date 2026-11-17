@@ -1423,6 +1423,9 @@ func (r *Repository) UpdateProjectUnit(unit *model.ProjectUnit, invalidateWorkfl
 			if err := tx.Model(&model.ShotArtifact{}).Where("project_id = ? AND unit_id = ? AND status NOT IN ?", unit.ProjectID, unit.ID, []string{"failed", "stale"}).Updates(map[string]any{"status": "stale", "selected": false, "updated_at": unit.UpdatedAt}).Error; err != nil {
 				return err
 			}
+			if err := invalidateProjectUnitArtifactsTx(tx, unit.ProjectID, unit.ID, unit.UpdatedAt); err != nil {
+				return err
+			}
 			if err := invalidateUnitWorkflowTx(tx, unit.ProjectID, unit.ID, "story", unit.UpdatedAt); err != nil {
 				return err
 			}
@@ -1867,6 +1870,9 @@ func (r *Repository) SaveShotWithRevision(shot *model.Shot, revision *model.Shot
 			if err := tx.Model(&model.ShotArtifact{}).Where("shot_id = ? AND status NOT IN ?", shot.ID, []string{"failed", "stale"}).Updates(map[string]any{"status": "stale", "selected": false, "updated_at": shot.UpdatedAt}).Error; err != nil {
 				return err
 			}
+			if err := invalidateProjectUnitArtifactsTx(tx, shot.ProjectID, shot.UnitID, shot.UpdatedAt); err != nil {
+				return err
+			}
 		}
 		if err := invalidateUnitWorkflowTx(tx, shot.ProjectID, shot.UnitID, "storyboard", shot.UpdatedAt); err != nil {
 			return err
@@ -1997,6 +2003,9 @@ func (r *Repository) UpsertShotAssetReferenceAndInvalidate(projectID string, ref
 		if err := tx.First(&shot, "id = ? AND project_id = ?", reference.ShotID, projectID).Error; err != nil {
 			return err
 		}
+		if err := invalidateProjectUnitArtifactsTx(tx, projectID, shot.UnitID, updatedAt); err != nil {
+			return err
+		}
 		if err := invalidateUnitWorkflowTx(tx, projectID, shot.UnitID, "storyboard", updatedAt); err != nil {
 			return err
 		}
@@ -2023,6 +2032,9 @@ func (r *Repository) DeleteShotAssetReferenceAndInvalidate(projectID string, sho
 		}
 		var shot model.Shot
 		if err := tx.First(&shot, "id = ? AND project_id = ?", shotID, projectID).Error; err != nil {
+			return err
+		}
+		if err := invalidateProjectUnitArtifactsTx(tx, projectID, shot.UnitID, updatedAt); err != nil {
 			return err
 		}
 		if err := invalidateUnitWorkflowTx(tx, projectID, shot.UnitID, "storyboard", updatedAt); err != nil {

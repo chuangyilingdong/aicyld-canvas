@@ -6,11 +6,10 @@ import { App, Button, Dropdown, Form, Image, Input, InputNumber, Select } from "
 import { SegmentedControl } from "@/components/ui/base/segmented-control";
 import { EmptyState } from "@/components/ui/product/empty-state";
 import { StatusBadge } from "@/components/ui/base/badges";
-import { AppModal } from "@/components/ui/product/app-modal/app-modal";
 import { Box, CheckCircle2, ChevronLeft, ChevronRight, Download, Film, Layers3, List, Maximize2, Play, Plus, RefreshCcw, Save, SlidersHorizontal, Sparkles, Trash2, WandSparkles, X } from "lucide-react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { CanvasResourceMentionTextarea } from "@/components/canvas/canvas-resource-mention-textarea";
-import { AssetLibraryPickerModal, type AssetLibraryPickerItem } from "@/components/assets/asset-library-picker-modal";
+import type { AssetLibraryPickerItem } from "@/components/assets/asset-library-picker-modal";
 import { usePersonalAssetLibrary } from "@/hooks/use-personal-asset-library";
 import { ModelPicker } from "@/components/model-picker";
 import { initialWorkbenchModel, refreshedWorkbenchModel } from "./workflow-model-selection";
@@ -38,7 +37,6 @@ import {
     unlinkShotAsset,
     type ProjectAsset,
     type ProjectAssetCandidate,
-    type ProjectDetail,
     type ProjectShot,
     type ShotAssetReference,
     type ShotArtifact,
@@ -49,8 +47,7 @@ import { resourceFileUrl, resourceThumbnailUrl } from "@/services/api/resources"
 import { aggregateCanvasBillingQuotes, confirmCanvasBillingQuote, confirmCanvasGenerationTaskQuote } from "@/components/canvas/canvas-billing-confirmation";
 import { skillRuntime } from "@/services/skill-runtime";
 import { smartFilmSkillMetadata, smartFilmSkillStagePrompt } from "@/services/smart-film-skill";
-import { uploadWorkspaceAssetFiles } from "@/services/workspace-asset-upload";
-import { ASSET_CATEGORIES, ASSET_CATEGORY_LABELS, defaultAssetCategoryForKind, normalizeAssetCategory, type AssetCategory } from "@/lib/asset-category";
+import { ASSET_CATEGORIES, defaultAssetCategoryForKind, normalizeAssetCategory } from "@/lib/asset-category";
 import { modelDisplayName, modelOptionName, resolveModelChannel, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { SkillRuntimePicker, useSkillRuntimeCatalog } from "@/components/skills/skill-runtime-picker";
 
@@ -62,12 +59,14 @@ import {
     currentArtifact,
     currentRevision,
     formatDuration,
-    type ShortDramaWorkflowStage,
 } from "./workflow-shared";
 import { buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, missingPrimaryProductReferences, resolveShotAssetMentionPrompt, smartFilmPrimaryProductName, stripUnboundShotAssetMentions, withPrimaryProductReferences } from "./workflow-shot-references";
 import { isProjectAssetVisualReference, linkedShotAssetReferences, parseShotAssetRoles, shotAssetRoleLabel } from "./shot-asset-roles";
 import { useSmartFilmWholeFilm } from "./use-smart-film-whole-film";
-import { SmartFilmStoryboardBoard, SmartFilmVideoBoard } from "./smart-film-production-board";
+import { WorkflowSmartFilmStage } from "./workflow-smart-film-stages";
+import { useShotNavigationActions } from "./use-shot-navigation-actions";
+import { WorkflowWorkbenchOverlays, type AssetPickerTarget } from "./workflow-workbench-overlays";
+import { productionStageCopy, SMART_FILM_TASK_TIMEOUT_MS, type WorkflowProductionWorkbenchProps } from "./workflow-production-workbench-contract";
 import { ShotRevisionHistoryButton } from "./shot-revision-history-button"; import { ShotArtifactSelectButton } from "./shot-artifact-select-button"; import { ShotAssetConsistencyButton } from "./shot-asset-consistency-button"; import { ShotReviewActions } from "./shot-review-actions"; import { appendShotReworkInstruction } from "./shot-review";
 import { ArtifactHistory, BoundAssets, EpisodeLibrary, LatestPreview, ShotAssetMentionTextarea, ShotLibrary, ShotTimeline } from "./workflow-production-parts";
 import {
@@ -90,32 +89,7 @@ import {
 } from "./workflow-production-helpers";
 import "./workflow-smart-film.css";
 
-type Props = {
-    activeStage: ShortDramaWorkflowStage;
-    detail: ProjectDetail;
-    projectId: string;
-    unitId: string;
-    workflowStep?: WorkflowStep;
-    selectedShot?: ProjectShot;
-    onSelectShot: (id: string) => void;
-    onRefresh: () => Promise<void>;
-    onAddShot: () => void;
-    addingShot: boolean;
-};
-
-const productionStageCopy: Record<"storyboard" | "previz" | "video", { label: string; action: string; empty: string }> = {
-    storyboard: { label: "分镜图", action: "生成分镜图", empty: "生成静态分镜图，确认构图、景别与角色位置" },
-    previz: { label: "动作预演", action: "生成黑白预演", empty: "生成黑白动作预演，确认表演节拍与镜头运动" },
-    video: { label: "镜头视频", action: "生成镜头视频", empty: "选择视频模型后生成当前镜头" },
-};
-
-const SMART_FILM_TASK_TIMEOUT_MS = 60 * 60 * 1000;
-
-type AssetPickerTarget =
-    | { mode: "add"; category: AssetCategory }
-    | { mode: "replace"; category: AssetCategory; reference: ShotAssetReference };
-
-export default function WorkflowProductionWorkbench(props: Props) {
+export default function WorkflowProductionWorkbench(props: WorkflowProductionWorkbenchProps) {
     const { activeStage, detail, projectId, unitId, workflowStep, selectedShot, onSelectShot, onRefresh, onAddShot, addingShot } = props;
     const { message, modal } = App.useApp();
     const navigate = useNavigate();
@@ -143,7 +117,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
     const activeShotIdRef = useRef(selectedShot?.id || "");
     activeShotIdRef.current = selectedShot?.id || "";
     const shots = useMemo(() => (detail.shots || []).filter((item) => item.unitId === unitId).slice().sort((left, right) => left.position - right.position), [detail.shots, unitId]);
-    const { smartWholeFilm, smartFilmConfigurationPending, smartFilmGenerating, smartFilmError, smartFilmTask, smartFilmRecoveryError, latestSmartWholeFilm, smartFilmEditPrompt, readyStoryboardCount, smartFilmBatch, generateSmartWholeFilm } = useSmartFilmWholeFilm(detail, projectId, unitId, shots, activeStage);
+    const { smartWholeFilm, smartFilmConfigurationPending, smartFilmConfigurationError, retrySmartFilmConfiguration, smartFilmGenerating, smartFilmError, smartFilmTask, smartFilmRecoveryError, latestSmartWholeFilm, staleSmartWholeFilm, smartFilmEditPrompt, readyStoryboardCount, smartFilmBatch, generateSmartWholeFilm } = useSmartFilmWholeFilm(detail, projectId, unitId, shots, activeStage);
     const shotIndex = selectedShot ? shots.findIndex((item) => item.id === selectedShot.id) : -1;
     const revision = currentRevision(detail, selectedShot);
     const artifactType = artifactTypeForStage(activeStage);
@@ -1017,46 +991,44 @@ export default function WorkflowProductionWorkbench(props: Props) {
     const stageCopy = productionStageCopy[activeStage as "storyboard" | "previz" | "video"];
     const selectedShotSubmitting = submittingShotIds.has(selectedShot?.id || "");
     const unconfirmedSmartFilmShots = ["smart-film", "smart-film-auto"].includes(detail.project.type) ? shots.filter((shot) => shot.status !== "confirmed") : [];
+    const { requestAddShot, requestDeleteShot, requestShotSelection, selectRelativeShot } = useShotNavigationActions({
+        shots,
+        selectedShot,
+        editorDirty,
+        watchedTitle,
+        onSelectShot,
+        onAddShot,
+        onDeleteShot: (shotId, nextShotId) => deleteShot.mutateAsync({ shotId, nextShotId }),
+    });
 
-    if (smartFilmConfigurationPending && (activeStage === "storyboard" || activeStage === "video")) {
-        return <div className="grid h-full place-items-center px-6 text-center">
-            <div>
-                <strong className="text-sm">正在读取智能成片配置</strong>
-                <p className="mt-2 text-xs leading-5 text-foreground/45">正在确认本批次的分镜方式与制作规格，请稍候。</p>
-            </div>
-        </div>;
-    }
-
-    if (smartWholeFilm && activeStage === "storyboard") {
-        return <div className="h-full min-h-0">
-            <SmartFilmStoryboardBoard
-                detail={detail}
-                shots={shots}
-                readyCount={readyStoryboardCount}
-                busy={Boolean(batchProgress) || submittingShotIds.size > 0}
-                submittingShotIds={submittingShotIds}
-                onSaveShotPrompt={saveSmartFilmStoryboardPrompt}
-                onGenerateAll={() => void generateAllArtifacts()}
-                onGenerateShot={(shot, imagePrompt) => void generateSmartFilmStoryboardShot(shot, imagePrompt)}
-                onNext={() => navigate(`/projects/${projectId}/workflow/${unitId}/video`)}
-            />
-        </div>;
-    }
-
-    if (smartWholeFilm && activeStage === "video") {
-        return <SmartFilmVideoBoard
+    if (smartWholeFilm || smartFilmConfigurationPending || smartFilmConfigurationError) {
+        return <WorkflowSmartFilmStage
+            activeStage={activeStage}
             detail={detail}
+            batch={smartFilmBatch}
             shots={shots}
-            readyCount={readyStoryboardCount}
+            configurationPending={smartFilmConfigurationPending}
+            configurationError={smartFilmConfigurationError}
+            readyStoryboardCount={readyStoryboardCount}
+            busy={Boolean(batchProgress) || submittingShotIds.size > 0}
+            submittingShotIds={submittingShotIds}
             targetSeconds={Number(smartFilmBatch?.config.targetDurationSeconds || 0)}
             generating={smartFilmGenerating}
             generationError={smartFilmError}
             generationTask={smartFilmTask}
+            recoveryError={smartFilmRecoveryError}
             latestResourceId={latestSmartWholeFilm?.resourceId}
+            staleWholeFilm={staleSmartWholeFilm}
             editPrompt={smartFilmEditPrompt}
             onBack={() => navigate(`/projects/${projectId}/workflow/${unitId}/storyboard`)}
-            onSaveShotPrompt={saveSmartFilmVideoPrompt}
-            onGenerate={() => void generateSmartWholeFilm(
+            onNext={() => navigate(`/projects/${projectId}/workflow/${unitId}/video`)}
+            onRetryConfiguration={() => void retrySmartFilmConfiguration()}
+            onSaveShotPrompt={(shot, prompt, status) => status === "confirmed" || activeStage === "storyboard"
+                ? saveSmartFilmStoryboardPrompt(shot, prompt)
+                : saveSmartFilmVideoPrompt(shot, prompt, status || "draft")}
+            onGenerateAll={() => void generateAllArtifacts()}
+            onGenerateShot={(shot, imagePrompt) => void generateSmartFilmStoryboardShot(shot, imagePrompt)}
+            onGenerateWholeFilm={() => void generateSmartWholeFilm(
                 (input) => confirmCanvasGenerationTaskQuote(modal, input, { title: "确认生成整片视频", description: `将使用 ${shots.length} 张已就绪分镜图生成 1 条完整视频；本步骤不会生成分镜图。` }),
                 message.error,
             )}
@@ -1067,55 +1039,6 @@ export default function WorkflowProductionWorkbench(props: Props) {
     if (!selectedShot) {
         return <div className="workflow-empty-shot"><EmptyState size="compact" title="当前章节还没有分镜" description="推荐先用 AI 根据章节内容生成分镜，也可以手动新增。" action={<div className="flex flex-wrap items-center justify-center gap-2"><Button type="primary" icon={<Sparkles className="size-4" />} onClick={() => navigate(`/projects/${projectId}/chapters/${unitId}`)}>AI 生成分镜</Button><Button icon={<Plus className="size-4" />} loading={addingShot} onClick={onAddShot}>手动新增</Button></div>} /></div>;
     }
-
-    const requestShotSelection = (nextShotId: string) => {
-        if (nextShotId === selectedShot.id) return;
-        if (!editorDirty) {
-            onSelectShot(nextShotId);
-            return;
-        }
-        modal.confirm({
-            title: "当前镜头有未保存修改",
-            content: "切换镜头会放弃这些修改。",
-            okText: "放弃修改并切换",
-            cancelText: "继续编辑",
-            onOk: () => onSelectShot(nextShotId),
-        });
-    };
-
-    const requestAddShot = () => {
-        if (!editorDirty) {
-            onAddShot();
-            return;
-        }
-        modal.confirm({
-            title: "当前镜头有未保存修改",
-            content: "新增镜头会离开当前编辑内容。",
-            okText: "放弃修改并新增",
-            cancelText: "继续编辑",
-            onOk: onAddShot,
-        });
-    };
-
-    const requestDeleteShot = () => {
-        const nextShot = shots[shotIndex + 1] || shots[shotIndex - 1];
-        modal.confirm({
-            title: `删除镜头“${watchedTitle || selectedShot.title || "未命名镜头"}”？`,
-            content: editorDirty
-                ? "该镜头的未保存修改、脚本版本、资产引用和生成产物都会被删除，且无法恢复。"
-                : "该镜头的脚本版本、资产引用和生成产物都会被删除，且无法恢复。",
-            okText: "删除镜头",
-            okButtonProps: { danger: true },
-            cancelText: "取消",
-            centered: true,
-            onOk: () => deleteShot.mutateAsync({ shotId: selectedShot.id, nextShotId: nextShot?.id || "" }),
-        });
-    };
-
-    const selectRelativeShot = (offset: number) => {
-        const next = shots[shotIndex + offset];
-        if (next) requestShotSelection(next.id);
-    };
 
     return (
         <div className={`workflow-production-shell is-mobile-${mobilePanel}`}>
@@ -1153,27 +1076,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                         </div>
                         <div className="flex items-center gap-1"><span className="mr-1 text-[var(--fs-micro)] text-foreground/45">{shotIndex + 1} / {shots.length}</span><ShotReviewActions projectId={projectId} shot={selectedShot} artifact={newestArtifact} approveLabel={activeStage === "storyboard" ? "确认本镜分镜图" : activeStage === "video" ? "通过镜头视频" : "通过审核"} approvedLabel={activeStage === "storyboard" ? "分镜图已确认" : activeStage === "video" ? "镜头视频已通过" : "已通过"} disabled={Boolean(batchProgress) || selectedShotSubmitting} onReviewed={async () => { await onRefresh(); }} onRework={(note) => { form.setFieldValue("continuityNotes", appendShotReworkInstruction(form.getFieldValue("continuityNotes"), note)); setEditorDirty(true); void generateArtifact(); }} /><ShotAssetConsistencyButton detail={detail} shots={shots} disabled={Boolean(batchProgress)} onSelectShot={requestShotSelection} /><ShotRevisionHistoryButton detail={detail} shot={selectedShot} projectId={projectId} unitId={unitId} disabled={editorDirty || saveShot.isPending || deleteShot.isPending || Boolean(batchProgress)} onRestored={async () => { setEditorDirty(false); await onRefresh(); }} /><Button type="text" size="small" icon={<ChevronLeft className="size-4" />} disabled={shotIndex <= 0} onClick={() => selectRelativeShot(-1)} aria-label="上一个镜头" /><Button type="text" size="small" icon={<ChevronRight className="size-4" />} disabled={shotIndex >= shots.length - 1} onClick={() => selectRelativeShot(1)} aria-label="下一个镜头" /></div>
                     </header>
-                    {smartWholeFilm && activeStage === "video" ? (
-                        <section className="workflow-smart-film-panel">
-                            <div className="workflow-smart-film-copy">
-                                <span className="workflow-smart-film-icon"><Film className="size-5" /></span>
-                                <div>
-                                    <strong>智能整片 · 最终视频</strong>
-                                    <p>生成顺序：先完成全部 {shots.length} 张分镜图，再用这些图一次性生成约 {smartFilmBatch?.config.targetDurationSeconds || 0} 秒的整片视频。本步骤不生成分镜图，也不逐镜生成视频。</p>
-                                    <small>分镜图已就绪 {readyStoryboardCount}/{shots.length} 张{readyStoryboardCount < shots.length ? `，还差 ${shots.length - readyStoryboardCount} 张；请先在下方逐镜生成并确认分镜图` : "，可以生成整片视频"}</small>
-                                </div>
-                            </div>
-                            {latestSmartWholeFilm?.resourceId ? <video className="workflow-smart-film-video" src={resourceFileUrl(latestSmartWholeFilm.resourceId)} controls preload="metadata" /> : null}
-                            <div className="workflow-smart-film-actions">
-                                <Button icon={<Download className="size-4" />} disabled={!latestSmartWholeFilm?.resourceId} onClick={() => latestSmartWholeFilm?.resourceId && window.open(resourceFileUrl(latestSmartWholeFilm.resourceId), "_blank", "noopener,noreferrer")}>下载整片视频</Button>
-                                <Button type="primary" icon={<Sparkles className="size-4" />} loading={smartFilmGenerating} disabled={readyStoryboardCount !== shots.length || !shots.length} onClick={() => void generateSmartWholeFilm(
-                                    (input) => confirmCanvasGenerationTaskQuote(modal, input, { title: "确认生成整片视频", description: `将使用 ${shots.length} 张已就绪分镜图生成 1 条完整视频；本步骤不会生成分镜图。` }),
-                                    message.error,
-                                )}>{latestSmartWholeFilm ? "重新生成整片视频" : "生成整片视频"}</Button>
-                            </div>
-                        </section>
-                    ) : null}
-                    {!(smartWholeFilm && activeStage === "video") ? <Form form={form} layout="vertical" className="workflow-shot-form" onValuesChange={() => setEditorDirty(true)} onFinish={(values) => saveShot.mutate({ values })}>
+                    <Form form={form} layout="vertical" className="workflow-shot-form" onValuesChange={() => setEditorDirty(true)} onFinish={(values) => saveShot.mutate({ values })}>
                         <div className="workflow-shot-form-scroll thin-scrollbar">
                             <div className="workflow-form-section-heading"><span>镜头脚本</span><small>先写清镜头里发生什么，再调整生成参数</small></div>
                             <Form.Item name="title" label="镜头名称" rules={[{ required: true, message: "请输入镜头名称" }]}><Input placeholder="用一句话概括这个镜头" /></Form.Item>
@@ -1259,7 +1162,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                         <footer className="workflow-editor-actions">
                             <div className="workflow-editor-actions-list"><Button danger icon={<Trash2 className="size-4" />} loading={deleteShot.isPending} disabled={saveShot.isPending || selectedShotSubmitting || Boolean(batchProgress) || changeAssetBinding.isPending} onClick={requestDeleteShot}>删除镜头</Button><Button htmlType="submit" icon={<Save className="size-4" />} loading={saveShot.isPending} disabled={!editorDirty || deleteShot.isPending || Boolean(batchProgress)}>保存脚本</Button>{activeStage === "storyboard" ? <Button icon={<CheckCircle2 className="size-4" />} disabled={deleteShot.isPending || selectedShotSubmitting || Boolean(batchProgress)} onClick={() => void confirmStoryboardPrompts()}>确认全部提示词{unconfirmedSmartFilmShots.length ? `（${unconfirmedSmartFilmShots.length} 待确认）` : ""}</Button> : null}<Button icon={<Layers3 className="size-4" />} loading={Boolean(batchProgress)} disabled={deleteShot.isPending || selectedShotSubmitting || Boolean(batchProgress)} onClick={() => void generateAllArtifacts()}>{batchProgress ? batchProgress.phase === "waiting" ? `生成中 ${batchProgress.done}/${batchProgress.total}` : `提交中 ${batchProgress.done}/${batchProgress.total}` : `补齐全部${stageCopy.label}`}</Button><Button className="workflow-editor-primary-action" type="primary" icon={<Play className="size-4" />} loading={selectedShotSubmitting || shotTask?.status === "queued" || shotTask?.status === "running"} disabled={deleteShot.isPending || Boolean(batchProgress)} onClick={() => void generateArtifact()}>{selectedShotSubmitting ? `${stageCopy.action}（正在提交）` : shotTask?.status === "queued" || shotTask?.status === "running" ? `${stageCopy.action}（已运行${shotTaskElapsed}）` : shotTask?.status === "failed" ? `${stageCopy.action}（上次失败，可重试）` : shotTask?.status === "succeeded" && !newestArtifact ? `${stageCopy.action}（已完成，正在同步）` : newestArtifact ? `${stageCopy.action}（已生成）` : stageCopy.action}</Button></div>
                         </footer>
-                    </Form> : null}
+                    </Form>
                 </section>
 
                 <aside className="workflow-preview-panel">
@@ -1273,69 +1176,28 @@ export default function WorkflowProductionWorkbench(props: Props) {
                             size="sm"
                             className="workflow-preview-stage-switch"
                             value={activeStage}
-                            options={[{ value: "storyboard", label: "1 分镜图" }, { value: "previz", label: "2 动作预演" }, { value: "video", label: smartWholeFilm ? "3 整片视频" : "3 镜头视频" }]}
+                            options={[{ value: "storyboard", label: "1 分镜图" }, { value: "previz", label: "2 动作预演" }, { value: "video", label: "3 镜头视频" }]}
                             onChange={(nextStage) => navigate(`/projects/${projectId}/workflow/${unitId}/${nextStage}`)}
                         />
                     </header>
                     <div className="workflow-preview-scroll thin-scrollbar">
-                        {smartWholeFilm && activeStage === "video" ? (
-                            <div className="rounded-lg border border-border/70 bg-foreground/[.025] p-4 text-xs leading-5 text-foreground/52">
-                                <strong className="block text-sm text-foreground/78">整片视频是项目级产物</strong>
-                                <p className="mt-2">智能整片模式不再按镜头生成视频，右侧不会出现逐镜视频产物。</p>
-                                <p className="mt-2">请使用左侧“生成整片视频”。它会使用全部 {shots.length} 张已就绪分镜图生成 1 条完整视频。</p>
-                                <p className="mt-2 text-foreground/40">分镜图已就绪 {readyStoryboardCount}/{shots.length} 张。</p>
-                            </div>
-                        ) : (
-                            <>
-                                {previewTab === "latest" ? <LatestPreview artifact={previewArtifact} emptyText={stageCopy.empty} onPreviewImage={setImagePreviewArtifact} /> : <ArtifactHistory artifacts={artifacts} activeId={previewArtifact?.id} onSelect={(artifact) => { setPreviewArtifactId(artifact.id); setPreviewTab("latest"); }} />}
-                                <div className="workflow-preview-summary"><div className="flex items-center justify-between gap-2"><span className="text-xs font-medium">当前产物</span><ArtifactStatus artifact={newestArtifact} compact /></div><div className="mt-1 text-[var(--fs-micro)] text-foreground/45">{newestArtifact ? generationCapability === "video" ? `镜头时长 ${formatDuration(selectedShot.durationMs)} · ${formatVideoResolutionLabel(resolution)} · v${newestArtifact.version}` : `镜头计划时长 ${formatDuration(selectedShot.durationMs)} · 图片质量 ${imageQuality.toUpperCase()} · v${newestArtifact.version}` : "当前镜头还没有生成产物"}</div></div>
-                                <div className="workflow-preview-actions"><ShotArtifactSelectButton projectId={projectId} shot={selectedShot} artifact={previewArtifact} onSelected={(artifact) => { setPreviewArtifactId(artifact.id); setPreviewTab("latest"); void onRefresh(); }} /><Button icon={<RefreshCcw className="size-3.5" />} loading={selectedShotSubmitting || shotTask?.status === "queued" || shotTask?.status === "running"} onClick={() => void generateArtifact()}>重新生成</Button><Button icon={<Download className="size-3.5" />} disabled={!previewArtifact?.resourceId} onClick={() => previewArtifact?.resourceId && void downloadArtifact(previewArtifact, selectedShot.title, message.error)}>下载{activeStage === "video" ? "视频" : "图片"}</Button></div>
-                                <ArtifactHistory artifacts={artifacts.slice(0, 4)} activeId={previewArtifact?.id} onSelect={(artifact) => setPreviewArtifactId(artifact.id)} compact />
-                            </>
-                        )}
+                        {previewTab === "latest" ? <LatestPreview artifact={previewArtifact} emptyText={stageCopy.empty} onPreviewImage={setImagePreviewArtifact} /> : <ArtifactHistory artifacts={artifacts} activeId={previewArtifact?.id} onSelect={(artifact) => { setPreviewArtifactId(artifact.id); setPreviewTab("latest"); }} />}
+                        <div className="workflow-preview-summary"><div className="flex items-center justify-between gap-2"><span className="text-xs font-medium">当前产物</span><ArtifactStatus artifact={newestArtifact} compact /></div><div className="mt-1 text-[var(--fs-micro)] text-foreground/45">{newestArtifact ? generationCapability === "video" ? `镜头时长 ${formatDuration(selectedShot.durationMs)} · ${formatVideoResolutionLabel(resolution)} · v${newestArtifact.version}` : `镜头计划时长 ${formatDuration(selectedShot.durationMs)} · 图片质量 ${imageQuality.toUpperCase()} · v${newestArtifact.version}` : "当前镜头还没有生成产物"}</div></div>
+                        <div className="workflow-preview-actions"><ShotArtifactSelectButton projectId={projectId} shot={selectedShot} artifact={previewArtifact} onSelected={(artifact) => { setPreviewArtifactId(artifact.id); setPreviewTab("latest"); void onRefresh(); }} /><Button icon={<RefreshCcw className="size-3.5" />} loading={selectedShotSubmitting || shotTask?.status === "queued" || shotTask?.status === "running"} onClick={() => void generateArtifact()}>重新生成</Button><Button icon={<Download className="size-3.5" />} disabled={!previewArtifact?.resourceId} onClick={() => previewArtifact?.resourceId && void downloadArtifact(previewArtifact, selectedShot.title, message.error)}>下载{activeStage === "video" ? "视频" : "图片"}</Button></div>
+                        <ArtifactHistory artifacts={artifacts.slice(0, 4)} activeId={previewArtifact?.id} onSelect={(artifact) => setPreviewArtifactId(artifact.id)} compact />
                     </div>
                 </aside>
             </div>
 
-            <AppModal
-                flush
-                open={Boolean(imagePreviewArtifact?.resourceId)}
-                title={imagePreviewArtifact?.type === "action_board" ? "动作预演预览" : "分镜图预览"}
-                footer={null}
-                centered
-                width="min(960px, calc(100vw - 32px))"
-                maskClosable={false}
-                onCancel={() => setImagePreviewArtifact(null)}
-            >
-                {imagePreviewArtifact?.resourceId ? <img className={`workflow-image-preview-modal ${imagePreviewArtifact.type === "action_board" ? "grayscale" : ""}`} src={resourceFileUrl(imagePreviewArtifact.resourceId)} alt={imagePreviewArtifact.type === "action_board" ? "动作预演大图" : "分镜图大图"} /> : null}
-            </AppModal>
-
-            <AssetLibraryPickerModal
-                open={Boolean(assetPickerTarget)}
-                remoteLibrary
-                mediaKinds={["image", "video", "audio", "text"]}
-                items={assetPickerItems}
-                categoryLabels={{ all: "全部素材", ...ASSET_CATEGORY_LABELS }}
-                multiple={assetPickerTarget?.mode !== "replace"}
-                eyebrow={assetPickerTarget?.mode === "replace" ? "替换镜头资产" : `添加${assetPickerTarget ? ASSET_CATEGORY_LABELS[assetPickerTarget.category] : "资产"}`}
-                title={assetPickerTarget?.mode === "replace" ? "选择替换资产" : "从画布或素材库选择"}
-                confirmLabel={(count) => assetPickerTarget?.mode === "replace" ? "替换资产" : `添加到当前镜头${count ? `（${count}）` : ""}`}
-                emptyTitle="还没有可用资产"
-                emptyDescription="可以直接从本地上传图片、视频或音频；上传后会自动出现在当前镜头。"
-                upload={{
-                    accept: "image/*,video/*,audio/*",
-                    description: "支持本地图片、视频和音频，上传后自动加入素材库",
-                    onUpload: async (files) => {
-                        const result = await uploadWorkspaceAssetFiles(Array.from(files), "");
-                        if (result.failed || result.persistenceError) message.warning(`已上传 ${result.completed} 个，${result.failed || 1} 个未完成`);
-                        if (!result.addedAssetIds.length) throw new Error("本地资产上传失败，请重试");
-                        return result.addedAssetIds;
-                    },
-                }}
-                onClose={() => { if (!bindPickedAssets.isPending) setAssetPickerTarget(null); }}
-                onConfirm={async (ids) => {
-                    if (!assetPickerTarget) throw new Error("请选择资产用途");
-                    await bindPickedAssets.mutateAsync({ ids, target: assetPickerTarget });
+            <WorkflowWorkbenchOverlays
+                imagePreviewArtifact={imagePreviewArtifact}
+                onCloseImagePreview={() => setImagePreviewArtifact(null)}
+                assetPickerTarget={assetPickerTarget}
+                assetPickerItems={assetPickerItems}
+                bindingAssets={bindPickedAssets.isPending}
+                onCloseAssetPicker={() => { if (!bindPickedAssets.isPending) setAssetPickerTarget(null); }}
+                onConfirmAssets={async (ids, target) => {
+                    await bindPickedAssets.mutateAsync({ ids, target });
                 }}
             />
 

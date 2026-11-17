@@ -341,6 +341,7 @@ func planRegisteredTaskOutput(now time.Time, taskID, outputJSON, metadata, resou
 			RevisionID: shotRevisionID, TaskID: taskID, Type: artifactType, ResourceID: resourceID,
 			Status: status, Selected: selected, MetadataJSON: metadata, CreatedAt: now, UpdatedAt: now,
 		}
+		plan.InvalidateUnitArtifacts = selected && artifactType == "storyboard"
 	}
 	step := current.Step
 	instance := current.Instance

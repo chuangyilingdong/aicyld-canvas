@@ -603,6 +603,9 @@ export default function SmartFilmBatchDetailPage() {
     if (batchQuery.isLoading) {
         return <WorkspacePage className="smart-film-page"><div className="smart-film-generating"><LoaderCircle className="size-7 animate-spin" /><strong>正在读取多剧本项目…</strong></div></WorkspacePage>;
     }
+    if (batchQuery.isError && !batch) {
+        return <WorkspacePage className="smart-film-page"><div className="smart-film-script-empty" role="alert"><strong>生成记录读取失败</strong><span>当前无法连接项目服务，这条记录没有被删除。</span><div className="flex flex-wrap justify-center gap-2"><Button loading={batchQuery.isFetching} onClick={() => void batchQuery.refetch()}>重新读取</Button><Button onClick={() => navigate("/smart-film/batches")}>返回生成记录</Button></div></div></WorkspacePage>;
+    }
     if (!batch) {
         return <WorkspacePage className="smart-film-page"><div className="smart-film-script-empty"><strong>没有找到这条生成记录</strong><span>它可能已被删除，或者不属于当前账号。</span><Button onClick={() => navigate("/smart-film")}>返回智能成片</Button></div></WorkspacePage>;
     }
