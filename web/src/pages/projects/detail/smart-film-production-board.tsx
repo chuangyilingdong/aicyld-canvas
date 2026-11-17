@@ -173,8 +173,17 @@ export function SmartFilmVideoBoard({ detail, shots, readyCount, targetSeconds, 
     const allConfirmed = shots.length > 0 && confirmedCount === shots.length;
     const staleCount = shots.filter((shot) => currentArtifact(detail, shot.id, "storyboard")?.status === "stale").length;
     const taskActive = generating || generationTask?.status === "queued" || generationTask?.status === "running";
+    const [taskClock, setTaskClock] = useState(() => Date.now());
+    useEffect(() => {
+        if (!taskActive) return;
+        setTaskClock(Date.now());
+        const timer = window.setInterval(() => setTaskClock(Date.now()), 1_000);
+        return () => window.clearInterval(timer);
+    }, [taskActive, generationTask?.id]);
     const taskProgress = Math.max(0, Math.min(100, Math.round(generationTask?.progress || 0)));
     const taskStage = generationTask?.stage || (generationTask?.status === "queued" ? "等待生成资源" : "正在生成整片视频");
+    const taskStartedAt = Date.parse(generationTask?.startedAt || generationTask?.createdAt || "");
+    const taskElapsed = taskActive && Number.isFinite(taskStartedAt) ? formatDuration(Math.max(0, taskClock - taskStartedAt)) : "";
     const taskPreviewUrl = generationTask?.previewPosterUrl || (generationTask?.previewKind === "image" ? generationTask.previewUrl : "");
     const canGenerate = allReady && allConfirmed && !taskActive;
 
@@ -228,7 +237,7 @@ export function SmartFilmVideoBoard({ detail, shots, readyCount, targetSeconds, 
                     <div className="mt-2 flex min-h-[360px] items-center justify-center overflow-hidden rounded-lg border border-border/60 bg-black/10 p-3">
                         {latestResourceId ? <video src={resourceFileUrl(latestResourceId)} controls className="max-h-[420px] w-full rounded-lg" preload="metadata" /> : taskActive ? <div className="w-full text-center text-foreground/45">
                             {taskPreviewUrl ? <img src={taskPreviewUrl} alt="整片视频生成预览" className="mx-auto mb-4 max-h-64 w-full rounded-lg object-contain" /> : <span className="mx-auto grid size-16 place-items-center rounded-2xl bg-foreground/[.05]"><Film className="size-8" /></span>}
-                            <p className="mt-4 text-xs font-medium text-foreground/70">{taskStage}</p>
+                            <p className="mt-4 text-xs font-medium text-foreground/70">{taskStage}{taskElapsed ? ` · 已运行 ${taskElapsed}` : ""}</p>
                             <Progress className="mt-3 w-full" percent={taskProgress || 5} showInfo={false} status="active" />
                             <p className="mt-2 text-[var(--fs-tiny)] text-foreground/35">{generationTask?.referenceProgress ? "正在准备参考素材，完成后自动进入视频生成" : "视频生成需要一些时间，完成后会显示在这里"}</p>
                         </div> : generationTask?.status === "failed" ? <div className="max-w-sm text-center text-rose-400"><Film className="mx-auto size-9" /><p className="mt-3 text-xs font-medium">整片视频生成失败</p><p className="mt-2 text-[var(--fs-tiny)] leading-5 text-foreground/45">{generationTask.error || "请调整参数后重试"}</p></div> : <div className="text-center text-foreground/38"><Film className="mx-auto size-10" /><p className="mt-2 text-xs">还没有生成整片视频</p><p className="mt-1 text-[var(--fs-tiny)] text-foreground/30">{allConfirmed ? "所有镜头已确认，可以开始生成" : `还剩 ${shots.length - confirmedCount} 个镜头待确认`}</p></div>}
