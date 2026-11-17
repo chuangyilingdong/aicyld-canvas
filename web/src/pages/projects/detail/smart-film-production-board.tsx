@@ -85,6 +85,21 @@ export function SmartFilmStoryboardBoard({ detail, shots, readyCount, busy, subm
         }
     };
 
+    if (!shots.length) {
+        return (
+            <section className="grid h-full min-h-[320px] place-items-center px-6 text-center">
+                <div className="max-w-md">
+                    <LoaderCircle className="mx-auto size-7 animate-spin text-foreground/45" />
+                    <strong className="mt-4 block text-sm">正在生成分镜脚本</strong>
+                    <p className="mt-2 text-xs leading-6 text-foreground/48">
+                        系统正在根据剧本和已识别资产拆分镜头。完成后会自动显示逐镜提示词，通常需要约 30–90 秒。
+                    </p>
+                    <p className="mt-1 text-[var(--fs-tiny)] text-foreground/34">如果长时间没有出现镜头，返回“角色与资产”再次点击“下一步：分镜制作”。</p>
+                </div>
+            </section>
+        );
+    }
+
     return (
         <section className="h-full min-h-0 overflow-y-auto px-4 py-4 thin-scrollbar">
             <header className="mb-4 flex flex-col gap-3 rounded-xl border border-border/70 bg-surface px-4 py-3 lg:flex-row lg:items-center lg:justify-between">

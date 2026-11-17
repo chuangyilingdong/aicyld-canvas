@@ -1,6 +1,9 @@
 import { Button } from "antd";
 import { ArrowRight, LoaderCircle, TriangleAlert } from "lucide-react";
+import { useState } from "react";
 import { useNavigate } from "react-router";
+
+import { getProjectSmartFilmRun, startSmartFilmProductionStage } from "@/services/api/smart-film-batches";
 
 export function ProjectAssetNextStep({
     projectId,
@@ -22,6 +25,8 @@ export function ProjectAssetNextStep({
     analysisFailed: boolean;
 }) {
     const navigate = useNavigate();
+    const [starting, setStarting] = useState(false);
+    const [startError, setStartError] = useState("");
     const ready = !analysisRunning && !analysisFailed && !pendingLoading;
     const nextHref = unitId ? `/projects/${projectId}/workflow/${unitId}/storyboard` : `/projects/${projectId}/workflow`;
     const title = analysisRunning
@@ -38,12 +43,30 @@ export function ProjectAssetNextStep({
         : analysisFailed
           ? "资产分析没有完成，请返回批次页重试当前项目。"
           : pendingCount > 0
-            ? "无需生成资产图或逐项确认。未生成视觉参考的资产会把已识别提示词作为文字设定写入分镜，随时仍可回来补充资产图。"
+            ? "无需生成资产图或逐项确认。点击下一步会自动开始生成分镜脚本，未生成视觉参考的资产会作为文字设定使用。"
             : ready
               ? hasAssets
                   ? "下一步：进入分镜制作，检查并修改分镜提示词，确认后再生成分镜图。"
                   : "可以不生成资产直接进入分镜。未生成资产图的角色、场景和道具会作为文字设定使用。"
               : "上传或引用产品、人物、场景和道具；也可以在资产库中忽略不需要的识别项。";
+    const continueToStoryboard = async () => {
+        if (starting) return;
+        setStartError("");
+        setStarting(true);
+        try {
+            if (batchId) {
+                const { run } = await getProjectSmartFilmRun(projectId);
+                if (!run.storyboardTaskId && (run.storyboardStatus === "waiting" || run.storyboardStatus === "pending")) {
+                    await startSmartFilmProductionStage(batchId, run.id, "storyboard");
+                }
+            }
+            navigate(nextHref);
+        } catch (error) {
+            setStartError(error instanceof Error ? error.message : "分镜生成启动失败，请重试");
+        } finally {
+            setStarting(false);
+        }
+    };
     return (
         <section className="mb-4 flex flex-col gap-3 rounded-xl border border-border/70 bg-surface px-4 py-3 sm:flex-row sm:items-center sm:justify-between" aria-label="资产制作下一步" aria-live="polite">
             <div className="min-w-0">
@@ -53,11 +76,12 @@ export function ProjectAssetNextStep({
                     {ready ? <span className="rounded bg-emerald-500/10 px-2 py-0.5 text-[var(--fs-tiny)] font-medium text-emerald-500">{pendingCount > 0 ? "可直接进入" : "已完成当前步骤"}</span> : null}
                 </div>
                 <p className="mt-1 text-xs leading-5 text-foreground/48">{detail}</p>
+                {startError ? <p role="alert" className="mt-1 text-xs text-rose-500">{startError}</p> : null}
             </div>
             <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
                 {ready ? (
-                    <Button type="primary" icon={<ArrowRight className="size-3.5" />} onClick={() => navigate(nextHref)}>
-                        下一步：分镜制作
+                    <Button type="primary" loading={starting} icon={starting ? undefined : <ArrowRight className="size-3.5" />} onClick={() => void continueToStoryboard()}>
+                        {starting ? "正在启动分镜…" : "下一步：分镜制作"}
                     </Button>
                 ) : null}
                 {analysisFailed && batchId ? <Button onClick={() => navigate(`/smart-film/batches/${batchId}`)}>返回批次重试</Button> : null}
