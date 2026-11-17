@@ -25,7 +25,7 @@ export function buildSmartFilmWholeFilmPrompt(
             url: resourceFileUrl(artifact.resourceId!),
             storageKey: `resource:${artifact.resourceId}`,
     }));
-    const timings = shotTimings(entries, targetSeconds);
+    const timings = smartFilmShotTimings(entries, targetSeconds);
     const intro = `参考图片1至图片${entries.length}，生成一个完整的 ${formatSeconds(targetSeconds)} 秒视频。把这些图片作为同一部作品的有序视觉参考，保持角色、产品、场景、画风和光线一致；允许模型按动作连续性自然衔接，不要求每张图片对应固定硬切点。`;
     const outro = "保留对白、动作音效、环境声和项目设定的背景音乐，不新增无关旁白。";
     const dialogue = compactDialogue(detail, entries, Math.min(600, Math.floor(maxChars * 0.15)));
@@ -37,7 +37,7 @@ export function buildSmartFilmWholeFilmPrompt(
             revision?.videoPrompt || revision?.plotDescription || shot.description || shot.title,
             revision?.action || "",
         ].filter(Boolean).join("\n");
-        const cue = fitText(primaryShotDirection(source), cueBudget);
+        const cue = fitText(smartFilmShotDirection(source), cueBudget);
         const timing = timings[index];
         return `图片${index + 1}（${formatSeconds(timing.start)}–${formatSeconds(timing.end)} 秒）：${cue}`;
     });
@@ -55,7 +55,7 @@ export function buildSmartFilmWholeFilmPrompt(
     };
 }
 
-function shotTimings(entries: StoryboardEntry[], targetSeconds: number) {
+export function smartFilmShotTimings(entries: StoryboardEntry[], targetSeconds: number) {
     const rawDurations = entries.map(({ shot }) => Math.max(0.1, shot.durationMs / 1000));
     const total = rawDurations.reduce((sum, value) => sum + value, 0) || entries.length;
     let cursor = 0;
@@ -69,7 +69,7 @@ function shotTimings(entries: StoryboardEntry[], targetSeconds: number) {
     });
 }
 
-function primaryShotDirection(value: string) {
+export function smartFilmShotDirection(value: string) {
     const normalized = promptWithoutAssetMentions(value)
         .replace(/\r/g, "")
         .replace(/[ \t]+/g, " ")

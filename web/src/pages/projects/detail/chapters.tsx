@@ -334,6 +334,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
             sourceText,
             projectStyle: resolveProjectCanvasStyle(detail.project.stylePresetId, detail.project.styleProfileJson)?.prompt || "",
             config,
+            skillSnapshot: pinnedSkillSnapshot,
         };
     };
     const beginChapterOperation = (unitId: string, kind: ChapterOperationKind) => {

@@ -3,6 +3,7 @@ import { describe, expect, it } from "bun:test";
 import { smartFilmScriptPrompt } from "@/lib/canvas/smart-film-scripts";
 import type { SmartFilmSkillSnapshot } from "@/services/api/smart-film-batches";
 import type { Skill, SkillPackageFile, SkillPackageFileContent } from "@/services/api/skills";
+import type { PrepareSkillRuntimeInput } from "@/services/skill-runtime";
 import { createSmartFilmSkillSnapshotWithDependencies, smartFilmSkillMetadata, smartFilmSkillStagePrompt } from "@/services/smart-film-skill";
 
 const snapshot: SmartFilmSkillSnapshot = {
@@ -63,6 +64,7 @@ describe("smart film single skill context", () => {
                 storyboard: ["references/storyboard.md"],
                 image: ["references/image.md"],
                 video: ["references/video.md"],
+                edit: ["references/edit.md"],
             },
         };
         const files = [
@@ -73,6 +75,7 @@ describe("smart film single skill context", () => {
             { path: "references/storyboard.md" },
             { path: "references/image.md" },
             { path: "references/video.md" },
+            { path: "references/edit.md" },
         ];
         const contents = new Map<string, string>([
             ["SKILL.md", "# 导演技能"],
@@ -82,6 +85,7 @@ describe("smart film single skill context", () => {
             ["references/storyboard.md", "分镜规则"],
             ["references/image.md", "图片规则"],
             ["references/video.md", "视频规则"],
+            ["references/edit.md", "剪辑规则"],
         ]);
         const snapshot = await createSmartFilmSkillSnapshotWithDependencies(skill(), {
             listFiles: async () => ({ files: files.map((file) => ({ path: file.path, kind: "markdown", mimeType: "text/markdown", size: 1, sha256: file.path })) as SkillPackageFile[] }),
@@ -90,6 +94,38 @@ describe("smart film single skill context", () => {
         expect(snapshot.routingMode).toBe("manifest");
         expect(snapshot.stageFiles?.script).toEqual(["SKILL.md", "references/script.md"]);
         expect(snapshot.stages?.video).toContain("视频规则");
+        expect(snapshot.stages?.edit).toContain("剪辑规则");
+    });
+
+    it("routes one installed short-drama suite into the director, storyboard and edit stages", async () => {
+        const director = suiteSkill("director-id", "short-drama-director");
+        const storyboard = suiteSkill("storyboard-id", "short-drama-storyboard");
+        const pipeline = suiteSkill("pipeline-id", "short-drama-production-pipeline");
+        const edit = suiteSkill("edit-id", "short-drama-edit-director");
+        const calls: Array<PrepareSkillRuntimeInput<"shortDrama">> = [];
+        const snapshot = await createSmartFilmSkillSnapshotWithDependencies(director, {
+            listFiles: async () => ({ files: [] }),
+            getFile: async (_id, path) => ({ file: { file: { path, kind: "markdown", mimeType: "text/markdown", size: 1, sha256: path }, content: "", binary: false } as SkillPackageFileContent }),
+            prepare: async (input) => {
+                calls.push(input);
+                return {
+                    delivery: "linked-context",
+                    prompt: input.selectedSkillIds?.join(",") || "",
+                    selectedSkills: input.skills.filter((skill) => input.selectedSkillIds?.includes(skill.skillId)),
+                    provenance: {
+                        skillIds: input.selectedSkillIds || [],
+                        skillVersions: [],
+                        skillFiles: (input.selectedSkillIds || []).map((skillId) => ({ skillId, path: "SKILL.md" })),
+                    },
+                    metadata: {},
+                };
+            },
+        }, [director, storyboard, pipeline, edit]);
+        expect(snapshot.name).toBe("短剧全链路 Skill 套件");
+        expect(snapshot.stages?.script).toBe("director-id,pipeline-id");
+        expect(snapshot.stages?.storyboard).toBe("director-id,storyboard-id,pipeline-id");
+        expect(snapshot.stages?.edit).toBe("pipeline-id,edit-id");
+        expect(calls.length).toBe(6);
     });
 });
 
@@ -100,5 +136,17 @@ function skill(): Skill {
         status: 1, markdownUrl: "", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z", source: 0, tag: "drama", sortWeight: 0,
         isPrivate: true, likeCount: 0, isLike: false, ownerUid: "user", effectiveUser: { name: "用户", avatarUrl: "", uid: "user" }, originalSkillId: null,
         showcaseMedia: [], addedCount: 1, isTest: false, extraInfo: "", isAdded: true, isOwner: true,
+    };
+}
+
+function suiteSkill(skillId: string, skillName: string): Skill {
+    return {
+        ...skill(),
+        skillId,
+        skillName,
+        versionId: `${skillId}-version`,
+        contentHash: `${skillId}-hash`,
+        sourceType: "zip",
+        sourceSubdir: skillName,
     };
 }

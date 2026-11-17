@@ -19,7 +19,7 @@ type SkillRuntimeProfileConfig = {
 export const SKILL_RUNTIME_PROFILES: Record<SkillRuntimeProfile, SkillRuntimeProfileConfig> = {
     canvas: { delivery: "linked-context", maxSkills: 4, maxContextChars: 32_000, maxLinkedFilesPerSkill: 3 },
     creation: { delivery: "linked-context", maxSkills: 4, maxContextChars: 32_000, maxLinkedFilesPerSkill: 3 },
-    shortDrama: { delivery: "linked-context", maxSkills: 1, maxContextChars: 32_000, maxLinkedFilesPerSkill: 4 },
+    shortDrama: { delivery: "linked-context", maxSkills: 4, maxContextChars: 32_000, maxLinkedFilesPerSkill: 4 },
     director: { delivery: "linked-context", maxSkills: 4, maxContextChars: 32_000, maxLinkedFilesPerSkill: 3 },
 };
 

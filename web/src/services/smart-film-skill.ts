@@ -1,6 +1,6 @@
 import { getSkillFile, listSkillFiles, type Skill, type SkillPackageFile } from "@/services/api/skills";
 import type { SmartFilmSkillSnapshot, SmartFilmSkillStage } from "@/services/api/smart-film-batches";
-import { skillRuntime } from "@/services/skill-runtime";
+import { skillRuntime, type LinkedSkillRuntimeResult, type PrepareSkillRuntimeInput } from "@/services/skill-runtime";
 
 const SMART_FILM_SKILL_CONTEXT_CHARS = 32_000;
 const SMART_FILM_STAGE_PROMPT_LIMITS: Partial<Record<SmartFilmSkillStage, number>> = { image: 5_000, video: 4_000 };
@@ -14,6 +14,7 @@ type StageRouteManifest = {
 type SkillSnapshotDependencies = {
     getFile: typeof getSkillFile;
     listFiles: typeof listSkillFiles;
+    prepare?: (input: PrepareSkillRuntimeInput<"shortDrama">) => Promise<LinkedSkillRuntimeResult>;
 };
 
 const SMART_FILM_SKILL_STAGE_TASKS: Record<SmartFilmSkillStage, string> = {
@@ -22,16 +23,29 @@ const SMART_FILM_SKILL_STAGE_TASKS: Record<SmartFilmSkillStage, string> = {
     storyboard: "根据剧本和已确认资产制作分镜。优先读取 cinematic-dramaturgy-rules、camera-specs-15rules、spatial-topview-camera、action-previs-15grid、wenxi-micro-expression 等镜头、构图、空间、动作和表演规则；人物名称必须与资产名称一致。",
     image: "生成电影分镜静帧图片提示词。优先读取 asset-spatial-ledger、camera-specs-15rules、aspect-ratio-adaptation、cinematic-dramaturgy-rules 等资产图、画幅、构图、光线和风格规则。",
     video: "生成 Seedance 全能参考视频提示词。优先读取 seedance-render-engine、aspect-ratio-adaptation、prompt-feeding-checklist、dialogue-speed-check、model-adapters 等时长、全能参考、画幅、对白和模型规则。",
+    edit: "根据已生成的视频、分镜和声音事实生成可执行剪辑提示词。优先读取剪辑导演契约、素材盘点、源入出点、时间线、转场、声音、字幕、调色和导出规则；计划值必须与实测值分开。",
 };
 
 export const SMART_FILM_SKILL_STAGES = Object.keys(SMART_FILM_SKILL_STAGE_TASKS) as SmartFilmSkillStage[];
+const REQUIRED_SMART_FILM_SKILL_STAGES: SmartFilmSkillStage[] = ["script", "assets", "storyboard", "image", "video"];
+type ShortDramaSuiteRole = "director" | "storyboard" | "pipeline" | "edit";
+const SUITE_STAGE_ROLES: Record<SmartFilmSkillStage, ShortDramaSuiteRole[]> = {
+    script: ["director", "pipeline"],
+    assets: ["director", "pipeline"],
+    storyboard: ["storyboard", "director", "pipeline"],
+    image: ["storyboard", "director", "pipeline"],
+    video: ["director", "pipeline"],
+    edit: ["edit", "pipeline"],
+};
 
-export async function createSmartFilmSkillSnapshot(skill: Skill): Promise<SmartFilmSkillSnapshot> {
-    return createSmartFilmSkillSnapshotWithDependencies(skill, { getFile: getSkillFile, listFiles: listSkillFiles });
+export async function createSmartFilmSkillSnapshot(skill: Skill, availableSkills: Skill[] = []): Promise<SmartFilmSkillSnapshot> {
+    return createSmartFilmSkillSnapshotWithDependencies(skill, { getFile: getSkillFile, listFiles: listSkillFiles }, availableSkills);
 }
 
-export async function createSmartFilmSkillSnapshotWithDependencies(skill: Skill, dependencies: SkillSnapshotDependencies): Promise<SmartFilmSkillSnapshot> {
+export async function createSmartFilmSkillSnapshotWithDependencies(skill: Skill, dependencies: SkillSnapshotDependencies, availableSkills: Skill[] = []): Promise<SmartFilmSkillSnapshot> {
     if (!skill.isAdded) throw new Error("所选技能尚未加入技能库，请先在技能页安装或启用");
+    const suite = resolveShortDramaSuite(skill, availableSkills);
+    if (suite.length > 1) return buildSuiteSnapshot(skill, suite, dependencies);
     const fileList = await dependencies.listFiles(skill.skillId);
     const manifestPath = STAGE_ROUTE_MANIFEST_PATHS.find((path) => fileList.files.some((file) => file.path === path));
     if (manifestPath) {
@@ -53,7 +67,7 @@ export async function createSmartFilmSkillSnapshotWithDependencies(skill: Skill,
         return [stage, result.prompt.trim(), result.provenance.skillFiles.filter((file) => file.skillId === skill.skillId).map((file) => file.path)] as const;
     }));
     const stages = Object.fromEntries(prepared.filter(([, context]) => Boolean(context)).map(([stage, context]) => [stage, context])) as Partial<Record<SmartFilmSkillStage, string>>;
-    if (Object.keys(stages).length !== SMART_FILM_SKILL_STAGES.length) {
+    if (REQUIRED_SMART_FILM_SKILL_STAGES.some((stage) => !stages[stage])) {
         throw new Error("技能缺少可用于智能成片的阶段规则，请检查 SKILL.md 和 references");
     }
     const stageFiles = Object.fromEntries(prepared.map(([stage, , files]) => [stage, files])) as Partial<Record<SmartFilmSkillStage, string[]>>;
@@ -63,6 +77,66 @@ export async function createSmartFilmSkillSnapshotWithDependencies(skill: Skill,
         contentHash: skill.contentHash,
         name: skill.skillName,
         version: skill.version,
+        routingMode: "auto",
+        stages,
+        stageFiles,
+    };
+}
+
+function resolveShortDramaSuite(selected: Skill, availableSkills: Skill[]) {
+    const roles = new Map<ShortDramaSuiteRole, Skill>();
+    const selectedRole = shortDramaSuiteRole(selected);
+    if (selectedRole) roles.set(selectedRole, selected);
+    for (const skill of availableSkills) {
+        if (!skill.isAdded) continue;
+        const role = shortDramaSuiteRole(skill);
+        if (role && !roles.has(role)) roles.set(role, skill);
+    }
+    return selectedRole ? Array.from(roles.values()) : [selected];
+}
+
+function shortDramaSuiteRole(skill: Skill): ShortDramaSuiteRole | "" {
+    const identity = `${skill.skillName} ${skill.description} ${skill.sourceSubdir} ${skill.sourceUrl}`.toLowerCase();
+    if (identity.includes("short-drama-edit-director") || identity.includes("短剧剪辑提示词") || identity.includes("剪辑提示词导演")) return "edit";
+    if (identity.includes("short-drama-storyboard") || identity.includes("短剧分镜")) return "storyboard";
+    if (identity.includes("short-drama-production-pipeline") || identity.includes("短剧全链路制作")) return "pipeline";
+    if (identity.includes("short-drama-director") || identity.includes("漫剧老李")) return "director";
+    return "";
+}
+
+async function buildSuiteSnapshot(primary: Skill, suite: Skill[], dependencies: SkillSnapshotDependencies): Promise<SmartFilmSkillSnapshot> {
+    const stages: Partial<Record<SmartFilmSkillStage, string>> = {};
+    const stageFiles: Partial<Record<SmartFilmSkillStage, string[]>> = {};
+    for (const stage of SMART_FILM_SKILL_STAGES) {
+        const roleSet = new Set(SUITE_STAGE_ROLES[stage]);
+        const stageSkills = suite.filter((skill) => {
+            const role = shortDramaSuiteRole(skill);
+            return role !== "" && roleSet.has(role);
+        });
+        if (!stageSkills.length) continue;
+        const prepare = dependencies.prepare || skillRuntime.prepare.bind(skillRuntime);
+        const result = await prepare({
+            profile: "shortDrama",
+            prompt: SMART_FILM_SKILL_STAGE_TASKS[stage],
+            skills: stageSkills,
+            selectedSkillIds: stageSkills.map((skill) => skill.skillId),
+        });
+        const prompt = result.prompt.trim();
+        if (!prompt) continue;
+        stages[stage] = prompt;
+        stageFiles[stage] = result.provenance.skillFiles
+            .filter((file) => stageSkills.some((skill) => skill.skillId === file.skillId))
+            .map((file) => file.path);
+    }
+    if (REQUIRED_SMART_FILM_SKILL_STAGES.some((stage) => !stages[stage])) {
+        throw new Error("短剧 Skill 套件缺少剧本、资产、分镜、图片或视频阶段，请确认四个 Skill 已同时安装并启用");
+    }
+    return {
+        skillId: primary.skillId,
+        versionId: primary.versionId,
+        contentHash: primary.contentHash,
+        name: "短剧全链路 Skill 套件",
+        version: suite.map((skill) => `${skill.skillName} ${skill.version}`).join(" + "),
         routingMode: "auto",
         stages,
         stageFiles,

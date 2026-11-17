@@ -21,6 +21,7 @@ type ChapterAnalysisInput = {
     sourceText: string;
     projectStyle: string;
     config: AiConfig;
+    skillSnapshot?: SmartFilmSkillSnapshot;
 };
 
 type ChapterTaskOptions = {
@@ -187,7 +188,16 @@ async function runProjectTextTask(input: ChapterAnalysisInput, operation: string
         mode: "text",
         prompt: promptTemplateTaskPlaceholder("章节角色、场景与道具提取"),
         config: { ...input.config, model },
-        metadata: { domainProjectId: input.projectId, chapterId: input.chapterId, operation, promptTemplateOperation: PromptTemplateOperation.ChapterAssetsExtract, promptTemplateVariables },
+        metadata: {
+            domainProjectId: input.projectId,
+            chapterId: input.chapterId,
+            operation,
+            promptTemplateOperation: PromptTemplateOperation.ChapterAssetsExtract,
+            promptTemplateVariables,
+            ...(input.skillSnapshot?.stages?.assets
+                ? { skillContext: input.skillSnapshot.stages.assets, ...smartFilmSkillMetadata(input.skillSnapshot) }
+                : {}),
+        },
         onTaskCreated: (task) => {
             taskId = task.id;
             options?.onTaskUpdate?.(task);

@@ -47,6 +47,7 @@ const (
 	SmartFilmSkillStageStoryboard = "storyboard"
 	SmartFilmSkillStageImage      = "image"
 	SmartFilmSkillStageVideo      = "video"
+	SmartFilmSkillStageEdit       = "edit"
 )
 
 type SmartFilmSkillSnapshot struct {

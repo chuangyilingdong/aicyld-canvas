@@ -1,9 +1,10 @@
 import { App, Button, Input, Progress } from "antd";
-import { AlertTriangle, ArrowLeft, ArrowRight, Clapperboard, Download, Edit3, Film, Image as ImageIcon, LoaderCircle, Save, Sparkles, Video, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, Clapperboard, Copy, Download, Edit3, Film, Image as ImageIcon, LoaderCircle, Save, Sparkles, Video, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { CanvasResourceMentionTextarea } from "@/components/canvas/canvas-resource-mention-textarea";
 import { AppModal } from "@/components/ui/product/app-modal/app-modal";
+import { useCopyText } from "@/hooks/use-copy-text";
 import { canvasResourceMentionToken } from "@/lib/canvas/canvas-resource-references";
 import { resourceFileUrl, resourceIdFromStorageKey, resourceThumbnailUrl } from "@/services/api/resources";
 import type { ProjectDetail, ProjectShot, ShotArtifact, ShotRevision } from "@/services/api/projects";
@@ -204,7 +205,7 @@ export function SmartFilmStoryboardBoard({ detail, shots, readyCount, busy, subm
     );
 }
 
-export function SmartFilmVideoBoard({ detail, shots, readyCount, targetSeconds, generating, generationError, generationTask, recoveryError, latestResourceId, onBack, onSaveShotPrompt, onGenerate, onDownload }: {
+export function SmartFilmVideoBoard({ detail, shots, readyCount, targetSeconds, generating, generationError, generationTask, recoveryError, latestResourceId, editPrompt, onBack, onSaveShotPrompt, onGenerate, onDownload }: {
     detail: ProjectDetail;
     shots: ProjectShot[];
     readyCount: number;
@@ -214,11 +215,13 @@ export function SmartFilmVideoBoard({ detail, shots, readyCount, targetSeconds, 
     generationTask?: GenerationTask;
     recoveryError?: string;
     latestResourceId?: string;
+    editPrompt?: string;
     onBack: () => void;
     onSaveShotPrompt: (shot: ProjectShot, videoPrompt: string, status: PromptSaveStatus) => Promise<void>;
     onGenerate: () => void;
     onDownload: () => void;
 }) {
+    const copyText = useCopyText();
     const allReady = shots.length > 0 && readyCount === shots.length;
     const staleCount = shots.filter((shot) => currentArtifact(detail, shot.id, "storyboard")?.status === "stale").length;
     const taskActive = generating || generationTask?.status === "queued" || generationTask?.status === "running";
@@ -294,6 +297,18 @@ export function SmartFilmVideoBoard({ detail, shots, readyCount, targetSeconds, 
                     </div>
                 </div>
             </div>
+            {latestResourceId && editPrompt ? (
+                <section className="mt-4 rounded-xl border border-border/70 bg-surface p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                            <strong className="text-sm">剪辑提示词</strong>
+                            <p className="mt-1 text-xs leading-5 text-foreground/48">基于已生成整片、分镜顺序和声音事实生成；可复制到剪辑 Agent 或剪辑软件工作流。</p>
+                        </div>
+                        <Button icon={<Copy className="size-4" />} onClick={() => copyText(editPrompt, "剪辑提示词已复制")}>复制剪辑提示词</Button>
+                    </div>
+                    <pre className="thin-scrollbar mt-3 max-h-[420px] overflow-auto whitespace-pre-wrap rounded-lg border border-border/60 bg-foreground/[.025] p-4 text-xs leading-6 text-foreground/72">{editPrompt}</pre>
+                </section>
+            ) : null}
         </section>
     );
 }

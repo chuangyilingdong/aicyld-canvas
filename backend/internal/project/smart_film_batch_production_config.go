@@ -225,7 +225,7 @@ func normalizeSmartFilmSkillSnapshot(snapshot *SmartFilmSkillSnapshot) (*SmartFi
 	}
 	allowed := map[string]struct{}{
 		SmartFilmSkillStageScript: {}, SmartFilmSkillStageAssets: {}, SmartFilmSkillStageStoryboard: {},
-		SmartFilmSkillStageImage: {}, SmartFilmSkillStageVideo: {},
+		SmartFilmSkillStageImage: {}, SmartFilmSkillStageVideo: {}, SmartFilmSkillStageEdit: {},
 	}
 	stages := make(map[string]string, len(snapshot.Stages))
 	total := 0

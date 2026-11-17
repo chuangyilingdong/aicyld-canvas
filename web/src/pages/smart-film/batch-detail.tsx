@@ -239,7 +239,7 @@ export default function SmartFilmBatchDetailPage() {
         try {
             const skillToApply = skillDraftId ? installedSkills.find((skill) => skill.skillId === skillDraftId) : undefined;
             if (skillDraftId && !skillToApply) throw new Error("所选技能不可用，请刷新技能库后重试");
-            const snapshot = skillToApply ? await createSmartFilmSkillSnapshot(skillToApply) : undefined;
+            const snapshot = skillToApply ? await createSmartFilmSkillSnapshot(skillToApply, installedSkills) : undefined;
             const result = await updateSmartFilmBatchSkill(batch.id, snapshot, batch.revision);
             updateBatch(result.batch);
             if (snapshot && batch.scripts.length) message.warning("批次技能已更换；已有剧本不会自动重写，请重新生成剧本后再创建项目");

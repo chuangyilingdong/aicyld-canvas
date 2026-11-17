@@ -3,7 +3,7 @@ import { http } from "@/services/api/request";
 export type SmartFilmScriptStatus = "draft" | "project_created" | "assets_extracted" | "storyboard_ready" | "needs_attention" | "failed";
 export type SmartFilmReferenceRole = "product" | "scene" | "character" | "prop" | "other";
 
-export type SmartFilmSkillStage = "script" | "assets" | "storyboard" | "image" | "video";
+export type SmartFilmSkillStage = "script" | "assets" | "storyboard" | "image" | "video" | "edit";
 
 export type SmartFilmSkillSnapshot = {
     skillId: string;

@@ -167,7 +167,7 @@ export default function SmartFilmBatchNewPage() {
             let skillSnapshot: SmartFilmSkillSnapshot | undefined;
             if (selectedSkill) {
                 setStatus("正在读取所选技能的阶段规范…");
-                skillSnapshot = await createSmartFilmSkillSnapshot(selectedSkill);
+                skillSnapshot = await createSmartFilmSkillSnapshot(selectedSkill, installedSkills);
             }
             const textProvider = { ...backendProviderConfig({ ...effectiveConfig, model: resolvedTextModel, textModel: resolvedTextModel }, "text"), logicalModelId: logicalModelIDForConfig({ ...effectiveConfig, model: resolvedTextModel, textModel: resolvedTextModel }) || undefined };
             const imageProvider = { ...backendProviderConfig({ ...effectiveConfig, model: resolvedImageModel, imageModel: resolvedImageModel }, "image"), logicalModelId: logicalModelIDForConfig({ ...effectiveConfig, model: resolvedImageModel, imageModel: resolvedImageModel }) || undefined };
@@ -294,7 +294,7 @@ export default function SmartFilmBatchNewPage() {
                     <div className="smart-film-skill-select-row">
                         <div>
                             <strong>制作技能</strong>
-                            <span>{selectedSkillId ? "整个批次固定使用这个 Skill；创建项目后不可更换。" : installedSkills.length ? "当前未选择 Skill；继续制作前会再次确认使用平台默认规则。" : "整个批次固定使用一个完整 Skill 包；没有安装 Skill 时使用平台默认规则。"}</span>
+                            <span>{selectedSkillId ? "批次会固定这组 Skill；已安装的同套件导演、分镜、全链路和剪辑 Skill 会自动组合。" : installedSkills.length ? "当前未选择 Skill；继续制作前会再次确认使用平台默认规则。" : "没有安装 Skill 时使用平台默认规则。"}</span>
                         </div>
                         <div className="smart-film-skill-select-actions">
                             <Select

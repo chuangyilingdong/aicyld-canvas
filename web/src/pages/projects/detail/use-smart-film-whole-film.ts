@@ -11,6 +11,7 @@ import { listGenerationTasks, type GenerationTask } from "@/services/api/task-ce
 import type { SmartFilmSkillStage } from "@/services/api/smart-film-batches";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { currentArtifact } from "./workflow-shared";
+import { buildSmartFilmEditPrompt } from "./smart-film-edit-prompt";
 import { buildSmartFilmWholeFilmPrompt } from "./smart-film-whole-film-prompt";
 import { smartFilmSkillMetadata } from "@/services/smart-film-skill";
 
@@ -47,6 +48,26 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
         () => (unitArtifactsQuery.data || []).filter((artifact) => artifact.type === "smart_film" && artifact.resourceId).sort((left, right) => right.version - left.version)[0],
         [unitArtifactsQuery.data],
     );
+    const smartFilmEditPrompt = useMemo(() => {
+        if (!latestSmartWholeFilm?.resourceId) return "";
+        const entries = shots.flatMap((shot) => {
+            const artifact = currentArtifact(detail, shot.id, "storyboard");
+            return artifact?.resourceId && artifact.status === "ready" ? [{ shot, artifact }] : [];
+        });
+        if (!entries.length) return "";
+        const targetSeconds = Number(smartFilmBatchQuery.data?.config.targetDurationSeconds || 0);
+        if (!(targetSeconds > 0)) return "";
+        const skillSnapshot = smartFilmBatchQuery.data?.config.skillSnapshot;
+        return buildSmartFilmEditPrompt({
+            detail,
+            shots,
+            entries,
+            targetSeconds,
+            videoResourceId: latestSmartWholeFilm.resourceId,
+            taskId: latestSmartWholeFilm.taskId,
+            skillName: skillSnapshot?.stages?.edit ? skillSnapshot.name : "",
+        });
+    }, [detail, latestSmartWholeFilm, shots, smartFilmBatchQuery.data]);
     const readyStoryboardCount = useMemo(
         () => shots.filter((shot) => {
             const artifact = currentArtifact(detail, shot.id, "storyboard");
@@ -204,5 +225,5 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
         }
     };
 
-    return { smartWholeFilm, smartFilmConfigurationPending, smartFilmGenerating, smartFilmError, smartFilmTask: smartFilmTask || latestSmartFilmTask, smartFilmRecoveryError, latestSmartWholeFilm, readyStoryboardCount, smartFilmBatch: smartFilmBatchQuery.data, generateSmartWholeFilm };
+    return { smartWholeFilm, smartFilmConfigurationPending, smartFilmGenerating, smartFilmError, smartFilmTask: smartFilmTask || latestSmartFilmTask, smartFilmRecoveryError, latestSmartWholeFilm, smartFilmEditPrompt, readyStoryboardCount, smartFilmBatch: smartFilmBatchQuery.data, generateSmartWholeFilm };
 }
