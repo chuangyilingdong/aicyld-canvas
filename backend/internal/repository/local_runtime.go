@@ -405,6 +405,9 @@ func taskInputResourceIDs(inputJSON string) ([]string, error) {
 }
 
 func enforceActiveTaskLimit(tx *gorm.DB, userID string, limit int) error {
+	if limit <= 0 {
+		return nil
+	}
 	var count int64
 	if err := tx.Model(&model.Task{}).Where("user_id = ? AND status IN ?", userID, []model.TaskStatus{model.TaskStatusQueued, model.TaskStatusRunning}).Count(&count).Error; err != nil {
 		return err

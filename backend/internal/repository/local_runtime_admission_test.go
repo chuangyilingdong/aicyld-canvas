@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -182,6 +183,22 @@ func TestCreateTaskWithActiveLimitAdmitsOrdinaryInputs(t *testing.T) {
 		task := &model.Task{ID: item.id, UserID: "user-1", Type: "canvas_image", Status: model.TaskStatusQueued, InputJSON: item.input}
 		if err := repo.CreateTaskWithActiveLimit(task, 8); err != nil {
 			t.Fatalf("%s: %v", item.id, err)
+		}
+	}
+}
+
+func TestCreateTaskWithActiveLimitZeroIsUnlimited(t *testing.T) {
+	repo, _ := newAdmissionRepo(t)
+	for index := 0; index < 20; index++ {
+		task := &model.Task{
+			ID:        fmt.Sprintf("unlimited-%02d", index),
+			UserID:    "user-unlimited",
+			Type:      "canvas_image",
+			Status:    model.TaskStatusQueued,
+			InputJSON: `{"prompt":"queued"}`,
+		}
+		if err := repo.CreateTaskWithActiveLimit(task, 0); err != nil {
+			t.Fatalf("admission %d: %v", index, err)
 		}
 	}
 }

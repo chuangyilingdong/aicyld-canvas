@@ -181,8 +181,10 @@ export function useCanvasGenerationBatches({ projectId, projectLoaded, nodes, no
                     .find((candidate) => candidate.id === itemId);
                 return item ? !nodeById.get(item.nodeId)?.metadata?.taskId : false;
             }).length;
-            let availableSlots = Math.max(0, activeTaskLimit - activeTaskCount - pendingReservations);
-            if (!availableSlots) return;
+            let availableSlots = activeTaskLimit > 0
+                ? Math.max(0, activeTaskLimit - activeTaskCount - pendingReservations)
+                : Number.POSITIVE_INFINITY;
+            if (availableSlots <= 0) return;
 
             const candidates: Array<{ batch: CanvasGenerationBatch; item: CanvasGenerationBatchItem; node: CanvasNodeData }> = [];
             for (const sourceNode of currentNodes) {
