@@ -5,7 +5,7 @@ import { ArrowLeft } from "lucide-react";
 import { Link, Navigate, useNavigate, useParams } from "react-router";
 
 import { getProjectCore, getProjectOverview, getProjectUnitWorkspace, linkCanvasUnit, listProjectUnits } from "@/services/api/projects";
-import { listGenerationTasks } from "@/services/api/task-center";
+import { listGenerationTasks, type GenerationTask } from "@/services/api/task-center";
 import { WorkspacePage } from "@/components/layout/workspace-page";
 import { WorkspaceErrorState, WorkspaceLoadingState } from "@/components/layout/workspace-state";
 import type { ProjectDetail } from "@/services/api/projects";
@@ -76,6 +76,14 @@ export default function ProjectDetailPage() {
     }, [activeUnitId, projectId, projectTasksQuery.data, queryClient]);
     const project = coreQuery.data?.project;
     const workspace = workspaceQuery.data;
+    const mergedTasks = (() => {
+        const merged = new Map<string, GenerationTask>();
+        for (const task of [...(workspace?.tasks || []), ...(projectTasksQuery.data || [])]) {
+            const current = merged.get(task.id);
+            merged.set(task.id, { ...current, ...task, clientContext: task.clientContext || current?.clientContext });
+        }
+        return Array.from(merged.values()).sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+    })();
     const detail: ProjectDetail | undefined = project ? {
         project,
         units: workspace?.unit ? units.map((unit) => unit.id === workspace.unit.id ? workspace.unit : unit) : units,
@@ -90,7 +98,7 @@ export default function ProjectDetailPage() {
         shotArtifacts: workspace?.shotArtifacts || [],
         shotReferences: workspace?.shotReferences || [],
         assetCandidates: workspace?.assetCandidates || [],
-        tasks: Array.from(new Map([...(workspace?.tasks || []), ...(projectTasksQuery.data || [])].map((task) => [task.id, task])).values()).sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
+        tasks: mergedTasks,
     } : undefined;
     const refreshProject = () => { void queryClient.invalidateQueries({ queryKey: ["project", projectId] }); void queryClient.invalidateQueries({ queryKey: ["projects"] }); };
     const createCanvas = async () => {

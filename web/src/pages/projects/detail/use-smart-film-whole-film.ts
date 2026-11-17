@@ -54,10 +54,15 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
     );
     const latestSmartFilmTask = useMemo(() => {
         const merged = new Map<string, GenerationTask>();
-        for (const task of [...(detail.tasks || []), ...(projectTasksQuery.data || [])]) merged.set(task.id, task);
+        for (const task of [...(detail.tasks || []), ...(projectTasksQuery.data || [])]) {
+            const current = merged.get(task.id);
+            merged.set(task.id, { ...current, ...task, clientContext: task.clientContext || current?.clientContext });
+        }
         return Array.from(merged.values())
             .filter((task) => task.projectId === projectId && task.type === "canvas_video"
-                && (task.clientContext?.artifactType === "smart_film" || task.clientContext?.source === "smart-film-whole-video"))
+                && (task.clientContext?.artifactType === "smart_film"
+                    || task.clientContext?.source === "smart-film-whole-video"
+                    || task.outputs?.some((output) => output.targetBinding?.source === "smart-film-whole-video")))
             .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
     }, [detail.tasks, projectId, projectTasksQuery.data]);
     const activeSmartFilmTask = latestSmartFilmTask?.status === "queued" || latestSmartFilmTask?.status === "running" ? latestSmartFilmTask : undefined;
@@ -69,8 +74,12 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
         recoveringTaskIdsRef.current.add(task.id);
         void (async () => {
             try {
-                const result = parseBackendGenerationResult(task);
-                const resourceId = ownedResourceIdFromMediaRef(result.video?.storageKey, result.video?.url) || resourceIdFromStorageKey(result.video?.storageKey);
+                const output = task.outputs?.find((item) => item.mediaType === "video" && (item.resourceId || item.targetBinding?.source === "smart-film-whole-video"));
+                let resourceId = output?.resourceId || "";
+                if (!resourceId) {
+                    const result = parseBackendGenerationResult(task);
+                    resourceId = ownedResourceIdFromMediaRef(result.video?.storageKey, result.video?.url) || resourceIdFromStorageKey(result.video?.storageKey);
+                }
                 if (!resourceId) throw new Error("任务已完成，但没有取得可登记的整片视频资源");
                 await registerProjectUnitArtifact(projectId, unitId, {
                     taskId: task.id,

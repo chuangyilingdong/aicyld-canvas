@@ -18,6 +18,9 @@ export type GenerationTaskOutput = {
     providerArtifactRef?: string;
     materializedAssetId?: string;
     materializationErrorCode?: string;
+    resourceId?: string;
+    effectKey?: string;
+    targetBinding?: { source?: string; [key: string]: unknown };
 };
 
 export type GenerationTaskDeliveryProgress = {
