@@ -1,6 +1,6 @@
 import { App, Button, Input, Progress } from "antd";
 import { AlertTriangle, ArrowLeft, ArrowRight, CheckCircle2, Clapperboard, Download, Edit3, Film, Image as ImageIcon, LoaderCircle, Save, Sparkles, Video, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { CanvasResourceMentionTextarea } from "@/components/canvas/canvas-resource-mention-textarea";
 import { canvasResourceMentionToken } from "@/lib/canvas/canvas-resource-references";
@@ -31,15 +31,8 @@ export function SmartFilmStoryboardBoard({ detail, shots, readyCount, busy, subm
     const [editingPromptShotId, setEditingPromptShotId] = useState<string>();
     const [promptDraft, setPromptDraft] = useState("");
     const [savingPromptShotId, setSavingPromptShotId] = useState<string>();
-    const [confirmingImageShotId, setConfirmingImageShotId] = useState<string>();
-    const [confirmedImageArtifacts, setConfirmedImageArtifacts] = useState<Record<string, string>>({});
+    const autoApprovingImagesRef = useRef<Set<string>>(new Set());
     const allReady = shots.length > 0 && readyCount === shots.length;
-    const imageConfirmed = (shot: ProjectShot) => {
-        const artifact = currentArtifact(detail, shot.id, "storyboard");
-        return Boolean(artifact?.status === "ready" && (shot.reviewStatus === "approved" || confirmedImageArtifacts[shot.id] === artifact.id));
-    };
-    const confirmedImageCount = shots.filter(imageConfirmed).length;
-    const allImagesConfirmed = shots.length > 0 && confirmedImageCount === shots.length;
     const assetById = new Map(detail.assets.map((asset) => [asset.id, asset]));
     const issues: Array<{ key: string; label: string; tone: "warning" | "danger" }> = [];
     for (const task of detail.tasks || []) {
@@ -50,7 +43,6 @@ export function SmartFilmStoryboardBoard({ detail, shots, readyCount, busy, subm
     for (const shot of shots) {
         const artifact = currentArtifact(detail, shot.id, "storyboard");
         if (artifact?.status === "stale") issues.push({ key: `stale:${shot.id}`, label: `${shot.title || "镜头"}的分镜图已过期，需要重新生成`, tone: "danger" });
-        if (artifact?.status === "ready" && !imageConfirmed(shot)) issues.push({ key: `review:${shot.id}`, label: `${shot.title || "镜头"}的分镜图尚未确认`, tone: "warning" });
         const revision = currentRevision(detail, shot);
         if (!revision) continue;
         const context = buildShotAssetReferenceContext(detail, shot.id);
@@ -78,19 +70,19 @@ export function SmartFilmStoryboardBoard({ detail, shots, readyCount, busy, subm
         }
     };
 
-    const confirmImage = async (shot: ProjectShot) => {
-        const artifact = currentArtifact(detail, shot.id, "storyboard");
-        setConfirmingImageShotId(shot.id);
-        try {
-            await onConfirmImage(shot);
-            if (artifact?.id) setConfirmedImageArtifacts((current) => ({ ...current, [shot.id]: artifact.id }));
-            message.success("本镜分镜图已确认");
-        } catch (error) {
-            message.error(error instanceof Error ? error.message : "本镜分镜图确认失败");
-        } finally {
-            setConfirmingImageShotId(undefined);
+    useEffect(() => {
+        for (const shot of shots) {
+            const artifact = currentArtifact(detail, shot.id, "storyboard");
+            if (!artifact?.resourceId || artifact.status !== "ready") continue;
+            if (shot.reviewStatus === "approved" && shot.reviewRevisionId === shot.currentRevisionId) continue;
+            const key = `${shot.id}:${shot.currentRevisionId || ""}:${artifact.id}`;
+            if (autoApprovingImagesRef.current.has(key)) continue;
+            autoApprovingImagesRef.current.add(key);
+            void onConfirmImage(shot).catch(() => {
+                autoApprovingImagesRef.current.delete(key);
+            });
         }
-    };
+    }, [detail, onConfirmImage, shots]);
 
     if (!shots.length) {
         return (
@@ -114,13 +106,13 @@ export function SmartFilmStoryboardBoard({ detail, shots, readyCount, busy, subm
                     <div className="flex flex-wrap items-center gap-2">
                         <span className="rounded-full bg-foreground/[.06] px-2 py-0.5 text-[var(--fs-tiny)] font-medium text-foreground/55">步骤 1 / 2</span>
                         <strong className="text-sm">生成分镜图</strong>
-                        <span className="text-xs text-foreground/42">分镜图就绪 {readyCount}/{shots.length} · 图片确认 {confirmedImageCount}/{shots.length}</span>
+                        <span className="text-xs text-foreground/42">分镜图就绪 {readyCount}/{shots.length}</span>
                     </div>
-                    <p className="mt-1 text-xs leading-5 text-foreground/48">分镜提示词可直接编辑，修改后点击生成会自动保存并提交。全部分镜图生成并确认后，进入整片视频。</p>
+                    <p className="mt-1 text-xs leading-5 text-foreground/48">分镜提示词可直接编辑，修改后点击生成会自动保存并提交。全部分镜图生成后即可进入整片视频。</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                     <Button icon={<Sparkles className="size-4" />} loading={busy} disabled={allReady} onClick={onGenerateAll}>{allReady ? "全部分镜图已生成" : "生成缺失分镜图"}</Button>
-                    <Button type="primary" icon={<ArrowRight className="size-4" />} disabled={!allReady || !allImagesConfirmed || busy} onClick={onNext}>{allReady && !allImagesConfirmed ? `确认 ${shots.length - confirmedImageCount} 张分镜图后继续` : "下一步：整片视频"}</Button>
+                    <Button type="primary" icon={<ArrowRight className="size-4" />} disabled={!allReady || busy} onClick={onNext}>下一步：整片视频</Button>
                 </div>
             </header>
 
@@ -140,8 +132,6 @@ export function SmartFilmStoryboardBoard({ detail, shots, readyCount, busy, subm
                     const submitting = submittingShotIds.has(shot.id);
                     const editingPrompt = editingPromptShotId === shot.id;
                     const savingPrompt = savingPromptShotId === shot.id;
-                    const confirmingImage = confirmingImageShotId === shot.id;
-                    const imageIsConfirmed = imageConfirmed(shot) && ready;
                     const imagePrompt = revision?.imagePrompt || "";
                     const task = latestStoryboardTask(detail.tasks || [], shot.id);
                     const taskRunning = task?.status === "queued" || task?.status === "running" || (task?.status === "succeeded" && !ready);
@@ -161,7 +151,6 @@ export function SmartFilmStoryboardBoard({ detail, shots, readyCount, busy, subm
                                 <div className="flex flex-wrap items-center gap-2">
                                     <strong className="text-sm">镜头 {String(index + 1).padStart(2, "0")} · {shot.title || "未命名"}</strong>
                                     <span className="text-[var(--fs-tiny)] text-foreground/42">计划 {formatDuration(shot.durationMs)}</span>
-                                    {imageIsConfirmed ? <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[var(--fs-micro)] text-emerald-500">分镜图已确认</span> : ready ? <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[var(--fs-micro)] text-amber-500">分镜图待确认</span> : null}
                                 </div>
                                 <p className="mt-1 text-xs leading-5 text-foreground/55">{promptWithoutAssetMentions(revision?.plotDescription || shot.description || "尚未填写镜头画面")}</p>
                                 <div className="mt-2 rounded-lg border border-border/60 bg-foreground/[.02] px-2.5 py-2">
@@ -208,7 +197,6 @@ export function SmartFilmStoryboardBoard({ detail, shots, readyCount, busy, subm
                             <div className="flex flex-col items-stretch justify-between gap-2 lg:items-end">
                                 <ArtifactStatus artifact={artifact} taskStatus={submitting ? "queued" : task?.status} />
                                 <Button type="primary" icon={<Sparkles className="size-3.5" />} loading={submitting || taskRunning} disabled={busy || taskRunning} onClick={generateImage}>{taskRunning ? task?.status === "succeeded" ? "正在取回图片…" : "生成中…" : ready ? "重新生成分镜图" : "生成分镜图"}</Button>
-                                {ready ? <Button type={imageIsConfirmed ? "default" : "primary"} icon={<CheckCircle2 className="size-3.5" />} loading={confirmingImage} disabled={busy || imageIsConfirmed} onClick={() => void confirmImage(shot)}>{imageIsConfirmed ? "分镜图已确认" : "确认本镜分镜图"}</Button> : null}
                                 {artifact?.resourceId ? <Button type="text" size="small" icon={<ImageIcon className="size-3.5" />} onClick={() => onPreviewImage(artifact)}>查看图片</Button> : null}
                             </div>
                         </article>

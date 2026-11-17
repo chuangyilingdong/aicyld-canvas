@@ -991,7 +991,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                 onPreviewImage={setImagePreviewArtifact}
                 onNext={() => navigate(`/projects/${projectId}/workflow/${unitId}/video`)}
             />
-            <AppModal flush open={Boolean(imagePreviewArtifact?.resourceId)} title="分镜图预览" footer={null} centered width="min(960px, calc(100vw - 32px))" onCancel={() => setImagePreviewArtifact(null)}>
+            <AppModal flush open={Boolean(imagePreviewArtifact?.resourceId)} title="分镜图预览" footer={null} centered maskClosable={false} width="min(960px, calc(100vw - 32px))" onCancel={() => setImagePreviewArtifact(null)}>
                 {imagePreviewArtifact?.resourceId ? <img className="workflow-image-preview-modal" src={resourceFileUrl(imagePreviewArtifact.resourceId)} alt="分镜图大图" /> : null}
             </AppModal>
         </div>;
@@ -1247,6 +1247,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                 footer={null}
                 centered
                 width="min(960px, calc(100vw - 32px))"
+                maskClosable={false}
                 onCancel={() => setImagePreviewArtifact(null)}
             >
                 {imagePreviewArtifact?.resourceId ? <img className={`workflow-image-preview-modal ${imagePreviewArtifact.type === "action_board" ? "grayscale" : ""}`} src={resourceFileUrl(imagePreviewArtifact.resourceId)} alt={imagePreviewArtifact.type === "action_board" ? "动作预演大图" : "分镜图大图"} /> : null}
