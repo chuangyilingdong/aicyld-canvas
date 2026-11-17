@@ -886,6 +886,53 @@
     "replay": "safe"
   },
   {
+    "id": "canvas.nodes.patch",
+    "summary": "按 revision 批量替换已存在节点的完整内容",
+    "readOnly": false,
+    "scope": "canvas",
+    "params": {
+      "properties": {
+        "canvasId": {
+          "type": "string"
+        },
+        "expectedRevision": {
+          "type": "integer"
+        },
+        "nodes": {
+          "items": {
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          },
+          "maxItems": 256,
+          "minItems": 1,
+          "type": "array"
+        },
+        "operationId": {
+          "description": "调用方生成的稳定幂等键；重试同一操作必须复用同一个值，服务端据此回读原结果",
+          "type": "string"
+        }
+      },
+      "required": [
+        "canvasId",
+        "expectedRevision",
+        "nodes",
+        "operationId"
+      ],
+      "type": "object"
+    },
+    "assistantModes": [
+      "full-access"
+    ],
+    "replay": "safe"
+  },
+  {
     "id": "canvas.project.export",
     "summary": "免费导出可编辑工程 ZIP",
     "readOnly": false,

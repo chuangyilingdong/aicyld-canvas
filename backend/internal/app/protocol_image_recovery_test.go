@@ -2,12 +2,15 @@ package app
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"infinite-canvas/backend/internal/generation"
 	"infinite-canvas/backend/internal/model"
@@ -134,6 +137,93 @@ func TestFailedDeclarativeImageRecoveryPendingKeepsSameProviderTask(t *testing.T
 	if requests.Load() != 1 {
 		t.Fatalf("pending recovery made unrelated requests: %d", requests.Load())
 	}
+}
+
+func TestFailedMidjourneyImageHydratesWrappedCreateReceipt(t *testing.T) {
+	t.Setenv("CANVAS_ALLOW_PRIVATE_UPSTREAMS", "true")
+	var polls, posts atomic.Int32
+	pngBytes, _ := base64.StdEncoding.DecodeString(strings.SplitN(tinyPNGDataURL, ",", 2)[1])
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost:
+			posts.Add(1)
+			http.Error(w, "recovery must not submit another paid job", http.StatusInternalServerError)
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/midjourney/tasks/task_gateway_recover":
+			polls.Add(1)
+			imageURL := serverURLFromRequest(r) + "/images/result.png"
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code": 200,
+				"data": []any{map[string]any{
+					"task_id": "task_gateway_recover",
+					"status":  "SUCCESS",
+					"image_urls": []string{
+						imageURL, imageURL, imageURL, imageURL,
+					},
+				}},
+			})
+		case r.Method == http.MethodGet && r.URL.Path == "/images/result.png":
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write(pngBytes)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	svc, db, _, _ := creationTestService(t)
+	inputJSON, _ := json.Marshal(canvasGenerationInput{
+		Mode: "image",
+		Config: providerConfig{
+			BaseURL:       server.URL,
+			APIKey:        "test-key",
+			InterfaceType: "midjourney",
+			Model:         "midjourney-imagine",
+		},
+	})
+	task := model.Task{
+		ID: "midjourney-wrapped-recovery", UserID: "user", Type: "canvas_image",
+		Status: model.TaskStatusFailed, Stage: "submission_unknown",
+		Error: "图片结果尚未确认", InputJSON: string(inputJSON),
+	}
+	unrecoverable := "unrecoverable"
+	next := time.Now().Add(24 * time.Hour)
+	task.RecoveryOutcome = &unrecoverable
+	task.NextPollAt = &next
+	if err := db.Create(&task).Error; err != nil {
+		t.Fatal(err)
+	}
+	receipt := model.ApiCallLog{
+		ID: "midjourney-wrapped-receipt", UserID: task.UserID, TaskID: task.ID,
+		Capability: "image", RequestKind: "create", Method: http.MethodPost,
+		Path: "/v1/midjourney/generations/imagine", APIFormat: "midjourney",
+		Status: model.ApiCallStatusSucceeded, StatusCode: http.StatusOK,
+		ResponseBody: `{"code":200,"data":[{"status":"submitted","task_id":"task_gateway_recover"}]}`,
+	}
+	if err := db.Create(&receipt).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.recoverFailedImage(context.Background(), task); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := svc.Task(task.UserID, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != model.TaskStatusSucceeded || stored.ImageJobID != "task_gateway_recover" || stored.ResultJSON == "" {
+		t.Fatalf("task did not converge: %+v", stored)
+	}
+	if polls.Load() != 1 || posts.Load() != 0 {
+		t.Fatalf("recovery requests: polls=%d posts=%d", polls.Load(), posts.Load())
+	}
+}
+
+func serverURLFromRequest(r *http.Request) string {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	return scheme + "://" + r.Host
 }
 
 func newAPIImageRecoveryContext(t *testing.T) context.Context {

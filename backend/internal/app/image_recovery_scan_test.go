@@ -69,6 +69,33 @@ func TestImageRecoveryScanCoversLegacyAndKeepsCursorPastContendedTasks(t *testin
 	}
 }
 
+func TestImageRecoveryScanRetriesWrappedReceiptDespiteOldBackoff(t *testing.T) {
+	s, db, _, _ := creationTestService(t)
+	next := time.Now().Add(24 * time.Hour)
+	unrecoverable := "unrecoverable"
+	task := model.Task{
+		ID: "wrapped-receipt-backoff", UserID: "user", Type: "canvas_image",
+		Status: model.TaskStatusFailed, Stage: "submission_unknown",
+		RecoveryOutcome: &unrecoverable, NextPollAt: &next,
+		InputJSON: `{"mode":"image","config":{"credentialRef":"aicyld-platform","interfaceType":"midjourney","model":"midjourney-imagine"}}`,
+	}
+	if err := db.Create(&task).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.ApiCallLog{
+		ID: "wrapped-receipt", UserID: task.UserID, TaskID: task.ID,
+		Capability: "image", RequestKind: "create", Method: "POST",
+		Status: model.ApiCallStatusSucceeded, StatusCode: 200,
+		ResponseBody: `{"code":200,"data":[{"status":"submitted","task_id":"task_wrapped"}]}`,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	found, err := s.repo.FailedImagesForRecovery("", 10)
+	if err != nil || len(found) != 1 || found[0].ID != task.ID {
+		t.Fatalf("wrapped receipt was hidden by old backoff: %+v %v", found, err)
+	}
+}
+
 func TestRunningImageLeaseSurvivesDatabaseReopenWithoutCancellation(t *testing.T) {
 	s, db, task, _, _ := imageSubmissionFixture(t, false)
 	past := time.Now().Add(-time.Minute)

@@ -71,7 +71,7 @@ mock.module("@/services/api/request", () => ({
             server.document = { ...structuredClone(body.project), revision: server.revision } as Doc;
             return { project: { id: String(body.project.id), revision: server.revision, updatedAt: "2026-01-01T00:00:00.000Z" } };
         },
-        post: async (_path: string, body: { opId: string; params: { canvasId: string; expectedRevision: number; document: Record<string, unknown> } }) => {
+        post: async (path: string, body: { opId: string; params: { canvasId: string; expectedRevision: number; document?: Record<string, unknown>; nodes?: Array<{ id: string }> } }) => {
             server.commitStarted += 1;
             server.beforeCommit.shift()?.();
             if (server.commitHold) await server.commitHold;
@@ -96,7 +96,14 @@ mock.module("@/services/api/request", () => ({
                 throw new ApiError("画布已被其他入口修改", { status: 409, reason: "stale_revision" });
             }
             server.revision += 1;
-            server.document = { ...structuredClone(body.params.document), id: "c1", revision: server.revision } as Doc;
+            const current = server.document as Doc | null;
+            const document = path.endsWith("/canvas.nodes.patch")
+                ? {
+                    ...(current ?? { title: "画布", nodes: [], connections: [], chatSessions: [] }),
+                    nodes: (current?.nodes ?? []).map((node) => body.params.nodes?.find((changed) => changed.id === node.id) ?? node),
+                }
+                : body.params.document as Record<string, unknown>;
+            server.document = { ...structuredClone(document), id: "c1", revision: server.revision } as Doc;
             server.receipts.set(body.opId, server.revision);
             server.attempts.push({ opId: body.opId, expectedRevision, accepted: true });
             return reply(server.revision, false);

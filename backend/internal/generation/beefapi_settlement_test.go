@@ -46,6 +46,10 @@ func TestExtractBeefAPIImageJobID(t *testing.T) {
 		t.Fatalf("got %q, want job-body-3", got)
 	}
 
+	if got := ExtractBeefAPIImageJobID(nil, []byte(`{"code":200,"data":[{"status":"submitted","task_id":"job-list-4"}]}`)); got != "job-list-4" {
+		t.Fatalf("got %q, want job-list-4", got)
+	}
+
 	if got := ExtractBeefAPIImageJobID(nil, []byte(`{"error":{"job_id":"job-err-4","message":"failed"}}`)); got != "job-err-4" {
 		t.Fatalf("got %q, want job-err-4", got)
 	}

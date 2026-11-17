@@ -99,7 +99,7 @@ mock.module("@/services/api/request", () => ({
             if (server.missingCreateReceipt) return {};
             return { project: { id: "c1", revision: 1 } };
         },
-        post: async (_path: string, body: { opId: string; params: { expectedRevision: number; document: { title: string; nodes?: Array<{ id: string }> } } }) => {
+        post: async (path: string, body: { opId: string; params: { expectedRevision: number; document?: { title: string; nodes?: Array<{ id: string }> }; nodes?: Array<{ id: string }> } }) => {
             if (server.holdDispatch) {
                 server.dispatchWaiting = true;
                 await server.holdDispatch;
@@ -133,15 +133,21 @@ mock.module("@/services/api/request", () => ({
                 throw new ApiError("画布已被其他入口修改", { status: 409, reason: "stale_revision" });
             }
             server.revision += 1;
-            const document = body.params.document as { title: string; nodes?: Array<{ id: string }> };
+            const current = server.document as { title?: string; nodes?: Array<{ id: string }>; connections?: unknown[] } | null;
+            const document = path.endsWith("/canvas.nodes.patch")
+                ? {
+                    ...(current ?? {}),
+                    nodes: (current?.nodes?.length ? current.nodes : body.params.nodes ?? []).map((node) => body.params.nodes?.find((changed) => changed.id === node.id) ?? node),
+                }
+                : body.params.document as { title: string; nodes?: Array<{ id: string }> };
             server.commits.push({
                 opId: body.opId,
                 expectedRevision: body.params.expectedRevision,
-                title: document.title,
+                title: String(document.title ?? current?.title ?? ""),
                 nodeIds: (document.nodes ?? []).map((node) => node.id),
             });
-            server.receipts.set(body.opId, { revision: server.revision, title: document.title });
-            server.document = { ...body.params.document, id: "c1", revision: server.revision };
+            server.receipts.set(body.opId, { revision: server.revision, title: String(document.title ?? current?.title ?? "") });
+            server.document = { ...document, id: "c1", revision: server.revision };
             if (server.abortAfterCommit) {
                 server.abortAfterCommit = false;
                 throw new DOMException("The operation was aborted", "AbortError");

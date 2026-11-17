@@ -130,6 +130,7 @@ func (s *Service) RecoverFailedImage(ctx context.Context, candidate model.Task) 
 	if err != nil {
 		return err
 	}
+	s.hydrateFailedImageJobID(task)
 	recheck := s.ManagedImageNeedsRecheck(*task)
 	if task.LeaseOwner != owner || task.Status != model.TaskStatusFailed {
 		return nil
@@ -203,6 +204,22 @@ func (s *Service) RecoverFailedImage(ctx context.Context, candidate model.Task) 
 	return recoveryErr
 }
 
+func (s *Service) hydrateFailedImageJobID(task *model.Task) {
+	if task == nil || task.Type != "canvas_image" || strings.TrimSpace(task.ImageJobID) != "" {
+		return
+	}
+	receipt, err := s.repo.ImageCreateReceipt(task.UserID, task.ID)
+	if err != nil || receipt == nil {
+		return
+	}
+	jobID := generation.ExtractBeefAPIImageJobID(nil, []byte(receipt.ResponseBody))
+	if jobID == "" {
+		return
+	}
+	task.ImageJobID = jobID
+	_ = s.repo.UpdateTaskImageJobID(task.ID, jobID)
+}
+
 func (s *Service) ResolveImageRecoveryConfig(task model.Task) (generation.Config, bool) {
 	var config generation.Config
 	if input, ok := s.ResolveImageRecoveryInput(task); ok {
@@ -266,6 +283,7 @@ func (s *Service) SyncFailedImageBeefSettlement(ctx context.Context, task *model
 	if task == nil {
 		return nil
 	}
+	s.hydrateFailedImageJobID(task)
 	if s.isDeclarativeImageRecoveryTask(ctx, *task) {
 		return nil
 	}
@@ -286,14 +304,6 @@ func (s *Service) SyncFailedImageBeefSettlement(ctx context.Context, task *model
 					task.BeefBillingState, task.BeefReconcileDeadline = latest.BeefBillingState, latest.BeefReconcileDeadline
 				}
 				return err
-			}
-		}
-	}
-	if strings.TrimSpace(task.ImageJobID) == "" {
-		if receipt, err := s.repo.ImageCreateReceipt(task.UserID, task.ID); err == nil && receipt != nil {
-			if jobID := generation.ExtractBeefAPIImageJobID(nil, []byte(receipt.ResponseBody)); jobID != "" {
-				task.ImageJobID = jobID
-				_ = s.repo.UpdateTaskImageJobID(task.ID, jobID)
 			}
 		}
 	}

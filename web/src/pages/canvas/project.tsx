@@ -103,6 +103,8 @@ import { pasteCanvasAtPosition } from "./canvas-project-clipboard";
 import { useCanvasContextMenu } from "./use-canvas-context-menu";
 import { useCanvasProjectDialogs } from "./use-canvas-project-dialogs";
 import { useCanvasResourceHandoff } from "./use-canvas-resource-handoff";
+import { useCanvasPerformanceTelemetry } from "./use-canvas-performance-telemetry";
+import { useCanvasChromeReady } from "@/hooks/use-canvas-chrome-ready";
 import { CanvasNodeType, type CanvasAssistantSession, type CanvasConnection, type CanvasNodeData, type CanvasWorkspaceMode, type Position } from "@/types/canvas";
 
 const CanvasAssistantSidebar = lazy(() => import("./canvas-assistant-sidebar").then((module) => ({ default: module.CanvasAssistantSidebar })));
@@ -983,6 +985,8 @@ function InfiniteCanvasPage() {
     } = renderModel;
     lodActiveRef.current = lodActive;
     lodEnterScaleRef.current = lodEnterScale;
+    useCanvasPerformanceTelemetry({ canvasId: projectId, nodeCount: nodes.length, connectionCount: connections.length, domNodeCount: visibleNodes.length, lodNodeCount: lodNodes.length, lodActive, interacting: Boolean(virtualizationViewport) });
+    const canvasChromeReady = useCanvasChromeReady();
     const renderedConnections = showConnections ? displayConnections : [];
     const dialogNodeCandidate = dialogNodeId ? nodeById.get(dialogNodeId) || null : null;
     const dialogNode = canOpenCanvasNodePromptPanel(dialogNodeCandidate) ? dialogNodeCandidate : null;
@@ -1501,7 +1505,7 @@ function InfiniteCanvasPage() {
                                             onNodeDoubleClick={handleLodNodeDoubleClick}
                                             onHoverNodeChange={setLodHoverNodeId}
                                         />
-                                        <Suspense fallback={null}>
+                                        {canvasChromeReady ? <Suspense fallback={null}>
                                             <CanvasLeaferGraphicsLayer
                                                 containerRef={containerRef}
                                                 viewport={viewport}
@@ -1517,7 +1521,7 @@ function InfiniteCanvasPage() {
                                                 selectedNodeBounds={selectedNodeBounds}
                                                 alignmentGuides={alignmentGuides}
                                             />
-                                        </Suspense>
+                                        </Suspense> : null}
                                         </>
                                     }
                                     onViewportChange={handleViewportChange}
@@ -1963,7 +1967,7 @@ function InfiniteCanvasPage() {
                         ) : null}
                         <input ref={imageInputRef} type="file" accept="image/*,video/*,.mp4,.mov,.m4v,audio/mpeg,audio/wav,audio/x-wav,.mp3,.wav,.txt,.md,.markdown" multiple className="hidden" onChange={handleImageInputChange} />
 
-                        <Suspense fallback={null}>
+                        {canvasChromeReady ? <Suspense fallback={null}>
                             <CanvasProjectEditorDialogs
                             projectId={projectId} readOnly={readOnly} theme={theme} config={effectiveConfig}
                             document={document} dialogs={dialogs} renderModel={renderModel}
@@ -2007,7 +2011,7 @@ function InfiniteCanvasPage() {
                                 onInsertFolder: projectAssetScope === "canvas" ? handleProjectFolderInsert : undefined,
                             }}
                             />
-                        </Suspense>
+                        </Suspense> : null}
                     </section>
                     {versions.preview ? (
                         <Suspense fallback={<CanvasRefreshShell />}>

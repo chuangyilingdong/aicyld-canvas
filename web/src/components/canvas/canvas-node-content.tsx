@@ -11,6 +11,7 @@ import { canRecoverManagedToolNode, isVideoSubtitleEraseNode } from "@/lib/canva
 import { canvasNodeFailureView } from "@/lib/canvas/canvas-node-failure-view";
 import { canvasNodeOperation } from "@/lib/operation-progress";
 import { useOperationProgress } from "@/stores/use-operation-progress";
+import { useCanvasMediaNearViewport, useCanvasPixelRatio } from "@/hooks/use-canvas-media-runtime";
 import { canvasRichTextHTML } from "@/lib/canvas/canvas-rich-text";
 import { fitImageNodeToDecodedSize, fitNodeSize } from "@/lib/canvas/canvas-node-size";
 import { loadCanvasDrawingPreview } from "@/lib/canvas/canvas-drawing-storage";
@@ -519,7 +520,7 @@ function AudioNodeContent({ node, theme }: CanvasNodeContentProps) {
 
 export function InactiveVideoPreview({ node, theme, onPlay, hoverEnabled = true, showPlayButton = true }: Pick<CanvasNodeContentProps, "node" | "theme"> & { onPlay: () => void; hoverEnabled?: boolean; showPlayButton?: boolean }) {
     const previewRef = useRef<HTMLDivElement>(null);
-    const nearViewport = useNearViewport(previewRef);
+    const nearViewport = useCanvasMediaNearViewport(previewRef);
     const sourceKey = canvasDerivedPreviewSourceKey(node);
     const [derivedPreview, setDerivedPreview] = useState<{ sourceKey: string; content: string }>();
     const persistedPreviewUrl = canvasNodeVideoPreviewUrl(node);
@@ -605,15 +606,8 @@ function EmptyAudioContent({ theme }: { theme: CanvasTheme }) {
 
 function ImageContent({ node, theme, scale = 1, isBatchRoot, batchCount, batchPreviewNodes, batchExpanded, batchOpening, batchRecovering, onToggleBatch }: Pick<CanvasNodeContentProps, "node" | "theme" | "scale" | "isBatchRoot" | "batchCount" | "batchPreviewNodes" | "batchExpanded" | "batchOpening" | "batchRecovering" | "onToggleBatch">) {
     const imageContainerRef = useRef<HTMLDivElement>(null);
-    const nearViewport = useNearViewport(imageContainerRef);
-    const [pixelRatio, setPixelRatio] = useState(() => typeof window === "undefined" ? 1 : window.devicePixelRatio || 1);
-    useEffect(() => {
-        const resolution = window.matchMedia(`(resolution: ${pixelRatio}dppx)`);
-        const update = () => setPixelRatio(window.devicePixelRatio || 1);
-        resolution.addEventListener("change", update);
-        window.addEventListener("resize", update);
-        return () => { resolution.removeEventListener("change", update); window.removeEventListener("resize", update); };
-    }, [pixelRatio]);
+    const nearViewport = useCanvasMediaNearViewport(imageContainerRef);
+    const pixelRatio = useCanvasPixelRatio();
     const previewSize = resourceIdFromStorageKey(node.metadata?.storageKey)
         ? canvasImagePreviewSize(node.width, node.height, scale, pixelRatio, node.metadata?.naturalWidth || 0, node.metadata?.naturalHeight || 0, node.metadata?.mimeType || "") : undefined;
     const { url, loading, error, retry, fail } = useNodeResourceUrl(node, nearViewport, previewSize);
@@ -768,45 +762,6 @@ function useNodeResourceUrl(node: CanvasNodeData, eager: boolean, previewSize?: 
     return { url, loading, error, retry, fail };
 }
 
-function useNearViewport(ref: RefObject<Element | null>) {
-    const [nearViewport, setNearViewport] = useState(false);
-    useEffect(() => {
-        const element = ref.current;
-        if (!element || typeof IntersectionObserver === "undefined") {
-            setNearViewport(true);
-            return;
-        }
-        let zoomWaitTimer: ReturnType<typeof setTimeout> | null = null;
-        const observer = new IntersectionObserver((entries) => {
-            if (!entries.some((entry) => entry.isIntersecting)) return;
-            if (element.closest('[data-canvas-viewport-zooming="true"]')) {
-                if (!zoomWaitTimer) {
-                    const retryWhenZoomIdle = () => {
-                        zoomWaitTimer = null;
-                        if (!element.isConnected) return;
-                        if (element.closest('[data-canvas-viewport-zooming="true"]')) {
-                            zoomWaitTimer = setTimeout(retryWhenZoomIdle, 80);
-                            return;
-                        }
-                        observer.unobserve(element);
-                        observer.observe(element);
-                    };
-                    zoomWaitTimer = setTimeout(retryWhenZoomIdle, 80);
-                }
-                return;
-            }
-            setNearViewport(true);
-            observer.disconnect();
-        }, { rootMargin: "600px" });
-        observer.observe(element);
-        return () => {
-            if (zoomWaitTimer) clearTimeout(zoomWaitTimer);
-            observer.disconnect();
-        };
-    }, [ref]);
-    return nearViewport;
-}
-
 export function CanvasNodeImageInfo({ node }: { node: CanvasNodeData }) {
     const width = Math.round(node.metadata?.naturalWidth || node.width);
     const height = Math.round(node.metadata?.naturalHeight || node.height);
@@ -816,7 +771,7 @@ export function CanvasNodeImageInfo({ node }: { node: CanvasNodeData }) {
 
 function BatchPreviewImage({ node }: { node: CanvasNodeData }) {
     const ref = useRef<HTMLDivElement>(null);
-    const nearViewport = useNearViewport(ref);
+    const nearViewport = useCanvasMediaNearViewport(ref);
     const { url } = useNodeResourceUrl(node, nearViewport);
     return <div ref={ref} className="h-full w-full overflow-hidden rounded-[inherit]">{url ? <img src={url} alt={`子图预览：${node.title}`} className="h-full w-full object-contain" draggable={false} /> : null}</div>;
 }

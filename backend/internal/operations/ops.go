@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -56,6 +57,9 @@ func RegisterDefaultOps(r *Registry) {
 	r.Register(Op{ReplaySafe: true, AssistantCanvas: true, ID: "canvas.node.update", Summary: "局部修改节点（省略的字段保持原样）", Scope: ScopeCanvas,
 		Params:  json.RawMessage(`{"type":"object","properties":{"canvasId":{"type":"string"},"nodeId":{"type":"string"},"expectedRevision":{"type":"integer"},"patch":{"type":"object","properties":{"title":{"type":"string"},"prompt":{"type":"string","description":"外部 CLI/MCP 提示词草稿别名"},"content":{"type":"string","description":"文本节点的正文，或下次生成提示词草稿"}}}},"required":["canvasId","nodeId","patch","expectedRevision"]}`),
 		Handler: opCanvasNodeUpdate})
+	r.Register(Op{ReplaySafe: true, ID: "canvas.nodes.patch", Summary: "按 revision 批量替换已存在节点的完整内容", Scope: ScopeCanvas,
+		Params:  json.RawMessage(`{"type":"object","properties":{"canvasId":{"type":"string"},"expectedRevision":{"type":"integer"},"nodes":{"type":"array","minItems":1,"maxItems":256,"items":{"type":"object","required":["id"],"properties":{"id":{"type":"string"}}}}},"required":["canvasId","expectedRevision","nodes"]}`),
+		Handler: opCanvasNodesPatch})
 	r.Register(Op{ReplaySafe: true, AssistantCanvas: true, ID: "canvas.nodes.create", Summary: "批量创建画布节点", Scope: ScopeCanvas,
 		Params:  json.RawMessage(`{"type":"object","properties":{"canvasId":{"type":"string"},"expectedRevision":{"type":"integer"},"nodes":{"type":"array","items":{"type":"object","properties":{"title":{"type":"string"},"type":{"type":"string"},"prompt":{"type":"string"}},"required":["title","type"]}}},"required":["canvasId","nodes","expectedRevision"]}`),
 		Handler: opCanvasNodesCreate})
@@ -690,6 +694,77 @@ func opCanvasDocumentCommit(ctx *Context, params json.RawMessage) (any, error) {
 		"revision":  summary.Revision,
 		"title":     summary.Title,
 		"updatedAt": summary.UpdatedAt,
+	}, nil
+}
+
+func opCanvasNodesPatch(ctx *Context, params json.RawMessage) (any, error) {
+	var args struct {
+		CanvasID         string            `json:"canvasId"`
+		ExpectedRevision *int64            `json:"expectedRevision"`
+		Nodes            []json.RawMessage `json:"nodes"`
+	}
+	if err := decodeParams(params, &args); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(args.CanvasID) == "" {
+		return nil, InvalidArg("invalid_params", "canvasId 必填")
+	}
+	if args.ExpectedRevision == nil || *args.ExpectedRevision < 0 {
+		return nil, InvalidArg("invalid_params", "expectedRevision 无效")
+	}
+	if len(args.Nodes) == 0 || len(args.Nodes) > 256 {
+		return nil, InvalidArg("invalid_batch", "nodes 必须是 1..256 项的数组")
+	}
+	raw, err := ctx.Domain.UserCanvasProject(ctx.UserID, args.CanvasID)
+	if err != nil {
+		return nil, mapDomainError(err)
+	}
+	var document map[string]any
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&document); err != nil {
+		return nil, InvalidArg("invalid_canvas", "画布数据格式错误")
+	}
+	nodes := canvasNodes(document)
+	nodeIndex := make(map[string]int, len(nodes))
+	for index, item := range nodes {
+		node, _ := item.(map[string]any)
+		if id, _ := node["id"].(string); strings.TrimSpace(id) != "" {
+			nodeIndex[id] = index
+		}
+	}
+	updatedIDs := make([]string, 0, len(args.Nodes))
+	for _, rawNode := range args.Nodes {
+		var node map[string]any
+		nodeDecoder := json.NewDecoder(bytes.NewReader(rawNode))
+		nodeDecoder.UseNumber()
+		if err := nodeDecoder.Decode(&node); err != nil {
+			return nil, InvalidArg("invalid_node", "节点数据格式错误")
+		}
+		id, _ := node["id"].(string)
+		id = strings.TrimSpace(id)
+		index, exists := nodeIndex[id]
+		if !exists {
+			return nil, InvalidArg("node_not_found", "只能局部更新画布中已存在的节点")
+		}
+		nodes[index] = node
+		updatedIDs = append(updatedIDs, id)
+	}
+	document["nodes"] = nodes
+	encoded, err := json.Marshal(document)
+	if err != nil {
+		return nil, AsError(err)
+	}
+	summary, _, err := ctx.Domain.CommitUserCanvasDocument(ctx.UserID, args.CanvasID, *args.ExpectedRevision, encoded)
+	if err != nil {
+		return nil, mapDomainError(err)
+	}
+	return map[string]any{
+		"canvasId":  args.CanvasID,
+		"revision":  summary.Revision,
+		"title":     summary.Title,
+		"updatedAt": summary.UpdatedAt,
+		"nodeIds":   updatedIDs,
 	}, nil
 }
 

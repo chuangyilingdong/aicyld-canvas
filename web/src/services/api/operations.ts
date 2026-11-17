@@ -49,6 +49,22 @@ export async function commitCanvasDocument(input: {
     });
 }
 
+export async function patchCanvasNodes(input: {
+    operationId: string;
+    canvasId: string;
+    expectedRevision: number;
+    nodes: Record<string, unknown>[];
+}) {
+    return executeWorkspaceOperation<CanvasDocumentCommitResult>("canvas.nodes.patch", {
+        opId: input.operationId,
+        params: {
+            canvasId: input.canvasId,
+            expectedRevision: input.expectedRevision,
+            nodes: input.nodes,
+        },
+    });
+}
+
 export type CanvasTaskBindReceipt = {
     applied?: boolean;
     canvasId?: string;

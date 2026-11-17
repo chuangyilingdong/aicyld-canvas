@@ -47,16 +47,21 @@ func ExtractBeefAPIImageJobID(headers http.Header, body []byte) string {
 		return ""
 	}
 	dataMap, _ := payload["data"].(map[string]interface{})
+	var dataListMap map[string]interface{}
+	if data, ok := payload["data"].([]interface{}); ok && len(data) > 0 {
+		dataListMap, _ = data[0].(map[string]interface{})
+	}
 	errMap, _ := payload["error"].(map[string]interface{})
 	for _, m := range []map[string]interface{}{
 		payload,
 		dataMap,
+		dataListMap,
 		errMap,
 	} {
 		if m == nil {
 			continue
 		}
-		for _, key := range []string{"task_id", "job_id"} {
+		for _, key := range []string{"task_id", "taskId", "job_id", "jobId", "id"} {
 			if val, ok := m[key].(string); ok {
 				if trimmed := strings.TrimSpace(val); trimmed != "" {
 					return trimmed

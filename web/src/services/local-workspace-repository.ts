@@ -2,11 +2,10 @@ import { acceptCanvasExternalRevisionCandidate, applyExternalCanvasRevision, can
 import { useCanvasHistoryStore } from "@/stores/canvas/use-canvas-history-store";
 import { ApiError, http } from "@/services/api/request";
 import { beginCanvasHydration,finishCanvasHydration } from "./canvas-hydration-health";
-import { commitCanvasDocument } from "@/services/api/operations";
 import { restoreCanvasHistory } from "@/services/api/workspace-data";
 import { notifyCanvasRefresh } from "@/services/local-workspace-sync";
 import { canvasBackendSubmitPaused, CanvasBackendSubmitPausedError, clearCanvasBackendSaveProgress, handleRejectedCanvasBackendSave, isCanvasRevisionConflict, isCanvasSubmitControlError, pauseCanvasBackendSubmit, preserveCanvasConflictDraft, resumeCanvasBackendSubmit, sameCanvasDocumentValue, setCanvasBackendSaveProgress } from "@/services/canvas-revision-conflict";
-import { CanvasJournalError, clearCanvasOperationJournal, clearCanvasPendingProjection, loadCanvasOperationJournal, newCanvasCommitOperationId, peekCanvasOperationJournal, recordConfirmedCanvasCommit, updateCanvasOperationJournal } from "@/services/canvas-operation-journal";
+import { CanvasJournalError, clearCanvasOperationJournal, clearCanvasPendingProjection, loadCanvasOperationJournal, newCanvasCommitOperationId, peekCanvasOperationJournal, recordConfirmedCanvasCommit, updateCanvasOperationJournal, type CanvasCommitPayload } from "@/services/canvas-operation-journal";
 import { isLocalWorkspaceMode } from "@/services/workspace-mode";
 import { getActiveUserScope } from "@/lib/user-scope";
 import { normalizeCanvasProjectGraph, sameCanvasDocument } from "@/lib/canvas/canvas-content";
@@ -16,6 +15,8 @@ import { rebaseCanvasDocumentThreeWay, settleInFlightGenerationOverlay } from "@
 import { traceCanvasGraph } from "@/lib/canvas/canvas-graph-trace";
 import { projectSyncProgress } from "@/stores/use-sync-progress-store";
 import { withCanvasSaveLock } from "@/services/canvas-save-lock";
+import { recordDiagnosticEvent } from "@/services/diagnostics/client-diagnostics";
+import { prepareCanvasCommitPayload, sendCanvasCommitPayload } from "@/services/canvas-commit-payload";
 
 
 export { CanvasBackendSubmitPausedError } from "@/services/canvas-revision-conflict";
@@ -565,7 +566,9 @@ async function commitLiveCanvasDocumentUnlocked(id: string) {
     let rebaseAllowed = true;
     let sent = false;
     if (journal.inFlight) {
-        const outcome = await sendCanvasDocumentCommit(id, journal.inFlight.operationId, journal.inFlight.payload, rebaseAllowed);
+        const submitted = journal.inFlight.submitted ?? openLocalCanvasProject(id);
+        if (!submitted) return;
+        const outcome = await sendCanvasDocumentCommit(id, journal.inFlight.operationId, journal.inFlight.payload, submitted, rebaseAllowed);
         if (outcome === "rebased") rebaseAllowed = false;
         sent = true;
     }
@@ -600,22 +603,20 @@ async function queueAndSendLiveCanvasDocument(id: string, confirmed: CanvasProje
         if (current.confirmedSnapshot && sameCanvasDocument(current.confirmedSnapshot, settled) && !current.inFlight) return;
         const expectedRevision = current.confirmedRevision || settled.revision || 0;
         const operationId = newCanvasCommitOperationId();
+        const payload = prepareCanvasCommitPayload(id, expectedRevision, current.confirmedSnapshot, settled);
         return {
             ...current,
             inFlight: {
                 operationId,
                 expectedRevision,
-                payload: {
-                    canvasId: id,
-                    expectedRevision,
-                    document: structuredClone(settled),
-                },
+                payload,
+                submitted: structuredClone(settled),
             },
         };
     });
     if (!queued.inFlight) return undefined;
     throwIfCanvasNotWritable(id, scope);
-    return sendCanvasDocumentCommit(id, queued.inFlight.operationId, queued.inFlight.payload, rebaseAllowed);
+    return sendCanvasDocumentCommit(id, queued.inFlight.operationId, queued.inFlight.payload, settled, rebaseAllowed);
 }
 
 type CanvasCommitOutcome = "accepted" | "rebased";
@@ -652,35 +653,51 @@ async function rebaseAfterRejectedCanvasCommit(id: string, rejectedRevision: num
 async function sendCanvasDocumentCommit(
     id: string,
     operationId: string,
-    payload: { canvasId: string; expectedRevision: number; document: CanvasProject },
+    payload: CanvasCommitPayload,
+    submitted: CanvasProject,
     rebaseAllowed = false,
 ): Promise<CanvasCommitOutcome> {
-    traceCanvasGraph("repository.submit", { document: payload.document, confirmed: canvasDocumentBase(id, getActiveUserScope())?.snapshot });
+    traceCanvasGraph("repository.submit", {
+        document: payload.kind === "nodes" ? undefined : payload.document,
+        confirmed: canvasDocumentBase(id, getActiveUserScope())?.snapshot,
+    });
     const scope = getActiveUserScope();
+    const startedAt = performance.now();
     try {
-        const result = await commitCanvasDocument({
-            operationId,
-            canvasId: payload.canvasId,
-            expectedRevision: payload.expectedRevision,
-            document: payload.document as unknown as Record<string, unknown>,
-        });
+        const result = await sendCanvasCommitPayload(operationId, payload);
         const saved: CanvasSaveSummary = {
             id,
-            title: result.result?.title ?? payload.document.title,
-            createdAt: payload.document.createdAt,
-            updatedAt: result.result?.updatedAt ?? payload.document.updatedAt,
+            title: result.result?.title ?? submitted.title,
+            createdAt: submitted.createdAt,
+            updatedAt: result.result?.updatedAt ?? submitted.updatedAt,
             revision: result.revision || result.result?.revision,
         };
-        await applyAcceptedCanvasSave(id, payload.document, saved, operationId);
+        await applyAcceptedCanvasSave(id, submitted, saved, operationId);
+        recordDiagnosticEvent({
+            level: "info",
+            category: "runtime",
+            code: "canvas_commit_accepted",
+            message: `画布保存成功 kind=${payload.kind ?? "document"} nodes=${payload.kind === "nodes" ? payload.nodes.length : submitted.nodes.length}`,
+            canvasId: id,
+            durationMs: performance.now() - startedAt,
+        });
         return "accepted";
     } catch (error) {
+        recordDiagnosticEvent({
+            level: "error",
+            category: "runtime",
+            code: "canvas_commit_failed",
+            message: `画布保存失败 kind=${payload.kind ?? "document"} nodes=${payload.kind === "nodes" ? payload.nodes.length : submitted.nodes.length}`,
+            canvasId: id,
+            durationMs: performance.now() - startedAt,
+        });
         if (isCanvasRevisionConflict(error)) {
             await updateCanvasOperationJournal(id, scope, (current) => {
                 if (!current.inFlight) return;
                 return { ...current, inFlight: null };
             });
             if (rebaseAllowed && await rebaseAfterRejectedCanvasCommit(id, payload.expectedRevision)) return "rebased";
-            await handleRejectedCanvasBackendSave(id, payload.document, error, scope);
+            await handleRejectedCanvasBackendSave(id, submitted, error, scope);
             throw error;
         }
         if (!shouldKeepCanvasCommitIdentity(error)) {

@@ -116,6 +116,7 @@ func midjourneyAdapter() Adapter {
 }
 
 func parseMidjourneyCreate(payload map[string]any) (CreateResult, error) {
+	payload = unwrapMidjourneyPayload(payload)
 	created, err := parseAsyncCreate(payload)
 	if err == nil {
 		return created, nil
@@ -131,6 +132,7 @@ func parseMidjourneyCreate(payload map[string]any) (CreateResult, error) {
 }
 
 func parseMidjourneyPoll(c PollContext, payload map[string]any) (PollResult, error) {
+	payload = unwrapMidjourneyPayload(payload)
 	status := normalizeStatus(firstString(payload, "status", "state", "task_status"))
 	if task := object(payload["task"]); task != nil {
 		payload = mergeMaps(task, payload)
@@ -199,6 +201,34 @@ func parseMidjourneyPoll(c PollContext, payload map[string]any) (PollResult, err
 		return PollResult{}, fmt.Errorf("Midjourney 完成响应没有返回图片")
 	}
 	return PollResult{TaskID: taskID, Status: status, Result: &Result{Images: images, Usage: object(payload["usage"]), ProviderMetadata: providerMetadata}, Message: message}, nil
+}
+
+// The official gateway wraps asynchronous jobs as either data:{...} or
+// data:[{...}]. Merge the inner job over the outer envelope so status and task
+// identity are available to the same parser regardless of deployment shape.
+func unwrapMidjourneyPayload(payload map[string]any) map[string]any {
+	current := payload
+	for depth := 0; depth < 3; depth++ {
+		var inner map[string]any
+		switch data := current["data"].(type) {
+		case map[string]any:
+			inner = data
+		case []any:
+			if len(data) > 0 {
+				inner = object(data[0])
+			}
+		}
+		if inner == nil {
+			if result := object(current["result"]); result != nil {
+				inner = result
+			}
+		}
+		if inner == nil {
+			break
+		}
+		current = mergeMaps(inner, current)
+	}
+	return current
 }
 
 func midjourneyProviderMetadata(payload map[string]any) map[string]any {

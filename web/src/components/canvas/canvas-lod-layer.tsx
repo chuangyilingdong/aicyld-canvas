@@ -4,6 +4,7 @@ import { canvasLodContainRect, canvasLodHitTest, type CanvasLodDragOffset } from
 import { getCanvasLodThumbnail, setCanvasLodRedrawListener } from "@/lib/canvas/canvas-lod-thumbnails";
 import { subscribeCanvasGraphicsViewportPreview, subscribeCanvasNodeDragPreview } from "@/lib/canvas/canvas-live-viewport";
 import { sortCanvasNodesByStackOrder, type CanvasNodeStackOrder } from "@/lib/canvas/canvas-node-stack-order";
+import { buildCanvasSpatialIndex, canvasNodeBounds } from "@/lib/canvas/canvas-spatial-index";
 import type { CanvasTheme } from "@/lib/canvas-theme";
 import { CanvasNodeType, type CanvasNodeData, type ViewportTransform } from "@/types/canvas";
 
@@ -39,6 +40,7 @@ function lodPixelRatio() {
  */
 export function CanvasLodLayer(props: CanvasLodLayerProps) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
+    const contextRef = useRef<CanvasRenderingContext2D | null>(null);
     const propsRef = useRef(props);
     propsRef.current = props;
     const viewportRef = useRef(props.viewport);
@@ -66,13 +68,21 @@ export function CanvasLodLayer(props: CanvasLodLayerProps) {
     }, [props.nodeStackOrder, props.nodes, props.selectedNodeIds]);
     const orderedRef = useRef(orderedNodes);
     orderedRef.current = orderedNodes;
+    const spatialIndex = useMemo(() => buildCanvasSpatialIndex(orderedNodes.map((node) => ({
+        id: node.id,
+        bounds: canvasNodeBounds(node),
+        value: node,
+    }))), [orderedNodes]);
+    const spatialIndexRef = useRef(spatialIndex);
+    spatialIndexRef.current = spatialIndex;
 
     const draw = useCallback(() => {
         const { active, theme, selectedNodeIds } = propsRef.current;
         const { width, height, dpr } = sizeRef.current;
         if (!active || !width || !height) return;
         const canvas = canvasRef.current;
-        const context = canvas?.getContext("2d");
+        if (canvas && contextRef.current?.canvas !== canvas) contextRef.current = canvas.getContext("2d");
+        const context = contextRef.current;
         if (!canvas || !context) return;
         context.setTransform(1, 0, 0, 1, 0, 0);
         context.clearRect(0, 0, canvas.width, canvas.height);
@@ -88,10 +98,18 @@ export function CanvasLodLayer(props: CanvasLodLayerProps) {
         const pixel = 1 / k;
         const radius = NODE_RADIUS * k >= 1.5 ? NODE_RADIUS : 0;
         const drag = dragRef.current;
+        const dragPaddingX = drag ? Math.abs(drag.x) : 0;
+        const dragPaddingY = drag ? Math.abs(drag.y) : 0;
+        const visibleNodes = spatialIndexRef.current.query({
+            left: viewLeft - dragPaddingX,
+            top: viewTop - dragPaddingY,
+            right: viewRight + dragPaddingX,
+            bottom: viewBottom + dragPaddingY,
+        });
         const requestRedraw = scheduleDrawRef.current;
         const container = propsRef.current.containerRef.current;
         const allowQueue = container?.dataset.canvasViewportInteracting !== "true" && container?.dataset.canvasNodeDragging !== "true";
-        for (const node of orderedRef.current) {
+        for (const node of visibleNodes) {
             const moved = drag?.nodeIds.has(node.id);
             const x = node.position.x + (moved ? drag!.x : 0);
             const y = node.position.y + (moved ? drag!.y : 0);
@@ -248,7 +266,15 @@ export function CanvasLodLayer(props: CanvasLodLayerProps) {
         };
         const hitNode = (event: MouseEvent) => {
             if (!isOverviewTarget(event.target)) return null;
-            return canvasLodHitTest(orderedRef.current, worldPoint(event), dragRef.current);
+            const point = worldPoint(event);
+            if (dragRef.current) return canvasLodHitTest(orderedRef.current, point, dragRef.current);
+            const candidates = spatialIndexRef.current.query({
+                left: point.x - 0.01,
+                top: point.y - 0.01,
+                right: point.x + 0.01,
+                bottom: point.y + 0.01,
+            });
+            return canvasLodHitTest(candidates, point);
         };
         const setHover = (nodeId: string | null) => {
             if (hoverRef.current === nodeId) return;

@@ -102,3 +102,45 @@ func TestCanvasNodesConfigureRejectsWholeBatchBeforeCommit(t *testing.T) {
 		t.Fatal("failed batch changed the in-memory canvas")
 	}
 }
+
+func TestCanvasNodesPatchReplacesOnlyExistingNodes(t *testing.T) {
+	probe := &batchCanvasProbe{doc: json.RawMessage(`{"revision":7,"nodes":[{"id":"a","type":"text","title":"原"},{"id":"b","type":"text","title":"旧","metadata":{"content":"old"}}],"connections":[]}`)}
+	raw, _ := json.Marshal(map[string]any{
+		"canvasId": "c1", "expectedRevision": 7,
+		"nodes": []map[string]any{
+			{"id": "b", "type": "text", "title": "新", "metadata": map[string]any{"content": "new"}},
+		},
+	})
+	value, err := opCanvasNodesPatch(&Context{UserID: "owner", Domain: probe}, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if probe.commits != 1 || probe.lastBase != 7 {
+		t.Fatalf("commits=%d base=%d", probe.commits, probe.lastBase)
+	}
+	result := value.(map[string]any)
+	if result["revision"] != int64(8) {
+		t.Fatalf("revision = %#v", result["revision"])
+	}
+	var committed map[string]any
+	if err := json.Unmarshal(probe.lastDoc, &committed); err != nil {
+		t.Fatal(err)
+	}
+	if findDocNode(committed, "a")["title"] != "原" || findDocNode(committed, "b")["title"] != "新" {
+		t.Fatalf("patch changed unrelated node: %s", probe.lastDoc)
+	}
+}
+
+func TestCanvasNodesPatchRejectsUnknownNodeBeforeCommit(t *testing.T) {
+	probe := &batchCanvasProbe{doc: json.RawMessage(`{"revision":2,"nodes":[{"id":"a","type":"text"}]}`)}
+	raw, _ := json.Marshal(map[string]any{
+		"canvasId": "c1", "expectedRevision": 2,
+		"nodes": []map[string]any{{"id": "missing", "type": "text"}},
+	})
+	if _, err := opCanvasNodesPatch(&Context{UserID: "owner", Domain: probe}, raw); err == nil {
+		t.Fatal("expected unknown node rejection")
+	}
+	if probe.commits != 0 {
+		t.Fatalf("unexpected commits=%d", probe.commits)
+	}
+}

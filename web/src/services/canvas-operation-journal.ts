@@ -4,19 +4,31 @@ import { sameCanvasDocument } from "@/lib/canvas/canvas-content";
 import { localForageStorageForScope } from "@/lib/localforage-storage";
 import { getActiveUserScope } from "@/lib/user-scope";
 import { recordCanvasDocumentBase, type CanvasProject } from "@/stores/canvas/use-canvas-store";
+import type { CanvasNodeData } from "@/types/canvas";
 
 const JOURNAL_PREFIX = "canvas-document-journal";
 
-export type CanvasCommitPayload = {
+export type CanvasDocumentCommitPayload = {
+    kind?: "document";
     canvasId: string;
     expectedRevision: number;
     document: CanvasProject;
 };
 
+export type CanvasNodeCommitPayload = {
+    kind: "nodes";
+    canvasId: string;
+    expectedRevision: number;
+    nodes: CanvasNodeData[];
+};
+
+export type CanvasCommitPayload = CanvasDocumentCommitPayload | CanvasNodeCommitPayload;
+
 export type CanvasInFlightCommit = {
     operationId: string;
     expectedRevision: number;
     payload: CanvasCommitPayload;
+    submitted?: CanvasProject;
 };
 
 /**
@@ -113,11 +125,32 @@ function parseInFlight(value: unknown, canvasId: string): CanvasInFlightCommit |
     if (payloadExpected !== expectedRevision) {
         throw new CanvasJournalError("画布提交日记 payload revision 不一致");
     }
+    if (payload.kind === "nodes") {
+        if (!Array.isArray(payload.nodes) || payload.nodes.length === 0 || !payload.nodes.every(isPlainObject)) {
+            throw new CanvasJournalError("画布提交日记 payload 节点无效");
+        }
+        return {
+            operationId,
+            expectedRevision,
+            payload: {
+                kind: "nodes",
+                canvasId,
+                expectedRevision: payloadExpected,
+                nodes: payload.nodes as unknown as CanvasNodeData[],
+            },
+        };
+    }
     if (!isPlainObject(payload.document)) throw new CanvasJournalError("画布提交日记 payload 文档无效");
     return {
         operationId,
         expectedRevision,
+        submitted: isPlainObject(value.submitted)
+            ? value.submitted as unknown as CanvasProject
+            : payload.kind === "document"
+                ? payload.document as unknown as CanvasProject
+                : undefined,
         payload: {
+            kind: "document",
             canvasId,
             expectedRevision: payloadExpected,
             document: payload.document as unknown as CanvasProject,

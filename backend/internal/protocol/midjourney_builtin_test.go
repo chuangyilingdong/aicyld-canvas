@@ -50,6 +50,40 @@ func TestMidjourneyBuiltinMapsImagineAndPollResults(t *testing.T) {
 	}
 }
 
+func TestMidjourneyBuiltinUnwrapsGatewayJobEnvelope(t *testing.T) {
+	adapter, _ := Builtins().Get("midjourney")
+	created, err := adapter.ParseCreate(context.Background(), []byte(`{
+		"code": 200,
+		"data": [{"status": "submitted", "task_id": "task_gateway_1"}]
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.TaskID != "task_gateway_1" || created.Status != StatusPending {
+		t.Fatalf("created = %#v", created)
+	}
+
+	result, err := adapter.ParsePoll(context.Background(), PollContext{TaskID: created.TaskID}, []byte(`{
+		"code": 200,
+		"data": [{
+			"status": "SUCCESS",
+			"task_id": "task_gateway_1",
+			"image_urls": [
+				"https://cdn.example/a.png",
+				"https://cdn.example/b.png",
+				"https://cdn.example/c.png",
+				"https://cdn.example/d.png"
+			]
+		}]
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != StatusSucceeded || result.Result == nil || len(result.Result.Images) != 4 {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
 func TestMidjourneyBuiltinKeepsVideoZeroIndex(t *testing.T) {
 	adapter, _ := Builtins().Get("midjourney")
 	spec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
