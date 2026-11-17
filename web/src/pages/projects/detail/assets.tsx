@@ -83,7 +83,7 @@ const characterFields = [
 type CharacterForm = { name: string } & Record<(typeof characterFields)[number][0], string>;
 
 export default function ProjectAssetsView({ detail, refreshProject }: ProjectDetailViewProps) {
-    const isSmartFilmProject = detail.project.type === "smart-film" || detail.project.type === "smart-film-auto";
+    const isSmartFilmProject = detail.project.type === "smart-film";
     const { message, modal } = App.useApp();
     const localMode = isLocalWorkspaceMode();
     const personalAssets = useAssetStore((state) => state.assets);
@@ -562,7 +562,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
                     <Button type="primary" className="!h-9 !px-3.5" icon={<Plus className="size-3.5" />} onClick={() => openCharacterEditor("new")}>新建角色</Button>
                 </div>
             </header>
-            {detail.project.type === "smart-film" || detail.project.type === "smart-film-auto" ? (
+            {detail.project.type === "smart-film" ? (
                 <ProjectAssetNextStep
                     projectId={detail.project.id}
                     batchId={detail.project.batchId}

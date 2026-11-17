@@ -11,7 +11,7 @@ test("seedance 2.5 flash multi uses the declared references and resolution tiers
     expect(contract?.resolutions).toEqual(["480p", "720p"]);
 });
 
-test("smart film script prompt preserves product, character and scene reference roles", () => {
+test("multi-script film prompt preserves product, character and scene reference roles", () => {
     const prompt = smartFilmScriptPrompt({
         idea: "做三条独立咖啡机短视频",
         references: [
@@ -31,7 +31,7 @@ test("smart film script prompt preserves product, character and scene reference 
     expect(prompt).toContain("开场钩子：");
     expect(prompt).not.toContain("用户提供的产品参考图：便携咖啡机、通勤女生、清晨厨房");
 });
-test("smart film keeps per-shot duration inside the selected video model limit", () => {
+test("multi-script film keeps per-shot duration inside the selected video model limit", () => {
     const video = defaultModelCapabilityConfig("openai-videos").video!;
     video.duration = { selection: "enum", values: [4, 6, 8], default: 6 };
 
@@ -40,7 +40,7 @@ test("smart film keeps per-shot duration inside the selected video model limit",
     expect(resizeSmartFilmShotDurations([4], 4, video)).toEqual([4, 6, 6, 6]);
 });
 
-test("smart film accepts a custom shot count across the backend range", () => {
+test("multi-script film accepts a custom shot count across the backend range", () => {
     const video = defaultModelCapabilityConfig("openai-videos").video!;
     video.duration = { selection: "enum", values: [5, 10], default: 5 };
 

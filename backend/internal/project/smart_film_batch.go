@@ -473,7 +473,7 @@ func (s *Service) EnsureSmartFilmVideoTaskAllowed(userID, projectID string, inpu
 	if err != nil {
 		return err
 	}
-	if project.Type != "smart-film" && project.Type != "smart-film-auto" {
+	if project.Type != "smart-film" {
 		return nil
 	}
 	metadata, _ := input["metadata"].(map[string]any)

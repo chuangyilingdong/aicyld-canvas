@@ -52,7 +52,7 @@ func (w *Worker) Start(ctx context.Context) {
 		defer w.active.Store(false)
 		run := func() {
 			if err := w.ProcessOnce(ctx); err != nil && w.Log != nil {
-				_ = w.Log("system", "", "warn", "智能成片生产 Worker 处理失败", err.Error())
+				_ = w.Log("system", "", "warn", "多剧本成片 Worker 处理失败", err.Error())
 			}
 		}
 		run()

@@ -7,7 +7,7 @@ export function smartFilmPromptGate(input: {
     selectedShot?: ProjectShot;
     editorDirty: boolean;
 }): string | undefined {
-    if (input.stage !== "video" || !["smart-film", "smart-film-auto"].includes(input.detail.project.type)) return undefined;
+    if (input.stage !== "video" || input.detail.project.type !== "smart-film") return undefined;
     if (input.editorDirty) return "当前镜头有未保存修改，请先保存并重新确认分镜提示词";
     if (input.selectedShot && input.selectedShot.status !== "confirmed") return "请先确认当前镜头的分镜提示词，再生成视频";
     const unconfirmed = input.shots.filter((shot) => shot.status !== "confirmed").length;
@@ -27,27 +27,4 @@ export async function saveConfirmedStoryboardPrompts<T>(input: {
         const values = shot.id === input.selectedShotId && input.selectedValues ? input.selectedValues : input.valuesForShot(shot, index);
         await input.save(shot, values);
     }
-}
-
-export async function confirmAutomaticSmartFilmPrompts<T>(input: {
-    stage: string;
-    projectType: string;
-    shots: ProjectShot[];
-    selectedShotId?: string;
-    selectedValues: () => Promise<T | undefined>;
-    valuesForShot: (shot: ProjectShot, index: number) => T;
-    save: (shot: ProjectShot, values: T) => Promise<void>;
-    onConfirmed: () => Promise<void>;
-}) {
-    if (input.stage !== "storyboard" || input.projectType !== "smart-film-auto" || !input.shots.length) return;
-    if (input.shots.every((shot) => shot.status === "confirmed")) return;
-    const selectedValues = input.selectedShotId ? await input.selectedValues() : undefined;
-    await saveConfirmedStoryboardPrompts({
-        shots: input.shots,
-        selectedShotId: input.selectedShotId,
-        selectedValues,
-        valuesForShot: input.valuesForShot,
-        save: input.save,
-    });
-    await input.onConfirmed();
 }

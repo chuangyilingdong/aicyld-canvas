@@ -112,7 +112,7 @@ export function WorkflowSmartFilmStage({
 function SmartFilmStageLoading() {
     return <div className="grid h-full place-items-center px-6 text-center">
         <div>
-            <strong className="text-sm">正在读取智能成片配置</strong>
+            <strong className="text-sm">正在读取成片配置</strong>
             <p className="mt-2 text-xs leading-5 text-foreground/45">正在确认本批次的分镜方式与制作规格，请稍候。</p>
         </div>
     </div>;
@@ -131,7 +131,7 @@ function SmartFilmNoPreviz({ onBack }: { onBack: () => void }) {
 function SmartFilmStageError({ message, onRetry }: { message: string; onRetry: () => void }) {
     return <div className="grid h-full place-items-center px-6 text-center" role="alert">
         <div className="max-w-md">
-            <strong className="text-sm">智能成片配置读取失败</strong>
+            <strong className="text-sm">成片配置读取失败</strong>
             <p className="mt-2 break-words text-xs leading-6 text-rose-500">{message}</p>
             <Button className="mt-4" onClick={onRetry}>重新读取</Button>
         </div>

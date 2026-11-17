@@ -75,7 +75,7 @@ export async function createSmartFilmSkillSnapshotWithDependencies(skill: Skill,
     }));
     const stages = Object.fromEntries(prepared.filter(([, context]) => Boolean(context)).map(([stage, context]) => [stage, context])) as Partial<Record<SmartFilmSkillStage, string>>;
     if (REQUIRED_SMART_FILM_SKILL_STAGES.some((stage) => !stages[stage])) {
-        throw new Error("技能缺少可用于智能成片的阶段规则，请检查 SKILL.md 和 references");
+        throw new Error("技能缺少可用于多剧本成片的阶段规则，请检查 SKILL.md 和 references");
     }
     const stageFiles = Object.fromEntries(prepared.map(([stage, , files]) => [stage, files])) as Partial<Record<SmartFilmSkillStage, string[]>>;
     return {

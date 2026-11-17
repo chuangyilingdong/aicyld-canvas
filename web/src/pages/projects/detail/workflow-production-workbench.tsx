@@ -13,7 +13,7 @@ import type { AssetLibraryPickerItem } from "@/components/assets/asset-library-p
 import { usePersonalAssetLibrary } from "@/hooks/use-personal-asset-library";
 import { ModelPicker } from "@/components/model-picker";
 import { initialWorkbenchModel, refreshedWorkbenchModel } from "./workflow-model-selection";
-import { confirmAutomaticSmartFilmPrompts, smartFilmPromptGate } from "./workflow-storyboard-confirmation";
+import { smartFilmPromptGate } from "./workflow-storyboard-confirmation";
 import { useStoryboardPromptConfirmation } from "./workflow-storyboard-prompt-hook";
 import { isMusicAudioModel } from "@/lib/audio-generation";
 import { canvasFeatureModel } from "@/lib/canvas/feature-models";
@@ -397,22 +397,6 @@ export default function WorkflowProductionWorkbench(props: WorkflowProductionWor
             await onRefresh();
         },
     });
-
-    const confirmAutomaticStoryboardPrompts = async () => {
-        await confirmAutomaticSmartFilmPrompts({
-            stage: activeStage,
-            projectType: detail.project.type,
-            shots,
-            selectedShotId: selectedShot?.id,
-            selectedValues: () => form.validateFields(),
-            valuesForShot: (shot, index) => shotEditorValues(detail, shot, index, buildShotAssetReferenceContext(detail, shot.id)),
-            save: saveConfirmedStoryboardShot,
-            onConfirmed: async () => {
-                setEditorDirty(false);
-                await onRefresh();
-            },
-        });
-    };
 
     const deleteShot = useMutation({
         mutationFn: async ({ shotId }: { shotId: string; nextShotId: string }) => deleteProjectShot(projectId, shotId),
@@ -826,7 +810,6 @@ export default function WorkflowProductionWorkbench(props: WorkflowProductionWor
                             return;
                         }
                     }
-                    await confirmAutomaticStoryboardPrompts();
                     await finishVideoPostProduction();
                     advanceAutomaticStage();
                 } catch (error) {
@@ -948,7 +931,6 @@ export default function WorkflowProductionWorkbench(props: WorkflowProductionWor
                     message.error(`${waitFailures.length} 个${stageCopy.label}生成失败：${waitFailures.slice(0, 3).join("；")}`);
                     return;
                 }
-                await confirmAutomaticStoryboardPrompts();
                 await finishVideoPostProduction();
                 message.success(`全部${stageCopy.label}已生成，继续下一步`);
                 advanceAutomaticStage();
@@ -978,19 +960,18 @@ export default function WorkflowProductionWorkbench(props: WorkflowProductionWor
     };
 
     useEffect(() => {
-        const resumeSmartFilm = detail.project.type === "smart-film-auto";
         if (batchProgress || submittingShotIds.size) return;
-        if (autostartRef.current === activeStage || (searchParams.get("autostart") !== "1" && !resumeSmartFilm)) return;
+        if (autostartRef.current === activeStage || searchParams.get("autostart") !== "1") return;
         autostartRef.current = activeStage;
         const next = new URLSearchParams(searchParams);
         next.delete("autostart");
         setSearchParams(next, { replace: true });
         void generateAllArtifacts({ automatic: true });
-    }, [activeStage, batchProgress, detail.project.type, searchParams, setSearchParams, submittingShotIds, generateAllArtifacts]);
+    }, [activeStage, batchProgress, searchParams, setSearchParams, submittingShotIds, generateAllArtifacts]);
 
     const stageCopy = productionStageCopy[activeStage as "storyboard" | "previz" | "video"];
     const selectedShotSubmitting = submittingShotIds.has(selectedShot?.id || "");
-    const unconfirmedSmartFilmShots = ["smart-film", "smart-film-auto"].includes(detail.project.type) ? shots.filter((shot) => shot.status !== "confirmed") : [];
+    const unconfirmedSmartFilmShots = detail.project.type === "smart-film" ? shots.filter((shot) => shot.status !== "confirmed") : [];
     const { requestAddShot, requestDeleteShot, requestShotSelection, selectRelativeShot } = useShotNavigationActions({
         shots,
         selectedShot,

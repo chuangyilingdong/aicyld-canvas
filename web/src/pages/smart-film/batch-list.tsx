@@ -59,7 +59,7 @@ export default function SmartFilmBatchListPage() {
                     <p>找回已经生成或正在后台制作的多剧本记录，继续确认资产、分镜和镜头视频。</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                    <Button icon={<ArrowLeft className="size-4" />} onClick={() => navigate("/smart-film")}>返回智能成片</Button>
+                    <Button icon={<ArrowLeft className="size-4" />} onClick={() => navigate("/projects")}>返回项目库</Button>
                     <Button type="primary" icon={<Plus className="size-4" />} onClick={() => navigate("/smart-film/batches/new")}>新建多剧本项目</Button>
                 </div>
             </header>

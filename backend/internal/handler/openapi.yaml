@@ -59,7 +59,7 @@ paths:
   /smart-film-batches:
     post:
       tags: [smart-film]
-      summary: 创建多剧本智能成片批次
+      summary: 创建多剧本成片批次
       description: |
         创建草稿批次。脚本正文通过后续 `PUT /smart-film-batches/{id}/scripts` 保存。
         请求体上限 256 KiB。批次、输入素材编排配置和加密渠道快照只属于当前登录用户。
@@ -76,7 +76,7 @@ paths:
         "413": { description: 请求体超过 256 KiB }
     get:
       tags: [smart-film]
-      summary: 分页查询当前用户的智能成片批次
+      summary: 分页查询当前用户的多剧本成片批次
       parameters:
         - in: query
           name: status
@@ -1182,7 +1182,7 @@ paths:
       tags: [projects]
       summary: 忽略可选的资产候选
       description: |
-        将待确认候选标记为 `ignored`，不创建项目资产，也不再阻止智能成片进入分镜。
+        将待确认候选标记为 `ignored`，不创建项目资产，也不再阻止多剧本成片进入分镜。
         正在生成资产图的候选需等待任务结束后才能忽略；被忽略的候选仍保留原始识别信息。
       responses:
         "200":
@@ -1252,7 +1252,7 @@ components:
       name: batchId
       required: true
       schema: { type: string, minLength: 1 }
-      description: 智能成片批次 ID；只能访问当前用户自己的批次
+      description: 多剧本成片批次 ID；只能访问当前用户自己的批次
     ScriptId:
       in: path
       name: scriptId

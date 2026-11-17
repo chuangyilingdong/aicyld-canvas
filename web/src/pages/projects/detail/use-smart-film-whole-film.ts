@@ -33,7 +33,7 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
     const smartWholeFilm = smartFilmBatchQuery.data?.config.productionMode === "smart";
     const smartFilmConfigurationPending = Boolean(detail.project.batchId) && smartFilmBatchQuery.isPending;
     const smartFilmConfigurationError = Boolean(detail.project.batchId) && smartFilmBatchQuery.isError
-        ? smartFilmBatchQuery.error instanceof Error ? smartFilmBatchQuery.error.message : "智能成片配置读取失败"
+        ? smartFilmBatchQuery.error instanceof Error ? smartFilmBatchQuery.error.message : "成片配置读取失败"
         : "";
     const projectTasksQuery = useQuery({
         queryKey: ["project-generation-tasks", projectId, "smart-film"],

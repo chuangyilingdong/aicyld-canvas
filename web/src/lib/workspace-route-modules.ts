@@ -6,7 +6,6 @@ const workspaceRouteLoaders = {
     create: () => import("@/pages/create"),
     projectDetail: () => import("@/pages/projects/detail"),
     skills: () => import("@/pages/skills"),
-    smartFilm: () => import("@/pages/smart-film"),
     smartFilmBatchNew: () => import("@/pages/smart-film/batch-new"),
     smartFilmBatchList: () => import("@/pages/smart-film/batch-list"),
     smartFilmBatchDetail: () => import("@/pages/smart-film/batch-detail"),
@@ -20,7 +19,6 @@ export const loadCanvasProjectPage = () => import("@/pages/canvas/project");
 export const loadCreatePage = workspaceRouteLoaders.create;
 export const loadProjectDetailPage = workspaceRouteLoaders.projectDetail;
 export const loadSkillsPage = workspaceRouteLoaders.skills;
-export const loadSmartFilmPage = workspaceRouteLoaders.smartFilm;
 export const loadSmartFilmBatchNewPage = workspaceRouteLoaders.smartFilmBatchNew;
 export const loadSmartFilmBatchListPage = workspaceRouteLoaders.smartFilmBatchList;
 export const loadSmartFilmBatchDetailPage = workspaceRouteLoaders.smartFilmBatchDetail;
@@ -38,7 +36,7 @@ export function preloadWorkspaceRoute(pathnameOrSlug: string) {
         else void workspaceRouteLoaders.canvas();
         return;
     }
-    if (slug === "smart-film" && segments[1] === "batches") {
+    if (slug === "smart-film") {
         if (segments[2] === "new") void workspaceRouteLoaders.smartFilmBatchNew();
         else if (segments[2]) void workspaceRouteLoaders.smartFilmBatchDetail();
         else void workspaceRouteLoaders.smartFilmBatchList();

@@ -68,7 +68,7 @@ export default function CanvasPage() {
     const [exportError, setExportError] = useState("");
     useEffect(() => () => exportController.current?.abort(), []);
     useEffect(() => {
-        if (searchParams.get("smart") === "1") navigate("/smart-film", { replace: true });
+        if (searchParams.get("smart") === "1") navigate("/smart-film/batches", { replace: true });
     }, [navigate, searchParams]);
     const hydrated = useCanvasStore((state) => state.hydrated);
     const localProjects = useCanvasStore((state) => state.projects);
@@ -405,7 +405,7 @@ export default function CanvasPage() {
                 leading={activeFolder ? <button type="button" className="libtv-project-breadcrumb-button" onClick={() => setFolderFilter("all")}>项目库 /</button> : undefined}
                 actions={(
                     <div className="libtv-project-actions">
-                    <Button icon={<Clapperboard />} onClick={() => navigate("/smart-film")}>智能成片</Button>
+                    <Button icon={<Clapperboard />} onClick={() => navigate("/smart-film/batches")}>多剧本成片</Button>
                     <ExpandableSearch value={keyword} placeholder="搜索项目" onChange={setKeyword} />
                     <Button icon={<Upload />} disabled={!hydrated} onClick={() => inputRef.current?.click()}>导入画布</Button>
                     <Button icon={<Trash2 />} onClick={() => setHistoryOpen(true)}>回收站</Button>
@@ -473,12 +473,12 @@ export default function CanvasPage() {
                 {!remoteMode && canvasHealth.error ? <div role="alert" className="mb-4 flex flex-wrap items-center gap-3 text-sm"><span>{canvasHealth.error}</span><Button loading={canvasHealth.loading} onClick={()=>void hydrateLocalCanvasProjectsFromBackend()}>重试加载</Button></div> : null}
                 {remoteMode && projectQuery.isError ? (
                     <div role="alert" className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-destructive/25 bg-destructive/5 px-3 py-2 text-sm">
-                        <span>智能成片项目读取失败，项目画布仍可继续使用。</span>
+                        <span>成片项目读取失败，项目画布仍可继续使用。</span>
                         <Button size="small" loading={projectQuery.isFetching} onClick={() => void projectQuery.refetch()}>重试加载项目</Button>
                     </div>
                 ) : null}
                 {remoteMode && projectQuery.isPending && !focusBatchId ? (
-                    <div role="status" className="mb-4 rounded-lg bg-foreground/[.035] px-3 py-2 text-sm text-foreground/55">正在读取智能成片项目…</div>
+                    <div role="status" className="mb-4 rounded-lg bg-foreground/[.035] px-3 py-2 text-sm text-foreground/55">正在读取成片项目…</div>
                 ) : null}
                 {remoteMode && libraryQuery.isError ? (
                     <div role="alert">画布列表读取失败<Button onClick={() => void libraryQuery.refetch()}>重试</Button></div>
@@ -488,7 +488,7 @@ export default function CanvasPage() {
                     <WorkspaceLoadingState label="正在整理刚创建的项目" detail="确认同批次项目与制作状态" />
                 ) : visibleProjects.length || visibleStudioProjects.length || (!focusBatchId && !keyword && projectFilter === "all") ? (
                     <CollectionGrid className="canvas-collection-grid">
-                        {visibleStudioProjects.length ? <div className="project-library-group-heading"><strong>智能成片项目</strong><span>{visibleStudioProjects.length} 个项目</span></div> : null}
+                        {visibleStudioProjects.length ? <div className="project-library-group-heading"><strong>成片项目</strong><span>{visibleStudioProjects.length} 个项目</span></div> : null}
                         {!focusBatchId ? <div className="libtv-create-project-entry">
                             <button type="button" className="libtv-create-project-card" onClick={() => createAndEnter()}>
                                 <div className="libtv-create-project-icon"><Plus /></div>
@@ -652,7 +652,7 @@ function StudioProjectCard({ item, onOpen, onDelete, onDuplicate, onRename, onOp
     const stage = projectSummaryStage(item);
     return (
         <LibraryCardShell
-            ariaLabel={`打开智能成片项目 ${item.project.name}`}
+            ariaLabel={`打开成片项目 ${item.project.name}`}
             className={`canvas-collection-card${newBatch ? " project-collection-unified-card is-new-batch" : ""}`}
             updatedAt={item.project.updatedAt}
             onOpen={onOpen}

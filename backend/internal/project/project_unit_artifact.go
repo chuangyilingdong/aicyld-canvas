@@ -50,7 +50,7 @@ func (s *Service) RegisterProjectUnitArtifact(userID, projectID, unitID string, 
 		return model.ProjectUnitArtifact{}, err
 	}
 	if resource.Kind != "video" {
-		return model.ProjectUnitArtifact{}, kernel.BadAuthRequest("智能成片产物必须是视频资源")
+		return model.ProjectUnitArtifact{}, kernel.BadAuthRequest("成片产物必须是视频资源")
 	}
 	metadata := strings.TrimSpace(req.MetadataJSON)
 	if metadata == "" {

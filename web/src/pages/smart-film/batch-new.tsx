@@ -177,7 +177,7 @@ export default function SmartFilmBatchNewPage() {
             const imageProvider = { ...backendProviderConfig({ ...effectiveConfig, model: resolvedImageModel, imageModel: resolvedImageModel }, "image"), logicalModelId: logicalModelIDForConfig({ ...effectiveConfig, model: resolvedImageModel, imageModel: resolvedImageModel }) || undefined };
             const videoProvider = { ...backendProviderConfig({ ...effectiveConfig, model: resolvedVideoModel, videoModel: resolvedVideoModel }, "video"), logicalModelId: logicalModelIDForConfig({ ...effectiveConfig, model: resolvedVideoModel, videoModel: resolvedVideoModel }) || undefined };
             const created = await createSmartFilmBatch({
-                title: sourceText.slice(0, 24) || "多剧本智能成片",
+                title: sourceText.slice(0, 24) || "多剧本成片",
                 sourceText,
                 inputAssetIds: productAssetIds,
                 config: {
@@ -244,10 +244,10 @@ export default function SmartFilmBatchNewPage() {
             <header className="smart-film-hero">
                 <div>
                     <span className="smart-film-eyebrow"><Sparkles className="size-3.5" /> MULTI FILM BATCH</span>
-                    <h1>多剧本智能成片</h1>
+                    <h1>多剧本成片</h1>
                     <p>一次生成多条独立剧本，每条对应一条独立视频。后续资产、分镜和视频都在各自项目中确认与生成，互不合并。</p>
                 </div>
-                <Button icon={<ArrowLeft className="size-4" />} onClick={() => navigate("/smart-film")}>返回智能成片</Button>
+                <Button icon={<ArrowLeft className="size-4" />} onClick={() => navigate("/smart-film/batches")}>返回剧本记录</Button>
             </header>
 
             <main className="smart-film-batch-form">

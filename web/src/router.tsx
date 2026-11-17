@@ -19,7 +19,6 @@ const EagleLibraryPage = lazy(() => import("@/pages/plugins/eagle"));
 const ProjectDetailPage = lazy(loadProjectDetailPage);
 const SettingsPage = lazy(() => import("@/pages/settings"));
 const SkillsPage = lazy(loadSkillsPage);
-const SmartFilmPage = lazy(() => import("@/pages/smart-film"));
 const SmartFilmBatchNewPage = lazy(() => import("@/pages/smart-film/batch-new"));
 const SmartFilmBatchListPage = lazy(() => import("@/pages/smart-film/batch-list"));
 const SmartFilmBatchDetailPage = lazy(() => import("@/pages/smart-film/batch-detail"));
@@ -83,7 +82,7 @@ export const router = createWorkspaceRouter([
         children: [
             { path: "/", element: deferred(<HomePage />) },
             { path: "/create", element: deferred(<CreatePage />) },
-            { path: "/smart-film", element: deferred(<SmartFilmPage />) },
+            { path: "/smart-film", element: <Navigate to="/smart-film/batches" replace /> },
             { path: "/smart-film/batches", element: deferred(<SmartFilmBatchListPage />) },
             { path: "/smart-film/batches/new", element: deferred(<SmartFilmBatchNewPage />) },
             { path: "/smart-film/batches/:batchId", element: deferred(<SmartFilmBatchDetailPage />) },

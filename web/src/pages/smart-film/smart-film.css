@@ -39,89 +39,6 @@
     letter-spacing: 0.13em;
 }
 
-.smart-film-layout {
-    display: grid;
-    grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
-    gap: 22px;
-    max-width: 1320px;
-    margin: 0 auto;
-    align-items: start;
-}
-
-.smart-film-sidebar,
-.smart-film-main {
-    border: 1px solid color-mix(in srgb, var(--foreground) 9%, transparent);
-    border-radius: 22px;
-    background: color-mix(in srgb, var(--background) 92%, var(--foreground) 8%);
-}
-
-.smart-film-sidebar {
-    position: sticky;
-    top: 24px;
-    overflow: hidden;
-    padding: 20px;
-}
-
-.smart-film-sidebar-title {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 18px;
-    color: var(--foreground);
-    font-size: 13px;
-    font-weight: 650;
-}
-
-.smart-film-flow-item {
-    display: grid;
-    grid-template-columns: 35px minmax(0, 1fr);
-    gap: 10px;
-    padding: 13px 0;
-    border-top: 1px solid color-mix(in srgb, var(--foreground) 7%, transparent);
-}
-
-.smart-film-flow-index {
-    color: color-mix(in srgb, var(--foreground) 30%, transparent);
-    font-family: var(--font-mono, monospace);
-    font-size: 11px;
-    font-variant-numeric: tabular-nums;
-}
-
-.smart-film-flow-item strong {
-    display: block;
-    color: var(--foreground);
-    font-size: 13px;
-    font-weight: 620;
-}
-
-.smart-film-flow-item p,
-.smart-film-sidebar-note p {
-    margin: 4px 0 0;
-    color: color-mix(in srgb, var(--foreground) 42%, transparent);
-    font-size: 11px;
-    line-height: 1.6;
-}
-
-.smart-film-sidebar-note {
-    display: flex;
-    gap: 9px;
-    margin-top: 18px;
-    border-radius: 14px;
-    background: color-mix(in srgb, var(--workspace-accent) 8%, transparent);
-    padding: 13px;
-    color: color-mix(in srgb, var(--foreground) 52%, transparent);
-}
-
-.smart-film-main {
-    min-width: 0;
-    padding: clamp(18px, 3vw, 32px);
-}
-
-.smart-film-form {
-    display: grid;
-    gap: 18px;
-}
-
 .smart-film-duration-section {
     border: 1px solid color-mix(in srgb, var(--foreground) 9%, transparent);
     border-radius: 16px;
@@ -173,82 +90,6 @@
     font-size: 11px;
 }
 
-.smart-film-created {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 18px;
-    border: 1px solid color-mix(in srgb, var(--workspace-accent) 24%, transparent);
-    border-radius: 16px;
-    background: color-mix(in srgb, var(--workspace-accent) 8%, transparent);
-    padding: 13px 15px;
-}
-
-.smart-film-created strong,
-.smart-film-created span {
-    display: block;
-}
-
-.smart-film-created strong {
-    color: var(--foreground);
-    font-size: 13px;
-}
-
-.smart-film-created span {
-    margin-top: 3px;
-    color: color-mix(in srgb, var(--foreground) 48%, transparent);
-    font-size: 11px;
-}
-
-.smart-film-stepper {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 8px;
-    border: 1px solid color-mix(in srgb, var(--foreground) 9%, transparent);
-    border-radius: 14px;
-    background: color-mix(in srgb, var(--foreground) 2%, transparent);
-    padding: 6px;
-}
-
-.smart-film-stepper button {
-    display: flex;
-    min-width: 0;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    border-radius: 10px;
-    padding: 9px 10px;
-    color: color-mix(in srgb, var(--foreground) 42%, transparent);
-    font-size: 12px;
-    transition: background-color 160ms ease, color 160ms ease;
-}
-
-.smart-film-stepper button > span {
-    display: grid;
-    width: 22px;
-    height: 22px;
-    flex: 0 0 22px;
-    place-items: center;
-    border: 1px solid color-mix(in srgb, var(--foreground) 15%, transparent);
-    border-radius: 999px;
-    font-size: 11px;
-    font-variant-numeric: tabular-nums;
-}
-
-.smart-film-stepper button.is-active {
-    background: color-mix(in srgb, var(--workspace-accent) 12%, transparent);
-    color: var(--foreground);
-}
-
-.smart-film-stepper button.is-active > span {
-    border-color: color-mix(in srgb, var(--workspace-accent) 55%, transparent);
-    background: var(--workspace-accent);
-    color: white;
-}
-
-.smart-film-stepper button.is-done { color: color-mix(in srgb, var(--foreground) 68%, transparent); }
-.smart-film-stepper button.is-done > span { border-color: color-mix(in srgb, var(--workspace-accent) 42%, transparent); color: var(--workspace-accent); }
-
 .smart-film-generating {
     display: grid;
     min-height: 420px;
@@ -281,19 +122,12 @@
 .smart-film-generating-note { font-size: 11px !important; color: color-mix(in srgb, var(--foreground) 36%, transparent) !important; }
 
 @media (max-width: 900px) {
-    .smart-film-stepper { grid-template-columns: 1fr; }
     .smart-film-page {
         padding: 20px 16px 40px;
     }
     .smart-film-hero {
         align-items: flex-start;
         flex-direction: column;
-    }
-    .smart-film-layout {
-        grid-template-columns: 1fr;
-    }
-    .smart-film-sidebar {
-        position: static;
     }
     .smart-film-duration-heading {
         flex-direction: column;
