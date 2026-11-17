@@ -226,6 +226,38 @@ export function shotEditorValues(detail: ProjectDetail, shot: ProjectShot, index
     };
 }
 
+const shotGenerationValueFields = [
+    "title",
+    "plotDescription",
+    "action",
+    "dialogue",
+    "shotSize",
+    "cameraAngle",
+    "cameraMovement",
+    "durationSeconds",
+    "imagePrompt",
+    "videoPrompt",
+    "negativePrompt",
+    "continuityNotes",
+] as const;
+
+export function resolveShotGenerationValues(
+    revisionValues: ShotEditorValues,
+    formValues: ShotEditorValues | undefined,
+    selected: boolean,
+    isTouched: (field: keyof ShotEditorValues) => boolean,
+): ShotEditorValues {
+    if (!selected || !formValues) return revisionValues;
+    const touchedFields = shotGenerationValueFields.filter((field) => isTouched(field));
+    if (!touchedFields.length) return revisionValues;
+    const resolved = { ...revisionValues };
+    for (const field of touchedFields) {
+        const value = formValues[field];
+        if (value !== undefined) Object.assign(resolved, { [field]: value });
+    }
+    return resolved;
+}
+
 export function withStoryboardVideoReference(detail: ProjectDetail, shot: ProjectShot, context: ShotAssetReferenceContext): ShotAssetReferenceContext {
     const storyboard = currentArtifact(detail, shot.id, "storyboard");
     if (!storyboard?.resourceId || storyboard.status !== "ready") return context;

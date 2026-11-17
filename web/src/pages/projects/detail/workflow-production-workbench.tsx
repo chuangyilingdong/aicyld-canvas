@@ -80,6 +80,7 @@ import {
     type ShotEditorValues,
     revisionInput,
     runningStageTasks,
+    resolveShotGenerationValues,
     resolveMusicAudioModel,
     resolveNarrationAudioModel,
     shotEditorValues,
@@ -873,9 +874,8 @@ export default function WorkflowProductionWorkbench(props: WorkflowProductionWor
                     const context = generationCapability === "video"
                         ? withStoryboardVideoReference(detail, shot, buildShotAssetReferenceContext(detail, shot.id))
                         : buildShotAssetReferenceContext(detail, shot.id);
-                    const rawValues = shot.id === selectedShot?.id && currentValues
-                        ? currentValues
-                        : shotEditorValues(detail, shot, shotIndex, context);
+                    const rawValues = resolveShotGenerationValues(shotEditorValues(detail, shot, shotIndex, context), currentValues,
+                        shot.id === selectedShot?.id, (field) => form.isFieldTouched(field));
                     const imagePrompt = options?.imagePromptOverride?.shotId === shot.id
                         ? options.imagePromptOverride.prompt
                         : rawValues.imagePrompt || "";
