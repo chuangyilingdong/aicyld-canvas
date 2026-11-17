@@ -615,7 +615,10 @@ export default function SmartFilmBatchDetailPage() {
                     <h1>{batch.title}</h1>
                     <p>{batch.sourceText}</p>
                 </div>
-                <Button icon={<ArrowLeft className="size-4" />} onClick={() => navigate("/canvas")}>返回项目库</Button>
+                <div className="flex flex-wrap items-center gap-2">
+                    {projectScripts.length ? <Button type="primary" icon={<Clapperboard className="size-4" />} onClick={() => navigate(`/projects?batch=${encodeURIComponent(batch.id)}`)}>查看已创建的 {projectScripts.length} 个项目</Button> : null}
+                    <Button icon={<ArrowLeft className="size-4" />} onClick={() => navigate("/canvas")}>返回项目库</Button>
+                </div>
             </header>
 
             <div className="smart-film-batch-detail">

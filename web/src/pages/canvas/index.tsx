@@ -29,7 +29,6 @@ import { createWorkspaceCanvasProject } from "@/services/workspace-project-repos
 import { listWorkspaceCanvasProjectsPage, type CanvasLibrarySummary } from "@/services/api/workspace-data";
 import { useUserStore } from "@/stores/use-user-store";
 import { deleteProject, duplicateProject, listProjects, type ProjectSummary } from "@/services/api/projects";
-import { projectSummaryStage } from "@/lib/project-workbench";
 import { deleteSmartFilmBatch, listSmartFilmBatches, type SmartFilmBatch } from "@/services/api/smart-film-batches";
 import { loadCanvasProjectPage } from "@/lib/workspace-route-modules";
 import { useSyncProgressStore } from "@/stores/use-sync-progress-store";
@@ -617,11 +616,6 @@ export default function CanvasPage() {
 }
 
 function SmartFilmBatchCard({ batch, onOpen, onDelete }: { batch: SmartFilmBatch; onOpen: () => void; onDelete: () => void }) {
-    const projectCount = batch.scripts.filter((script) => Boolean(script.projectId)).length;
-    const readyCount = batch.scripts.filter((script) => script.status === "storyboard_ready").length;
-    const activeCount = batch.control.queuedCount + batch.control.runningCount;
-    const status = activeCount ? "生成中" : batch.status === "draft" ? "草稿" : "制作中";
-    const statusTone = status === "生成中" ? "generating" : status === "草稿" ? "draft" : "in-progress";
     return (
         <LibraryCardShell
             ariaLabel={`打开批次 ${batch.title}`}
@@ -631,19 +625,7 @@ function SmartFilmBatchCard({ batch, onOpen, onDelete }: { batch: SmartFilmBatch
             onPointerEnter={() => preloadWorkspaceRoute(`/smart-film/batches/${batch.id}`)}
             cover={
                 <div className="canvas-collection-preview-content">
-                    <div className="project-collection-generated-cover">
-                        <div className="flex items-start justify-between gap-2">
-                            <span className="project-library-kind"><Clapperboard className="size-3.5" />多剧本批次</span>
-                            <span className={`project-summary-status is-${statusTone}`}>{status}</span>
-                        </div>
-                        <div className="flex items-end justify-between gap-3">
-                            <div className="min-w-0">
-                                <strong className="line-clamp-2 text-sm leading-5">{batch.title}</strong>
-                                <span className="mt-1 block text-[var(--fs-micro)] text-foreground/45">{batch.scripts.length} 条剧本 · {projectCount} 个项目 · {readyCount} 个分镜完成</span>
-                            </div>
-                            <Clapperboard className="size-9 shrink-0 text-foreground/18" />
-                        </div>
-                    </div>
+                    <div className="project-collection-generated-cover" />
                 </div>
             }
             title={batch.title}
@@ -673,8 +655,6 @@ function SmartFilmBatchCard({ batch, onOpen, onDelete }: { batch: SmartFilmBatch
 }
 
 function StudioProjectCard({ item, onOpen, onDelete, onDuplicate, newBatch }: { item: ProjectSummary; onOpen: () => void; onDelete: () => void; onDuplicate: () => void; newBatch: boolean }) {
-    const stage = projectSummaryStage(item);
-    const smartFilm = item.project.type === "smart-film" || item.project.type === "smart-film-auto";
     return (
         <LibraryCardShell
             ariaLabel={`打开智能成片项目 ${item.project.name}`}
@@ -684,19 +664,7 @@ function StudioProjectCard({ item, onOpen, onDelete, onDuplicate, newBatch }: { 
             onPointerEnter={() => preloadWorkspaceRoute(`/projects/${item.project.id}/overview`)}
             cover={
                 <div className="canvas-collection-preview-content">
-                    <div className="project-collection-generated-cover">
-                        <div className="flex items-start justify-between gap-2">
-                            <span className="project-library-kind"><Clapperboard className="size-3.5" />{smartFilm ? "智能成片" : "视频项目"}</span>
-                            <span className={`project-summary-status is-${stage.tone}`} title={stage.detail}>{stage.label}</span>
-                        </div>
-                        <div className="flex items-end justify-between gap-3">
-                            <div className="min-w-0">
-                                <strong className="line-clamp-2 text-sm leading-5">{item.project.name}</strong>
-                                <span className="mt-1 block text-[var(--fs-micro)] text-foreground/45">{item.unitCount} 个章节 · {item.assetCount} 个资产</span>
-                            </div>
-                            <Clapperboard className="size-9 shrink-0 text-foreground/18" />
-                        </div>
-                    </div>
+                    <div className="project-collection-generated-cover" />
                 </div>
             }
             title={item.project.name}

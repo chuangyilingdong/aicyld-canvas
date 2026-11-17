@@ -17,7 +17,6 @@ import { isMusicAudioModel } from "@/lib/audio-generation";
 import { canvasFeatureModel } from "@/lib/canvas/feature-models";
 import { createStyleProfileSnapshot, parseStyleProfile, serializeStyleProfile } from "@/lib/canvas/style-profile";
 import { isValidSmartFilmShotCount, normalizeSmartFilmShotCount, SMART_FILM_DEFAULT_SHOT_COUNT, SMART_FILM_MAX_SHOT_COUNT, SMART_FILM_MIN_SHOT_COUNT } from "@/lib/canvas/smart-film-options";
-import { projectSummaryStage } from "@/lib/project-workbench";
 import { settingsPath } from "@/lib/settings-navigation";
 import { preloadWorkspaceRoute } from "@/lib/workspace-route-modules";
 import { PromptTemplateOperation, parseGeneratedStory, promptTemplateTaskPlaceholder, shortDramaOutlineVariables } from "@/lib/prompts";
@@ -698,10 +697,7 @@ function generationStepDone(label: string, status: string) {
 
 function ProjectRow({ row, folders, newBatch, onDelete, onRename, onArchive, onDuplicate, onMove }: { row: ProjectSummary; folders: { id: string; name: string }[]; newBatch: boolean; onDelete: () => void; onRename: () => void; onArchive: () => void; onDuplicate: () => Promise<void>; onMove: (folderId: string) => Promise<void> }) {
     const navigate = useNavigate();
-    const stage = projectSummaryStage(row);
-    const smartFilm = row.project.type === "smart-film" || row.project.type === "smart-film-auto";
     const projectStyle = resolveProjectCanvasStyle(row.project.stylePresetId, row.project.styleProfileJson);
-    const styleTitle = projectStyle?.title || parseStyleProfile(row.project.styleProfileJson)?.title || resolveCanvasStylePreset(row.project.stylePresetId)?.title || (row.project.stylePresetId ? "自定义画风" : "未设置画风");
     const coverUrl = row.project.coverResourceId ? resourceFileUrl(row.project.coverResourceId) : projectStyle?.imageUrl;
     return (
         <LibraryCardShell
@@ -716,15 +712,6 @@ function ProjectRow({ row, folders, newBatch, onDelete, onRename, onArchive, onD
                 <div className="canvas-collection-preview-content">
                     <div className="project-library-unified-cover">
                         {coverUrl ? <CachedResourceImage className="project-library-cover-art" src={coverUrl} alt="" fallback={<MediaPlaceholder failed />} /> : <MediaPlaceholder label="故事由此开始" />}
-                        <span className="project-library-cover-scrim" />
-                        <div className="project-library-unified-top">
-                            <span className="project-library-kind"><Clapperboard className="size-3.5" />{smartFilm ? "智能成片" : "视频项目"}</span>
-                            <span className={`project-summary-status is-${stage.tone}`} title={stage.detail}>{stage.label}</span>
-                        </div>
-                        <div className="project-library-unified-bottom">
-                            <strong>{row.project.name}</strong>
-                            <span>{row.unitCount} 章 · {row.assetCount} 项资产 · {styleTitle}</span>
-                        </div>
                     </div>
                 </div>
             }

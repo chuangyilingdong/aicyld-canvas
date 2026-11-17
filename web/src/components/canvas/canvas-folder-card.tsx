@@ -25,7 +25,7 @@ type CanvasFolderCardProps = {
 };
 
 /** 画布库中的文件夹封面：单一卡片表面承载预览和信息，避免相邻卡片互相侵入。 */
-export function CanvasFolderCard({ project, projectName, folders = [], onMoveToFolder, onDuplicate, onExport, onDelete, onClick, onPrefetch, opening = false }: CanvasFolderCardProps) {
+export function CanvasFolderCard({ project, folders = [], onMoveToFolder, onDuplicate, onExport, onDelete, onClick, onPrefetch, opening = false }: CanvasFolderCardProps) {
     const { message } = App.useApp();
     const renameProject = useCanvasStore((state) => state.renameProject);
     const selectedIds = useCanvasUiStore((state) => state.selectedProjectIds);
@@ -40,7 +40,6 @@ export function CanvasFolderCard({ project, projectName, folders = [], onMoveToF
     const selected = selectedIds.includes(project.id);
     const coverInputRef = useRef<HTMLInputElement>(null);
     const [coverUrl, setCoverUrl] = useState<string>();
-    const draft = project.nodeCount === 0;
 
     useEffect(() => {
         let active = true;
@@ -139,15 +138,6 @@ export function CanvasFolderCard({ project, projectName, folders = [], onMoveToF
                 <div className="canvas-collection-preview-content">
                     <ProjectPreview project={{ id: project.id, nodes: project.previewNodes }} emptyVariant="libtv" />
                     {coverUrl ? <img className="canvas-collection-custom-cover" src={coverUrl} alt="" /> : null}
-                    <span className="project-library-cover-scrim" />
-                    <div className="project-library-unified-top">
-                        <span className="project-library-kind">画布项目</span>
-                        <span className={`project-summary-status is-${draft ? "draft" : "in-progress"}`}>{draft ? "草稿" : "制作中"}</span>
-                    </div>
-                    <div className="project-library-unified-bottom">
-                        <strong>{project.title}</strong>
-                        <span>{project.nodeCount} 个节点 · {projectName || "自由画布"}</span>
-                    </div>
                     {opening ? <div className="canvas-collection-opening"><LoaderCircle className="size-5 animate-spin" /><span>正在打开</span></div> : null}
                 </div>
             }
