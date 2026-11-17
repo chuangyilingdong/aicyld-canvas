@@ -86,7 +86,7 @@ func (m *memStore) CreateAdmitted(task *model.Task, limit int) error {
 			active++
 		}
 	}
-	if active >= limit {
+	if limit > 0 && active >= limit {
 		return repository.ErrActiveTaskLimit
 	}
 	copied := *task
@@ -113,7 +113,7 @@ func (m *memStore) Retry(userID string, prepared *model.Task, limit int) (*model
 			active++
 		}
 	}
-	if active >= limit {
+	if limit > 0 && active >= limit {
 		return nil, repository.ErrActiveTaskLimit
 	}
 	task.Status = model.TaskStatusQueued
@@ -391,6 +391,22 @@ func TestCreateRequestOmitsTrustedAdmissionFields(t *testing.T) {
 	}
 	if strings.Contains(string(raw), "trusted") || strings.Contains(string(raw), "Admission") || strings.Contains(strings.ToLower(string(raw)), "prepare") {
 		t.Fatalf("trusted fields leaked into JSON: %s", raw)
+	}
+}
+
+func TestZeroActiveTaskLimitIsUnlimited(t *testing.T) {
+	store := newMemStore()
+	service := domainService(store, func(deps *Dependencies) {
+		deps.Policy = staticPolicy{limit: 0}
+	})
+	for index, operation := range []string{"unlimited:first", "unlimited:second"} {
+		req := imageReq("a cat", operation)
+		if _, err := service.CreateTask("user", req); err != nil {
+			t.Fatalf("create %d with unlimited active tasks: %v", index+1, err)
+		}
+	}
+	if active, err := store.ActiveTaskCount("user"); err != nil || active != 2 {
+		t.Fatalf("active tasks = %d, err = %v", active, err)
 	}
 }
 

@@ -109,7 +109,7 @@ func (s *Service) admit(userID string, req CreateRequest) (*model.Task, error) {
 		if err != nil {
 			return nil, localStorageFailed(err)
 		}
-		if activeTasks >= int64(limit) {
+		if limit > 0 && activeTasks >= int64(limit) {
 			return nil, activeLimitError(limit)
 		}
 	}
