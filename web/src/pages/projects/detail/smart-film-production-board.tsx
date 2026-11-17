@@ -3,6 +3,7 @@ import { AlertTriangle, ArrowLeft, ArrowRight, Clapperboard, Download, Edit3, Fi
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { CanvasResourceMentionTextarea } from "@/components/canvas/canvas-resource-mention-textarea";
+import { AppModal } from "@/components/ui/product/app-modal/app-modal";
 import { canvasResourceMentionToken } from "@/lib/canvas/canvas-resource-references";
 import { resourceFileUrl, resourceIdFromStorageKey, resourceThumbnailUrl } from "@/services/api/resources";
 import type { ProjectDetail, ProjectShot, ShotArtifact, ShotRevision } from "@/services/api/projects";
@@ -14,7 +15,7 @@ import { ArtifactStatus, currentArtifact, currentRevision, formatDuration } from
 
 type PromptSaveStatus = "draft" | "confirmed";
 
-export function SmartFilmStoryboardBoard({ detail, shots, readyCount, busy, submittingShotIds, onConfirmImage, onSaveShotPrompt, onGenerateAll, onGenerateShot, onPreviewImage, onNext }: {
+export function SmartFilmStoryboardBoard({ detail, shots, readyCount, busy, submittingShotIds, onConfirmImage, onSaveShotPrompt, onGenerateAll, onGenerateShot, onNext }: {
     detail: ProjectDetail;
     shots: ProjectShot[];
     readyCount: number;
@@ -24,10 +25,10 @@ export function SmartFilmStoryboardBoard({ detail, shots, readyCount, busy, subm
     onSaveShotPrompt: (shot: ProjectShot, imagePrompt: string) => Promise<void>;
     onGenerateAll: () => void;
     onGenerateShot: (shot: ProjectShot, imagePrompt?: string) => void;
-    onPreviewImage: (artifact: ShotArtifact) => void;
     onNext: () => void;
 }) {
     const { message } = App.useApp();
+    const [previewArtifact, setPreviewArtifact] = useState<ShotArtifact | null>(null);
     const [editingPromptShotId, setEditingPromptShotId] = useState<string>();
     const [promptDraft, setPromptDraft] = useState("");
     const [savingPromptShotId, setSavingPromptShotId] = useState<string>();
@@ -143,7 +144,7 @@ export function SmartFilmStoryboardBoard({ detail, shots, readyCount, busy, subm
                     };
                     return (
                         <article key={shot.id} className="grid gap-3 rounded-xl border border-border/70 bg-surface p-3 lg:grid-cols-[220px_minmax(0,1fr)_170px]">
-                            <button type="button" className="relative aspect-video self-start overflow-hidden rounded-lg border border-border/60 bg-black/20" disabled={!artifact?.resourceId} onClick={() => artifact && onPreviewImage(artifact)} aria-label={`查看${shot.title}分镜图`}>
+                            <button type="button" className="relative aspect-video self-start overflow-hidden rounded-lg border border-border/60 bg-black/20" disabled={!artifact?.resourceId} onClick={() => artifact && setPreviewArtifact(artifact)} aria-label={`查看${shot.title}分镜图`}>
                                 {artifact?.resourceId ? <img src={resourceThumbnailUrl(artifact.resourceId, 480)} alt={`${shot.title}分镜图`} className="h-full w-full object-contain" loading="lazy" decoding="async" /> : <span className="grid h-full place-items-center text-foreground/24"><ImageIcon className="size-7" /></span>}
                             </button>
 
@@ -197,12 +198,24 @@ export function SmartFilmStoryboardBoard({ detail, shots, readyCount, busy, subm
                             <div className="flex flex-col items-stretch justify-between gap-2 lg:items-end">
                                 <ArtifactStatus artifact={artifact} taskStatus={submitting ? "queued" : task?.status} />
                                 <Button type="primary" icon={<Sparkles className="size-3.5" />} loading={submitting || taskRunning} disabled={busy || taskRunning} onClick={generateImage}>{taskRunning ? task?.status === "succeeded" ? "正在取回图片…" : "生成中…" : ready ? "重新生成分镜图" : "生成分镜图"}</Button>
-                                {artifact?.resourceId ? <Button type="text" size="small" icon={<ImageIcon className="size-3.5" />} onClick={() => onPreviewImage(artifact)}>查看图片</Button> : null}
+                                {artifact?.resourceId ? <Button type="text" size="small" icon={<ImageIcon className="size-3.5" />} onClick={() => setPreviewArtifact(artifact)}>查看图片</Button> : null}
                             </div>
                         </article>
                     );
                 })}
             </div>
+            <AppModal
+                flush
+                open={Boolean(previewArtifact?.resourceId)}
+                title="分镜图预览"
+                footer={null}
+                centered
+                maskClosable={false}
+                width="min(960px, calc(100vw - 32px))"
+                onCancel={() => setPreviewArtifact(null)}
+            >
+                {previewArtifact?.resourceId ? <img className="workflow-image-preview-modal" src={resourceFileUrl(previewArtifact.resourceId)} alt="分镜图大图" /> : null}
+            </AppModal>
         </section>
     );
 }
@@ -318,7 +331,6 @@ function SmartFilmVideoShotRow({ detail, shot, index, artifact, revision, target
     const [selection, setSelection] = useState({ start: initialPrompt.length, end: initialPrompt.length });
     const [caretRequest, setCaretRequest] = useState<{ offset: number; key: number } | null>(null);
     const ready = Boolean(artifact?.resourceId && artifact.status === "ready");
-    const confirmed = shot.status === "confirmed" && !dirty;
 
     useEffect(() => {
         setPrompt(initialPrompt);
@@ -333,10 +345,10 @@ function SmartFilmVideoShotRow({ detail, shot, index, artifact, revision, target
         }
         setSaving(true);
         try {
-            await onSave(shot, normalized, "confirmed");
+            await onSave(shot, normalized, "draft");
             setPrompt(normalized);
             setDirty(false);
-            message.success("本镜视频提示词已保存并确认");
+            message.success("本镜视频提示词已保存");
         } catch (error) {
             message.error(error instanceof Error ? error.message : "本镜提示词保存失败");
         } finally {
@@ -357,7 +369,7 @@ function SmartFilmVideoShotRow({ detail, shot, index, artifact, revision, target
     };
 
     return (
-        <article className={`grid gap-3 rounded-xl border bg-foreground/[.025] p-3 lg:grid-cols-[220px_minmax(0,1fr)_160px] ${confirmed ? "border-emerald-500/35" : "border-border/60"}`}>
+        <article className={`grid gap-3 rounded-xl border bg-foreground/[.025] p-3 lg:grid-cols-[220px_minmax(0,1fr)_160px] ${ready ? "border-emerald-500/35" : "border-border/60"}`}>
             <div className="relative aspect-video self-start overflow-hidden rounded-lg border border-border/60 bg-foreground/[.04]">
                 {artifact?.resourceId ? <img src={resourceThumbnailUrl(artifact.resourceId, 480)} alt={`${shot.title}分镜图`} className="h-full w-full object-contain" loading="lazy" decoding="async" /> : <span className="grid h-full place-items-center text-foreground/25"><ImageIcon className="size-7" /></span>}
             </div>
@@ -366,12 +378,12 @@ function SmartFilmVideoShotRow({ detail, shot, index, artifact, revision, target
                 <div className="flex flex-wrap items-center gap-2">
                     <strong className="text-sm">镜头 {String(index + 1).padStart(2, "0")} · {shot.title || "未命名"}</strong>
                     <span className="text-[var(--fs-tiny)] text-foreground/42">计划 {formatDuration(shot.durationMs)} / 全片 {targetSeconds} 秒</span>
-                    {confirmed ? <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[var(--fs-micro)] text-emerald-500">本镜已确认</span> : <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[var(--fs-micro)] text-amber-500">{dirty ? "有修改待确认" : ready ? "参考图待确认" : "分镜图未就绪"}</span>}
+                    <span className={`rounded px-1.5 py-0.5 text-[var(--fs-micro)] ${dirty ? "bg-amber-500/10 text-amber-500" : ready ? "bg-emerald-500/10 text-emerald-500" : "bg-amber-500/10 text-amber-500"}`}>{dirty ? "有修改" : ready ? "提示词已保存" : "分镜图未就绪"}</span>
                 </div>
 
                 <div className="mt-2 flex items-center justify-between gap-2">
                     <label className="text-[var(--fs-micro)] font-medium text-foreground/48">视频提示词与动作节拍（仅本镜）</label>
-                    <span className={`text-[var(--fs-micro)] ${dirty ? "text-amber-500" : "text-foreground/30"}`}>{dirty ? "修改后直接确认即可保存" : "输入 @ 精确引用本镜资产图片"}</span>
+                    <span className={`text-[var(--fs-micro)] ${dirty ? "text-amber-500" : "text-foreground/30"}`}>{dirty ? "修改后点击保存" : "输入 @ 精确引用本镜资产图片"}</span>
                 </div>
                 <CanvasResourceMentionTextarea
                     value={prompt}

@@ -990,12 +990,8 @@ export default function WorkflowProductionWorkbench(props: Props) {
                 onSaveShotPrompt={saveSmartFilmStoryboardPrompt}
                 onGenerateAll={() => void generateAllArtifacts()}
                 onGenerateShot={(shot, imagePrompt) => void generateSmartFilmStoryboardShot(shot, imagePrompt)}
-                onPreviewImage={setImagePreviewArtifact}
                 onNext={() => navigate(`/projects/${projectId}/workflow/${unitId}/video`)}
             />
-            <AppModal flush open={Boolean(imagePreviewArtifact?.resourceId)} title="分镜图预览" footer={null} centered maskClosable={false} width="min(960px, calc(100vw - 32px))" onCancel={() => setImagePreviewArtifact(null)}>
-                {imagePreviewArtifact?.resourceId ? <img className="workflow-image-preview-modal" src={resourceFileUrl(imagePreviewArtifact.resourceId)} alt="分镜图大图" /> : null}
-            </AppModal>
         </div>;
     }
 
