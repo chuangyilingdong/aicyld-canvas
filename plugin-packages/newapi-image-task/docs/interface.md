@@ -18,7 +18,7 @@ Provider ID：`newapi-image`，能力：`image`，鉴权：`bearer`。
   "apiVersion": "beeftv.plugin/v2",
   "id": "newapi-image-task",
   "name": "NewAPI Image Task",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "author": "AICYLD",
   "description": "上游把图片生成挂在异步任务接口时使用的声明式协议：POST /v1/video/generations 提交，GET /v1/video/generations/{task_id} 轮询取回图片地址。",
   "documentation": "<当前插件的完整 documentation，由 README.md 与 docs/interface.md 拼接而成；为避免 JSON 递归，此处不重复展开正文。>",
@@ -75,6 +75,13 @@ Provider ID：`newapi-image`，能力：`image`，鉴权：`bearer`。
             "description": "比例或尺寸。"
           },
           {
+            "name": "quality",
+            "type": "string",
+            "required": false,
+            "mapping": "metadata.resolution",
+            "description": "图片分辨率档位；MiniMax H3 Image 使用 1k、2k 或 4k。"
+          },
+          {
             "name": "providerOptions",
             "type": "object",
             "required": false,
@@ -97,11 +104,23 @@ Provider ID：`newapi-image`，能力：`image`，鉴权：`bearer`。
               "$omitEmpty": {
                 "$if": {
                   "condition": {
-                    "$gt": [
+                    "$and": [
                       {
-                        "$ref": "request.imageCount"
+                        "$gt": [
+                          {
+                            "$ref": "request.imageCount"
+                          },
+                          0
+                        ]
                       },
-                      0
+                      {
+                        "$ne": [
+                          {
+                            "$ref": "request.model"
+                          },
+                          "minimax-h3-image"
+                        ]
+                      }
                     ]
                   },
                   "then": {
@@ -115,24 +134,64 @@ Provider ID：`newapi-image`，能力：`image`，鉴权：`bearer`。
               "$omitEmpty": {
                 "$if": {
                   "condition": {
-                    "$in": [
+                    "$or": [
                       {
-                        "$lower": {
-                          "$trim": {
-                            "$ref": "request.aspectRatio"
-                          }
-                        }
+                        "$in": [
+                          {
+                            "$lower": {
+                              "$trim": {
+                                "$ref": "request.aspectRatio"
+                              }
+                            }
+                          },
+                          [
+                            "",
+                            "auto"
+                          ]
+                        ]
                       },
-                      [
-                        "",
-                        "auto"
-                      ]
+                      {
+                        "$eq": [
+                          {
+                            "$ref": "request.model"
+                          },
+                          "minimax-h3-image"
+                        ]
+                      }
                     ]
                   },
                   "then": null,
                   "else": {
                     "$ref": "request.aspectRatio"
                   }
+                }
+              }
+            },
+            "metadata": {
+              "$omitEmpty": {
+                "$if": {
+                  "condition": {
+                    "$eq": [
+                      {
+                        "$ref": "request.model"
+                      },
+                      "minimax-h3-image"
+                    ]
+                  },
+                  "then": {
+                    "ratio": {
+                      "$omitEmpty": {
+                        "$ref": "request.aspectRatio"
+                      }
+                    },
+                    "resolution": {
+                      "$omitEmpty": {
+                        "$ref": "request.quality"
+                      }
+                    },
+                    "output_format": "png"
+                  },
+                  "else": null
                 }
               }
             },

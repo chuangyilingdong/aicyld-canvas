@@ -378,6 +378,9 @@ func CapabilityConfigFor(capability, model string) (json.RawMessage, bool) {
 		if strings.Contains(name, "seedance-2") {
 			return seedanceCapabilityConfigBody(seedanceModeForModel(model), isSeedance25ModelName(name)), true
 		}
+		if isKlingV4Model(name) {
+			return klingV4CapabilityConfigBody(name), true
+		}
 		// MiniMax H3 支持参考视频/参考音频（reference_audio / drive_audio）。
 		// 以前它落到通用视频默认值（maxAudios/maxVideos = 0），客户端的模型列表据此
 		// 把 H3 灰掉、发送按钮点不动；DB channel_models 里一直是 3/3，种子却写 0。
@@ -393,6 +396,9 @@ func CapabilityConfigFor(capability, model string) (json.RawMessage, bool) {
 		if strings.Contains(name, "midjourney") {
 			return json.RawMessage(midjourneyImageCapabilityConfig), true
 		}
+		if name == "minimax-h3-image" {
+			return minimaxH3ImageCapabilityConfigBody(), true
+		}
 		return json.RawMessage(defaultImageCapabilityConfig), true
 	case "text":
 		return json.RawMessage(defaultTextCapabilityConfig), true
@@ -406,6 +412,98 @@ func CapabilityConfigFor(capability, model string) (json.RawMessage, bool) {
 func isMiniMaxH3Model(name string) bool {
 	return strings.Contains(name, "minimax-h3") || strings.Contains(name, "minimax h3") ||
 		strings.Contains(name, "h3-max") || strings.Contains(name, "h3 max")
+}
+
+func isKlingV4Model(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "kling-v4-flash", "kling-v4-t2v", "kling-v4-i2v", "kling-v4-omni":
+		return true
+	default:
+		return false
+	}
+}
+
+func klingV4CapabilityConfigBody(model string) json.RawMessage {
+	model = strings.ToLower(strings.TrimSpace(model))
+	references := map[string]any{
+		"promptMaxChars": 0, "minImages": 0, "maxImages": 0, "maxImageBytes": 0,
+		"maxVideos": 0, "maxVideoBytes": 0, "maxVideoDurationSeconds": 0,
+		"maxAudios": 0, "maxAudioBytes": 0, "maxAudioDurationSeconds": 0,
+	}
+	operations := []string{"text_to_video"}
+	defaultOperation := "text_to_video"
+	ratios := []string{"21:9", "16:9", "1:1", "9:16"}
+	resolutions := []string{"720p", "1080p"}
+	maxDuration := 30
+	switch model {
+	case "kling-v4-i2v":
+		references["minImages"] = 1
+		references["maxImages"] = 2
+		references["maxImageBytes"] = 31457280
+		operations = []string{"image_to_video", "first_last_frame"}
+		defaultOperation = "image_to_video"
+		ratios = []string{"adaptive"}
+	case "kling-v4-omni":
+		references["maxImages"] = 10
+		references["maxImageBytes"] = 31457280
+		references["maxVideos"] = 5
+		references["maxVideoBytes"] = 314572800
+		references["maxVideoDurationSeconds"] = 30
+		operations = []string{"text_to_video", "image_to_video", "first_last_frame", "reference_to_video"}
+		ratios = []string{"adaptive", "21:9", "16:9", "1:1", "9:16"}
+	case "kling-v4-flash":
+		references["maxImages"] = 10
+		references["maxImageBytes"] = 31457280
+		references["maxVideos"] = 5
+		references["maxVideoBytes"] = 314572800
+		references["maxVideoDurationSeconds"] = 30
+		operations = []string{"text_to_video", "image_to_video", "reference_to_video"}
+		resolutions = []string{"720p"}
+		maxDuration = 20
+	}
+	body := map[string]any{
+		"version": 1,
+		"video": map[string]any{
+			"references":        references,
+			"duration":          map[string]any{"selection": "range", "min": 3, "max": maxDuration, "step": 1, "default": 5},
+			"ratios":            ratios,
+			"defaultRatio":      ratios[0],
+			"resolutions":       resolutions,
+			"defaultResolution": resolutions[0],
+			"generateAudio":     map[string]any{"supported": false, "default": false},
+			"watermark":         map[string]any{"supported": true, "default": false},
+			"operations":        operations,
+			"defaultOperation":  defaultOperation,
+		},
+	}
+	raw, _ := json.Marshal(body)
+	return json.RawMessage(raw)
+}
+
+func minimaxH3ImageCapabilityConfigBody() json.RawMessage {
+	body := map[string]any{
+		"version": 1,
+		"image": map[string]any{
+			"references": map[string]any{
+				"promptMaxChars": 32000, "maxImages": 16, "maxImageBytes": 31457280, "maskSupported": false,
+			},
+			"size": map[string]any{
+				"parameter": "aspect_ratio",
+				"values":    []string{"1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9", "21:9", "1:3", "3:1"},
+				"default":   "1:1", "allowCustom": false,
+			},
+			"quality":               map[string]any{"supported": true, "values": []string{"1k", "2k", "4k"}, "default": "1k"},
+			"transparentBackground": map[string]any{"supported": false, "default": false},
+			"responseFormat":        map[string]any{"supported": false},
+			"outputFormat":          map[string]any{"supported": true},
+			"maxOutputs":            1,
+			"fixedOutputs":          1,
+			"operations":            []string{"text_to_image", "image_to_image"},
+			"defaultOperation":      "text_to_image",
+		},
+	}
+	raw, _ := json.Marshal(body)
+	return json.RawMessage(raw)
 }
 
 func isSeedance25ModelName(name string) bool {
@@ -477,6 +575,11 @@ func Defaults() []Channel {
 		seedanceFamilyProfile("seedance-2.0-fast", "Seedance 2.0 快速"),
 		seedanceFamilyProfile("seedance-2.5-standard", "Seedance 2.5 标准"),
 		platformProfile("MiniMax-H3", "MiniMax H3", "video", "minimax-h3-v2"),
+		platformProfile("kling-v4-flash", "Kling 4.0 Flash", "video", "newapi-channel-2"),
+		platformProfile("kling-v4-t2v", "Kling 4.0 文生视频", "video", "newapi-channel-2"),
+		platformProfile("kling-v4-i2v", "Kling 4.0 图生视频", "video", "newapi-channel-2"),
+		platformProfile("kling-v4-omni", "Kling 4.0 全能参考", "video", "newapi-channel-2"),
+		platformProfile("minimax-h3-image", "MiniMax H3 Image", "image", "newapi-image"),
 		platformProfile("zhenzhen-image-nb-2.1-lowprice", "zhenzhen nb 2.1（特价）", "image", "newapi-image"),
 		platformProfile("zhenzhen-image-nb-pro-lowprice", "zhenzhen nb pro（特价）", "image", "newapi-image"),
 		platformProfile("zhenzhen-image-g-v2.5-lowprice", "zhenzhen g v2.5（特价）", "image", "newapi-image"),

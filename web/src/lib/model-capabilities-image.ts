@@ -270,6 +270,21 @@ export function defaultImageCapabilityConfig(protocol?: ModelProtocol, model = "
         image.outputFormat = { supported: false };
         image.maxOutputs = 1;
     }
+    if (protocol === "midjourney") {
+        image.references = { promptMaxChars: 32000, maxImages: 16, maxImageBytes: 31457280, maskSupported: false };
+        image.size = {
+            parameter: "aspect_ratio",
+            values: ["16:9", "1:1", "9:16", "4:3", "3:4", "3:2", "2:3"],
+            default: "1:1",
+            allowCustom: false,
+        };
+        image.quality = { supported: true, values: ["relax", "fast", "turbo"], default: "relax" };
+        image.transparentBackground = { supported: false, default: false };
+        image.responseFormat = { supported: true };
+        image.outputFormat = { supported: false };
+        image.maxOutputs = 4;
+        image.fixedOutputs = 4;
+    }
     return image;
 }
 

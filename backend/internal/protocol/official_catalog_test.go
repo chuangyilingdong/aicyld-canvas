@@ -1101,6 +1101,50 @@ func TestNewAPIVideoGenerationsIncludesSingularAndArrayImageFields(t *testing.T)
 	}
 }
 
+func TestKlingV4I2VOmitsRatioAndKeepsFrameOrder(t *testing.T) {
+	adapter := officialPackageAdapter(t, "newapi-video-generations-v1.beeftv-plugin", "newapi-channel-2")
+	spec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
+		Model: "kling-v4-i2v", Prompt: "move naturally", Duration: 8, AspectRatio: "16:9", Resolution: "1080p",
+		Images: []MediaReference{
+			{URL: "https://cdn.example/first.png", Role: "first_frame", Order: 0},
+			{URL: "https://cdn.example/last.png", Role: "last_frame", Order: 1},
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := manifestTestBody(t, spec)
+	if _, exists := body["aspect_ratio"]; exists {
+		t.Fatalf("Kling v4 i2v must omit aspect_ratio: %#v", body)
+	}
+	urls, _ := body["image_urls"].([]any)
+	if len(urls) != 2 || urls[0] != "https://cdn.example/first.png" || urls[1] != "https://cdn.example/last.png" {
+		t.Fatalf("Kling v4 i2v image_urls = %#v", body["image_urls"])
+	}
+}
+
+func TestMiniMaxH3ImageUsesMetadataResolutionAndRatio(t *testing.T) {
+	adapter := officialPackageAdapter(t, "newapi-image-task.beeftv-plugin", "newapi-image")
+	spec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
+		Model: "minimax-h3-image", Prompt: "edit this image", AspectRatio: "16:9", Quality: "2k",
+		Images: []MediaReference{{URL: "https://cdn.example/source.png"}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := manifestTestBody(t, spec)
+	metadata, ok := body["metadata"].(map[string]any)
+	if !ok || metadata["ratio"] != "16:9" || metadata["resolution"] != "2k" || metadata["output_format"] != "png" {
+		t.Fatalf("MiniMax H3 Image metadata = %#v", body)
+	}
+	if _, exists := body["size"]; exists {
+		t.Fatalf("MiniMax H3 Image must not send top-level size: %#v", body)
+	}
+	if _, exists := body["n"]; exists {
+		t.Fatalf("MiniMax H3 Image must not request multiple outputs: %#v", body)
+	}
+}
+
 func TestMiniMaxHailuoVideoParsesNestedTaskErrorsAndDataFields(t *testing.T) {
 	adapter := officialPackageAdapter(t, "minimax-hailuo-video-v2.beeftv-plugin", "minimax-video")
 	created, err := adapter.ParseCreate(context.Background(), []byte(`{"data":{"task_id":"mm-task-1","status":"Preparing"}}`))

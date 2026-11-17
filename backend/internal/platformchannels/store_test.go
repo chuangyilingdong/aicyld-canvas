@@ -150,3 +150,84 @@ func TestSeedance25ProfileAllowsThirtySeconds(t *testing.T) {
 		}
 	}
 }
+
+func TestKlingV4ProfilesMatchUpstreamModes(t *testing.T) {
+	for _, tc := range []struct {
+		model       string
+		resolutions []string
+		ratios      []string
+		maxDuration int
+		maxImages   int
+		maxVideos   int
+	}{
+		{model: "kling-v4-flash", resolutions: []string{"720p"}, ratios: []string{"21:9", "16:9", "1:1", "9:16"}, maxDuration: 20, maxImages: 10, maxVideos: 5},
+		{model: "kling-v4-t2v", resolutions: []string{"720p", "1080p"}, ratios: []string{"21:9", "16:9", "1:1", "9:16"}, maxDuration: 30},
+		{model: "kling-v4-i2v", resolutions: []string{"720p", "1080p"}, ratios: []string{"adaptive"}, maxDuration: 30, maxImages: 2},
+		{model: "kling-v4-omni", resolutions: []string{"720p", "1080p"}, ratios: []string{"adaptive", "21:9", "16:9", "1:1", "9:16"}, maxDuration: 30, maxImages: 10, maxVideos: 5},
+	} {
+		raw, ok := CapabilityConfigFor("video", tc.model)
+		if !ok {
+			t.Fatalf("missing capability for %s", tc.model)
+		}
+		var config struct {
+			Video struct {
+				Duration struct {
+					Max int `json:"max"`
+				} `json:"duration"`
+				Ratios      []string `json:"ratios"`
+				Resolutions []string `json:"resolutions"`
+				References  struct {
+					MaxImages int `json:"maxImages"`
+					MaxVideos int `json:"maxVideos"`
+				} `json:"references"`
+			} `json:"video"`
+		}
+		if err := json.Unmarshal(raw, &config); err != nil {
+			t.Fatal(err)
+		}
+		if config.Video.Duration.Max != tc.maxDuration || config.Video.References.MaxImages != tc.maxImages ||
+			config.Video.References.MaxVideos != tc.maxVideos || !equalStrings(config.Video.Ratios, tc.ratios) ||
+			!equalStrings(config.Video.Resolutions, tc.resolutions) {
+			t.Fatalf("%s capability = %#v", tc.model, config.Video)
+		}
+	}
+}
+
+func TestMiniMaxH3ImageProfileSupportsOneFourKOutput(t *testing.T) {
+	raw, ok := CapabilityConfigFor("image", "minimax-h3-image")
+	if !ok {
+		t.Fatal("missing MiniMax H3 Image capability")
+	}
+	var config struct {
+		Image struct {
+			References struct {
+				MaxImages int `json:"maxImages"`
+			} `json:"references"`
+			Quality struct {
+				Values []string `json:"values"`
+			} `json:"quality"`
+			MaxOutputs int      `json:"maxOutputs"`
+			Operations []string `json:"operations"`
+		} `json:"image"`
+	}
+	if err := json.Unmarshal(raw, &config); err != nil {
+		t.Fatal(err)
+	}
+	if config.Image.References.MaxImages != 16 || config.Image.MaxOutputs != 1 ||
+		!equalStrings(config.Image.Quality.Values, []string{"1k", "2k", "4k"}) ||
+		!equalStrings(config.Image.Operations, []string{"text_to_image", "image_to_image"}) {
+		t.Fatalf("MiniMax H3 Image capability = %#v", config.Image)
+	}
+}
+
+func equalStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}
