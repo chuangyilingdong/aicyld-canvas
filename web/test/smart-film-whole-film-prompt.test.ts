@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { buildSmartFilmWholeFilmPrompt } from "@/pages/projects/detail/smart-film-whole-film-prompt";
+import { buildSmartFilmWholeFilmPrompt, buildSmartFilmWholeFilmPromptWithinLimit } from "@/pages/projects/detail/smart-film-whole-film-prompt";
 import type { ProjectAsset, ProjectDetail, ProjectShot, ShotArtifact } from "@/services/api/projects";
 
 describe("smart film whole-film prompt", () => {
@@ -69,6 +69,22 @@ describe("smart film whole-film prompt", () => {
         expect(plan.prompt).toContain("暗黑沧龙 图片3保持静止站立姿态");
         expect(plan.prompt).toContain("落灰展示柜与桌面 图片2");
         expect(plan.prompt).not.toContain("@[asset:missing]");
+
+        const storyboardOnly = buildSmartFilmWholeFilmPrompt(detail, [{ shot, artifact }], 2, {
+            includeShotAssetImages: false,
+        });
+        expect(storyboardOnly.referenceImages.map((image) => image.storageKey)).toEqual([
+            "resource:storyboard-resource",
+        ]);
+        expect(storyboardOnly.prompt).toContain("使用第 1 张分镜图");
+        expect(storyboardOnly.prompt).not.toContain("图片2");
+        expect(storyboardOnly.prompt).not.toContain("图片3");
+
+        const limited = buildSmartFilmWholeFilmPromptWithinLimit(detail, [{ shot, artifact }], 2, 1);
+        expect(limited.referenceImages.map((image) => image.storageKey)).toEqual([
+            "resource:storyboard-resource",
+        ]);
+        expect(limited.prompt).not.toContain("图片2");
     });
 });
 

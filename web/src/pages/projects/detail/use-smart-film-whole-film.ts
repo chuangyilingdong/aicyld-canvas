@@ -11,7 +11,7 @@ import { listGenerationTasks, type GenerationTask } from "@/services/api/task-ce
 import type { SmartFilmSkillStage } from "@/services/api/smart-film-batches";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { currentArtifact } from "./workflow-shared";
-import { buildSmartFilmWholeFilmPrompt } from "./smart-film-whole-film-prompt";
+import { buildSmartFilmWholeFilmPromptWithinLimit } from "./smart-film-whole-film-prompt";
 import { smartFilmSkillMetadata, smartFilmSkillStagePrompt } from "@/services/smart-film-skill";
 
 const recoveringSmartFilmTaskKeys = new Set<string>();
@@ -120,7 +120,12 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
             notifyError("智能整片缺少目标总时长，请返回批次设置制作规格");
             return;
         }
-        const promptPlan = buildSmartFilmWholeFilmPrompt(detail, storyboardArtifacts, targetSeconds);
+        const promptPlan = buildSmartFilmWholeFilmPromptWithinLimit(
+            detail,
+            storyboardArtifacts,
+            targetSeconds,
+            maxImages,
+        );
         const skillSnapshot = smartFilmBatchQuery.data?.config.skillSnapshot;
         if (skillSnapshot && !skillSnapshot.stages?.video) {
             notifyError(`技能「${skillSnapshot.name}」缺少整片视频阶段规则`);
@@ -128,7 +133,9 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
         }
         const prompt = smartFilmSkillStagePrompt(skillSnapshot, "video", promptPlan.prompt);
         if (promptPlan.referenceImages.length > maxImages) {
-            notifyError(`当前视频模型最多支持 ${maxImages} 张参考图，本片包含 ${storyboardArtifacts.length} 张分镜图和 ${promptPlan.referenceImages.length - storyboardArtifacts.length} 张镜头资产图，请更换支持更多参考图的模型`);
+            notifyError(maxImages < storyboardArtifacts.length
+                ? `当前视频模型最多支持 ${maxImages} 张参考图，本片有 ${storyboardArtifacts.length} 张分镜图，请更换支持更多参考图的模型`
+                : `当前视频模型最多支持 ${maxImages} 张参考图，本片需要 ${promptPlan.referenceImages.length} 张，请更换支持更多参考图的模型`);
             return;
         }
         const maxTargetSeconds = profile?.duration.max || targetSeconds;

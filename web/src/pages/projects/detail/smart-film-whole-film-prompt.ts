@@ -10,7 +10,13 @@ type StoryboardEntry = {
     artifact: ShotArtifact;
 };
 
-export function buildSmartFilmWholeFilmPrompt(detail: ProjectDetail, entries: StoryboardEntry[], targetSeconds: number) {
+export function buildSmartFilmWholeFilmPrompt(
+    detail: ProjectDetail,
+    entries: StoryboardEntry[],
+    targetSeconds: number,
+    options: { includeShotAssetImages?: boolean } = {},
+) {
+    const includeShotAssetImages = options.includeShotAssetImages !== false;
     const referenceImages: ReferenceImage[] = [];
     const imageIndexByStorageKey = new Map<string, number>();
     const imageIndexByAssetId = new Map<string, number>();
@@ -36,12 +42,23 @@ export function buildSmartFilmWholeFilmPrompt(detail: ProjectDetail, entries: St
             storageKey: storyboardStorageKey,
         });
         const context = buildShotAssetReferenceContext(detail, shot.id);
-        context.referenceImages.forEach((image, assetIndex) => {
-            const assetId = context.assetReferences[assetIndex]?.assetId;
-            const imageIndex = addImage(image);
-            if (assetId) imageIndexByAssetId.set(assetId, imageIndex);
-        });
-        return { shot, storyboardImageIndex, context };
+        if (includeShotAssetImages) {
+            context.referenceImages.forEach((image, assetIndex) => {
+                const assetId = context.assetReferences[assetIndex]?.assetId;
+                const imageIndex = addImage(image);
+                if (assetId) imageIndexByAssetId.set(assetId, imageIndex);
+            });
+        }
+        return {
+            shot,
+            storyboardImageIndex,
+            context: includeShotAssetImages ? context : {
+                ...context,
+                referenceImages: [],
+                assetReferences: [],
+                mentionReferences: [],
+            },
+        };
     });
 
     const shotPrompts = shotPlans.map(({ shot, storyboardImageIndex, context }, index) => {
@@ -63,4 +80,15 @@ export function buildSmartFilmWholeFilmPrompt(detail: ProjectDetail, entries: St
         referenceImages,
         storyboardResourceIds: entries.map(({ artifact }) => artifact.resourceId!),
     };
+}
+
+export function buildSmartFilmWholeFilmPromptWithinLimit(
+    detail: ProjectDetail,
+    entries: StoryboardEntry[],
+    targetSeconds: number,
+    maxImages: number,
+) {
+    const complete = buildSmartFilmWholeFilmPrompt(detail, entries, targetSeconds);
+    if (complete.referenceImages.length <= maxImages || entries.length > maxImages) return complete;
+    return buildSmartFilmWholeFilmPrompt(detail, entries, targetSeconds, { includeShotAssetImages: false });
 }
