@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"log"
 	"net/http"
 	"time"
 
@@ -63,6 +64,7 @@ func RegisterTaskRoutes(r *gin.RouterGroup, svc *app.Service, hostedProfile ...b
 		}
 		quote, err := svc.QuoteLocalTask(user.ID, req)
 		if err != nil {
+			log.Printf("task quote rejected: user=%s project=%s type=%s model=%s: %v", user.ID, req.ProjectID, req.Type, req.Model, err)
 			failService(c, err)
 			return
 		}

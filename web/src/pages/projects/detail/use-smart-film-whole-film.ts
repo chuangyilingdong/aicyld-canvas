@@ -22,6 +22,7 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
     const [smartFilmGenerating, setSmartFilmGenerating] = useState(false);
     const [smartFilmTask, setSmartFilmTask] = useState<GenerationTask | null>(null);
     const [smartFilmRecoveryError, setSmartFilmRecoveryError] = useState("");
+    const [smartFilmError, setSmartFilmError] = useState("");
     const smartFilmBatchQuery = useQuery({
         queryKey: ["smart-film-batch", detail.project.batchId, activeStage === "video" ? "video" : "image"],
         queryFn: () => getSmartFilmBatch(detail.project.batchId!, undefined, (activeStage === "video" ? "video" : "image") as SmartFilmSkillStage).then((result) => result.batch),
@@ -100,24 +101,29 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
 
     const generateSmartWholeFilm = async (confirmQuote: (input: ReturnType<typeof buildBackendGenerationTaskQuoteInput>) => Promise<boolean>, notifyError: (message: string) => void) => {
         if (smartFilmGenerating) return;
+        setSmartFilmError("");
+        const fail = (message: string) => {
+            setSmartFilmError(message);
+            notifyError(message);
+        };
         const storyboardArtifacts = shots.flatMap((shot) => {
             const artifact = currentArtifact(detail, shot.id, "storyboard");
             return artifact?.resourceId && artifact.status === "ready" ? [{ shot, artifact }] : [];
         });
         if (storyboardArtifacts.length !== shots.length || !storyboardArtifacts.length) {
-            notifyError("请先生成全部镜头，并确保每一个镜头都有可用的分镜图");
+            fail("请先生成全部镜头，并确保每一个镜头都有可用的分镜图");
             return;
         }
         const model = detail.project.defaultVideoModel || effectiveConfig.videoModel;
         if (!model || !isAiConfigReady(effectiveConfig, model)) {
-            notifyError("当前项目没有可用的视频模型");
+            fail("当前项目没有可用的视频模型");
             return;
         }
         const profile = modelCapabilityConfigFor(effectiveConfig, model).video;
         const maxImages = profile?.references.maxImages || 0;
         const targetSeconds = Number(smartFilmBatchQuery.data?.config.targetDurationSeconds || 0);
         if (targetSeconds <= 0) {
-            notifyError("智能整片缺少目标总时长，请返回批次设置制作规格");
+            fail("智能整片缺少目标总时长，请返回批次设置制作规格");
             return;
         }
         const promptPlan = buildSmartFilmWholeFilmPromptWithinLimit(
@@ -128,19 +134,19 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
         );
         const skillSnapshot = smartFilmBatchQuery.data?.config.skillSnapshot;
         if (skillSnapshot && !skillSnapshot.stages?.video) {
-            notifyError(`技能「${skillSnapshot.name}」缺少整片视频阶段规则`);
+            fail(`技能「${skillSnapshot.name}」缺少整片视频阶段规则`);
             return;
         }
         const prompt = smartFilmSkillStagePrompt(skillSnapshot, "video", promptPlan.prompt);
         if (promptPlan.referenceImages.length > maxImages) {
-            notifyError(maxImages < storyboardArtifacts.length
+            fail(maxImages < storyboardArtifacts.length
                 ? `当前视频模型最多支持 ${maxImages} 张参考图，本片有 ${storyboardArtifacts.length} 张分镜图，请更换支持更多参考图的模型`
                 : `当前视频模型最多支持 ${maxImages} 张参考图，本片需要 ${promptPlan.referenceImages.length} 张，请更换支持更多参考图的模型`);
             return;
         }
         const maxTargetSeconds = profile?.duration.max || targetSeconds;
         if (targetSeconds > maxTargetSeconds) {
-            notifyError(`当前视频模型单次最多生成 ${maxTargetSeconds} 秒，无法直接生成 ${targetSeconds} 秒整片`);
+            fail(`当前视频模型单次最多生成 ${maxTargetSeconds} 秒，无法直接生成 ${targetSeconds} 秒整片`);
             return;
         }
         const normalizedVideo = profile
@@ -195,11 +201,11 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
             });
             await unitArtifactsQuery.refetch();
         } catch (error) {
-            notifyError(error instanceof Error ? error.message : "智能整片生成失败");
+            fail(error instanceof Error ? error.message : "智能整片生成失败");
         } finally {
             setSmartFilmGenerating(false);
         }
     };
 
-    return { smartWholeFilm, smartFilmConfigurationPending, smartFilmGenerating, smartFilmTask: smartFilmTask || latestSmartFilmTask, smartFilmRecoveryError, latestSmartWholeFilm, readyStoryboardCount, smartFilmBatch: smartFilmBatchQuery.data, generateSmartWholeFilm };
+    return { smartWholeFilm, smartFilmConfigurationPending, smartFilmGenerating, smartFilmError, smartFilmTask: smartFilmTask || latestSmartFilmTask, smartFilmRecoveryError, latestSmartWholeFilm, readyStoryboardCount, smartFilmBatch: smartFilmBatchQuery.data, generateSmartWholeFilm };
 }

@@ -204,12 +204,13 @@ export function SmartFilmStoryboardBoard({ detail, shots, readyCount, busy, subm
     );
 }
 
-export function SmartFilmVideoBoard({ detail, shots, readyCount, targetSeconds, generating, generationTask, recoveryError, latestResourceId, onBack, onSaveShotPrompt, onGenerate, onDownload }: {
+export function SmartFilmVideoBoard({ detail, shots, readyCount, targetSeconds, generating, generationError, generationTask, recoveryError, latestResourceId, onBack, onSaveShotPrompt, onGenerate, onDownload }: {
     detail: ProjectDetail;
     shots: ProjectShot[];
     readyCount: number;
     targetSeconds: number;
     generating: boolean;
+    generationError?: string;
     generationTask?: GenerationTask;
     recoveryError?: string;
     latestResourceId?: string;
@@ -246,6 +247,7 @@ export function SmartFilmVideoBoard({ detail, shots, readyCount, targetSeconds, 
                     </div>
                     <p className="mt-1 text-xs leading-5 text-foreground/48">可检查并编辑本镜视频提示词与动作节拍；分镜图全部可用后即可生成整片视频。</p>
                     {!allReady ? <p className="mt-1 text-[var(--fs-tiny)] text-amber-500">{staleCount ? `有 ${staleCount} 张分镜图已过期，请回到分镜步骤重新生成。` : "仍有分镜图未生成，暂时不能生成整片视频。"}</p> : null}
+                    {generationError ? <p className="mt-1 text-[var(--fs-tiny)] text-rose-500">{generationError}</p> : null}
                     {recoveryError ? <p className="mt-1 text-[var(--fs-tiny)] text-rose-500">产物恢复失败：{recoveryError}</p> : null}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
