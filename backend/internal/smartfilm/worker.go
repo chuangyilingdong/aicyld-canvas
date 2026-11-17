@@ -319,7 +319,7 @@ func (w *Worker) submitStoryboard(item localproject.SmartFilmStoryboardWorkItem)
 	input := map[string]any{
 		"mode": "text", "prompt": prompt, "config": config,
 		"canvasAssets": item.Assets,
-		"requirements": "只使用当前项目已确认资产；每个镜头只绑定实际出现在画面中的角色、场景和道具。",
+		"requirements": "可使用当前项目已确认资产和未生成资产图的文字设定；每个镜头只绑定实际出现在画面中的角色、场景和道具。",
 		"shotCount":    item.ShotCount, "shotDurationSeconds": item.ShotDurationSeconds,
 		"shotDurationsSeconds":  item.ShotDurationsSeconds,
 		"targetDurationSeconds": item.TargetDurationSeconds,
@@ -493,8 +493,8 @@ func storyboardPrompt(item localproject.SmartFilmStoryboardWorkItem, assetsJSON 
 		"你是影视分镜导演和 AI 视频提示词专家。只基于本条独立剧本创作，不要引用其他批次或项目内容。",
 		"【剧情】\n" + item.ScriptContent,
 		"【项目画风】\n" + DefaultString(item.ProjectStyle, "保持视觉描述中性、可执行。"),
-		"【当前已确认资产】\n" + string(assetsJSON),
-		"【执行约束】\n- " + durationRule + "\n- " + countRule + "\n- visualReference=true 表示有资产图，可作为视觉参考；visualReference=false 只是文本设定，只能用于理解角色、场景和道具。\n- characters 必须原样填写当前已确认人物资产的 title，不得改写人物名称或使用泛称。\n- 每个镜头只绑定实际出现的角色、场景和道具；禁止把全部产品图无差别塞入每个镜头。\n- assetRefs 只能使用 visualReference=true 的资产 ID；没有相关视觉资产时返回空数组。\n- 禁止把 visualReference=false 的资产写入 assetRefs，也禁止在提示词里生成对应的 @[asset:*]。\n- 单镜头最多 2 名主要角色、1 个主运镜、一条主要动作链、3 个 timeBeats 和 3 个 mustHave。\n- dialogue 只写本镜头实际念出的台词或简短旁白。\n- 只返回一个 JSON 对象，不要 Markdown、代码块或解释。",
+		"【当前可用资产】\n" + string(assetsJSON),
+		"【执行约束】\n- " + durationRule + "\n- " + countRule + "\n- visualReference=true 表示有资产图，可作为视觉参考；visualReference=false 是仅文字设定，必须使用其 prompt/definition 理解角色、场景和道具。\n- characters 必须原样填写当前可用人物资产的 title，不得改写人物名称或使用泛称。\n- 每个镜头只绑定实际出现的角色、场景和道具；禁止把全部资产无差别塞入每个镜头。\n- assetRefs 只能使用 visualReference=true 的资产 ID；没有相关视觉资产时返回空数组。\n- 禁止把 visualReference=false 的资产写入 assetRefs，也禁止在提示词里生成对应的 @[asset:*]。\n- 单镜头最多 2 名主要角色、1 个主运镜、一条主要动作链、3 个 timeBeats 和 3 个 mustHave。\n- dialogue 只写本镜头实际念出的台词或简短旁白。\n- 只返回一个 JSON 对象，不要 Markdown、代码块或解释。",
 		"【输出结构】\n" + `{"title":"string","rows":[{"shotNumber":1,"durationSeconds":5,"plotDescription":"","dialogue":"","characters":[],"narrativeIntent":"","viewerPOV":"","performanceBlocking":"","shotSize":"","emotion":"","lightingAndAtmosphere":"","audioEffects":"","camera":"","motion":"","timeBeats":"","imageGenerationPrompt":"","videoMotionPrompt":"","continuityOut":"","negativePrompt":"","mustHave":[],"optionalDetails":[],"assetRefs":[{"nodeId":"asset-id","role":"character","priority":100}]}]}`,
 	}, "\n\n")
 }
@@ -531,19 +531,9 @@ func validateStoryboardCharacterBindings(row map[string]any, assets []localproje
 		if name == "" {
 			continue
 		}
-		matches, ok := characters[strings.ToLower(name)]
+		_, ok := characters[strings.ToLower(name)]
 		if !ok {
-			return fmt.Errorf("人物「%s」没有对应的已确认人物资产，请使用已绑定的人物名称", name)
-		}
-		hasVisual := false
-		for _, asset := range matches {
-			if asset.VisualReference {
-				hasVisual = true
-				break
-			}
-		}
-		if !hasVisual {
-			return fmt.Errorf("人物「%s」没有可用于生成的参考图", name)
+			return fmt.Errorf("人物「%s」没有对应的可用人物资产，请使用资产名称", name)
 		}
 	}
 	return nil

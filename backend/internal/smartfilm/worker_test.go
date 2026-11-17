@@ -259,7 +259,7 @@ func TestWorkerStoryboardUsesOnePinnedSkillContext(t *testing.T) {
 	}
 }
 
-func TestValidateStoryboardCharacterBindingsRequiresNamedVisualAsset(t *testing.T) {
+func TestValidateStoryboardCharacterBindingsAcceptsNamedTextSetting(t *testing.T) {
 	assets := []localproject.SmartFilmStoryboardAsset{
 		{ID: "linmo", Title: "林默", Category: "character", VisualReference: true},
 	}
@@ -270,8 +270,8 @@ func TestValidateStoryboardCharacterBindingsRequiresNamedVisualAsset(t *testing.
 		t.Fatal("unknown character name was accepted")
 	}
 	assets[0].VisualReference = false
-	if err := validateStoryboardCharacterBindings(map[string]any{"characters": []any{"林默"}}, assets); err == nil {
-		t.Fatal("character without a visual reference was accepted")
+	if err := validateStoryboardCharacterBindings(map[string]any{"characters": []any{"林默"}}, assets); err != nil {
+		t.Fatalf("named text-only character was rejected: %v", err)
 	}
 }
 
@@ -481,5 +481,8 @@ func TestStoryboardPromptCarriesProjectStyle(t *testing.T) {
 	}, []byte("[]"))
 	if !strings.Contains(prompt, "【项目画风】") || !strings.Contains(prompt, style) {
 		t.Fatalf("storyboard prompt did not carry the selected project style: %s", prompt)
+	}
+	if !strings.Contains(prompt, "【当前可用资产】") || !strings.Contains(prompt, "visualReference=false 是仅文字设定") {
+		t.Fatalf("storyboard prompt did not allow prompt-only assets: %s", prompt)
 	}
 }

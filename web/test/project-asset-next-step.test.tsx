@@ -13,13 +13,14 @@ function render(overrides: Partial<Parameters<typeof ProjectAssetNextStep>[0]> =
 }
 
 describe("project asset next step", () => {
-    test("shows the locked storyboard step while assets are still pending", () => {
+    test("allows storyboard with pending assets as prompt-only settings", () => {
         const html = render({ pendingCount: 2 });
 
-        expect(html).toContain("还有 2 个资产待确认");
-        expect(html).toContain("下一步");
+        expect(html).toContain("2 个资产将仅使用提示词");
+        expect(html).toContain("可直接进入");
         expect(html).toContain("分镜制作");
-        expect(html).toContain("资产就绪后解锁");
+        expect(html).toContain("无需生成资产图或逐项确认");
+        expect(html).toContain("下一步：分镜制作");
     });
 
     test("unlocks the primary storyboard action after every asset is confirmed", () => {

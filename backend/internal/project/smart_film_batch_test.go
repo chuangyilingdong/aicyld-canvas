@@ -1206,6 +1206,89 @@ func TestSmartFilmAssetConfirmationQueuesStoryboardPrompts(t *testing.T) {
 	}
 }
 
+func TestSmartFilmStoryboardUsesPendingAssetPromptsAsTextSettings(t *testing.T) {
+	svc, db := newTestService(t, &recordingWorkflows{})
+	project, err := svc.CreateProject("user-1", CreateProjectRequest{Name: "提示词资产", Type: "smart-film"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	unit, err := svc.CreateProjectUnit("user-1", project.ID, CreateProjectUnitRequest{Title: "第一场", SourceText: "沉船训练场里的追逐"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	candidates, err := svc.CreateProjectAssetCandidates("user-1", project.ID, CreateAssetCandidatesRequest{
+		Source: AssetCandidateSourceChapterCharacter,
+		Candidates: []AssetCandidateInput{{
+			UnitID: unit.ID, Name: "沉船训练场", Category: string(model.AssetCategoryEnvironment),
+			Details: map[string]any{"prompt": "幽暗沉船训练场，蓝绿色海水与破损金属舱门"},
+		}, {
+			UnitID: unit.ID, Name: "备用电池", Category: string(model.AssetCategoryProp),
+			Details: map[string]any{"prompt": "带蓝色指示灯的备用电池"},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 2 {
+		t.Fatalf("candidates = %+v", candidates)
+	}
+	candidate := candidates[0]
+	assets, err := svc.smartFilmStoryboardAssets("user-1", project.ID, unit.ID, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(assets) != 2 || assets[0].Title != candidate.Name || assets[0].VisualReference || assets[0].MediaType != "text" {
+		t.Fatalf("prompt-only storyboard assets = %+v", assets)
+	}
+	if !strings.Contains(assets[0].Prompt, "幽暗沉船训练场") {
+		t.Fatalf("prompt-only asset lost its prompt: %+v", assets[0])
+	}
+	confirmedOnly, err := svc.smartFilmStoryboardAssets("user-1", project.ID, unit.ID, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(confirmedOnly) != 0 {
+		t.Fatalf("asset extraction context should not include pending candidates: %+v", confirmedOnly)
+	}
+	confirmedAsset, err := svc.ConfirmProjectAssetCandidate("user-1", project.ID, candidates[1].ID, ConfirmProjectAssetCandidateRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	version, err := svc.repo.AssetVersion(confirmedAsset.PrimaryVersionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(version.Prompt, "蓝色指示灯") {
+		t.Fatalf("text-only confirmation lost candidate prompt: %+v", version)
+	}
+	textAssets, err := svc.smartFilmStoryboardAssets("user-1", project.ID, unit.ID, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(textAssets) != 1 || textAssets[0].VisualReference || !strings.Contains(textAssets[0].Prompt, "蓝色指示灯") {
+		t.Fatalf("confirmed text-only storyboard asset = %+v", textAssets)
+	}
+
+	run := model.SmartFilmProductionRun{
+		ID: "prompt-only-run", UserID: "user-1", BatchID: "prompt-only-batch", ScriptID: "prompt-only-script",
+		IdempotencyKey: "prompt-only-key", Status: SmartFilmProductionRunStatusReady, CurrentStep: SmartFilmProductionStepAssets,
+		ProjectID: project.ID, UnitID: unit.ID,
+		AssetStatus: SmartFilmProductionStageStatusReady, StoryboardStatus: SmartFilmProductionStageStatusWaiting,
+		ControlStatus: SmartFilmProductionControlActive, Revision: 1, CreatedAt: now, UpdatedAt: now,
+	}
+	if err := db.Create(&run).Error; err != nil {
+		t.Fatal(err)
+	}
+	started, err := svc.StartSmartFilmProductionStage("user-1", run.BatchID, run.ID, StartSmartFilmProductionStageRequest{Stage: SmartFilmProductionStepStoryboard})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if started.StoryboardStatus != SmartFilmProductionStageStatusQueued {
+		t.Fatalf("storyboard was still blocked by a prompt-only candidate: %+v", started)
+	}
+}
+
 func TestSmartFilmScriptDeleteRemovesOrphanProductionRun(t *testing.T) {
 	svc, db := newTestService(t, &recordingWorkflows{})
 	created, err := svc.CreateSmartFilmBatch("user-1", CreateSmartFilmBatchRequest{Title: "孤立运行", SourceText: "想法"})

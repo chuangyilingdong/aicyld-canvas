@@ -516,7 +516,7 @@ func (s *Service) ConfirmProjectAssetCandidate(userID string, projectID string, 
 		} else {
 			payload, marshalErr = json.Marshal(map[string]any{
 				"id": assetID, "kind": kind, "category": candidate.Category, "status": model.AssetVersionStatusConfirmed,
-				"primaryVersionId": versionID, "title": candidate.Name, "tags": []string{}, "data": map[string]string{"content": ""},
+				"primaryVersionId": versionID, "title": candidate.Name, "tags": []string{}, "data": map[string]string{"content": candidatePreviewPrompt(candidate)},
 				"createdAt": now.Format(time.RFC3339Nano), "updatedAt": now.Format(time.RFC3339Nano),
 			})
 		}
@@ -524,7 +524,10 @@ func (s *Service) ConfirmProjectAssetCandidate(userID string, projectID string, 
 			return AssetSummary{}, marshalErr
 		}
 		asset = model.Asset{ID: assetID, UserID: userID, Kind: kind, Category: candidate.Category, Status: model.AssetVersionStatusConfirmed, PrimaryVersionID: versionID, Title: candidate.Name, PayloadJSON: string(payload), CreatedAt: now, UpdatedAt: now}
-		version = model.AssetVersion{ID: versionID, AssetID: assetID, Version: 1, Status: model.AssetVersionStatusConfirmed, DefinitionJSON: candidate.DetailsJSON, CreatedAt: now, UpdatedAt: now}
+		version = model.AssetVersion{
+			ID: versionID, AssetID: assetID, Version: 1, Status: model.AssetVersionStatusConfirmed,
+			DefinitionJSON: candidate.DetailsJSON, Prompt: candidatePreviewPrompt(candidate), CreatedAt: now, UpdatedAt: now,
+		}
 	} else {
 		existing, assetErr := s.repo.AssetForUser(userID, assetID)
 		if assetErr != nil {

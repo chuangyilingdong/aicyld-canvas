@@ -3,7 +3,6 @@ package project
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 
 	"infinite-canvas/backend/internal/kernel"
@@ -90,13 +89,6 @@ func (s *Service) StartSmartFilmProductionStage(userID, batchID, runID string, r
 		if run.AssetStatus != SmartFilmProductionStageStatusReady && run.AssetStatus != SmartFilmProductionStageStatusConfirmed {
 			return SmartFilmProductionRunView{}, kernel.BadAuthRequest("资产提取尚未完成，不能生成分镜")
 		}
-		pending, pendingErr := s.repo.PendingProjectAssetCandidateCount(run.ProjectID, run.UnitID)
-		if pendingErr != nil {
-			return SmartFilmProductionRunView{}, pendingErr
-		}
-		if pending > 0 {
-			return SmartFilmProductionRunView{}, kernel.BadAuthRequest(fmt.Sprintf("还有 %d 个资产待确认，不能生成分镜", pending))
-		}
 		if run.AssetStatus == SmartFilmProductionStageStatusReady {
 			_ = s.repo.MarkSmartFilmAssetStageConfirmed(run.ProjectID, run.UnitID)
 		}
@@ -175,13 +167,6 @@ func (s *Service) ControlSmartFilmProductionRun(userID, batchID, runID string, r
 		if stage == SmartFilmProductionStepStoryboard {
 			if run.AssetStatus != SmartFilmProductionStageStatusReady && run.AssetStatus != SmartFilmProductionStageStatusConfirmed {
 				return SmartFilmProductionRunView{}, kernel.BadAuthRequest("资产提取尚未完成，不能重试分镜")
-			}
-			pending, pendingErr := s.repo.PendingProjectAssetCandidateCount(run.ProjectID, run.UnitID)
-			if pendingErr != nil {
-				return SmartFilmProductionRunView{}, pendingErr
-			}
-			if pending > 0 {
-				return SmartFilmProductionRunView{}, kernel.BadAuthRequest(fmt.Sprintf("还有 %d 个资产待确认，不能重试分镜", pending))
 			}
 		}
 		fields["control_status"] = SmartFilmProductionControlActive
@@ -304,7 +289,7 @@ func (s *Service) SmartFilmAssetExtractionWorkItems(limit int) ([]SmartFilmAsset
 			}
 		}
 		textModel, textConfig, snapshotErr := s.smartFilmTextStageConfig(config, batch)
-		existingAssets, _ := s.smartFilmStoryboardAssets(run.UserID, run.ProjectID)
+		existingAssets, _ := s.smartFilmStoryboardAssets(run.UserID, run.ProjectID, "", false)
 		fixedCharacterCount := smartFilmFixedCharacterCount(config)
 		skillID, skillVersionID, skillContentHash, skillContext := smartFilmSkillStage(config, SmartFilmSkillStageAssets)
 		items = append(items, SmartFilmAssetExtractionWorkItem{
@@ -356,10 +341,6 @@ func (s *Service) SmartFilmStoryboardWorkItems(limit int) ([]SmartFilmStoryboard
 		if index < 0 {
 			continue
 		}
-		pending, pendingErr := s.repo.PendingProjectAssetCandidateCount(run.ProjectID, run.UnitID)
-		if pendingErr != nil || pending > 0 {
-			continue
-		}
 		if run.AssetStatus == SmartFilmProductionStageStatusReady {
 			if markErr := s.repo.MarkSmartFilmAssetStageConfirmed(run.ProjectID, run.UnitID); markErr != nil {
 				continue
@@ -386,7 +367,7 @@ func (s *Service) SmartFilmStoryboardWorkItems(limit int) ([]SmartFilmStoryboard
 			}
 		}
 		textModel, textConfig, snapshotErr := s.smartFilmTextStageConfig(config, batch)
-		assets, assetErr := s.smartFilmStoryboardAssets(run.UserID, run.ProjectID)
+		assets, assetErr := s.smartFilmStoryboardAssets(run.UserID, run.ProjectID, run.UnitID, true)
 		if assetErr != nil {
 			continue
 		}
@@ -414,7 +395,7 @@ func (s *Service) SmartFilmStoryboardWorkItems(limit int) ([]SmartFilmStoryboard
 	return items, nil
 }
 
-func (s *Service) smartFilmStoryboardAssets(userID, projectID string) ([]SmartFilmStoryboardAsset, error) {
+func (s *Service) smartFilmStoryboardAssets(userID, projectID, unitID string, includePendingCandidates bool) ([]SmartFilmStoryboardAsset, error) {
 	assets, err := s.ProjectAssets(userID, projectID)
 	if err != nil {
 		return nil, err
@@ -441,7 +422,40 @@ func (s *Service) smartFilmStoryboardAssets(userID, projectID string) ([]SmartFi
 			PrimaryVersionID: asset.PrimaryVersionID, Prompt: truncateSmartFilmText(prompt, 1200), Definition: definition,
 		})
 	}
+	if includePendingCandidates {
+		candidates, candidateErr := s.repo.ProjectAssetCandidates(projectID)
+		if candidateErr != nil {
+			return nil, candidateErr
+		}
+		known := make(map[string]struct{}, len(result))
+		for _, asset := range result {
+			known[assetCandidateIdentity(asset.Title, asset.Category)] = struct{}{}
+		}
+		for _, candidate := range candidates {
+			if candidate.Status != "pending_confirmation" {
+				continue
+			}
+			if strings.TrimSpace(unitID) != "" && candidate.UnitID != unitID {
+				continue
+			}
+			key := assetCandidateIdentity(candidate.Name, string(candidate.Category))
+			if _, exists := known[key]; exists {
+				continue
+			}
+			definition := map[string]any{}
+			_ = json.Unmarshal([]byte(candidate.DetailsJSON), &definition)
+			result = append(result, SmartFilmStoryboardAsset{
+				ID: candidate.ID, Title: candidate.Name, Category: string(candidate.Category), MediaType: "text",
+				VisualReference: false, Prompt: truncateSmartFilmText(candidatePreviewPrompt(&candidate), 1200), Definition: definition,
+			})
+			known[key] = struct{}{}
+		}
+	}
 	return result, nil
+}
+
+func assetCandidateIdentity(title, category string) string {
+	return strings.ToLower(strings.TrimSpace(category)) + "\x00" + model.AssetCandidateNameKey(title)
 }
 
 func smartFilmAssetHasVisualReference(asset AssetSummary) bool {

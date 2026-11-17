@@ -177,7 +177,7 @@ func planWorkflowStepUpdate(now time.Time, req UpdateWorkflowStepRequest, curren
 	step.UpdatedAt = now
 	instance := current.Instance
 	if status == model.WorkflowStepStatusCompleted {
-		if err := completionGateAllows(&instance, &step, current.Unit, current.Candidates, current.Shots, current.Artifacts); err != nil {
+		if err := completionGateAllows(&instance, &step, current.Unit, current.Shots, current.Artifacts); err != nil {
 			return repository.WorkflowProgressPlan{}, err
 		}
 	}
@@ -406,15 +406,11 @@ func (s *Service) validateWorkflowStepCompletion(projectID string, instance *mod
 	if err != nil {
 		return err
 	}
-	var candidates []model.ProjectAssetCandidate
 	var shots []model.Shot
 	var artifacts []model.ShotArtifact
 	switch step.StepKey {
 	case "assets":
-		candidates, err = s.repo.ProjectAssetCandidates(projectID)
-		if err != nil {
-			return err
-		}
+		return nil
 	case "storyboard", "previz", "video", "delivery":
 		shots, err = s.repo.ProjectShots(projectID)
 		if err != nil {
@@ -427,10 +423,10 @@ func (s *Service) validateWorkflowStepCompletion(projectID string, instance *mod
 			}
 		}
 	}
-	return completionGateAllows(instance, step, unit, candidates, shots, artifacts)
+	return completionGateAllows(instance, step, unit, shots, artifacts)
 }
 
-func completionGateAllows(instance *model.WorkflowInstance, step *model.WorkflowStepInstance, unit *model.ProjectUnit, candidates []model.ProjectAssetCandidate, shots []model.Shot, artifacts []model.ShotArtifact) error {
+func completionGateAllows(instance *model.WorkflowInstance, step *model.WorkflowStepInstance, unit *model.ProjectUnit, shots []model.Shot, artifacts []model.ShotArtifact) error {
 	if instance == nil || strings.TrimSpace(instance.UnitID) == "" {
 		return nil
 	}
@@ -441,12 +437,6 @@ func completionGateAllows(instance *model.WorkflowInstance, step *model.Workflow
 	case "story":
 		if strings.TrimSpace(unit.SourceText) == "" {
 			return kernel.BadAuthRequest("章节正文为空，不能完成剧情阶段")
-		}
-	case "assets":
-		for _, candidate := range candidates {
-			if candidate.UnitID == instance.UnitID && candidate.Status == "pending_confirmation" {
-				return kernel.BadAuthRequest("仍有待确认资产，不能完成资产拆分阶段")
-			}
 		}
 	case "storyboard", "previz", "video", "delivery":
 		unitShots := make([]model.Shot, 0, len(shots))
