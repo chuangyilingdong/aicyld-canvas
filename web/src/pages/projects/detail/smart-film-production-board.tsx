@@ -15,13 +15,12 @@ import { ArtifactStatus, currentArtifact, currentRevision, formatDuration } from
 
 type PromptSaveStatus = "draft" | "confirmed";
 
-export function SmartFilmStoryboardBoard({ detail, shots, readyCount, busy, submittingShotIds, onConfirmImage, onSaveShotPrompt, onGenerateAll, onGenerateShot, onNext }: {
+export function SmartFilmStoryboardBoard({ detail, shots, readyCount, busy, submittingShotIds, onSaveShotPrompt, onGenerateAll, onGenerateShot, onNext }: {
     detail: ProjectDetail;
     shots: ProjectShot[];
     readyCount: number;
     busy: boolean;
     submittingShotIds: Set<string>;
-    onConfirmImage: (shot: ProjectShot) => Promise<void>;
     onSaveShotPrompt: (shot: ProjectShot, imagePrompt: string) => Promise<void>;
     onGenerateAll: () => void;
     onGenerateShot: (shot: ProjectShot, imagePrompt?: string) => void;
@@ -32,7 +31,6 @@ export function SmartFilmStoryboardBoard({ detail, shots, readyCount, busy, subm
     const [editingPromptShotId, setEditingPromptShotId] = useState<string>();
     const [promptDraft, setPromptDraft] = useState("");
     const [savingPromptShotId, setSavingPromptShotId] = useState<string>();
-    const autoApprovingImagesRef = useRef<Set<string>>(new Set());
     const allReady = shots.length > 0 && readyCount === shots.length;
     const assetById = new Map(detail.assets.map((asset) => [asset.id, asset]));
     const issues: Array<{ key: string; label: string; tone: "warning" | "danger" }> = [];
@@ -70,20 +68,6 @@ export function SmartFilmStoryboardBoard({ detail, shots, readyCount, busy, subm
             setSavingPromptShotId(undefined);
         }
     };
-
-    useEffect(() => {
-        for (const shot of shots) {
-            const artifact = currentArtifact(detail, shot.id, "storyboard");
-            if (!artifact?.resourceId || artifact.status !== "ready") continue;
-            if (shot.reviewStatus === "approved" && shot.reviewRevisionId === shot.currentRevisionId) continue;
-            const key = `${shot.id}:${shot.currentRevisionId || ""}:${artifact.id}`;
-            if (autoApprovingImagesRef.current.has(key)) continue;
-            autoApprovingImagesRef.current.add(key);
-            void onConfirmImage(shot).catch(() => {
-                autoApprovingImagesRef.current.delete(key);
-            });
-        }
-    }, [detail, onConfirmImage, shots]);
 
     if (!shots.length) {
         return (

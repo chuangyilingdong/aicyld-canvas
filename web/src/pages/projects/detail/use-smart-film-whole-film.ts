@@ -10,7 +10,7 @@ import { getSmartFilmBatch } from "@/services/api/smart-film-batches";
 import { listGenerationTasks, type GenerationTask } from "@/services/api/task-center";
 import type { SmartFilmSkillStage } from "@/services/api/smart-film-batches";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
-import { approvedStoryboardArtifact, currentArtifact } from "./workflow-shared";
+import { currentArtifact } from "./workflow-shared";
 import { buildSmartFilmWholeFilmPrompt } from "./smart-film-whole-film-prompt";
 import { smartFilmSkillMetadata, smartFilmSkillStagePrompt } from "@/services/smart-film-skill";
 
@@ -105,12 +105,7 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
             return artifact?.resourceId && artifact.status === "ready" ? [{ shot, artifact }] : [];
         });
         if (storyboardArtifacts.length !== shots.length || !storyboardArtifacts.length) {
-            notifyError("请先确认全部分镜提示词并生成、确认每一张分镜图");
-            return;
-        }
-        const unapprovedShots = shots.filter((shot) => !approvedStoryboardArtifact(detail, shot));
-        if (unapprovedShots.length) {
-            notifyError(`还有 ${unapprovedShots.length} 个镜头的分镜图未确认，请逐镜确认后再生成整片`);
+            notifyError("请先生成全部镜头，并确保每一个镜头都有可用的分镜图");
             return;
         }
         const model = detail.project.defaultVideoModel || effectiveConfig.videoModel;
@@ -173,10 +168,10 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
                 setSmartFilmTask(task);
             },
         };
-        if (!(await confirmQuote(buildBackendGenerationTaskQuoteInput(options)))) return;
-        setSmartFilmTask(null);
         setSmartFilmGenerating(true);
         try {
+            if (!(await confirmQuote(buildBackendGenerationTaskQuoteInput(options)))) return;
+            setSmartFilmTask(null);
             const result = await runBackendGenerationTask(options);
             const resourceId = ownedResourceIdFromMediaRef(result.video?.storageKey, result.video?.url) || resourceIdFromStorageKey(result.video?.storageKey);
             if (!taskId || !resourceId) throw new Error("智能整片已生成，但没有取得可登记的完整视频资源");

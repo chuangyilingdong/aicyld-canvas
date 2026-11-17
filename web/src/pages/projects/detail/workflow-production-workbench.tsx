@@ -136,6 +136,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
     const [batchProgress, setBatchProgress] = useState<{ done: number; total: number; phase: "submitting" | "waiting" } | null>(null);
     const [searchParams, setSearchParams] = useSearchParams();
     const autostartRef = useRef("");
+    const autoApprovingStoryboardsRef = useRef<Set<string>>(new Set());
     const [taskClock, setTaskClock] = useState(() => Date.now());
     const activeShotIdRef = useRef(selectedShot?.id || "");
     activeShotIdRef.current = selectedShot?.id || "";
@@ -333,13 +334,40 @@ export default function WorkflowProductionWorkbench(props: Props) {
         await onRefresh();
     };
 
-    const confirmSmartFilmStoryboardImage = async (shot: ProjectShot) => {
-        const artifact = currentArtifact(detail, shot.id, "storyboard");
-        if (!artifact?.resourceId || artifact.status !== "ready") throw new Error("当前镜头还没有可确认的分镜图");
-        if (!shot.currentRevisionId) throw new Error("当前镜头缺少分镜版本，请刷新后重试");
-        await reviewProjectShot(projectId, shot.id, { status: "approved", expectedRevisionId: shot.currentRevisionId });
-        await onRefresh();
-    };
+    useEffect(() => {
+        if (!smartWholeFilm) return;
+        const pending = shots.filter((shot) => {
+            const artifact = currentArtifact(detail, shot.id, "storyboard");
+            if (!artifact?.resourceId || artifact.status !== "ready" || !shot.currentRevisionId) return false;
+            if (shot.reviewStatus === "approved" && shot.reviewRevisionId === shot.currentRevisionId) return false;
+            const key = `${shot.id}:${shot.currentRevisionId}:${artifact.id}`;
+            return !autoApprovingStoryboardsRef.current.has(key);
+        });
+        if (!pending.length) return;
+        const keys = pending.map((shot) => `${shot.id}:${shot.currentRevisionId}:${currentArtifact(detail, shot.id, "storyboard")?.id || ""}`);
+        keys.forEach((key) => autoApprovingStoryboardsRef.current.add(key));
+        void (async () => {
+            const failures: string[] = [];
+            for (const [index, shot] of pending.entries()) {
+                try {
+                    await reviewProjectShot(projectId, shot.id, {
+                        status: "approved",
+                        expectedRevisionId: shot.currentRevisionId || "",
+                    });
+                } catch {
+                    failures.push(shot.title || formatShotOrdinal(index));
+                }
+            }
+            try {
+                await onRefresh();
+            } catch {
+                // The review writes already succeeded; the normal project polling will reconcile the UI.
+            }
+            if (failures.length) {
+                message.warning(`有 ${failures.length} 个分镜图未能自动标记为就绪：${failures.slice(0, 3).join("、")}。仍可直接生成整片视频。`);
+            }
+        })();
+    }, [detail, message, onRefresh, projectId, shots, smartWholeFilm]);
 
     const saveSmartFilmStoryboardPrompt = async (shot: ProjectShot, imagePrompt: string) => {
         const shotIndex = shots.findIndex((item) => item.id === shot.id);
@@ -986,7 +1014,6 @@ export default function WorkflowProductionWorkbench(props: Props) {
                 readyCount={readyStoryboardCount}
                 busy={Boolean(batchProgress) || submittingShotIds.size > 0}
                 submittingShotIds={submittingShotIds}
-                onConfirmImage={confirmSmartFilmStoryboardImage}
                 onSaveShotPrompt={saveSmartFilmStoryboardPrompt}
                 onGenerateAll={() => void generateAllArtifacts()}
                 onGenerateShot={(shot, imagePrompt) => void generateSmartFilmStoryboardShot(shot, imagePrompt)}
@@ -1007,7 +1034,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
             onBack={() => navigate(`/projects/${projectId}/workflow/${unitId}/storyboard`)}
             onSaveShotPrompt={saveSmartFilmVideoPrompt}
             onGenerate={() => void generateSmartWholeFilm(
-                (input) => confirmCanvasGenerationTaskQuote(modal, input, { title: "确认生成整片视频", description: `将使用 ${shots.length} 张已确认分镜图生成 1 条完整视频；本步骤不会生成分镜图。` }),
+                (input) => confirmCanvasGenerationTaskQuote(modal, input, { title: "确认生成整片视频", description: `将使用 ${shots.length} 张已就绪分镜图生成 1 条完整视频；本步骤不会生成分镜图。` }),
                 message.error,
             )}
             onDownload={() => latestSmartWholeFilm?.resourceId && window.open(resourceFileUrl(latestSmartWholeFilm.resourceId), "_blank", "noopener,noreferrer")}
@@ -1108,7 +1135,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                             <div className="workflow-smart-film-actions">
                                 <Button icon={<Download className="size-4" />} disabled={!latestSmartWholeFilm?.resourceId} onClick={() => latestSmartWholeFilm?.resourceId && window.open(resourceFileUrl(latestSmartWholeFilm.resourceId), "_blank", "noopener,noreferrer")}>下载整片视频</Button>
                                 <Button type="primary" icon={<Sparkles className="size-4" />} loading={smartFilmGenerating} disabled={readyStoryboardCount !== shots.length || !shots.length} onClick={() => void generateSmartWholeFilm(
-                                    (input) => confirmCanvasGenerationTaskQuote(modal, input, { title: "确认生成整片视频", description: `将使用 ${shots.length} 张已确认分镜图生成 1 条完整视频；本步骤不会生成分镜图。` }),
+                                    (input) => confirmCanvasGenerationTaskQuote(modal, input, { title: "确认生成整片视频", description: `将使用 ${shots.length} 张已就绪分镜图生成 1 条完整视频；本步骤不会生成分镜图。` }),
                                     message.error,
                                 )}>{latestSmartWholeFilm ? "重新生成整片视频" : "生成整片视频"}</Button>
                             </div>
@@ -1223,7 +1250,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                             <div className="rounded-lg border border-border/70 bg-foreground/[.025] p-4 text-xs leading-5 text-foreground/52">
                                 <strong className="block text-sm text-foreground/78">整片视频是项目级产物</strong>
                                 <p className="mt-2">智能整片模式不再按镜头生成视频，右侧不会出现逐镜视频产物。</p>
-                                <p className="mt-2">请使用左侧“生成整片视频”。它会使用全部 {shots.length} 张已确认分镜图生成 1 条完整视频。</p>
+                                <p className="mt-2">请使用左侧“生成整片视频”。它会使用全部 {shots.length} 张已就绪分镜图生成 1 条完整视频。</p>
                                 <p className="mt-2 text-foreground/40">分镜图已就绪 {readyStoryboardCount}/{shots.length} 张。</p>
                             </div>
                         ) : (
