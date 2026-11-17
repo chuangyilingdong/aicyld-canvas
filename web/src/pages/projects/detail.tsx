@@ -149,8 +149,6 @@ export default function ProjectDetailPage() {
             message.error(error instanceof Error ? error.message : "画布创建失败");
         }
     };
-    const chapterHref = detail ? projectChapterHref(detail.units, projectId, chapterId) : `/projects/${projectId}/chapters`;
-    const workflowHref = detail ? projectWorkflowHref(detail.units, projectId, unitId, stage) : `/projects/${projectId}/workflow`;
     if (coreQuery.isLoading || unitsQuery.isLoading) return <WorkspacePage><WorkspaceLoadingState label="正在打开项目工作台" detail="读取项目与章节索引" /></WorkspacePage>;
     // 已加载过项目时，后台刷新失败不能把整个工作台替换成“项目不可用”；保留可用数据并让局部请求自行重试。
     if (!detail) return <WorkspacePage><WorkspaceErrorState title="项目不可用" description="项目不存在、已被删除，或当前账号没有访问权限。" actionLabel="返回项目中心" onRetry={() => navigate("/canvas")} /></WorkspacePage>;
@@ -167,8 +165,6 @@ export default function ProjectDetailPage() {
                     activeView={activeView}
                     unitId={unitId}
                     stage={stage}
-                    chapterHref={chapterHref}
-                    workflowHref={workflowHref}
                 />
                 {detail.project.status === "archived" ? <Alert type="warning" showIcon banner message="项目已归档，恢复后才能创建画布和生成任务" className="!border-x-0 !border-t-0" /> : null}
                 <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
@@ -189,12 +185,13 @@ export default function ProjectDetailPage() {
     );
 }
 
-function ProjectWorkspaceHeader({ detail, projectId, activeView, unitId, stage, chapterHref, workflowHref }: { detail: ProjectDetail; projectId: string; activeView: DetailView; unitId?: string; stage?: string; chapterHref: string; workflowHref: string }) {
+function ProjectWorkspaceHeader({ detail, projectId, activeView, unitId, stage }: { detail: ProjectDetail; projectId: string; activeView: DetailView; unitId?: string; stage?: string }) {
     const archived = detail.project.status === "archived";
+    const flowActive = activeView !== "settings";
     return (
         <header className="project-workspace-header">
             <div className="project-workspace-identity">
-                <Link to="/canvas" className="project-workspace-back" aria-label="返回项目列表">
+                <Link to="/projects" className="project-workspace-back" aria-label="返回项目列表">
                     <ArrowLeft />
                     <span className="sr-only">返回</span>
                 </Link>
@@ -204,35 +201,24 @@ function ProjectWorkspaceHeader({ detail, projectId, activeView, unitId, stage, 
                 </div>
             </div>
             <nav className="project-workspace-tabs" aria-label="项目导航">
-                {views.map((item) => {
-                    const active = item.key === activeView;
-                    const href = item.key === "chapters" ? chapterHref : item.key === "workflow" ? workflowHref : `/projects/${projectId}/${item.key}`;
-                    return (
-                        <Link
-                            key={item.key}
-                            to={href}
-                            aria-current={active ? "page" : undefined}
-                            className={`project-workspace-tab ${active ? "is-active" : ""}`}
-                        >
-                            {item.label}
-                        </Link>
-                    );
-                })}
+                <Link
+                    to={`/projects/${projectId}/overview`}
+                    aria-current={flowActive ? "page" : undefined}
+                    className={`project-workspace-tab ${flowActive ? "is-active" : ""}`}
+                >
+                    流程总览
+                </Link>
+                <Link
+                    to={`/projects/${projectId}/settings`}
+                    aria-current={activeView === "settings" ? "page" : undefined}
+                    className={`project-workspace-tab ${activeView === "settings" ? "is-active" : ""}`}
+                >
+                    项目设置
+                </Link>
             </nav>
             <div className="project-workspace-actions">
                 {activeView === "workflow" ? <WorkflowChapterNavigator projectId={projectId} units={detail.units} unitId={unitId} stage={stage} /> : null}
             </div>
         </header>
     );
-}
-
-function projectWorkflowHref(units: Array<{ id: string; position: number }>, projectId: string, routeUnitId?: string, routeStage?: string) {
-    const targetId = [routeUnitId, sessionStorage.getItem(`project-active-chapter:${projectId}`) || ""].find((id) => id && units.some((unit) => unit.id === id)) || units.slice().sort((left, right) => left.position - right.position)[0]?.id;
-    return targetId ? `/projects/${projectId}/workflow/${targetId}/${routeStage || "video"}` : `/projects/${projectId}/workflow`;
-}
-
-function projectChapterHref(units: Array<{ id: string; position: number }>, projectId: string, routeChapterId?: string) {
-    const rememberedId = sessionStorage.getItem(`project-active-chapter:${projectId}`) || "";
-    const targetId = [routeChapterId, rememberedId].find((id) => id && units.some((unit) => unit.id === id)) || units.slice().sort((left, right) => left.position - right.position)[0]?.id;
-    return targetId ? `/projects/${projectId}/chapters/${targetId}` : `/projects/${projectId}/chapters`;
 }

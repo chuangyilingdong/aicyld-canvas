@@ -40,6 +40,7 @@ export function CanvasFolderCard({ project, projectName, folders = [], onMoveToF
     const selected = selectedIds.includes(project.id);
     const coverInputRef = useRef<HTMLInputElement>(null);
     const [coverUrl, setCoverUrl] = useState<string>();
+    const draft = project.nodeCount === 0;
 
     useEffect(() => {
         let active = true;
@@ -127,7 +128,7 @@ export function CanvasFolderCard({ project, projectName, folders = [], onMoveToF
         <LibraryCardShell
             ariaLabel={`打开画布 ${project.title}`}
             onboardingProjectId={project.id}
-            className={cn("canvas-collection-card", selected && "is-selected", editing && "is-editing", opening && "is-opening")}
+            className={cn("canvas-collection-card project-collection-unified-card", selected && "is-selected", editing && "is-editing", opening && "is-opening")}
             updatedAt={project.updatedAt}
             onOpen={onClick}
             openDisabled={editing || opening}
@@ -138,6 +139,15 @@ export function CanvasFolderCard({ project, projectName, folders = [], onMoveToF
                 <div className="canvas-collection-preview-content">
                     <ProjectPreview project={{ id: project.id, nodes: project.previewNodes }} emptyVariant="libtv" />
                     {coverUrl ? <img className="canvas-collection-custom-cover" src={coverUrl} alt="" /> : null}
+                    <span className="project-library-cover-scrim" />
+                    <div className="project-library-unified-top">
+                        <span className="project-library-kind">画布项目</span>
+                        <span className={`project-summary-status is-${draft ? "draft" : "in-progress"}`}>{draft ? "草稿" : "制作中"}</span>
+                    </div>
+                    <div className="project-library-unified-bottom">
+                        <strong>{project.title}</strong>
+                        <span>{project.nodeCount} 个节点 · {projectName || "自由画布"}</span>
+                    </div>
                     {opening ? <div className="canvas-collection-opening"><LoaderCircle className="size-5 animate-spin" /><span>正在打开</span></div> : null}
                 </div>
             }
@@ -173,7 +183,7 @@ export function CanvasFolderCard({ project, projectName, folders = [], onMoveToF
                     menu={{
                         onClick: ({ domEvent }) => domEvent.stopPropagation(),
                         items: [
-                            { key: "open", label: "打开", onClick: onClick },
+                            { key: "open", label: "打开项目", onClick: onClick },
                             { key: "rename", label: "重命名", onClick: () => startEditing(project.id, project.title) },
                             { key: "cover", label: "修改封面", onClick: () => coverInputRef.current?.click() },
                             { key: "duplicate", label: "创建副本", onClick: () => void onDuplicate?.() },

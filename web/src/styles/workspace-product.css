@@ -203,15 +203,15 @@
 
 /* Project and folder cards share one structural shell. Cover rendering and
    overflow-menu contents are the only intentional differences. */
-.app-user-workspace .lib-tv-project-page .libtv-library-card { position: relative; min-width: 0; min-height: 0; overflow: visible; border: 0; border-radius: 0; padding: 0; background: transparent; color: var(--user-ink); }
-.app-user-workspace .lib-tv-project-page .libtv-library-card-open { display: block; width: 100%; cursor: pointer; outline-offset: 3px; }
-.app-user-workspace .lib-tv-project-page .libtv-library-card-open:focus-visible { outline: 2px solid var(--user-accent); border-radius: 12px; }
-.app-user-workspace .lib-tv-project-page .libtv-library-card-cover { position: relative; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; border: 1px solid color-mix(in srgb, var(--user-ink) 10%, transparent); border-radius: 12px; background: #1e1e1e; }
-.app-user-workspace .lib-tv-project-page .libtv-library-card-body { display: flex; min-height: 58px; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; padding: 8px 40px 8px 8px; background: transparent; }
-.app-user-workspace .lib-tv-project-page .libtv-library-card-title { width: 100%; overflow: hidden; color: var(--user-ink); font-size: 13px; font-weight: 600; line-height: 20px; text-overflow: ellipsis; white-space: nowrap; }
-.app-user-workspace .lib-tv-project-page .libtv-library-card-date { color: var(--user-ink-soft); font-size: 11px; font-weight: 400; line-height: 18px; }
-.app-user-workspace .lib-tv-project-page .canvas-collection-preview-content,
-.app-user-workspace .lib-tv-project-page .canvas-collection-preview-content > * { width: 100%; height: 100%; }
+.app-user-workspace :is(.lib-tv-project-page, .project-library-page) .libtv-library-card { position: relative; min-width: 0; min-height: 0; overflow: visible; border: 0; border-radius: 0; padding: 0; background: transparent; color: var(--user-ink); }
+.app-user-workspace :is(.lib-tv-project-page, .project-library-page) .libtv-library-card-open { display: block; width: 100%; cursor: pointer; outline-offset: 3px; }
+.app-user-workspace :is(.lib-tv-project-page, .project-library-page) .libtv-library-card-open:focus-visible { outline: 2px solid var(--user-accent); border-radius: 12px; }
+.app-user-workspace :is(.lib-tv-project-page, .project-library-page) .libtv-library-card-cover { position: relative; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; border: 1px solid color-mix(in srgb, var(--user-ink) 10%, transparent); border-radius: 12px; background: #1e1e1e; }
+.app-user-workspace :is(.lib-tv-project-page, .project-library-page) .libtv-library-card-body { display: flex; min-height: 58px; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; padding: 8px 40px 8px 8px; background: transparent; }
+.app-user-workspace :is(.lib-tv-project-page, .project-library-page) .libtv-library-card-title { width: 100%; overflow: hidden; color: var(--user-ink); font-size: 13px; font-weight: 600; line-height: 20px; text-overflow: ellipsis; white-space: nowrap; }
+.app-user-workspace :is(.lib-tv-project-page, .project-library-page) .libtv-library-card-date { color: var(--user-ink-soft); font-size: 11px; font-weight: 400; line-height: 18px; }
+.app-user-workspace :is(.lib-tv-project-page, .project-library-page) .canvas-collection-preview-content,
+.app-user-workspace :is(.lib-tv-project-page, .project-library-page) .canvas-collection-preview-content > * { width: 100%; height: 100%; }
 .app-user-workspace .lib-tv-project-page .libtv-folder-cover-art { position: absolute; inset: 0; background: linear-gradient(180deg, #414141 0%, #252525 48%, #151515 100%); }
 .dark .app-user-workspace .libtv-folder-card-cover,
 .dark .app-user-workspace .lib-tv-project-page .libtv-folder-cover-art {
@@ -219,9 +219,9 @@
 }
 .app-user-workspace .lib-tv-project-page .libtv-folder-cover-art::before { position: absolute; inset: 0; content: ""; background: linear-gradient(180deg, rgba(255,255,255,.1), rgba(255,255,255,0) 42%); clip-path: polygon(0 0, 26% 0, 32% 13%, 100% 13%, 100% 100%, 0 100%); pointer-events: none; }
 .app-user-workspace .lib-tv-project-page .libtv-folder-cover-art.has-custom-cover::before { display: none; }
-.app-user-workspace .lib-tv-project-page .libtv-library-card .canvas-collection-actions,
-.app-user-workspace .lib-tv-project-page .libtv-library-card .libtv-folder-card-more { position: absolute; top: auto; right: 8px; bottom: 24px; }
-.app-user-workspace .lib-tv-project-page .libtv-library-card .canvas-collection-title-input { height: 26px; margin: -3px 0; font-size: 13px; }
+.app-user-workspace :is(.lib-tv-project-page, .project-library-page) .libtv-library-card .canvas-collection-actions,
+.app-user-workspace :is(.lib-tv-project-page, .project-library-page) .libtv-library-card .libtv-folder-card-more { position: absolute; top: auto; right: 8px; bottom: 24px; }
+.app-user-workspace :is(.lib-tv-project-page, .project-library-page) .libtv-library-card .canvas-collection-title-input { height: 26px; margin: -3px 0; font-size: 13px; }
 .product-delete { display: inline-flex; }
 .product-delete-trigger { background: var(--user-surface); }
 .product-delete-trigger:hover, .product-delete-trigger[aria-expanded="true"] { background: color-mix(in srgb, var(--status-error) 12%, var(--user-surface)); color: var(--status-error); }

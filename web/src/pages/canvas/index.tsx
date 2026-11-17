@@ -28,7 +28,7 @@ import { beginLocalCanvasProject, deleteLocalCanvasProjects, hydrateLocalCanvasP
 import { createWorkspaceCanvasProject } from "@/services/workspace-project-repository";
 import { listWorkspaceCanvasProjectsPage, type CanvasLibrarySummary } from "@/services/api/workspace-data";
 import { useUserStore } from "@/stores/use-user-store";
-import { listProjects, type ProjectSummary } from "@/services/api/projects";
+import { deleteProject, duplicateProject, listProjects, type ProjectSummary } from "@/services/api/projects";
 import { projectSummaryStage } from "@/lib/project-workbench";
 import { deleteSmartFilmBatch, listSmartFilmBatches, type SmartFilmBatch } from "@/services/api/smart-film-batches";
 import { loadCanvasProjectPage } from "@/lib/workspace-route-modules";
@@ -46,7 +46,7 @@ export default function CanvasPage() {
     const queryClient = useQueryClient();
     const brandName = useAppearanceStore((state) => state.appearance.brandName);
     const navigate = useNavigate();
-    const [searchParams] = useSearchParams();
+    const [searchParams, setSearchParams] = useSearchParams();
     const inputRef = useRef<HTMLInputElement>(null);
     const autoOpenRef = useRef(false);
     const [keyword, setKeyword] = useState("");
@@ -60,6 +60,7 @@ export default function CanvasPage() {
     const loadMoreRef = useRef<HTMLDivElement>(null);
     const [loadedProjectCount, setLoadedProjectCount] = useState(50);
     const [creationError, setCreationError] = useState(false);
+    const focusBatchId = searchParams.get("batch") || "";
     const exportController = useRef<AbortController | null>(null);
     const [exportProgress, setExportProgress] = useState<CanvasExportProgress | null>(null);
     const [exportError, setExportError] = useState("");
@@ -125,18 +126,23 @@ export default function CanvasPage() {
     const visibleStudioProjects = useMemo(() => {
         if (folderFilter !== "all") return [];
         const query = debouncedKeyword.toLowerCase();
-        return studioProjects
+        return (focusBatchId ? studioProjects.filter(({ project }) => project.batchId === focusBatchId) : studioProjects)
             .filter(({ project }) => (projectFilter === "all" || projectFilter === project.id) && (!query || project.name.toLowerCase().includes(query)))
             .sort((left, right) => sort === "name" ? left.project.name.localeCompare(right.project.name, "zh-CN") : right.project.updatedAt.localeCompare(left.project.updatedAt));
-    }, [debouncedKeyword, folderFilter, projectFilter, studioProjects, sort]);
+    }, [debouncedKeyword, focusBatchId, folderFilter, projectFilter, studioProjects, sort]);
     const visibleBatches = useMemo(() => {
-        if (folderFilter !== "all") return [];
+        if (focusBatchId || folderFilter !== "all") return [];
         const query = debouncedKeyword.toLowerCase();
         return (batchQuery.data?.batches || [])
             .filter((batch) => projectFilter === "all" || batch.scripts.some((script) => script.projectId === projectFilter))
             .filter((batch) => !query || `${batch.title} ${batch.sourceText}`.toLowerCase().includes(query))
             .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
-    }, [batchQuery.data?.batches, debouncedKeyword, folderFilter, projectFilter]);
+    }, [batchQuery.data?.batches, debouncedKeyword, focusBatchId, folderFilter, projectFilter]);
+    const clearBatchFocus = () => {
+        const next = new URLSearchParams(searchParams);
+        next.delete("batch");
+        setSearchParams(next, { replace: true });
+    };
     const requestDeleteBatch = (batch: SmartFilmBatch) => {
         modal.confirm({
             title: `删除批次「${batch.title}」？`,
@@ -158,6 +164,34 @@ export default function CanvasPage() {
                 }
             },
         });
+    };
+    const requestDeleteStudioProject = (item: ProjectSummary) => {
+        modal.confirm({
+            title: `删除项目「${item.project.name}」？`,
+            content: "项目章节、画布关联和素材归属会一并移除，独立画布与素材库原始素材会保留。此操作不可撤销。",
+            okText: "删除项目",
+            cancelText: "取消",
+            okButtonProps: { danger: true },
+            onOk: async () => {
+                try {
+                    await deleteProject(item.project.id);
+                    await queryClient.invalidateQueries({ queryKey: ["projects"] });
+                    message.success("项目已删除");
+                } catch (error) {
+                    message.error(error instanceof Error ? error.message : "项目删除失败");
+                    throw error;
+                }
+            },
+        });
+    };
+    const duplicateStudioProject = async (item: ProjectSummary) => {
+        try {
+            await duplicateProject(item.project.id);
+            await queryClient.invalidateQueries({ queryKey: ["projects"] });
+            message.success("项目副本已创建");
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "创建项目副本失败");
+        }
     };
 
     const mode = searchParams.get("mode");
@@ -215,6 +249,7 @@ export default function CanvasPage() {
         enterProject(copy.id);
     }, [enterProject, localProjects, message, remoteMode]);
     const filteredProjects = useMemo(() => {
+        if (focusBatchId) return [];
         if (remoteMode) return projects;
         const query = keyword.trim().toLowerCase();
         // The root library represents uncategorized work alongside folder tiles.
@@ -224,7 +259,7 @@ export default function CanvasPage() {
         const values = query ? scoped.filter((project) => project.title.toLowerCase().includes(query)) : [...scoped];
         values.sort((a, b) => (sort === "name" ? a.title.localeCompare(b.title, "zh-CN") : sort === "nodes" ? b.nodeCount - a.nodeCount : new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()));
         return values;
-    }, [folderFilter, keyword, projectFilter, projects, remoteMode, sort]);
+    }, [focusBatchId, folderFilter, keyword, projectFilter, projects, remoteMode, sort]);
     const projectNames = useMemo(() => new Map((projectQuery.data?.projects || []).map(({ project }) => [project.id, project.name])), [projectQuery.data]);
     const visibleProjects = remoteMode ? filteredProjects : filteredProjects.slice(0, loadedProjectCount);
     const hasMore = remoteMode ? libraryQuery.hasNextPage : visibleProjects.length < filteredProjects.length;
@@ -234,6 +269,7 @@ export default function CanvasPage() {
     // the grid represents that folder's contents; rendering the active folder
     // tile again makes an empty folder look like it contains itself.
     const visibleFolders = folderFilter === "all" ? folders : [];
+    const libraryFolders = focusBatchId ? [] : visibleFolders;
     const activeFolder = folderFilter === "all" ? undefined : folders.find((folder) => folder.id === folderFilter);
     const projectFilterItems = useMemo(() => [{ key: "all", label: "全部画布" }, { key: "independent", label: "自由画布" }, ...(projectQuery.data?.projects || []).map(({ project }) => ({ key: project.id, label: project.name }))], [projectQuery.data]);
     const saveFolderRename = () => {
@@ -437,22 +473,33 @@ export default function CanvasPage() {
                 ) : null}
 
                 {exportError ? <p role="alert" className="mb-4 whitespace-pre-wrap break-words text-sm text-destructive">{exportError}</p> : null}
+                {focusBatchId && visibleStudioProjects.length ? (
+                    <section className="project-batch-focus" role="status" aria-live="polite">
+                        <div>
+                            <strong>刚刚创建的 {visibleStudioProjects.length} 个项目已置顶</strong>
+                            <span>这些项目来自同一批已确认剧本，已高亮并排在最前面。</span>
+                        </div>
+                        <button type="button" onClick={clearBatchFocus}>查看全部项目</button>
+                    </section>
+                ) : null}
 
                 {!remoteMode && canvasHealth.error ? <div role="alert" className="mb-4 flex flex-wrap items-center gap-3 text-sm"><span>{canvasHealth.error}</span><Button loading={canvasHealth.loading} onClick={()=>void hydrateLocalCanvasProjectsFromBackend()}>重试加载</Button></div> : null}
                 {remoteMode && libraryQuery.isError ? (
                     <div role="alert">画布列表读取失败<Button onClick={() => void libraryQuery.refetch()}>重试</Button></div>
                 ) : !hydrated || (remoteMode && libraryQuery.isPending) ? (
                     <WorkspaceLoadingState label="正在恢复画布" detail="读取本地缓存与账号同步状态" />
-                ) : visibleProjects.length || visibleStudioProjects.length || visibleBatches.length || (!keyword && projectFilter === "all") ? (
+                ) : focusBatchId && projectQuery.isPending ? (
+                    <WorkspaceLoadingState label="正在整理刚创建的项目" detail="确认同批次项目与制作状态" />
+                ) : visibleProjects.length || visibleStudioProjects.length || visibleBatches.length || (!focusBatchId && !keyword && projectFilter === "all") ? (
                     <CollectionGrid className="canvas-collection-grid">
-                        <div className="libtv-create-project-entry">
+                        {!focusBatchId ? <div className="libtv-create-project-entry">
                             <article className="libtv-create-project-card" role="button" tabIndex={0} onClick={() => createAndEnter()} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); createAndEnter(); } }}>
                                 <div className="libtv-create-project-icon"><Plus /></div>
                                 <strong>开始创作</strong>
                             </article>
                             <p className="libtv-create-project-subtitle">创建新的视频项目</p>
-                        </div>
-                        {visibleFolders.map((folder) => <CanvasLibraryFolderTile key={folder.id} folder={folder} onOpen={() => setFolderFilter(folder.id)} onRename={() => { setFolderName(folder.name); setEditingFolderId(folder.id); setFolderDialogOpen(true); } } onExport={() => void exportFolderProjects(folder)} onDelete={() => setDeletingFolder({ id: folder.id, name: folder.name })} onCoverChange={(dataUrl) => {
+                        </div> : null}
+                        {libraryFolders.map((folder) => <CanvasLibraryFolderTile key={folder.id} folder={folder} onOpen={() => setFolderFilter(folder.id)} onRename={() => { setFolderName(folder.name); setEditingFolderId(folder.id); setFolderDialogOpen(true); } } onExport={() => void exportFolderProjects(folder)} onDelete={() => setDeletingFolder({ id: folder.id, name: folder.name })} onCoverChange={(dataUrl) => {
                             void persistCanvasFolderCover(folder.id, dataUrl).then(() => {
                                 message.success("文件夹封面已更新");
                             }).catch((error) => {
@@ -463,7 +510,14 @@ export default function CanvasPage() {
                             <SmartFilmBatchCard key={`smart-film-batch-${batch.id}`} batch={batch} onOpen={() => navigate(`/smart-film/batches/${batch.id}`)} onDelete={() => requestDeleteBatch(batch)} />
                         ))}
                         {visibleStudioProjects.map((item) => (
-                            <StudioProjectCard key={`studio-project-${item.project.id}`} item={item} onOpen={() => navigate(`/projects/${item.project.id}/overview`)} />
+                            <StudioProjectCard
+                                key={`studio-project-${item.project.id}`}
+                                item={item}
+                                onOpen={() => navigate(`/projects/${item.project.id}/overview`)}
+                                onDelete={() => requestDeleteStudioProject(item)}
+                                onDuplicate={() => duplicateStudioProject(item)}
+                                newBatch={Boolean(focusBatchId && item.project.batchId === focusBatchId)}
+                            />
                         ))}
                         {visibleProjects.map((project) => (
                             <CanvasFolderCard
@@ -506,7 +560,7 @@ export default function CanvasPage() {
                         ))}
                     </CollectionGrid>
                 ) : (
-                    <WorkspaceState icon="canvas" title={canvasHealth.error ? "项目暂时无法加载" : keyword || projectFilter !== "all" || folderFilter !== "all" ? "没有匹配的项目" : "让第一个想法落在画布上"} description={canvasHealth.error || (keyword || projectFilter !== "all" || folderFilter !== "all" ? "换一个名称或重置筛选条件。" : "图片、分镜和灵感，都可以在这里自由组织。")} action={canvasHealth.error ? <Button loading={canvasHealth.loading} onClick={()=>void hydrateLocalCanvasProjectsFromBackend()}>重试加载</Button> : !keyword && projectFilter === "all" && folderFilter === "all" ? <Button type="primary" icon={<Plus />} disabled={!hydrated} onClick={() => createAndEnter()}>新建项目</Button> : undefined} />
+                    <WorkspaceState icon="canvas" title={canvasHealth.error ? "项目暂时无法加载" : focusBatchId ? "没有找到刚创建的项目" : keyword || projectFilter !== "all" || folderFilter !== "all" ? "没有匹配的项目" : "让第一个想法落在画布上"} description={canvasHealth.error || (focusBatchId ? "项目可能仍在同步，或这一批项目已被移出当前账号。" : keyword || projectFilter !== "all" || folderFilter !== "all" ? "换一个名称或重置筛选条件。" : "图片、分镜和灵感，都可以在这里自由组织。")} action={canvasHealth.error ? <Button loading={canvasHealth.loading} onClick={()=>void hydrateLocalCanvasProjectsFromBackend()}>重试加载</Button> : focusBatchId ? <Button onClick={clearBatchFocus}>查看全部项目</Button> : !keyword && projectFilter === "all" && folderFilter === "all" ? <Button type="primary" icon={<Plus />} disabled={!hydrated} onClick={() => createAndEnter()}>新建项目</Button> : undefined} />
                 )}
                 {hydrated && visibleProjects.length && (hasMore || libraryQuery.isFetchNextPageError) ? (
                     <div ref={loadMoreRef} className="library-load-more" aria-live="polite">
@@ -566,8 +620,8 @@ function SmartFilmBatchCard({ batch, onOpen, onDelete }: { batch: SmartFilmBatch
     const projectCount = batch.scripts.filter((script) => Boolean(script.projectId)).length;
     const readyCount = batch.scripts.filter((script) => script.status === "storyboard_ready").length;
     const activeCount = batch.control.queuedCount + batch.control.runningCount;
-    const status = activeCount ? "生成中" : batch.status === "draft" ? "草稿" : batch.status === "partially_confirmed" ? "部分确认" : "已确认";
-    const statusTone = status === "生成中" ? "border-amber-500/25 bg-amber-500/10 text-amber-500" : status === "部分确认" ? "border-sky-500/25 bg-sky-500/10 text-sky-400" : status === "草稿" ? "border-border/70 bg-background/70 text-foreground/55" : "border-emerald-500/25 bg-emerald-500/10 text-emerald-400";
+    const status = activeCount ? "生成中" : batch.status === "draft" ? "草稿" : "制作中";
+    const statusTone = status === "生成中" ? "generating" : status === "草稿" ? "draft" : "in-progress";
     return (
         <LibraryCardShell
             ariaLabel={`打开批次 ${batch.title}`}
@@ -577,10 +631,10 @@ function SmartFilmBatchCard({ batch, onOpen, onDelete }: { batch: SmartFilmBatch
             onPointerEnter={() => preloadWorkspaceRoute(`/smart-film/batches/${batch.id}`)}
             cover={
                 <div className="canvas-collection-preview-content">
-                    <div className="flex size-full flex-col justify-between bg-[radial-gradient(circle_at_top_right,color-mix(in_srgb,#38bdf8_20%,transparent),transparent_58%),linear-gradient(145deg,color-mix(in_srgb,var(--foreground)_5%,transparent),transparent)] p-4">
+                    <div className="project-collection-generated-cover">
                         <div className="flex items-start justify-between gap-2">
-                            <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-border/70 bg-background/70 px-2.5 py-1 text-[var(--fs-micro)] text-foreground/55"><Clapperboard className="size-3.5" />多剧本批次</span>
-                            <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[var(--fs-micro)] ${statusTone}`}>{status}</span>
+                            <span className="project-library-kind"><Clapperboard className="size-3.5" />多剧本批次</span>
+                            <span className={`project-summary-status is-${statusTone}`}>{status}</span>
                         </div>
                         <div className="flex items-end justify-between gap-3">
                             <div className="min-w-0">
@@ -618,23 +672,22 @@ function SmartFilmBatchCard({ batch, onOpen, onDelete }: { batch: SmartFilmBatch
     );
 }
 
-function StudioProjectCard({ item, onOpen }: { item: ProjectSummary; onOpen: () => void }) {
+function StudioProjectCard({ item, onOpen, onDelete, onDuplicate, newBatch }: { item: ProjectSummary; onOpen: () => void; onDelete: () => void; onDuplicate: () => void; newBatch: boolean }) {
     const stage = projectSummaryStage(item);
     const smartFilm = item.project.type === "smart-film" || item.project.type === "smart-film-auto";
-    const statusTone = stage.label.includes("生成") ? "border-amber-500/25 bg-amber-500/10 text-amber-500" : stage.label.includes("确认") || stage.label.includes("处理") ? "border-rose-500/25 bg-rose-500/10 text-rose-400" : stage.label.includes("完成") || stage.label.includes("交付") ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-400" : "border-border/70 bg-background/70 text-foreground/55";
     return (
         <LibraryCardShell
             ariaLabel={`打开智能成片项目 ${item.project.name}`}
-            className="canvas-collection-card"
+            className={`canvas-collection-card${newBatch ? " project-collection-unified-card is-new-batch" : ""}`}
             updatedAt={item.project.updatedAt}
             onOpen={onOpen}
             onPointerEnter={() => preloadWorkspaceRoute(`/projects/${item.project.id}/overview`)}
             cover={
                 <div className="canvas-collection-preview-content">
-                    <div className="flex size-full flex-col justify-between bg-[radial-gradient(circle_at_top_right,color-mix(in_srgb,var(--workspace-accent)_28%,transparent),transparent_58%),linear-gradient(145deg,color-mix(in_srgb,var(--foreground)_5%,transparent),transparent)] p-4">
+                    <div className="project-collection-generated-cover">
                         <div className="flex items-start justify-between gap-2">
-                            <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-border/70 bg-background/70 px-2.5 py-1 text-[var(--fs-micro)] text-foreground/55"><Clapperboard className="size-3.5" />{smartFilm ? "智能成片" : "视频项目"}</span>
-                            <span className={`inline-flex max-w-[58%] items-center truncate rounded-full border px-2.5 py-1 text-[var(--fs-micro)] ${statusTone}`} title={stage.detail}>{stage.label}</span>
+                            <span className="project-library-kind"><Clapperboard className="size-3.5" />{smartFilm ? "智能成片" : "视频项目"}</span>
+                            <span className={`project-summary-status is-${stage.tone}`} title={stage.detail}>{stage.label}</span>
                         </div>
                         <div className="flex items-end justify-between gap-3">
                             <div className="min-w-0">
@@ -647,6 +700,28 @@ function StudioProjectCard({ item, onOpen }: { item: ProjectSummary; onOpen: () 
                 </div>
             }
             title={item.project.name}
+            actions={
+                <div className="canvas-collection-actions" onClick={(event) => event.stopPropagation()}>
+                    <Dropdown
+                        trigger={["click"]}
+                        placement="bottomRight"
+                        overlayClassName="project-library-menu"
+                        menu={{
+                            onClick: ({ domEvent }) => domEvent.stopPropagation(),
+                            items: [
+                                { key: "open", label: "打开项目", onClick: onOpen },
+                                { key: "duplicate", label: "创建副本", onClick: onDuplicate },
+                                { type: "divider" },
+                                { key: "delete", danger: true, label: "删除项目", onClick: onDelete },
+                            ],
+                        }}
+                    >
+                        <button type="button" className="product-icon-button canvas-collection-more" aria-label={`${item.project.name} 项目操作`} title="更多操作" onClick={(event) => event.stopPropagation()}>
+                            <MoreHorizontal />
+                        </button>
+                    </Dropdown>
+                </div>
+            }
         />
     );
 }

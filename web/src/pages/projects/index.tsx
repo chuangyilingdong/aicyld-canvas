@@ -1,7 +1,7 @@
 import { CollectionToolbar } from "@/components/layout/collection-toolbar";
 import { CachedResourceImage } from "@/components/cached-resource-image";
 import { MediaPlaceholder } from "@/components/ui/product/media-placeholder";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { App, Button, Dropdown, Form, Input, InputNumber, Modal, Select, Switch } from "antd";
 import { ArrowRight, Archive, BookOpenText, Clapperboard, FileText, FolderKanban, Images, MoreHorizontal, Palette, Pencil, Plus, Search, Sparkles } from "lucide-react";
@@ -10,13 +10,14 @@ import { Link, useNavigate, useSearchParams } from "react-router";
 import { CollectionGrid, PageHeader, WorkspacePage } from "@/components/layout/workspace-page";
 import { WorkspaceErrorState, WorkspaceLoadingState, WorkspaceState } from "@/components/layout/workspace-state";
 import { CanvasStylePickerModal, resolveCanvasStylePreset, resolveProjectCanvasStyle, type CanvasStylePreset } from "@/components/canvas/canvas-style-picker-modal";
+import { LibraryCardShell } from "@/components/canvas/library-card-shell";
 import { resourceFileUrl } from "@/services/api/resources";
 import { ModelPicker } from "@/components/model-picker";
 import { isMusicAudioModel } from "@/lib/audio-generation";
 import { canvasFeatureModel } from "@/lib/canvas/feature-models";
 import { createStyleProfileSnapshot, parseStyleProfile, serializeStyleProfile } from "@/lib/canvas/style-profile";
 import { isValidSmartFilmShotCount, normalizeSmartFilmShotCount, SMART_FILM_DEFAULT_SHOT_COUNT, SMART_FILM_MAX_SHOT_COUNT, SMART_FILM_MIN_SHOT_COUNT } from "@/lib/canvas/smart-film-options";
-import { projectSummaryCompletion, projectSummaryStage } from "@/lib/project-workbench";
+import { projectSummaryStage } from "@/lib/project-workbench";
 import { settingsPath } from "@/lib/settings-navigation";
 import { preloadWorkspaceRoute } from "@/lib/workspace-route-modules";
 import { PromptTemplateOperation, parseGeneratedStory, promptTemplateTaskPlaceholder, shortDramaOutlineVariables } from "@/lib/prompts";
@@ -41,7 +42,7 @@ export default function ProjectsPage() {
     const [searchParams, setSearchParams] = useSearchParams();
     const [keyword, setKeyword] = useState("");
     const [status, setStatus] = useState<"all" | "active" | "archived">("all");
-    const [sort, setSort] = useState<"updated" | "progress" | "name">("updated");
+    const [sort, setSort] = useState<"updated" | "name">("updated");
     const [storyDraft, setStoryDraft] = useState("");
     const [createSource, setCreateSource] = useState<"blank" | "novel" | "text">("blank");
     const [selectedStyle, setSelectedStyle] = useState<CanvasStylePreset | null>(null);
@@ -78,6 +79,7 @@ export default function ProjectsPage() {
     const smartFilmShotCountValue = normalizeSmartFilmShotCount(smartFilmShotCount);
     const foldersQuery = useQuery({ queryKey: ["project-folders"], queryFn: listProjectFolders });
     const createOpen = searchParams.get("create") === "1";
+    const focusBatchId = searchParams.get("batch") || "";
     const setCreateOpen = (open: boolean) => {
         const next = new URLSearchParams(searchParams);
         if (open) next.set("create", "1");
@@ -424,11 +426,19 @@ export default function ProjectsPage() {
             .filter(({ project }) => status === "all" || project.status === status)
             .filter(({ project }) => !normalizedKeyword || `${project.name} ${project.description} ${project.stylePresetId} ${parseStyleProfile(project.styleProfileJson)?.title || resolveCanvasStylePreset(project.stylePresetId)?.title || ""}`.toLowerCase().includes(normalizedKeyword))
             .sort((left, right) => {
+                const leftFocused = Boolean(focusBatchId && left.project.batchId === focusBatchId);
+                const rightFocused = Boolean(focusBatchId && right.project.batchId === focusBatchId);
+                if (leftFocused !== rightFocused) return leftFocused ? -1 : 1;
                 if (sort === "name") return left.project.name.localeCompare(right.project.name, "zh-CN");
-                if (sort === "progress") return projectSummaryCompletion(right) - projectSummaryCompletion(left);
                 return right.project.updatedAt.localeCompare(left.project.updatedAt);
             });
-    }, [allProjects, keyword, sort, status]);
+    }, [allProjects, focusBatchId, keyword, sort, status]);
+    const focusedBatchCount = focusBatchId ? rows.filter((row) => row.project.batchId === focusBatchId).length : 0;
+    const clearBatchFocus = () => {
+        const next = new URLSearchParams(searchParams);
+        next.delete("batch");
+        setSearchParams(next, { replace: true });
+    };
     const totalProjectCount = query.data?.pages[0]?.total ?? allProjects.length;
     useEffect(() => {
         const node = loadMoreRef.current;
@@ -506,14 +516,23 @@ export default function ProjectsPage() {
             <CollectionToolbar active={Boolean(keyword || status !== "all" || sort !== "updated")} onReset={() => { setKeyword(""); setStatus("all"); setSort("updated"); }}>
                 <Input allowClear className="app-list-search" prefix={<Search className="size-4 text-foreground/40" />} value={keyword} placeholder="搜索项目、简介或画风" onChange={(event) => setKeyword(event.target.value)} />
                 <Select className="w-32" value={status} onChange={setStatus} options={[{ label: "全部状态", value: "all" }, { label: "进行中", value: "active" }, { label: "已归档", value: "archived" }]} />
-                <Select className="w-32" value={sort} onChange={setSort} options={[{ label: "最近更新", value: "updated" }, { label: "章节进度", value: "progress" }, { label: "项目名称", value: "name" }]} />
+                <Select className="w-32" value={sort} onChange={setSort} options={[{ label: "最近更新", value: "updated" }, { label: "项目名称", value: "name" }]} />
             </CollectionToolbar>
 
             {hasInitialError ? <WorkspaceErrorState description={query.error instanceof Error ? query.error.message : "项目列表加载失败"} onRetry={() => void query.refetch()} /> : null}
             {query.isLoading ? <WorkspaceLoadingState label="正在整理项目" detail="读取章节、画布与资产进度" /> : null}
+            {!query.isLoading && focusedBatchCount ? (
+                <section className="project-batch-focus" role="status" aria-live="polite">
+                    <div>
+                        <strong>刚刚创建的 {focusedBatchCount} 个项目已置顶</strong>
+                        <span>这些项目来自同一批已确认剧本，已高亮并排在最前面。</span>
+                    </div>
+                    <button type="button" onClick={clearBatchFocus}>查看全部项目</button>
+                </section>
+            ) : null}
             {!query.isLoading && !hasInitialError && rows.length ? (
                 <CollectionGrid className="library-grid project-library-grid">
-                    {rows.map((row) => <ProjectRow key={row.project.id} row={row} folders={foldersQuery.data?.folders || []} onDelete={() => modal.confirm({ title: "删除项目？", content: `项目章节、画布关联和素材归属将一并移除「${row.project.name}」，独立画布与素材库原始素材会保留。此操作不可撤销。`, okText: "删除项目", cancelText: "取消", okButtonProps: { danger: true }, onOk: () => deleteMutation.mutateAsync(row.project.id) })} onRename={() => { setRenameValue(row.project.name); setRenamingProject(row.project); }} onArchive={() => archiveMutation.mutate({ id: row.project.id, status: row.project.status === "archived" ? "active" : "archived" })} onDuplicate={async () => { await duplicateProject(row.project.id); await queryClient.invalidateQueries({ queryKey: ["projects"] }); message.success("项目副本已创建"); }} onMove={async (folderId) => { await moveProjectToFolder(row.project.id, folderId); await queryClient.invalidateQueries({ queryKey: ["projects"] }); message.success(folderId ? "项目已移动" : "项目已移出文件夹"); }} />)}
+                    {rows.map((row) => <ProjectRow key={row.project.id} row={row} newBatch={Boolean(focusBatchId && row.project.batchId === focusBatchId)} folders={foldersQuery.data?.folders || []} onDelete={() => modal.confirm({ title: "删除项目？", content: `项目章节、画布关联和素材归属将一并移除「${row.project.name}」，独立画布与素材库原始素材会保留。此操作不可撤销。`, okText: "删除项目", cancelText: "取消", okButtonProps: { danger: true }, onOk: () => deleteMutation.mutateAsync(row.project.id) })} onRename={() => { setRenameValue(row.project.name); setRenamingProject(row.project); }} onArchive={() => archiveMutation.mutate({ id: row.project.id, status: row.project.status === "archived" ? "active" : "archived" })} onDuplicate={async () => { await duplicateProject(row.project.id); await queryClient.invalidateQueries({ queryKey: ["projects"] }); message.success("项目副本已创建"); }} onMove={async (folderId) => { await moveProjectToFolder(row.project.id, folderId); await queryClient.invalidateQueries({ queryKey: ["projects"] }); message.success(folderId ? "项目已移动" : "项目已移出文件夹"); }} />)}
                 </CollectionGrid>
             ) : null}
             {!query.isLoading && !hasInitialError ? <div ref={loadMoreRef} className="library-load-more" aria-live="polite">
@@ -677,34 +696,64 @@ function generationStepDone(label: string, status: string) {
     return false;
 }
 
-function ProjectRow({ row, folders, onDelete, onRename, onArchive, onDuplicate, onMove }: { row: ProjectSummary; folders: { id: string; name: string }[]; onDelete: () => void; onRename: () => void; onArchive: () => void; onDuplicate: () => Promise<void>; onMove: (folderId: string) => Promise<void> }) {
+function ProjectRow({ row, folders, newBatch, onDelete, onRename, onArchive, onDuplicate, onMove }: { row: ProjectSummary; folders: { id: string; name: string }[]; newBatch: boolean; onDelete: () => void; onRename: () => void; onArchive: () => void; onDuplicate: () => Promise<void>; onMove: (folderId: string) => Promise<void> }) {
     const navigate = useNavigate();
-    const completion = projectSummaryCompletion(row);
     const stage = projectSummaryStage(row);
+    const smartFilm = row.project.type === "smart-film" || row.project.type === "smart-film-auto";
     const projectStyle = resolveProjectCanvasStyle(row.project.stylePresetId, row.project.styleProfileJson);
     const styleTitle = projectStyle?.title || parseStyleProfile(row.project.styleProfileJson)?.title || resolveCanvasStylePreset(row.project.stylePresetId)?.title || (row.project.stylePresetId ? "自定义画风" : "未设置画风");
     const coverUrl = row.project.coverResourceId ? resourceFileUrl(row.project.coverResourceId) : projectStyle?.imageUrl;
-    const statusTone = row.project.status === "archived" ? "is-muted" : stage.label.includes("确认") || stage.label.includes("处理") ? "is-attention" : stage.label.includes("生成") || stage.label === "制作中" || stage.label.includes("镜头") ? "is-active" : "is-ready";
     return (
-        <Link to={`/projects/${row.project.id}/overview`} className="product-collection-card library-card project-library-card group" onPointerEnter={() => preloadWorkspaceRoute(`/projects/${row.project.id}/overview`)} onFocus={() => preloadWorkspaceRoute(`/projects/${row.project.id}/overview`)}>
-            <span className="project-library-cover">
-                {coverUrl ? <CachedResourceImage className="project-library-cover-art" src={coverUrl} alt="" fallback={<MediaPlaceholder failed />} /> : <MediaPlaceholder label="故事由此开始" />}
-                <span className="project-library-cover-scrim" />
-                <span className="project-library-cover-ratio">{row.project.aspectRatio}</span>
-                <span className={`project-library-status ${statusTone}`}>{stage.label}</span>
-                <span className="project-collection-delete" onClick={(event) => event.preventDefault()}><Dropdown trigger={["click"]} placement="bottomRight" overlayClassName="project-library-menu" menu={{ items: [{ key: "open", label: "打开", onClick: () => navigate(`/projects/${row.project.id}/overview`) }, { key: "rename", icon: <Pencil className="size-3.5" />, label: "重命名", onClick: onRename }, { key: "cover", label: "修改封面", onClick: () => navigate(`/projects/${row.project.id}/settings`) }, { key: "duplicate", label: "创建副本", onClick: () => void onDuplicate() }, { key: "move", label: "移动至文件夹", children: [{ key: "root", label: "全部项目", onClick: () => void onMove("") }, ...folders.map((folder) => ({ key: folder.id, label: folder.name, onClick: () => void onMove(folder.id) }))] }, { key: "archive", icon: <Archive className="size-3.5" />, label: row.project.status === "archived" ? "恢复项目" : "归档项目", onClick: onArchive }, { type: "divider" }, { key: "delete", danger: true, label: "删除项目", onClick: onDelete }] }}><button type="button" className="project-library-more" aria-label={`${row.project.name} 更多操作`} onClick={(event) => event.preventDefault()}><MoreHorizontal className="size-4" /></button></Dropdown></span>
-            </span>
-            <span className="project-library-body">
-                <span className="project-library-heading"><strong title={row.project.name}>{row.project.name}</strong>{row.project.status === "archived" ? <em>已归档</em> : null}<ArrowRight className="project-library-arrow size-4" /></span>
-                <span className="project-library-date">{row.project.updatedAt.slice(0, 10)}</span>
-                <span className="project-library-subtitle">{styleTitle} · {sourceTypeLabel(row.project.sourceType)}</span>
-                <span className="project-library-progress"><span><span>{row.completedUnitCount}/{row.unitCount} 章</span><span>{completion}%</span></span><i><b style={{ width: `${completion}%` }} /></i></span>
-                <span className="project-library-stats"><ProjectCount icon={<BookOpenText className="size-3.5" />} label="章节" value={row.unitCount} /><ProjectCount icon={<Images className="size-3.5" />} label="资产" value={row.assetCount} /></span>
-            </span>
-        </Link>
+        <LibraryCardShell
+            ariaLabel={`打开项目 ${row.project.name}`}
+            className={`canvas-collection-card project-collection-unified-card${newBatch ? " is-new-batch" : ""}`}
+            updatedAt={row.project.updatedAt}
+            title={row.project.name}
+            onOpen={() => navigate(`/projects/${row.project.id}/overview`)}
+            onPointerEnter={() => preloadWorkspaceRoute(`/projects/${row.project.id}/overview`)}
+            onFocusCapture={() => preloadWorkspaceRoute(`/projects/${row.project.id}/overview`)}
+            cover={
+                <div className="canvas-collection-preview-content">
+                    <div className="project-library-unified-cover">
+                        {coverUrl ? <CachedResourceImage className="project-library-cover-art" src={coverUrl} alt="" fallback={<MediaPlaceholder failed />} /> : <MediaPlaceholder label="故事由此开始" />}
+                        <span className="project-library-cover-scrim" />
+                        <div className="project-library-unified-top">
+                            <span className="project-library-kind"><Clapperboard className="size-3.5" />{smartFilm ? "智能成片" : "视频项目"}</span>
+                            <span className={`project-summary-status is-${stage.tone}`} title={stage.detail}>{stage.label}</span>
+                        </div>
+                        <div className="project-library-unified-bottom">
+                            <strong>{row.project.name}</strong>
+                            <span>{row.unitCount} 章 · {row.assetCount} 项资产 · {styleTitle}</span>
+                        </div>
+                    </div>
+                </div>
+            }
+            actions={
+                <div className="canvas-collection-actions" onClick={(event) => event.stopPropagation()}>
+                    <Dropdown
+                        trigger={["click"]}
+                        placement="bottomRight"
+                        overlayClassName="project-library-menu"
+                        menu={{
+                            onClick: ({ domEvent }) => domEvent.stopPropagation(),
+                            items: [
+                                { key: "open", label: "打开项目", onClick: () => navigate(`/projects/${row.project.id}/overview`) },
+                                { key: "rename", icon: <Pencil className="size-3.5" />, label: "重命名", onClick: onRename },
+                                { key: "cover", label: "修改封面", onClick: () => navigate(`/projects/${row.project.id}/settings`) },
+                                { key: "duplicate", label: "创建副本", onClick: () => void onDuplicate() },
+                                { key: "move", label: "移动至文件夹", children: [{ key: "root", label: "全部项目", onClick: () => void onMove("") }, ...folders.map((folder) => ({ key: folder.id, label: folder.name, onClick: () => void onMove(folder.id) }))] },
+                                { key: "archive", icon: <Archive className="size-3.5" />, label: row.project.status === "archived" ? "恢复项目" : "归档项目", onClick: onArchive },
+                                { type: "divider" },
+                                { key: "delete", danger: true, label: "删除项目", onClick: onDelete },
+                            ],
+                        }}
+                    >
+                        <button type="button" className="product-icon-button canvas-collection-more" aria-label={`${row.project.name} 更多操作`} title="更多操作" onClick={(event) => event.stopPropagation()}>
+                            <MoreHorizontal className="size-4" />
+                        </button>
+                    </Dropdown>
+                </div>
+            }
+        />
     );
-}
-
-function ProjectCount({ icon, label, value }: { icon: ReactNode; label: string; value: number }) {
-    return <span className="inline-flex items-center gap-1.5" title={`${value} ${label}`}><span className="text-foreground/32">{icon}</span><strong className="font-medium tabular-nums text-foreground/65">{value}</strong><span>{label}</span></span>;
 }

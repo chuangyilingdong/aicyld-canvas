@@ -11,6 +11,8 @@ export type ProjectWorkbenchAction = {
     tone: ProjectActionTone;
 };
 
+export type ProjectSummaryTone = "generating" | "in-progress" | "draft" | "archived";
+
 export type ProjectContinueTarget = {
     href: string;
     title: string;
@@ -31,17 +33,13 @@ export type ProjectUnitStage = {
     canvas: ProjectStageCell;
 };
 
-export function projectSummaryCompletion(summary: ProjectSummary) {
-    return summary.unitCount ? Math.round((summary.completedUnitCount / summary.unitCount) * 100) : 0;
-}
-
-export function projectSummaryStage(summary: ProjectSummary) {
-    if (summary.project.status === "archived") return { label: "已归档", detail: "可在项目设置中恢复" };
-    if ((summary.activeTaskCount || 0) > 0) return { label: "生成中", detail: `${summary.activeTaskCount} 个后台任务正在运行` };
-    if (!summary.unitCount) return { label: "准备故事", detail: "还没有剧情章节" };
-    if (!summary.assetCount) return { label: "准备资产", detail: "补充角色、场景或画风" };
-    if (summary.completedUnitCount === summary.unitCount) return { label: "章节已完成", detail: "可继续检查镜头与交付结果" };
-    return { label: "制作中", detail: `${summary.completedUnitCount}/${summary.unitCount} 章已完成` };
+export function projectSummaryStage(summary: ProjectSummary): { label: string; detail: string; tone: ProjectSummaryTone } {
+    if (summary.project.status === "archived") return { label: "已归档", detail: "可在项目设置中恢复", tone: "archived" };
+    if ((summary.activeTaskCount || 0) > 0) return { label: "生成中", detail: `${summary.activeTaskCount} 个生成任务正在运行`, tone: "generating" };
+    if (!summary.unitCount && !summary.assetCount && !summary.canvasCount && !summary.completedUnitCount) {
+        return { label: "草稿", detail: "还没有开始制作", tone: "draft" };
+    }
+    return { label: "制作中", detail: `${summary.unitCount} 章 · ${summary.assetCount} 项资产`, tone: "in-progress" };
 }
 
 export function projectDetailStage(detail: ProjectDetail) {

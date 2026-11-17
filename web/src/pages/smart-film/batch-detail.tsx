@@ -485,7 +485,7 @@ export default function SmartFilmBatchDetailPage() {
                     if (scriptIds.length === 1 && createdScript?.projectId) {
                         navigate(`/projects/${createdScript.projectId}/overview`);
                     } else if (scriptIds.length > 1) {
-                        navigate("/canvas");
+                        navigate(`/projects?batch=${encodeURIComponent(batch.id)}`);
                     }
                 } catch (error) {
                     message.error(error instanceof Error ? error.message : "创建视频项目失败");
