@@ -344,6 +344,22 @@ export function SmartFilmVideoBoard({ detail, shots, readyCount, targetSeconds, 
                 </div>
             </header>
 
+            {latestResourceId && editPrompt ? (
+                <section className="mb-4 rounded-xl border border-emerald-500/25 bg-emerald-500/[.045] p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                            <strong className="text-sm">剪辑提示词已生成</strong>
+                            <p className="mt-1 text-xs leading-5 text-foreground/48">已根据整片视频、分镜顺序、动作说明和对白整理，可直接复制到剪辑 Agent 或剪辑软件工作流。</p>
+                        </div>
+                        <Button type="primary" icon={<Copy className="size-4" />} onClick={() => copyText(editPrompt, "剪辑提示词已复制")}>复制剪辑提示词</Button>
+                    </div>
+                    <details className="mt-3 rounded-lg border border-border/60 bg-background/35">
+                        <summary className="cursor-pointer select-none px-3 py-2 text-xs font-medium text-foreground/65">展开查看完整剪辑提示词</summary>
+                        <pre className="thin-scrollbar max-h-[420px] overflow-auto whitespace-pre-wrap border-t border-border/60 p-4 text-xs leading-6 text-foreground/72">{editPrompt}</pre>
+                    </details>
+                </section>
+            ) : null}
+
             <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_360px]">
                 <div className="rounded-xl border border-border/70 bg-surface p-3">
                     <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs font-medium">
@@ -381,18 +397,6 @@ export function SmartFilmVideoBoard({ detail, shots, readyCount, targetSeconds, 
                     </div>
                 </div>
             </div>
-            {latestResourceId && editPrompt ? (
-                <section className="mt-4 rounded-xl border border-border/70 bg-surface p-4">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                            <strong className="text-sm">剪辑提示词</strong>
-                            <p className="mt-1 text-xs leading-5 text-foreground/48">基于已生成整片、分镜顺序和声音事实生成；可复制到剪辑 Agent 或剪辑软件工作流。</p>
-                        </div>
-                        <Button icon={<Copy className="size-4" />} onClick={() => copyText(editPrompt, "剪辑提示词已复制")}>复制剪辑提示词</Button>
-                    </div>
-                    <pre className="thin-scrollbar mt-3 max-h-[420px] overflow-auto whitespace-pre-wrap rounded-lg border border-border/60 bg-foreground/[.025] p-4 text-xs leading-6 text-foreground/72">{editPrompt}</pre>
-                </section>
-            ) : null}
         </section>
     );
 }

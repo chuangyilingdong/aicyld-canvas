@@ -73,7 +73,7 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
             targetSeconds,
             videoResourceId: latestSmartWholeFilm.resourceId,
             taskId: latestSmartWholeFilm.taskId,
-            skillName: skillSnapshot?.stages?.edit ? skillSnapshot.name : "",
+            skillName: skillSnapshot?.name || "",
         });
     }, [detail, latestSmartWholeFilm, shots, smartFilmBatchQuery.data]);
     const readyStoryboardCount = useMemo(
