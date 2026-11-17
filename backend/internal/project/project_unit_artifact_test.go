@@ -40,14 +40,14 @@ func TestProjectUnitArtifactVersionsSmartFilmVideo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if second.Version != 2 || !second.Selected {
-		t.Fatalf("second unit artifact = %+v", second)
+	if second.ID != first.ID || second.Version != 1 || !second.Selected {
+		t.Fatalf("idempotent unit artifact = %+v, first=%+v", second, first)
 	}
 	artifacts, err := svc.ProjectUnitArtifacts("user-1", project.ID, unit.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(artifacts) != 2 || artifacts[0].Version != 2 || artifacts[1].Version != 1 {
+	if len(artifacts) != 1 || artifacts[0].Version != 1 {
 		t.Fatalf("unit artifacts = %+v", artifacts)
 	}
 }

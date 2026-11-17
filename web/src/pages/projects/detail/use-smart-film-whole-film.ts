@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { modelCapabilityConfigFor, normalizeVideoValue } from "@/lib/model-capabilities";
@@ -14,13 +14,14 @@ import { approvedStoryboardArtifact, currentArtifact } from "./workflow-shared";
 import { buildSmartFilmWholeFilmPrompt } from "./smart-film-whole-film-prompt";
 import { smartFilmSkillMetadata, smartFilmSkillStagePrompt } from "@/services/smart-film-skill";
 
+const recoveringSmartFilmTaskKeys = new Set<string>();
+
 export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, unitId: string, shots: ProjectShot[], activeStage: string) {
     const effectiveConfig = useEffectiveConfig();
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const [smartFilmGenerating, setSmartFilmGenerating] = useState(false);
     const [smartFilmTask, setSmartFilmTask] = useState<GenerationTask | null>(null);
     const [smartFilmRecoveryError, setSmartFilmRecoveryError] = useState("");
-    const recoveringTaskIdsRef = useRef(new Set<string>());
     const smartFilmBatchQuery = useQuery({
         queryKey: ["smart-film-batch", detail.project.batchId, activeStage === "video" ? "video" : "image"],
         queryFn: () => getSmartFilmBatch(detail.project.batchId!, undefined, (activeStage === "video" ? "video" : "image") as SmartFilmSkillStage).then((result) => result.batch),
@@ -69,9 +70,10 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
 
     useEffect(() => {
         const task = latestSmartFilmTask;
-        if (!task || task.status !== "succeeded" || !unitArtifactsQuery.isSuccess || recoveringTaskIdsRef.current.has(task.id)) return;
+        const recoveryKey = `${projectId}:${unitId}:${task?.id || ""}`;
+        if (!task || task.status !== "succeeded" || !unitArtifactsQuery.isSuccess || recoveringSmartFilmTaskKeys.has(recoveryKey)) return;
         if ((unitArtifactsQuery.data || []).some((artifact) => artifact.taskId === task.id)) return;
-        recoveringTaskIdsRef.current.add(task.id);
+        recoveringSmartFilmTaskKeys.add(recoveryKey);
         void (async () => {
             try {
                 const output = task.outputs?.find((item) => item.mediaType === "video" && (item.resourceId || item.targetBinding?.source === "smart-film-whole-video"));
@@ -90,7 +92,7 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
                 setSmartFilmRecoveryError("");
                 await unitArtifactsQuery.refetch();
             } catch (error) {
-                recoveringTaskIdsRef.current.delete(task.id);
+                recoveringSmartFilmTaskKeys.delete(recoveryKey);
                 setSmartFilmRecoveryError(error instanceof Error ? error.message : "整片视频产物恢复失败");
             }
         })();

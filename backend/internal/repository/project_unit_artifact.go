@@ -1,6 +1,8 @@
 package repository
 
 import (
+	"errors"
+
 	"infinite-canvas/backend/internal/model"
 
 	"gorm.io/gorm"
@@ -19,6 +21,18 @@ func (r *Repository) CreateProjectUnitArtifactActive(userID, projectID, unitID s
 		}
 		if err := tx.First(&model.ProjectUnit{}, "id = ? AND project_id = ?", unitID, projectID).Error; err != nil {
 			return err
+		}
+		var existing model.ProjectUnitArtifact
+		lookupErr := tx.Where(
+			"project_id = ? AND unit_id = ? AND type = ? AND task_id = ? AND resource_id = ?",
+			projectID, unitID, artifact.Type, artifact.TaskID, artifact.ResourceID,
+		).First(&existing).Error
+		if lookupErr == nil {
+			*artifact = existing
+			return nil
+		}
+		if !errors.Is(lookupErr, gorm.ErrRecordNotFound) {
+			return lookupErr
 		}
 		var maxVersion int
 		if err := tx.Model(&model.ProjectUnitArtifact{}).
