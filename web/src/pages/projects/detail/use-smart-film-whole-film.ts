@@ -100,11 +100,6 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
 
     const generateSmartWholeFilm = async (confirmQuote: (input: ReturnType<typeof buildBackendGenerationTaskQuoteInput>) => Promise<boolean>, notifyError: (message: string) => void) => {
         if (smartFilmGenerating) return;
-        const unconfirmedShots = shots.filter((shot) => shot.status !== "confirmed");
-        if (unconfirmedShots.length) {
-            notifyError(`还有 ${unconfirmedShots.length} 个镜头的参考分镜未确认，请逐镜确认后再生成整片`);
-            return;
-        }
         const storyboardArtifacts = shots.flatMap((shot) => {
             const artifact = currentArtifact(detail, shot.id, "storyboard");
             return artifact?.resourceId && artifact.status === "ready" ? [{ shot, artifact }] : [];

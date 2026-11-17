@@ -273,9 +273,11 @@ export default function WorkflowProductionWorkbench(props: Props) {
             continuityNotes: revision?.continuityNotes || "",
         });
         setPreviewArtifactId("");
-        setImagePreviewArtifact(null);
         setEditorDirty(!revision || videoPrompt !== revision.videoPrompt);
     }, [effectiveConfig, form, generationCapability, initialModel, revision?.id, selectedShot?.id, shotAssetReferenceContext.mentionReferences]);
+    useEffect(() => {
+        setImagePreviewArtifact(null);
+    }, [revision?.id, selectedShot?.id]);
 
     const changeGenerationModel = (nextModel: string) => {
         selectedModelRef.current = nextModel;
