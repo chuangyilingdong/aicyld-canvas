@@ -156,13 +156,13 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
             return;
         }
         const promptLimit = profile?.references.promptMaxChars || 4_000;
+        const skillSnapshot = smartFilmBatchQuery.data?.config.skillSnapshot;
         const promptPlan = buildSmartFilmWholeFilmPrompt(
             detail,
             storyboardArtifacts,
             targetSeconds,
-            { maxChars: promptLimit },
+            { maxChars: promptLimit, skillSnapshot },
         );
-        const skillSnapshot = smartFilmBatchQuery.data?.config.skillSnapshot;
         const prompt = promptPlan.prompt;
         if (promptPlan.referenceImages.length > maxImages) {
             fail(maxImages < storyboardArtifacts.length

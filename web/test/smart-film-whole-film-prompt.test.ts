@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 import { buildSmartFilmWholeFilmPrompt } from "@/pages/projects/detail/smart-film-whole-film-prompt";
-import type { ProjectDetail, ProjectShot, ShotArtifact } from "@/services/api/projects";
+import type { ProjectAsset, ProjectDetail, ProjectShot, ShotArtifact } from "@/services/api/projects";
+import type { SmartFilmSkillSnapshot } from "@/services/api/smart-film-batches";
 
 describe("smart film whole-film prompt", () => {
     test("builds one compact prompt that references only the ordered storyboard images", () => {
@@ -56,12 +57,124 @@ describe("smart film whole-film prompt", () => {
         const plan = buildSmartFilmWholeFilmPrompt(detail, [{ shot, artifact }], 2);
 
         expect(plan.referenceImages.map((image) => image.storageKey)).toEqual(["resource:storyboard-resource"]);
-        expect(plan.prompt).toContain("参考图片1至图片1");
-        expect(plan.prompt).toContain("图片1（0–2 秒）：暗黑沧龙保持静止站立姿态");
+        expect(plan.prompt).toContain("参考图编号与镜头编号是两套编号");
+        expect(plan.prompt).toContain("参考图1对应镜头1");
+        expect(plan.prompt).toContain("镜头1（0–2 秒）：暗黑沧龙保持静止站立姿态");
         expect(plan.prompt).not.toContain("叙事意图");
         expect(plan.prompt).not.toContain("表演调度");
         expect(plan.prompt).not.toContain("@[asset:");
         expect(plan.prompt).not.toContain("skill-context");
+    });
+
+    test("passes linked product multi-view assets and the loaded video skill into generation", () => {
+        const shot = {
+            id: "shot-product",
+            projectId: "project-1",
+            title: "产品展示",
+            description: "",
+            position: 0,
+            durationMs: 5_000,
+            status: "confirmed",
+            currentRevisionId: "revision-product",
+            createdAt: "2026-11-16T00:00:00Z",
+            updatedAt: "2026-11-16T00:00:00Z",
+        } satisfies ProjectShot;
+        const nextShot = {
+            ...shot,
+            id: "shot-product-next",
+            title: "产品防御",
+            position: 1,
+            durationMs: 5_000,
+            currentRevisionId: "revision-product-next",
+        } satisfies ProjectShot;
+        const product = {
+            id: "product-turnaround",
+            title: "生成图片",
+            mediaType: "image",
+            category: "prop",
+            status: "ready",
+            primaryVersionId: "product-version-1",
+            versionCount: 1,
+            usages: [],
+            position: 0,
+            storageKey: "resource:product-turnaround-resource",
+            updatedAt: "2026-11-16T00:00:00Z",
+        } satisfies ProjectAsset;
+        const artifact = {
+            id: "storyboard-product",
+            projectId: "project-1",
+            shotId: shot.id,
+            type: "storyboard",
+            version: 1,
+            resourceId: "storyboard-product-resource",
+            status: "ready",
+            selected: true,
+            metadataJson: "",
+            createdAt: "2026-11-16T00:00:00Z",
+            updatedAt: "2026-11-16T00:00:00Z",
+        } satisfies ShotArtifact;
+        const nextArtifact = {
+            ...artifact,
+            id: "storyboard-product-next",
+            shotId: nextShot.id,
+            resourceId: "storyboard-product-next-resource",
+        } satisfies ShotArtifact;
+        const detail = {
+            assets: [product],
+            shotReferences: [shot, nextShot].map((item) => ({
+                id: `product-reference-${item.id}`,
+                shotId: item.id,
+                assetVersionId: "product-version-1",
+                role: "reference",
+                status: "linked",
+                createdAt: "2026-11-16T00:00:00Z",
+            })),
+            shotRevisions: [shot, nextShot].map((item) => ({
+                id: item.currentRevisionId!,
+                shotId: item.id,
+                version: 1,
+                plotDescription: "",
+                action: "产品保持稳定",
+                dialogue: "",
+                shotSize: "",
+                cameraAngle: "",
+                cameraMovement: "",
+                durationMs: item.durationMs,
+                imagePrompt: "",
+                videoPrompt: "图片1=生成图片中的产品保持稳定。@[asset:product-turnaround]",
+                negativePrompt: "",
+                continuityNotes: "",
+                actionBeatsJson: "",
+                assetRolesJson: JSON.stringify([{ assetId: product.id, versionId: "product-version-1", title: product.title, role: "prop" }]),
+                createdAt: "2026-11-16T00:00:00Z",
+            })),
+        } as ProjectDetail;
+        const skillSnapshot = {
+            skillId: "short-film-skill",
+            versionId: "short-film-skill-v1",
+            contentHash: "abc123",
+            name: "产品短片导演",
+            stages: { video: "三视图的每个角度都是同一产品的外观设定，不得复制成多个产品。" },
+        } satisfies SmartFilmSkillSnapshot;
+
+        const plan = buildSmartFilmWholeFilmPrompt(detail, [{ shot, artifact }, { shot: nextShot, artifact: nextArtifact }], 10, { skillSnapshot });
+
+        expect(plan.referenceImages.map((image) => image.storageKey)).toEqual([
+            "resource:product-turnaround-resource",
+            "resource:storyboard-product-resource",
+            "resource:storyboard-product-next-resource",
+        ]);
+        expect(plan.prompt).toContain("【技能规范】");
+        expect(plan.prompt).toContain("三视图的每个角度都是同一产品");
+        expect(plan.prompt).toContain("所有视角都是同一角色或产品的不同视图");
+        expect(plan.prompt).toContain("参考图1：项目绑定的产品/道具外观设定");
+        expect(plan.prompt).toContain("参考图2对应镜头1");
+        expect(plan.prompt).toContain("参考图3对应镜头2");
+        expect(plan.prompt).toContain("镜头1（0–5 秒）：画面中的产品保持稳定");
+        expect(plan.prompt).toContain("镜头2（5–10 秒）：画面中的产品保持稳定");
+        expect(plan.prompt).toContain("外观以参考图1为准");
+        expect(plan.prompt).not.toContain("图片1=生成图片中的产品");
+        expect(plan.prompt).not.toContain("@[asset:");
     });
 
     test("keeps all eight image references in one bounded prompt", () => {
@@ -118,8 +231,8 @@ describe("smart film whole-film prompt", () => {
         const plan = buildSmartFilmWholeFilmPrompt(detail, entries, 15, { maxChars: 1_200 });
         expect(plan.referenceImages).toHaveLength(8);
         expect(plan.prompt.length).toBeLessThanOrEqual(1_200);
-        for (let index = 1; index <= 8; index += 1) expect(plan.prompt).toContain(`图片${index}（`);
-        expect(plan.prompt).toContain("对白顺序：图片2「第一关，救出小潜艇！」");
+        for (let index = 1; index <= 8; index += 1) expect(plan.prompt).toContain(`镜头${index}（`);
+        expect(plan.prompt).toContain("对白顺序：镜头2「第一关，救出小潜艇！」");
         expect(plan.prompt).not.toContain("叙事意图");
         expect(plan.prompt).not.toContain("平台任务提示词已按模型上限压缩");
     });
@@ -178,6 +291,6 @@ describe("smart film whole-film prompt", () => {
         const plan = buildSmartFilmWholeFilmPrompt(detail, entries, 15, { maxChars: 4_000 });
         expect(plan.referenceImages).toHaveLength(12);
         expect(plan.prompt.length).toBeLessThanOrEqual(4_000);
-        for (let index = 1; index <= 12; index += 1) expect(plan.prompt).toContain(`图片${index}（`);
+        for (let index = 1; index <= 12; index += 1) expect(plan.prompt).toContain(`镜头${index}（`);
     });
 });

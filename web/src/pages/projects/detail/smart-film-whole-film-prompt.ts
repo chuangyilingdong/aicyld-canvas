@@ -1,8 +1,11 @@
 import type { ProjectDetail, ProjectShot, ShotArtifact } from "@/services/api/projects";
 import { resourceFileUrl } from "@/services/api/resources";
+import { smartFilmSkillStagePrompt } from "@/services/smart-film-skill";
+import type { SmartFilmSkillSnapshot } from "@/services/api/smart-film-batches";
 import type { ReferenceImage } from "@/types/image";
 
 import { promptWithoutAssetMentions } from "./smart-film-storyboard-prompt";
+import { buildShotAssetReferenceContext } from "./workflow-shot-references";
 import { currentRevision } from "./workflow-shared";
 
 type StoryboardEntry = {
@@ -14,22 +17,43 @@ export function buildSmartFilmWholeFilmPrompt(
     detail: ProjectDetail,
     entries: StoryboardEntry[],
     targetSeconds: number,
-    options: { maxChars?: number } = {},
+    options: { maxChars?: number; skillSnapshot?: SmartFilmSkillSnapshot } = {},
 ) {
     const maxChars = Math.max(1_000, Math.floor(options.maxChars || 4_000));
-    const referenceImages: ReferenceImage[] = entries.map(({ shot, artifact }, shotIndex) => ({
-            id: `smart-film-storyboard-${shotIndex}`,
-            name: `图片${shotIndex + 1} · ${shot.title}`,
-            type: "image/*",
-            dataUrl: "",
-            url: resourceFileUrl(artifact.resourceId!),
-            storageKey: `resource:${artifact.resourceId}`,
+    const assetReferences = collectVisualAssetReferences(detail, entries);
+    const assetReferenceIndexById = new Map(assetReferences.map((reference, index) => [reference.assetId, index + 1]));
+    const storyboardReferenceOffset = assetReferences.length;
+    const storyboardImages: ReferenceImage[] = entries.map(({ shot, artifact }, shotIndex) => ({
+        id: `smart-film-storyboard-${shotIndex}`,
+        name: `镜头${shotIndex + 1}分镜参考 · ${shot.title}`,
+        type: "image/*",
+        dataUrl: "",
+        url: resourceFileUrl(artifact.resourceId!),
+        storageKey: `resource:${artifact.resourceId}`,
     }));
+    const referenceImages = [
+        ...assetReferences.map((reference, index) => ({
+            ...reference.image,
+            id: `smart-film-asset-${reference.assetId}`,
+            name: `主体外观参考${index + 1}`,
+        })),
+        ...storyboardImages,
+    ];
     const timings = smartFilmShotTimings(entries, targetSeconds);
-    const intro = `参考图片1至图片${entries.length}，生成一个完整的 ${formatSeconds(targetSeconds)} 秒视频。把这些图片作为同一部作品的有序视觉参考，保持角色、产品、场景、画风和光线一致；允许模型按动作连续性自然衔接，不要求每张图片对应固定硬切点。`;
-    const outro = "保留对白、动作音效、环境声和项目设定的背景音乐，不新增无关旁白。";
+    const intro = `生成一段完整的 ${formatSeconds(targetSeconds)} 秒视频。参考图编号与镜头编号是两套编号，不得混用。`;
+    const referenceMap = [
+        "【参考图职责】",
+        ...assetReferences.map((reference, index) => `参考图${index + 1}：项目绑定的${assetReferenceRoleLabel(reference.category)}外观设定，只用于保持同一实体的身份、结构、颜色与材质。`),
+        ...entries.map((_, index) => `参考图${storyboardReferenceOffset + index + 1}对应镜头${index + 1}，用于该镜头的构图、动作结果、环境与光效。`),
+    ].join("\n");
+    const continuityRules = [
+        "【实体与多视图规则】",
+        "如果主体外观参考呈现三视图、转面图或多角度设定页，所有视角都是同一角色或产品的不同视图，只用于理解同一实体的外形；不得按视图数量复制角色或产品，也不得把设定页排版当作成片场景。",
+        "主体外观参考优先锁定身份与结构；分镜参考只控制对应镜头的构图、动作、环境和光线，不得把分镜图里的主体复制成多个实体。",
+    ].join("\n");
+    const outro = "仅保留已写明的对白；没有对白时不新增对白或旁白。动作音效、环境声和配乐服务于画面，不得覆盖主体动作。";
     const dialogue = compactDialogue(detail, entries, Math.min(600, Math.floor(maxChars * 0.15)));
-    const fixedLength = intro.length + outro.length + dialogue.length + entries.length * 24;
+    const fixedLength = intro.length + referenceMap.length + continuityRules.length + outro.length + dialogue.length + entries.length * 24;
     const cueBudget = Math.max(72, Math.floor((maxChars - fixedLength) / Math.max(1, entries.length)));
     const shotPrompts = entries.map(({ shot }, index) => {
         const revision = currentRevision(detail, shot);
@@ -37,19 +61,22 @@ export function buildSmartFilmWholeFilmPrompt(
             revision?.videoPrompt || revision?.plotDescription || shot.description || shot.title,
             revision?.action || "",
         ].filter(Boolean).join("\n");
-        const cue = fitText(smartFilmShotDirection(source), cueBudget);
+        const cue = fitText(smartFilmShotDirection(source, assetReferenceIndexById), cueBudget);
         const timing = timings[index];
-        return `图片${index + 1}（${formatSeconds(timing.start)}–${formatSeconds(timing.end)} 秒）：${cue}`;
+        return `镜头${index + 1}（${formatSeconds(timing.start)}–${formatSeconds(timing.end)} 秒）：${cue}`;
     });
-    const prompt = [
+    const taskPrompt = [
         intro,
+        referenceMap,
+        continuityRules,
         ...shotPrompts,
         dialogue ? `对白顺序：${dialogue}` : "",
         outro,
     ].filter(Boolean).join("\n");
+    const prompt = smartFilmSkillStagePrompt(options.skillSnapshot, "video", taskPrompt, { maxChars }).slice(0, maxChars);
 
     return {
-        prompt: prompt.slice(0, maxChars),
+        prompt,
         referenceImages,
         storyboardResourceIds: entries.map(({ artifact }) => artifact.resourceId!),
     };
@@ -69,8 +96,13 @@ export function smartFilmShotTimings(entries: StoryboardEntry[], targetSeconds: 
     });
 }
 
-export function smartFilmShotDirection(value: string) {
-    const normalized = promptWithoutAssetMentions(value)
+export function smartFilmShotDirection(value: string, assetReferenceIndexById?: ReadonlyMap<string, number>) {
+    const normalized = value
+        .replace(/@\[asset:([^\]]+)\]/g, (_token, assetId: string) => {
+            const referenceIndex = assetReferenceIndexById?.get(assetId.trim());
+            return referenceIndex ? `外观以参考图${referenceIndex}为准` : "";
+        })
+        .replace(/图片\s*\d+\s*=\s*生成图片中的(产品|人物|角色|道具)/g, "画面中的$1")
         .replace(/\r/g, "")
         .replace(/[ \t]+/g, " ")
         .trim();
@@ -83,9 +115,32 @@ function compactDialogue(detail: ProjectDetail, entries: StoryboardEntry[], budg
         const dialogue = promptWithoutAssetMentions(currentRevision(detail, shot)?.dialogue || "")
             .replace(/\s+/g, " ")
             .trim();
-        return dialogue ? [`图片${index + 1}「${fitText(dialogue, 72)}」`] : [];
+        return dialogue ? [`镜头${index + 1}「${fitText(dialogue, 72)}」`] : [];
     });
     return fitText(parts.join("；"), budget);
+}
+
+function collectVisualAssetReferences(detail: ProjectDetail, entries: StoryboardEntry[]) {
+    const seen = new Set<string>();
+    const references: Array<{ assetId: string; category: string; image: ReferenceImage }> = [];
+    for (const { shot } of entries) {
+        const context = buildShotAssetReferenceContext(detail, shot.id);
+        for (const reference of context.assetReferences) {
+            if (seen.has(reference.assetId)) continue;
+            const image = context.referenceImages[reference.imageIndex - 1];
+            if (!image) continue;
+            seen.add(reference.assetId);
+            references.push({ assetId: reference.assetId, category: reference.category, image });
+        }
+    }
+    return references;
+}
+
+function assetReferenceRoleLabel(category: string) {
+    if (category === "character") return "人物身份与造型";
+    if (category === "scene" || category === "environment") return "场景外观";
+    if (category === "prop") return "产品/道具";
+    return "主体";
 }
 
 function fitText(value: string, maxChars: number) {

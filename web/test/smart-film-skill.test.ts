@@ -31,6 +31,13 @@ describe("smart film single skill context", () => {
         });
     });
 
+    it("does not impose a stage limit on skill stages without a configured model cap", () => {
+        const longRules = "剧本规则".repeat(8_000);
+        const prompt = smartFilmSkillStagePrompt({ ...snapshot, stages: { script: longRules } }, "script", "平台剧本任务");
+        expect(prompt).toContain(longRules);
+        expect(prompt).toContain("平台剧本任务");
+    });
+
     it("keeps image and video prompts within the model limits while preserving the platform task", () => {
         const longSnapshot = {
             ...snapshot,

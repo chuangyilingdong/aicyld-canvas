@@ -224,10 +224,16 @@ function escapeAttribute(value: string) {
     return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-export function smartFilmSkillStagePrompt(snapshot: SmartFilmSkillSnapshot | undefined, stage: SmartFilmSkillStage, taskPrompt: string) {
+export function smartFilmSkillStagePrompt(
+    snapshot: SmartFilmSkillSnapshot | undefined,
+    stage: SmartFilmSkillStage,
+    taskPrompt: string,
+    options: { maxChars?: number } = {},
+) {
     const skillContext = snapshot?.stages?.[stage]?.trim();
     if (!skillContext) return taskPrompt;
-    const promptLimit = SMART_FILM_STAGE_PROMPT_LIMITS[stage];
+    const requestedLimit = options.maxChars ?? SMART_FILM_STAGE_PROMPT_LIMITS[stage];
+    const promptLimit = requestedLimit === undefined ? undefined : Math.max(1_000, Math.floor(requestedLimit));
     if (stage === "image") {
         const imageLimit = promptLimit ?? 5_000;
         const header = `${IMAGE_STAGE_COMPACT_GUIDANCE}\n\n【平台阶段任务】\n`;
