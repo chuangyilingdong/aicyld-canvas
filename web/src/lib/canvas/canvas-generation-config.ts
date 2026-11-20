@@ -75,6 +75,7 @@ export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | u
         quality: node?.metadata?.quality ?? workflowParameterValue("quality") ?? config.quality ?? defaultConfig.quality,
         size: workflowProvider === "model" ? (node?.metadata?.size ?? config.size ?? defaultConfig.size) : workflowOutputSize || node?.metadata?.size || config.size || defaultConfig.size,
         transparentBackground: node?.metadata?.transparentBackground ?? config.transparentBackground ?? defaultConfig.transparentBackground,
+        imageOutputFormat: node?.metadata?.imageOutputFormat ?? config.imageOutputFormat ?? defaultConfig.imageOutputFormat,
         seedreamMode: node?.metadata?.seedreamMode ?? config.seedreamMode,
         seedreamMaxImages: node?.metadata?.seedreamMaxImages ?? config.seedreamMaxImages,
         seedreamOutputFormat: node?.metadata?.seedreamOutputFormat ?? config.seedreamOutputFormat,
@@ -121,6 +122,7 @@ export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | u
                             size: node?.metadata?.size,
                             quality: node?.metadata?.quality,
                             transparentBackground: node?.metadata?.transparentBackground,
+                            imageOutputFormat: node?.metadata?.imageOutputFormat,
                             count: requestedConfig.count,
                         }
                       : {
@@ -134,6 +136,7 @@ export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | u
                       size: requestedConfig.size,
                       quality: requestedConfig.quality,
                       transparentBackground: requestedConfig.transparentBackground,
+                      imageOutputFormat: requestedConfig.imageOutputFormat,
                       count: requestedConfig.count,
                       videoSeconds: requestedConfig.videoSeconds,
                       vquality: requestedConfig.vquality,
@@ -168,6 +171,7 @@ export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | u
         quality: generationDefaults.quality || requestedConfig.quality,
         size: generationDefaults.size ?? requestedConfig.size,
         transparentBackground: generationDefaults.transparentBackground || (requestedConfig.transparentBackground === "true" ? "true" : "false"),
+        imageOutputFormat: generationDefaults.imageOutputFormat || requestedConfig.imageOutputFormat,
         videoSeconds: generationDefaults.videoSeconds || requestedConfig.videoSeconds,
         vquality: resolvedVquality,
         videoGenerateAudio: generationDefaults.videoGenerateAudio || requestedConfig.videoGenerateAudio,

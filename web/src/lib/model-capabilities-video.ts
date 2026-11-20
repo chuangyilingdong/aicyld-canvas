@@ -335,6 +335,26 @@ export function defaultVideoCapabilityConfig(protocol?: ModelProtocol, model = "
         video.duration = { selection: "enum", values: [4, 6, 8], default: 6 };
         video.resolutions = ["720p", "1080p"];
     }
+    if (protocol === "runninghub-standard-video") {
+        video.references.promptMaxChars = 20480;
+        video.references.maxImages = 30;
+        video.references.maxImageBytes = 50 * 1024 * 1024;
+        video.references.maxVideos = 10;
+        video.references.maxVideoBytes = 50 * 1024 * 1024;
+        video.references.minVideoDurationSeconds = 2;
+        video.references.maxVideoDurationSeconds = 30;
+        video.references.maxAudios = 10;
+        video.references.maxAudioBytes = 50 * 1024 * 1024;
+        video.references.minAudioDurationSeconds = 2;
+        video.references.maxAudioDurationSeconds = 30;
+        video.duration = { selection: "range", min: 4, max: 30, step: 1, default: 5 };
+        video.ratios = ["adaptive", "16:9", "4:3", "1:1", "3:4", "9:16", "21:9"];
+        video.defaultRatio = "adaptive";
+        video.resolutions = ["480p", "720p", "native1080p", "1080p", "2k", "4k"];
+        video.generateAudio = { supported: true, default: true };
+        video.watermark = { supported: true, default: false };
+        video.operations = ["text_to_video", "image_to_video", "first_last_frame", "reference_to_video"];
+    }
     if (protocol === "volcengine-ark-video" || protocol === "volcengine-ark-agent-plan-video" || protocol === "newapi-channel-1" || protocol === "newapi-channel-2" || protocol === "video-generations-json") {
         video.references.maxVideos = 3;
         video.references.maxAudios = 3;
@@ -611,6 +631,18 @@ export function videoDurationOptions(profile: VideoCapabilityConfig) {
     const max = profile.duration.max || min;
     const step = profile.duration.step || 1;
     return Array.from({ length: Math.floor((max - min) / step) + 1 }, (_, index) => min + index * step);
+}
+
+/**
+ * 长而连续的离散时长选项更适合用拉杆展示；少量或非等距档位仍保留按钮，
+ * 避免把 4、6、8 秒这类真实离散约束误画成连续范围。
+ */
+export function contiguousDurationRange(options: number[]) {
+    const values = Array.from(new Set(options.filter((value) => Number.isFinite(value) && value >= 0))).sort((left, right) => left - right);
+    if (values.length < 6) return null;
+    const step = values[1] - values[0];
+    if (step <= 0 || values.some((value, index) => index > 0 && value - values[index - 1] !== step)) return null;
+    return { min: values[0], max: values[values.length - 1], step };
 }
 
 export function videoDurationAllowed(profile: VideoCapabilityConfig, value: number) {

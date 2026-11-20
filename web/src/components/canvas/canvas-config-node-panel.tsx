@@ -4,10 +4,17 @@ import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { ChevronDown, Dice5, Image as ImageIcon, LoaderCircle, MessageSquare, Music2, Play, Sparkles, Video, Workflow as WorkflowIcon } from "lucide-react";
 
 import { Switch } from "@/components/ui/base/switch";
-import { videoSupportsTaskTypeConstraints } from "@/lib/model-capabilities";
-import { isH3Model, h3VideoOperation } from "@/lib/h3-video";
+import { isH3Model } from "@/lib/h3-video";
 import { CanvasH3Controls, CanvasH3UnsupportedFrames } from "./canvas-h3-controls";
-import { resolveVideoOperation } from "@/lib/model-selection";
+import {
+    displayVideoOperation,
+    displayVideoOperations,
+    operationForModelSelection,
+    resolveVideoOperation,
+    videoModelFamilyOperations,
+    videoOperationInputError,
+    videoOperationRequirementHint,
+} from "@/lib/model-selection";
 
 import {
     modelOptionName,
@@ -67,7 +74,8 @@ type WorkflowSelectOption = {
 const videoOperationOptions: Array<{ label: string; value: CanvasVideoEditOperation }> = [
     { label: "文生视频", value: "text_to_video" },
     { label: "图生视频", value: "image_to_video" },
-    { label: "全模态参考", value: "reference_to_video" },
+    { label: "首尾帧", value: "first_last_frame" },
+    { label: "全能参考", value: "reference_to_video" },
     { label: "视频续写", value: "extend" },
     { label: "局部修改", value: "inpaint" },
     { label: "元素替换", value: "replace_element" },
@@ -100,6 +108,10 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, onConfigC
     const workflowCapability: RunningHubCapability = mode === "video" ? "video" : mode === "audio" ? "audio" : "image";
     const requirements = buildCanvasGenerationRequirements(globalConfig, node, mode, inputSummary);
     const config = buildNodeConfig(globalConfig, node, mode, requirements);
+    const effectiveVideoOperation = mode === "video"
+        ? operationForModelSelection(config, config.model, inputSummary, node.metadata?.videoEditOperation)
+        : undefined;
+    const videoFamilyOperations = mode === "video" ? displayVideoOperations(videoModelFamilyOperations(config, config.model)) : [];
     const defaultWorkflowCapability = normalizeRunningHubCapability(globalConfig.runningHub.capability);
     const selectedRunningHubWorkflow = globalConfig.runningHub.workflows.find(
         (item) => item.workflowId.trim() === node.metadata?.runningHubWorkflowId?.trim() && (!node.metadata?.runningHubWorkflowKind || runningHubWorkflowKind(item) === node.metadata.runningHubWorkflowKind),
@@ -135,6 +147,10 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, onConfigC
         workflowCapability,
         workflowProvider,
     ]);
+    useEffect(() => {
+        if (mode !== "video" || !effectiveVideoOperation || effectiveVideoOperation === node.metadata?.videoEditOperation) return;
+        onConfigChange(node.id, { videoEditOperation: effectiveVideoOperation as CanvasVideoEditOperation });
+    }, [effectiveVideoOperation, mode, node.id, node.metadata?.videoEditOperation, onConfigChange]);
     const runningHubEntries = globalConfig.runningHub.workflows
         // 正常情况下只显示当前模式的条目；旧画布已引用的错配条目保留在列表中，
         // 这样用户可以看到并重新选择，而不是出现“选项消失”的死路。
@@ -255,33 +271,29 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, onConfigC
 
             {mode === "video" && !simpleMode ? (
                 <div className="cursor-default" data-canvas-no-zoom onMouseDown={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()}>
-                    {workflowProvider === "model" && (videoSupportsTaskTypeConstraints(modelCapabilityConfigFor(config, config.model).video) || isH3Model(config.model)) ? (
+                    {workflowProvider === "model" && videoFamilyOperations.length > 1 ? (
                         <Select
                             aria-label="视频生成模式"
                             className="w-full"
-                            value={isH3Model(config.model) ? h3VideoOperation(config.model, inputSummary, node.metadata?.videoEditOperation) : resolveVideoOperation(inputSummary, node.metadata?.videoEditOperation)}
+                            value={displayVideoOperation(effectiveVideoOperation || resolveVideoOperation(inputSummary, node.metadata?.videoEditOperation))}
                             options={videoOperationOptions
                                 .filter(
                                     (option) =>
-                                        ["text_to_video", "image_to_video", "reference_to_video", "inpaint", "extend", "audio_to_video"].includes(option.value) && modelCapabilityConfigFor(config, config.model).video?.operations.includes(option.value),
+                                        ["text_to_video", "image_to_video", "first_last_frame", "reference_to_video", "inpaint", "extend", "audio_to_video"].includes(option.value) && videoFamilyOperations.includes(option.value),
                                 )
-                                .map((option) => ({
-                                    ...option,
-                                    label: option.value === "image_to_video" ? "首帧 / 首尾帧" : option.value === "reference_to_video" ? "参考生成" : option.label,
-                                    disabled:
-                                        option.value === "image_to_video"
-                                            ? inputSummary.imageCount + inputSummary.characterCount < 1 ||
-                                              inputSummary.imageCount + inputSummary.characterCount > 2 ||
-                                              inputSummary.videoCount > 0 ||
-                                              (!isH3Model(config.model) && inputSummary.audioCount > 0)
-                                            : ["inpaint", "extend"].includes(option.value)
-                                              ? inputSummary.videoCount < 1
-                                              : option.value === "text_to_video"
-                                                ? inputSummary.imageCount + inputSummary.characterCount + inputSummary.videoCount + inputSummary.audioCount > 0
-                                                : option.value === "audio_to_video"
-                                                  ? inputSummary.audioCount < 1 || inputSummary.imageCount + inputSummary.characterCount + inputSummary.videoCount > 0
-                                                  : inputSummary.imageCount + inputSummary.characterCount + inputSummary.videoCount + inputSummary.audioCount < 1,
-                                }))}
+                                .map((option) => {
+                                    const reason = videoOperationInputError(inputSummary, option.value);
+                                    return {
+                                        ...option,
+                                        label: (
+                                            <span title={reason || undefined}>
+                                                {option.label}
+                                                {reason ? <span className="opacity-55"> · {videoOperationRequirementHint(option.value)}</span> : null}
+                                            </span>
+                                        ),
+                                        disabled: Boolean(reason),
+                                    };
+                                })}
                             onChange={(value) => onConfigChange(node.id, { videoEditOperation: value as CanvasVideoEditOperation })}
                         />
                     ) : (
@@ -291,7 +303,7 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, onConfigC
                             title="已连接的图片、视频和音频会按当前工作流字段映射自动传入"
                         >
                             <ImageIcon className="size-3.5 shrink-0 opacity-75" />
-                            <span className="shrink-0 font-medium">{modelCapabilityConfigFor(config, config.model).video?.operations.includes("reference_to_video") ? "参考生成" : "图片生成"}</span>
+                            <span className="shrink-0 font-medium">全能参考</span>
                             <span className="min-w-0 truncate opacity-60">已连接媒体自动映射</span>
                         </div>
                     )}

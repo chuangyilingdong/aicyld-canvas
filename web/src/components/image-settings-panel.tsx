@@ -47,11 +47,12 @@ const aspectOptions: AspectOption[] = [
 
 type ImageSettingsPanelProps = {
     config: AiConfig;
-    onConfigChange: (key: "quality" | "size" | "transparentBackground" | "count" | "seedreamMode" | "seedreamMaxImages" | "seedreamOutputFormat" | "seedreamOptimize" | "seedreamWatermark", value: string) => void;
+    onConfigChange: (key: "quality" | "size" | "transparentBackground" | "imageOutputFormat" | "count" | "seedreamMode" | "seedreamMaxImages" | "seedreamOutputFormat" | "seedreamOptimize" | "seedreamWatermark", value: string) => void;
     theme: CanvasTheme;
     showTitle?: boolean;
     showQuality?: boolean;
     showTransparent?: boolean;
+    showFormat?: boolean;
     showSize?: boolean;
     showCount?: boolean;
     className?: string;
@@ -59,12 +60,14 @@ type ImageSettingsPanelProps = {
     quickCount?: number;
 };
 
-export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = true, showQuality = true, showTransparent = true, showSize = true, showCount = true, className = "w-[304px] space-y-3 rounded-2xl px-1 py-0.5", maxCount = 15, quickCount = 3 }: ImageSettingsPanelProps) {
+export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = true, showQuality = true, showTransparent = true, showFormat = true, showSize = true, showCount = true, className = "w-[304px] space-y-3 rounded-2xl px-1 py-0.5", maxCount = 15, quickCount = 3 }: ImageSettingsPanelProps) {
     const profile = mergedImageCapabilityConfig(config, config.model || config.imageModel);
     const seedream = seedreamFamily(config.model || config.imageModel);
     const normalized = normalizeImageValue(profile, config);
     const quality = normalized.quality;
     const transparentBackground = normalized.transparentBackground === "true";
+    const outputFormats = profile.outputFormat.supported ? profile.outputFormat.values || [] : [];
+    const outputFormat = normalized.imageOutputFormat;
     const batchCounts = profile.generationOutputs?.filter((value) => value <= maxCount);
     const effectiveMaxCount = Math.min(maxCount, batchCounts?.length ? Math.max(...batchCounts) : profile.maxOutputs);
     const count = Math.max(1, Math.min(effectiveMaxCount, Number(normalized.count)));
@@ -108,6 +111,18 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
                         />
                     </span>
                 </div> : null}
+                {!seedream && showFormat && outputFormats.length > 1 ? (
+                    <div className="space-y-2">
+                        <SettingTitle color={theme.node.muted}>输出格式</SettingTitle>
+                        <div className="grid grid-cols-4 gap-1.5">
+                            {outputFormats.map((format) => (
+                                <OptionPill key={format} selected={outputFormat === format} theme={theme} onClick={() => onConfigChange("imageOutputFormat", format)}>
+                                    {imageOutputFormatLabel(format)}
+                                </OptionPill>
+                            ))}
+                        </div>
+                    </div>
+                ) : null}
                 {seedream ? <SeedreamSettings config={config} family={seedream} profile={profile} onChange={onConfigChange} theme={theme} /> : showSize ? <ImageSizePicker profile={profile} size={activeSize} quality={quality} onChange={(size, nextQuality) => applyImageSizeSelection(onConfigChange, size, nextQuality)} /> : null}
                 {!seedream && profile.sequentialGeneration?.supported ? (
                     <label className="block space-y-1.5 text-xs">
@@ -173,6 +188,10 @@ export function ImageSettingsTheme({ theme, children }: { theme: CanvasTheme; ch
 
 export function imageQualityLabel(value: string) {
     return ({ auto: "自动", high: "高", xhigh: "超高", max: "最高", medium: "中", low: "低", "1k": "1K", "2k": "2K", "4k": "4K" } as Record<string, string>)[value.toLowerCase()] || value || "默认";
+}
+
+export function imageOutputFormatLabel(value: string) {
+    return ({ png: "PNG", jpeg: "JPEG", jpg: "JPEG", webp: "WebP", gif: "GIF", svg: "SVG" } as Record<string, string>)[value.toLowerCase()] || value.toUpperCase();
 }
 
 function isGrokResolutionQuality(profile: ImageCapabilityConfig) {

@@ -16,12 +16,12 @@ const standardSizes: Record<string, string[]> = {
     "21:9": ["2048x880", "3136x1344", "3808x1632"],
 };
 
-export function imagePresetForRatio(tier: ImageResolutionTier, input: string): ImageResolutionOption {
+export function imagePresetForRatio(tier: ImageResolutionTier, input: string, options: { maxAspect?: number } = {}): ImageResolutionOption {
     const match = input.trim().match(/^(\d{1,5})\s*[:：]\s*(\d{1,5})$/);
     if (!match) throw new Error("请输入宽高比，例如 16:9");
     let w = Number(match[1]),
         h = Number(match[2]);
-    if (!w || !h || Math.max(w, h) / Math.min(w, h) > 3) throw new Error("宽高比必须为正数，且不超过 3:1");
+    if (!w || !h || Math.max(w, h) / Math.min(w, h) > (options.maxAspect ?? 3)) throw new Error(`宽高比必须为正数，且不超过 ${options.maxAspect ?? 3}:1`);
     let a = w,
         b = h;
     while (b) [a, b] = [b, a % b];
@@ -49,6 +49,12 @@ export function imagePresetForRatio(tier: ImageResolutionTier, input: string): I
     }
     if (standard) [width, height] = standard.split("x").map(Number);
     return { tier, ratio, width, height, size: `${width}x${height}` };
+}
+
+function declaredRatioPreset(tier: ImageResolutionTier, value: string): ImageResolutionOption {
+    const normalized = value.trim().replace("：", ":");
+    const preset = imagePresetForRatio(tier, normalized, { maxAspect: 16 });
+    return { ...preset, ratio: normalized };
 }
 
 export function imageQualityForTier(profile: ImageCapabilityConfig, tier: ImageResolutionTier) {
@@ -92,7 +98,7 @@ export function imageSizePresets(profile: ImageCapabilityConfig): ImageResolutio
         return profile.size.values.flatMap((ratio) => {
             if (ratio.trim().toLowerCase() === "auto") return [];
             try {
-                return [imagePresetForRatio("1k", ratio)];
+                return [declaredRatioPreset("1k", ratio)];
             } catch {
                 return [];
             }
@@ -103,7 +109,7 @@ export function imageSizePresets(profile: ImageCapabilityConfig): ImageResolutio
     const ratios = tiers.flatMap((tier) =>
         profile.size.values.flatMap((ratio) => {
             try {
-                const preset = imagePresetForRatio(tier, ratio);
+                const preset = declaredRatioPreset(tier, ratio);
                 return pixels.some((pixel) => pixel.ratio === preset.ratio) ? [] : [preset];
             } catch {
                 return [];
@@ -111,6 +117,18 @@ export function imageSizePresets(profile: ImageCapabilityConfig): ImageResolutio
         }),
     );
     return [...pixels, ...ratios];
+}
+
+export function imageSizeRatioChoices(profile: ImageCapabilityConfig, tier: ImageResolutionTier): ImageResolutionOption[] {
+    const presets = imageSizePresets(profile).filter((preset) => imageTierAvailable(profile, preset.tier));
+    const choices: ImageResolutionOption[] = [];
+    const seen = new Set<string>();
+    for (const preset of [...presets.filter((item) => item.tier === tier), ...presets.filter((item) => item.tier !== tier)]) {
+        if (seen.has(preset.ratio)) continue;
+        seen.add(preset.ratio);
+        choices.push(preset);
+    }
+    return choices;
 }
 
 export function imagePresetValue(profile: ImageCapabilityConfig, preset: ImageResolutionOption) {

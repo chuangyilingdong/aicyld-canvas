@@ -42,6 +42,9 @@ const BUILTIN_PROTOCOL_CAPABILITIES: Record<ModelProtocol, ProtocolCapability> =
     "openai-audio": "audio",
     "async-audio": "audio",
     "audio-generations": "audio",
+    "runninghub-standard-image": "image",
+    "runninghub-standard-video": "video",
+    "runninghub-standard-audio": "audio",
 };
 export function modelProtocolCapability(value: string | undefined, definitions: ModelProtocolDefinition[] = []) {
     const definition = modelProtocolDefinition(value, definitions);

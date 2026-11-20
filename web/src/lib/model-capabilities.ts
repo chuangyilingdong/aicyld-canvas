@@ -28,6 +28,7 @@ import {
 } from "./model-capabilities-image";
 import {
     alignDocumentedVideoRouteLimits,
+    contiguousDurationRange,
     DEFAULT_VIDEO_PROMPT_MAX_CHARS,
     defaultVideoCapabilityConfig,
     isSeedance25Model,
@@ -48,6 +49,7 @@ import {
 } from "./model-capabilities-video";
 
 export {
+    contiguousDurationRange,
     DEFAULT_VIDEO_PROMPT_MAX_CHARS,
     defaultImageCapabilityConfig,
     imageResponseFormatSelectable,

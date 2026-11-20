@@ -44,7 +44,7 @@ export type ImageCapabilityConfig = {
     transparentBackground: { supported: boolean; default: boolean };
     sequentialGeneration?: { supported: boolean; default: boolean };
     responseFormat: ImageResponseFormatConfig;
-    outputFormat: { supported: boolean };
+    outputFormat: { supported: boolean; values?: string[]; default?: string };
     maxOutputs: number;
     fixedOutputs?: number;
     /** Total outputs orchestrated across native fixed-size requests. */
@@ -165,7 +165,7 @@ export function defaultImageCapabilityConfig(protocol?: ModelProtocol, model = "
         quality: { supported: true, values: ["auto", "low", "medium", "high"], default: "auto" },
         transparentBackground: { supported: true, default: false },
         responseFormat: { supported: true },
-        outputFormat: { supported: true },
+        outputFormat: { supported: true, values: ["png"], default: "png" },
         maxOutputs: 15,
     };
     if (isExtendedGPTImageModel(protocol, model)) {
@@ -536,7 +536,7 @@ function workflowNumber(value: unknown) {
     return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-export function normalizeImageValue(profile: ImageCapabilityConfig, value: { size?: string; quality?: string; count?: string; transparentBackground?: string }) {
+export function normalizeImageValue(profile: ImageCapabilityConfig, value: { size?: string; quality?: string; count?: string; transparentBackground?: string; imageOutputFormat?: string }) {
     const size = normalizeImageSizeSetting(profile, value.size);
     const requestedQuality = String(value.quality || "")
         .trim()
@@ -557,7 +557,14 @@ export function normalizeImageValue(profile: ImageCapabilityConfig, value: { siz
     const requestedCount = Math.floor(Math.abs(Number(value.count)) || 1);
     const count = String(profile.fixedOutputs ? (profile.generationOutputs?.includes(requestedCount) ? requestedCount : profile.fixedOutputs) : Math.max(1, Math.min(profile.maxOutputs, requestedCount)));
     const transparentBackground = profile.transparentBackground.supported && value.transparentBackground === "true" ? "true" : "false";
-    return { size, quality, count, transparentBackground };
+    const outputFormats = profile.outputFormat.values || [];
+    const requestedOutputFormat = String(value.imageOutputFormat || "").trim().toLowerCase();
+    const imageOutputFormat = profile.outputFormat.supported
+        ? outputFormats.includes(requestedOutputFormat)
+            ? requestedOutputFormat
+            : profile.outputFormat.default || outputFormats[0] || "png"
+        : "";
+    return { size, quality, count, transparentBackground, imageOutputFormat };
 }
 
 function imagePresetTierForSelection(profile: ImageCapabilityConfig, size: string): ImageResolutionTier | undefined {

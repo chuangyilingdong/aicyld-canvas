@@ -40,6 +40,7 @@ type BackendGenerationTaskOptions = {
     referenceImages?: ReferenceImage[];
     referenceVideos?: ReferenceVideo[];
     referenceAudios?: ReferenceAudio[];
+    quoteReferenceCounts?: { images: number; videos: number; audios: number };
     textHistory?: Array<{ role: "user" | "assistant" | "system"; content: string }>;
     mask?: ReferenceImage;
     signal?: AbortSignal;
@@ -205,14 +206,14 @@ export async function runBackendGenerationTaskBatch(options: BackendGenerationTa
     );
 }
 
-function generationOperation(options: BackendGenerationTaskOptions) {
+function generationOperation(options: BackendGenerationTaskOptions, prepared?: PreparedGenerationReferences) {
     if (options.mode !== "video") return options.mode;
     return resolveVideoOperation(
         {
             textCount: 0,
-            imageCount: options.referenceImages?.length ?? 0,
-            videoCount: options.referenceVideos?.length ?? 0,
-            audioCount: options.referenceAudios?.length ?? 0,
+            imageCount: Math.max(options.referenceImages?.length ?? 0, prepared?.referenceImages.length ?? 0),
+            videoCount: Math.max(options.referenceVideos?.length ?? 0, prepared?.referenceVideos.length ?? 0),
+            audioCount: Math.max(options.referenceAudios?.length ?? 0, prepared?.referenceAudios.length ?? 0),
             characterCount: 0,
         },
         options.metadata?.videoEditOperation as string | undefined,
@@ -349,23 +350,58 @@ export function buildBackendGenerationTaskQuoteInput(options: BackendGenerationT
 // text-to-video. Do not read blobs or upload here; stored resource keys and
 // HTTP(S) URLs are enough for admission and pricing.
 function quoteGenerationReferences(options: BackendGenerationTaskOptions): PreparedGenerationReferences {
+    const count = (value: number | undefined) => Math.max(0, Math.trunc(Number(value) || 0));
+    const imageCount = count(options.quoteReferenceCounts?.images);
+    const videoCount = count(options.quoteReferenceCounts?.videos);
+    const audioCount = count(options.quoteReferenceCounts?.audios);
+    const referenceImages = (options.referenceImages ?? []).map((image) =>
+        backendImageReference(image, { url: image.url, storageKey: image.storageKey }),
+    );
+    const referenceVideos = (options.referenceVideos ?? []).map((media) =>
+        backendMediaReference(media, { url: media.url, storageKey: media.storageKey }),
+    );
+    const referenceAudios = (options.referenceAudios ?? []).map((media) =>
+        backendMediaReference(media, { url: media.url, storageKey: media.storageKey }),
+    );
+    // 报价只读取数量，不读取或上传素材。保留等量占位项，避免 1 张参考图
+    // 被后端误判成 0 张后按文生视频报价。
+    for (let index = referenceImages.length; index < imageCount; index += 1) {
+        referenceImages.push(backendImageReference({
+            id: `quote-image-${index}`,
+            name: `参考图片 ${index + 1}`,
+            type: "image/png",
+            dataUrl: "",
+        }, { type: "image/png", url: "", storageKey: undefined }));
+    }
+    for (let index = referenceVideos.length; index < videoCount; index += 1) {
+        referenceVideos.push(backendMediaReference({
+            id: `quote-video-${index}`,
+            name: `参考视频 ${index + 1}`,
+            type: "video/mp4",
+            url: "",
+            durationMs: 5_000,
+        }, { type: "video/mp4", url: "" }));
+    }
+    for (let index = referenceAudios.length; index < audioCount; index += 1) {
+        referenceAudios.push(backendMediaReference({
+            id: `quote-audio-${index}`,
+            name: `参考音频 ${index + 1}`,
+            type: "audio/mpeg",
+            url: "",
+            durationMs: 5_000,
+        }, { type: "audio/mpeg", url: "" }));
+    }
     return {
-        referenceImages: (options.referenceImages ?? []).map((image) =>
-            backendImageReference(image, { url: image.url, storageKey: image.storageKey }),
-        ),
-        referenceVideos: (options.referenceVideos ?? []).map((media) =>
-            backendMediaReference(media, { url: media.url, storageKey: media.storageKey }),
-        ),
-        referenceAudios: (options.referenceAudios ?? []).map((media) =>
-            backendMediaReference(media, { url: media.url, storageKey: media.storageKey }),
-        ),
+        referenceImages,
+        referenceVideos,
+        referenceAudios,
         mask: options.mask ? backendImageReference(options.mask, { url: options.mask.url, storageKey: options.mask.storageKey }) : undefined,
     };
 }
 
 function backendGenerationTaskInput(options: BackendGenerationTaskOptions, prepared: PreparedGenerationReferences): CreateTaskInput {
     const { projectId, mode, prompt, config, metadata } = options;
-    const videoOperation = generationOperation(options);
+    const videoOperation = generationOperation(options, prepared);
     const workflow = resolveGenerationWorkflowExecution(config, mode);
     const logicalModelId = workflow ? "" : logicalModelIDForConfig(config);
     return {
@@ -485,6 +521,7 @@ export function backendProviderConfig(config: AiConfig, mode: BackendGenerationM
         size: config.size,
         quality: omittedImageQuality(config.quality, requestConfig),
         transparentBackground: config.transparentBackground,
+        imageOutputFormat: config.imageOutputFormat || config.seedreamOutputFormat,
         seedreamMode: config.seedreamMode,
         seedreamMaxImages: config.seedreamMaxImages,
         seedreamOutputFormat: config.seedreamOutputFormat,
@@ -544,6 +581,7 @@ function workflowProviderConfig(config: AiConfig, requestConfig: ReturnType<type
         size: config.size,
         quality: config.quality,
         transparentBackground: config.transparentBackground,
+        imageOutputFormat: config.imageOutputFormat || config.seedreamOutputFormat,
         count: config.count,
         videoSeconds: config.videoSeconds,
         vquality: config.vquality,
@@ -585,7 +623,7 @@ function logicalCapabilityOptions(config: AiConfig, mode: BackendGenerationMode)
     const spec = channel.modelProfiles?.find((item) => item.model === modelOptionName(config.model))?.logicalCapabilitySpec;
     const candidates: Record<string, unknown> =
         mode === "image"
-            ? { size: config.size, quality: omittedImageQuality(config.quality, resolveModelRequestConfig(config, config.model)), transparentBackground: config.transparentBackground === "true", count: Number(config.count) }
+            ? { size: config.size, quality: omittedImageQuality(config.quality, resolveModelRequestConfig(config, config.model)), transparentBackground: config.transparentBackground === "true", imageOutputFormat: config.imageOutputFormat || config.seedreamOutputFormat, count: Number(config.count) }
             : mode === "video"
               ? { size: config.size, videoSeconds: Number(config.videoSeconds), vquality: config.videoDraft === "true" ? "480p" : config.vquality, videoGenerateAudio: config.videoGenerateAudio === "true", videoWatermark: config.videoWatermark === "true" }
               : mode === "audio"

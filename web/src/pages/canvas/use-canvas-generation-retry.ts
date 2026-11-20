@@ -165,6 +165,7 @@ export function useCanvasGenerationRetry({
                           quality: savedImageMetadata.quality || effectiveConfig.quality || sourceGenerationConfig.quality,
                           size: savedImageMetadata.size || effectiveConfig.size || sourceGenerationConfig.size,
                           transparentBackground: (savedImageMetadata.transparentBackground || effectiveConfig.transparentBackground || sourceGenerationConfig.transparentBackground) === "true" ? "true" : "false",
+                          imageOutputFormat: savedImageMetadata.imageOutputFormat || effectiveConfig.imageOutputFormat || sourceGenerationConfig.imageOutputFormat,
                           count: "1",
                       }
                     : { ...sourceGenerationConfig, count: "1" };

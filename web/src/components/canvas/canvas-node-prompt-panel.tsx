@@ -1,4 +1,4 @@
-import { App, Button, InputNumber, Modal, Popover } from "antd";
+import { App, Button, InputNumber, Modal, Popover, Select } from "antd";
 import { Tooltip } from "@/components/ui/base/tooltip";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { AlertTriangle, ArrowLeftRight, ArrowUp, Boxes, Camera, ChevronDown, FileText, ImagePlus, Link2, LoaderCircle, Maximize2, Music2, SlidersHorizontal, Video, WandSparkles, X, Zap } from "lucide-react";
@@ -9,7 +9,18 @@ import { modelOptionName, resolveModelChannel, selectableModelsByCapability, use
 import { buildGenerationConfig as buildNodeConfig, buildCanvasGenerationRequirements } from "@/lib/canvas/canvas-generation-config";
 import { PROMPT_EDITOR_VIEWPORT_MARGIN } from "@/lib/canvas/canvas-prompt-editor-size";
 import { canvasThemes } from "@/lib/canvas-theme";
-import { modelRequestOptions, defaultImageParamsForModel, resolveVideoOperation, type ModelRequirements } from "@/lib/model-selection";
+import {
+    defaultImageParamsForModel,
+    displayVideoOperation,
+    displayVideoOperations,
+    modelRequestOptions,
+    operationForModelSelection,
+    resolveVideoOperation,
+    videoModelFamilyOperations,
+    videoOperationInputError,
+    videoOperationRequirementHint,
+    type ModelRequirements,
+} from "@/lib/model-selection";
 import { navigateToSettings } from "@/lib/settings-navigation";
 import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
 import { useUserStore } from "@/stores/use-user-store";
@@ -18,7 +29,7 @@ import { useCanvasGenerationQuote } from "@/hooks/use-canvas-generation-quote";
 import { buildCanvasGenerationQuoteInput, quoteReferencesFromCanvasReferences } from "@/lib/canvas/canvas-generation-quote-input";
 import { buildGenerationQuotePlan, totalGenerationQuotePoints } from "@/lib/canvas/canvas-generation-quote-plan";
 import { CanvasCameraControlPopover } from "./canvas-camera-control-popover";
-import { CanvasImageSettingsPopover } from "./canvas-image-settings-popover";
+import { CanvasImageFormatPicker, CanvasImageSettingsPopover } from "./canvas-image-settings-popover";
 import { CanvasAudioSettingsPopover, type CanvasAudioSettingKey } from "./canvas-audio-settings-popover";
 import { CanvasResourceMentionTextarea } from "./canvas-resource-mention-textarea";
 import { CanvasPromptFontControl } from "./canvas-prompt-font-control";
@@ -33,7 +44,7 @@ import { h3VideoOperation, isH3MaxModel, isH3Model, isH3ReferenceOrderModel, isH
 import { CanvasPresetPicker, type CanvasPromptPreset } from "./canvas-preset-picker";
 import { CanvasPortraitTexturePopover } from "./canvas-portrait-texture-popover";
 import { CanvasPromptOptimizerDrawer } from "./canvas-prompt-optimizer-drawer";
-import { CanvasNodeType, type CanvasConnection, type CanvasGenerationMode, type CanvasNodeData, type CanvasNodeMetadata, type CanvasWorkspaceMode } from "@/types/canvas";
+import { CanvasNodeType, type CanvasConnection, type CanvasGenerationMode, type CanvasNodeData, type CanvasNodeMetadata, type CanvasVideoEditOperation, type CanvasWorkspaceMode } from "@/types/canvas";
 import { autoMentionCanvasResourceReferences, canvasResourceMentionToken, type CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import { getCanvasNodePromptSelection, insertCanvasResourceMentionAtSelection, setCanvasNodePromptSelection, useCanvasPickConnectStore } from "@/lib/canvas/canvas-text-mention";
 import { resolveVideoReferenceModeState, stripPromptFirstFrameClauses, togglePromptFirstFrameMention, videoReferenceModeWarning } from "@/lib/canvas/video-reference-mode";
@@ -56,6 +67,20 @@ import {
     estimatePromptContentHeight,
     promptEditorBounds,
 } from "./canvas-prompt-resize-handles";
+
+const canvasVideoModeOptions: Array<{ label: string; value: CanvasVideoEditOperation }> = [
+    { label: "文生视频", value: "text_to_video" },
+    { label: "图生视频", value: "image_to_video" },
+    { label: "首尾帧", value: "first_last_frame" },
+    { label: "全能参考", value: "reference_to_video" },
+    { label: "视频续写", value: "extend" },
+    { label: "局部修改", value: "inpaint" },
+    { label: "元素替换", value: "replace_element" },
+    { label: "运镜调整", value: "camera_motion" },
+    { label: "风格迁移", value: "style_transfer" },
+    { label: "音频生视频", value: "audio_to_video" },
+    { label: "版本对比", value: "compare_versions" },
+];
 
 export type CanvasNodeGenerationMode = CanvasGenerationMode;
 
@@ -183,8 +208,13 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
     const videoFrameOptions = useMemo(() => resolvedMentionReferences.filter((item) => item.active && item.kind === "image").map((item) => ({ nodeId: item.nodeId, label: item.label, title: item.title, previewUrl: item.previewUrl })), [resolvedMentionReferences]);
     const h3Model = isH3Model(config.model);
     const h3Max = isH3MaxModel(config.model);
-    const effectiveVideoOperation = mode === "video" && requirements.input
-        ? (h3Model ? h3VideoOperation(config.model, requirements.input, node.metadata?.videoEditOperation) : resolveVideoOperation(requirements.input, node.metadata?.videoEditOperation))
+    const effectiveVideoOperation = mode === "video"
+        ? operationForModelSelection(
+              config,
+              config.model,
+              requirements.input || { textCount: 0, imageCount: 0, videoCount: 0, audioCount: 0, characterCount: 0 },
+              node.metadata?.videoEditOperation,
+          )
         : undefined;
     const videoProfile = mode === "video" ? modelCapabilityConfigFor(config, config.model).video : undefined;
     const endFrameSupported = mode === "video"
@@ -277,6 +307,11 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
     useEffect(() => {
         setPrompt(savedPrompt);
     }, [node.id, savedPrompt]);
+
+    useEffect(() => {
+        if (mode !== "video" || !effectiveVideoOperation || effectiveVideoOperation === node.metadata?.videoEditOperation) return;
+        onConfigChange(node.id, { videoEditOperation: effectiveVideoOperation as CanvasVideoEditOperation });
+    }, [effectiveVideoOperation, mode, node.id, node.metadata?.videoEditOperation, onConfigChange]);
 
     useEffect(() => {
         setReferenceAction(null);
@@ -533,26 +568,78 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
             <div className="canvas-node-composer-footer">
                 <div className={expanded ? "min-w-0 flex-1" : "canvas-node-composer-model"}>
                     {availableModels.length ? (
-                        <ModelPicker
-                            className="!h-7 !w-full !min-w-0 !text-[var(--fs-tiny)] !font-normal [&_img]:!size-3 [&_.lucide]:!size-3"
-                            fullWidth
-                            config={config}
-                            value={config.model}
-                            onChange={(model) => {
-                                const patch = mode === "image" ? { model, ...defaultImageParamsForModel(config, model) } : { model };
-                                if (mode === "image" || mode === "video") {
-                                    const nextConfig = buildNodeConfig(globalConfig, { ...node, metadata: { ...node.metadata, ...patch } }, mode, { ...requirements, options: undefined });
-                                    if (mode === "image") rememberImageSettings({ model: nextConfig.model, ratio: nextConfig.size, quality: nextConfig.quality, count: nextConfig.count, transparentBackground: nextConfig.transparentBackground });
-                                    else rememberVideoSettings({ model: nextConfig.model, ratio: nextConfig.size, seconds: nextConfig.videoSeconds, videoQuality: nextConfig.vquality, generateAudio: nextConfig.videoGenerateAudio, watermark: nextConfig.videoWatermark });
-                                }
-                                onConfigChange(node.id, patch);
-                            }}
-                            capability={mode}
-                            requirements={resolvedRequirements}
-                            onMissingConfig={() => navigateToSettings({ section: "channels", continueCreation: true })}
-                            variant="creation"
-                            showConfiguredModelName
-                        />
+                        <div className="flex min-w-0 flex-1 items-center gap-1">
+                            <div className="min-w-0 flex-1">
+                                <ModelPicker
+                                    className="!h-7 !w-full !min-w-0 !text-[var(--fs-tiny)] !font-normal [&_img]:!size-3 [&_.lucide]:!size-3"
+                                    fullWidth
+                                    config={config}
+                                    value={config.model}
+                                    onChange={(model) => {
+                                        const nextVideoOperation = mode === "video"
+                                            ? operationForModelSelection(
+                                                  config,
+                                                  model,
+                                                  requirements.input || { textCount: 0, imageCount: 0, videoCount: 0, audioCount: 0, characterCount: 0 },
+                                                  node.metadata?.videoEditOperation,
+                                              )
+                                            : undefined;
+                                        const patch: Partial<CanvasNodeMetadata> = mode === "image"
+                                            ? { model, ...defaultImageParamsForModel(config, model) }
+                                            : nextVideoOperation
+                                              ? { model, videoEditOperation: nextVideoOperation as CanvasVideoEditOperation }
+                                              : { model };
+                                        if (mode === "image" || mode === "video") {
+                                            const nextConfig = buildNodeConfig(globalConfig, { ...node, metadata: { ...node.metadata, ...patch } }, mode, { ...requirements, options: undefined });
+                                            if (mode === "image") rememberImageSettings({ model: nextConfig.model, ratio: nextConfig.size, quality: nextConfig.quality, count: nextConfig.count, transparentBackground: nextConfig.transparentBackground });
+                                            else rememberVideoSettings({ model: nextConfig.model, ratio: nextConfig.size, seconds: nextConfig.videoSeconds, videoQuality: nextConfig.vquality, generateAudio: nextConfig.videoGenerateAudio, watermark: nextConfig.videoWatermark });
+                                        }
+                                        onConfigChange(node.id, patch);
+                                    }}
+                                    capability={mode}
+                                    requirements={resolvedRequirements}
+                                    onMissingConfig={() => navigateToSettings({ section: "channels", continueCreation: true })}
+                                    variant="creation"
+                                    showConfiguredModelName
+                                />
+                            </div>
+                            {mode === "video" ? (() => {
+                                const modeInput = {
+                                    textCount: 0,
+                                    imageCount: requirements.input?.imageCount || 0,
+                                    videoCount: requirements.input?.videoCount || 0,
+                                    audioCount: requirements.input?.audioCount || 0,
+                                    characterCount: requirements.input?.characterCount || 0,
+                                };
+                                const declaredOperations = displayVideoOperations(videoModelFamilyOperations(config, config.model));
+                                if (declaredOperations.length <= 1) return null;
+                                return (
+                                    <Select
+                                        aria-label="视频生成模式"
+                                        size="small"
+                                        popupMatchSelectWidth={false}
+                                        className="canvas-node-composer-mode-select !h-7 shrink-0 [&_.ant-select-selector]:!h-7 [&_.ant-select-selection-item]:!text-[var(--fs-tiny)] [&_.ant-select-selection-item]:!leading-7"
+                                        value={displayVideoOperation(effectiveVideoOperation || resolveVideoOperation(modeInput, node.metadata?.videoEditOperation))}
+                                        options={canvasVideoModeOptions
+                                            .filter((option) => declaredOperations.includes(option.value))
+                                            .map((option) => {
+                                                const reason = videoOperationInputError(modeInput, option.value);
+                                                return {
+                                                    ...option,
+                                                    label: (
+                                                        <span title={reason || undefined}>
+                                                            {option.label}
+                                                            {reason ? <span className="opacity-55"> · {videoOperationRequirementHint(option.value)}</span> : null}
+                                                        </span>
+                                                    ),
+                                                    disabled: Boolean(reason),
+                                                };
+                                            })}
+                                        onChange={(value) => onConfigChange(node.id, { videoEditOperation: value as CanvasVideoEditOperation })}
+                                    />
+                                );
+                            })() : null}
+                        </div>
                     ) : (
                         <button
                             type="button"
@@ -597,6 +684,14 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                                 onCameraControlChange={(options) => onConfigChange(node.id, { cameraControl: options })}
                                 theme={theme}
                                 compact={!expanded}
+                            />
+                            <CanvasImageFormatPicker
+                                config={config}
+                                buttonClassName="[&_.lucide]:!size-3"
+                                onConfigChange={(key, value) => {
+                                    rememberImageSettings(imagePreferencePatch(key, value));
+                                    onConfigChange(node.id, { [key]: value });
+                                }}
                             />
                             <CanvasImageSettingsPopover
                                 config={config}

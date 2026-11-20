@@ -287,7 +287,7 @@ export function useCanvasUpload({
                         generationType: undefined, generationResultPlacement: undefined,
                         copiedFromNodeId: undefined, versionOfNodeId: undefined,
                         model: undefined, size: undefined, quality: undefined,
-                        transparentBackground: undefined, count: undefined, references: undefined,
+                        transparentBackground: undefined, imageOutputFormat: undefined, count: undefined, references: undefined,
                         primaryImageId: undefined, imageBatchExpanded: undefined,
                         richText: undefined, composerContent: undefined,
                     } : {}),

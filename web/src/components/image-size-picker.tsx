@@ -2,7 +2,7 @@ import { useState } from "react";
 import "./image-size-picker.css";
 import { Input, Button } from "antd";
 import type { ImageCapabilityConfig } from "@/lib/model-capabilities";
-import { IMAGE_RESOLUTIONS, imagePresetForRatio, imagePresetValue, imageQualityForSelection, imageQualityForTier, imageResolutionUsesQuality, imageSizePresets, imageTierAvailable, imageUsesRatioOnlyPresets } from "@/lib/image-size-presets";
+import { IMAGE_RESOLUTIONS, imagePresetForRatio, imagePresetValue, imageQualityForSelection, imageQualityForTier, imageResolutionUsesQuality, imageSizePresets, imageSizeRatioChoices, imageTierAvailable, imageUsesRatioOnlyPresets } from "@/lib/image-size-presets";
 import { buildImageResolutionOptions, type ImageResolutionOption, type ImageResolutionTier } from "@/lib/image-resolution-tiers";
 
 import { resolveImageRequestSize, validateImageSize } from "@/services/api/image-validation";
@@ -56,7 +56,7 @@ export function ImageSizePicker({ profile, size, quality, onChange }: { profile:
         (qualityTier && visibleTiers.includes(qualityTier) ? qualityTier : undefined) ||
         (visibleTiers.includes(chosenTier) ? chosenTier : visibleTiers[0]) ||
         "1k";
-    const choices = presets.filter((preset) => preset.tier === tier);
+    const choices = imageSizeRatioChoices(profile, tier);
     const select = (preset: ImageResolutionOption) => {
         if (!available(preset.tier)) return;
         setChosenTier(preset.tier);

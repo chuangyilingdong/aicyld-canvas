@@ -350,6 +350,7 @@ export function buildImageGenerationMetadata(type: CanvasImageGenerationType, co
         size: config.size,
         quality: config.quality,
         transparentBackground: config.transparentBackground,
+        imageOutputFormat: config.imageOutputFormat,
         seedreamMode: config.seedreamMode,
         seedreamMaxImages: config.seedreamMaxImages,
         seedreamOutputFormat: config.seedreamOutputFormat,

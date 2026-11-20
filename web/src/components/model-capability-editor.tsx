@@ -446,6 +446,7 @@ function ImageCapabilityEditor({ value, onChange, protocol, model, disabled, sec
     const updateReferences = (patch: Partial<ImageCapabilityConfig["references"]>) => update({ references: { ...profile.references, ...patch } });
     const updateSize = (patch: Partial<ImageCapabilityConfig["size"]>) => update({ size: { ...profile.size, ...patch } });
     const updateQuality = (patch: Partial<ImageCapabilityConfig["quality"]>) => update({ quality: { ...profile.quality, ...patch } });
+    const updateOutputFormat = (patch: Partial<ImageCapabilityConfig["outputFormat"]>) => update({ outputFormat: { ...profile.outputFormat, ...patch } });
     const responseFormatSelectable = imageResponseFormatSelectable(protocol, model);
 
     if (section === "references") {
@@ -530,7 +531,20 @@ function ImageCapabilityEditor({ value, onChange, protocol, model, disabled, sec
                         <BooleanField label="透明背景" value={profile.transparentBackground} disabled={disabled} onChange={(transparentBackground) => update({ transparentBackground })} />
                         <BooleanField label="关联组图" value={profile.sequentialGeneration || { supported: false, default: false }} disabled={disabled} onChange={(sequentialGeneration) => update({ sequentialGeneration })} />
                         <ResponseFormatField label="response_format" value={profile.responseFormat} disabled={disabled} selectable={responseFormatSelectable} onChange={(patch) => update({ responseFormat: { ...profile.responseFormat, ...patch } })} />
-                        <ParameterField label="output_format" description="发送 PNG 输出格式" supported={profile.outputFormat.supported} disabled={disabled} onChange={(supported) => update({ outputFormat: { supported } })} />
+                        <ParameterField label="输出格式" description="允许用户选择模型实际支持的图片格式" supported={profile.outputFormat.supported} disabled={disabled} onChange={(supported) => updateOutputFormat({ supported, values: supported && !(profile.outputFormat.values?.length) ? ["png"] : profile.outputFormat.values, default: supported ? profile.outputFormat.default || profile.outputFormat.values?.[0] || "png" : "" })} />
+                        {profile.outputFormat.supported ? (
+                            <div className="admin-capability-spec-grid">
+                                <Field label="支持格式">
+                                    <Select mode="tags" className="admin-capability-tags w-full" disabled={disabled} value={profile.outputFormat.values || []} tokenSeparators={[","]} placeholder="例如 png, jpeg, webp, gif" onChange={(values) => {
+                                        const formats = Array.from(new Set(values.map((value) => String(value).trim().toLowerCase()).filter(Boolean)));
+                                        updateOutputFormat({ values: formats.length ? formats : ["png"], default: formats.includes(profile.outputFormat.default || "") ? profile.outputFormat.default : formats[0] || "png" });
+                                    }} />
+                                </Field>
+                                <Field label="默认格式">
+                                    <Select className="w-full" disabled={disabled} value={profile.outputFormat.default || (profile.outputFormat.values || [])[0] || "png"} options={(profile.outputFormat.values || []).map((item) => ({ label: item.toUpperCase(), value: item }))} onChange={(defaultValue) => updateOutputFormat({ default: defaultValue })} />
+                                </Field>
+                            </div>
+                        ) : null}
                     </ProtocolParameterCard>
                 </div>
             </div>
@@ -616,8 +630,21 @@ function ImageCapabilityEditor({ value, onChange, protocol, model, disabled, sec
                 <BooleanField label="关联组图" value={profile.sequentialGeneration || { supported: false, default: false }} disabled={disabled} onChange={(sequentialGeneration) => update({ sequentialGeneration })} />
                 <div className="grid gap-3 sm:grid-cols-2">
                     <ResponseFormatField label="response_format" value={profile.responseFormat} disabled={disabled} selectable={responseFormatSelectable} onChange={(patch) => update({ responseFormat: { ...profile.responseFormat, ...patch } })} />
-                    <ParameterField label="output_format" description="发送 PNG 输出格式" supported={profile.outputFormat.supported} disabled={disabled} onChange={(supported) => update({ outputFormat: { supported } })} />
+                    <ParameterField label="输出格式" description="允许用户选择模型实际支持的图片格式" supported={profile.outputFormat.supported} disabled={disabled} onChange={(supported) => updateOutputFormat({ supported, values: supported && !(profile.outputFormat.values?.length) ? ["png"] : profile.outputFormat.values, default: supported ? profile.outputFormat.default || profile.outputFormat.values?.[0] || "png" : "" })} />
                 </div>
+                {profile.outputFormat.supported ? (
+                    <div className="grid gap-3 sm:grid-cols-2">
+                        <Field label="支持格式">
+                            <Select mode="tags" className="admin-capability-tags w-full" disabled={disabled} value={profile.outputFormat.values || []} tokenSeparators={[","]} placeholder="例如 png, jpeg, webp, gif" onChange={(values) => {
+                                const formats = Array.from(new Set(values.map((value) => String(value).trim().toLowerCase()).filter(Boolean)));
+                                updateOutputFormat({ values: formats.length ? formats : ["png"], default: formats.includes(profile.outputFormat.default || "") ? profile.outputFormat.default : formats[0] || "png" });
+                            }} />
+                        </Field>
+                        <Field label="默认格式">
+                            <Select className="w-full" disabled={disabled} value={profile.outputFormat.default || (profile.outputFormat.values || [])[0] || "png"} options={(profile.outputFormat.values || []).map((item) => ({ label: item.toUpperCase(), value: item }))} onChange={(defaultValue) => updateOutputFormat({ default: defaultValue })} />
+                        </Field>
+                    </div>
+                ) : null}
             </CapabilityGroup>
 
             <CapabilityGroup title="通用限制" description="所有图片请求共用的基础约束">

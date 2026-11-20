@@ -1,15 +1,16 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { Settings2 } from "lucide-react";
-import { Button } from "antd";
+import { Check, ChevronDown, FileImage, Settings2 } from "lucide-react";
+import { Button, Popover } from "antd";
 
-import { ImageSettingsPanel, imageQualityLabel, imageSizeLabel } from "@/components/image-settings-panel";
+import { ImageSettingsPanel, imageOutputFormatLabel, imageQualityLabel, imageSizeLabel } from "@/components/image-settings-panel";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { canvasPopoverLayer } from "@/lib/canvas/canvas-popover-layer";
 import { modelCapabilityConfigFor, normalizeImageValue } from "@/lib/model-capabilities";
 import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
 import type { AiConfig } from "@/stores/use-config-store";
 import { seedreamFamily } from "@/lib/seedream-image";
+import { cn } from "@/lib/utils";
 
 type CanvasImageSettingsPopoverProps = {
     config: AiConfig;
@@ -37,12 +38,13 @@ export function CanvasImageSettingsPopover({ config, onConfigChange, onOpenChang
         ...(seedream && config.seedreamMode === "layers" ? ["图层拆分"] : []),
         ...(profile.size.parameter !== "none" ? [imageSizeLabel(normalized.size, profile)] : []),
         ...(profile.quality.supported ? [imageQualityLabel(normalized.quality)] : []),
+        ...(!seedream && profile.outputFormat.supported && (profile.outputFormat.values?.length || 0) > 1 && normalized.imageOutputFormat ? [imageOutputFormatLabel(normalized.imageOutputFormat)] : []),
         ...(seedream && seedream !== "pro" && seedream !== "flash" && Number(config.seedreamMaxImages) > 1 ? [`每批最多 ${config.seedreamMaxImages} 张`] : []),
         ...(showCount && profile.maxOutputs > 1 ? [`${normalized.count} ${seedream ? "批" : "张"}`] : []),
         ...(profile.transparentBackground.supported && normalized.transparentBackground === "true" ? ["透明"] : []),
     ];
     const summary = summaryOverride || summaryParts.join(" · ");
-    const hasSettings = profile.size.parameter !== "none" || profile.quality.supported || profile.transparentBackground.supported || (showCount && profile.maxOutputs > 1);
+    const hasSettings = profile.size.parameter !== "none" || profile.quality.supported || profile.transparentBackground.supported || (!seedream && (profile.outputFormat.values?.length || 0) > 1) || (showCount && profile.maxOutputs > 1);
     const updateOpen = (nextOpen: boolean) => {
         setOpen(nextOpen);
         onOpenChange?.(nextOpen);
@@ -137,8 +139,76 @@ function ImageSettingsPortal({
             onMouseDown={(event) => event.stopPropagation()}
             onClick={(event) => event.stopPropagation()}
         >
-            <ImageSettingsPanel config={config} onConfigChange={(key, value) => onConfigChange(key, value)} theme={theme} showCount={showCount} quickCount={3} className="space-y-3" />
+            <ImageSettingsPanel config={config} onConfigChange={(key, value) => onConfigChange(key, value)} theme={theme} showCount={showCount} showFormat={false} quickCount={3} className="space-y-3" />
         </div>,
         document.body,
+    );
+}
+
+export function CanvasImageFormatPicker({
+    config,
+    onConfigChange,
+    buttonClassName,
+}: {
+    config: AiConfig;
+    onConfigChange: (key: keyof AiConfig, value: string) => void;
+    buttonClassName?: string;
+}) {
+    const theme = canvasThemes[useActiveTheme()];
+    const profile = modelCapabilityConfigFor(config, config.model || config.imageModel).image!;
+    const normalized = normalizeImageValue(profile, config);
+    const formats = profile.outputFormat.supported ? profile.outputFormat.values || [] : [];
+    const current = normalized.imageOutputFormat;
+    if (formats.length <= 1) return null;
+
+    const content = (
+        <div
+            data-canvas-no-zoom
+            className="min-w-36 rounded-xl border p-1"
+            style={{ background: theme.node.panel, borderColor: theme.toolbar.border, color: theme.node.text }}
+            role="listbox"
+            aria-label="输出格式"
+            onMouseDown={(event) => event.stopPropagation()}
+            onPointerDown={(event) => event.stopPropagation()}
+        >
+            {formats.map((format) => {
+                const selected = format === current;
+                return (
+                    <button
+                        key={format}
+                        type="button"
+                        role="option"
+                        aria-selected={selected}
+                        className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-xs outline-none transition-colors hover:bg-black/5 focus-visible:ring-2 focus-visible:ring-ring dark:hover:bg-white/8"
+                        style={{ background: selected ? theme.toolbar.activeBg : "transparent", color: theme.node.text }}
+                        onClick={() => onConfigChange("imageOutputFormat", format)}
+                    >
+                        <FileImage className="size-3.5 shrink-0" aria-hidden="true" />
+                        <span className="min-w-0 flex-1">{imageOutputFormatLabel(format)}</span>
+                        {selected ? <Check className="size-3.5 shrink-0" aria-hidden="true" /> : null}
+                    </button>
+                );
+            })}
+        </div>
+    );
+
+    return (
+        <span className="inline-flex min-w-0" onMouseDown={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()}>
+            <Popover trigger="click" placement="top" arrow={false} content={content}>
+                <Button
+                    size="small"
+                    type="text"
+                    className={cn("canvas-node-composer-format-trigger !h-7 !rounded-full !px-2 text-[var(--fs-tiny)]", buttonClassName)}
+                    style={{ background: theme.node.fill, color: theme.node.text }}
+                    icon={<FileImage className="size-3.5" />}
+                    aria-haspopup="listbox"
+                    aria-label={`输出格式：${imageOutputFormatLabel(current)}`}
+                    title={`输出格式：${imageOutputFormatLabel(current)}`}
+                >
+                    <span>{imageOutputFormatLabel(current)}</span>
+                    <ChevronDown className="size-3" aria-hidden="true" />
+                </Button>
+            </Popover>
+        </span>
     );
 }

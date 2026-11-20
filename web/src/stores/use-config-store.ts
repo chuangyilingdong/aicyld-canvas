@@ -377,6 +377,7 @@ export type ModelChannel = {
     modelProfiles?: Array<{
         model: string;
         displayName?: string;
+        family?: string;
         description?: string;
         icon?: string;
         capability: ModelCapability;
@@ -436,6 +437,7 @@ export type AiConfig = {
     quality: string;
     size: string;
     transparentBackground: string;
+    imageOutputFormat: string;
     seedreamMode?: string;
     seedreamMaxImages?: string;
     seedreamOutputFormat?: string;
@@ -487,7 +489,7 @@ export const defaultConfig: AiConfig = {
     audioModels: [],
     quality: "auto",
     size: "1:1",
-    transparentBackground: "false", seedreamWatermark: "false",
+    transparentBackground: "false", imageOutputFormat: "png", seedreamWatermark: "false",
     count: "1",
     canvasImageCount: "1",
 };
@@ -810,6 +812,7 @@ export function normalizeConfigSnapshot(snapshot: ConfigStoreSnapshot | undefine
             videoWatermark: normalizeVideoBoolean(config.videoWatermark) ?? "false",
             videoArkPrivateAssetUpload: normalizeVideoBoolean(config.videoArkPrivateAssetUpload) ?? "true", videoDraft: normalizeVideoBoolean(config.videoDraft) ?? "false",
             transparentBackground: config.transparentBackground === "true" ? "true" : "false",
+            imageOutputFormat: typeof config.imageOutputFormat === "string" && config.imageOutputFormat.trim() ? config.imageOutputFormat.trim().toLowerCase() : "png",
             canvasImageCount: config.canvasImageCount || defaultConfig.canvasImageCount,
             imageModels,
             videoModels,

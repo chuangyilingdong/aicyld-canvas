@@ -3,7 +3,7 @@ import { Check, ChevronDown } from "lucide-react";
 import { Popover } from "antd";
 
 import { canvasThemes, type CanvasTheme } from "@/lib/canvas-theme";
-import { compatibleModelInGroup, configuredModelDisplayName, groupModelsByDisplayName, modelCompatibilityError, resolveCompatibleModel, type ModelRequirements } from "@/lib/model-selection";
+import { compatibleModelInGroup, configuredModelDisplayName, groupImageModelsByFamily, groupModelsByDisplayName, groupVideoModelsByFamily, imageModelFamilyLabel, modelCompatibilityError, resolveCompatibleModel, videoModelFamilyLabel, type ModelRequirements } from "@/lib/model-selection";
 import { cn } from "@/lib/utils";
 import { modelDisplayName, modelIcon, modelOptionName, resolveModelChannel, selectableModelsByCapability, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
 import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
@@ -50,23 +50,25 @@ export function ModelPicker({
     const triggerRef = useRef<HTMLButtonElement>(null);
     const options = useMemo(() => Array.from(new Set(selectableModelsByCapability(config, capability).filter(Boolean))), [capability, config]);
     const optionGroups = useMemo(() => {
-        const channelGroups = config.channels
-            .map((channel) => ({
-                key: channel.id,
-                label: channel.name || "未命名渠道",
-                models: groupModelsByDisplayName(
-                    config,
-                    options.filter((model) => resolveModelChannel(config, model).id === channel.id),
-                ),
-            }))
-            .filter((group) => group.models.length);
-        // options 已由当前有效渠道重建；任何无法解析渠道的旧值都直接丢弃，
-        // 不再显示“其他模型 / 未指定渠道”这种不可用入口。
-        return channelGroups;
+        const models = (capability === "image" ? groupImageModelsByFamily : capability === "video" ? groupVideoModelsByFamily : groupModelsByDisplayName)(config, options);
+        // 模型选择面向用户，只展示模型本身。渠道名属于服务端路由信息，
+        // 不能作为分组标题出现在创作界面。
+        return models.length ? [{ key: "all-models", label: "", models }] : [];
     }, [config, options]);
     const storedCurrent = value?.trim() || "";
     // 参数档位会在选中模型后由调用方归一到其能力配置，不能因为旧模型留下的参数而禁止切换。
-    const selectionRequirements = requirements ? { ...requirements, videoSeconds: undefined, imageSize: undefined, options: undefined } : undefined;
+    const selectionRequirements = requirements
+        ? {
+              ...requirements,
+              // 模型选择只判断模型家族本身是否可用。当前输入和生成模式属于下一层参数，
+              // 不能因为还没上传图片或视频就把整个模型家族置灰。
+              input: requirements.capability === "video" ? undefined : requirements.input,
+              videoOperation: requirements.capability === "video" ? undefined : requirements.videoOperation,
+              videoSeconds: undefined,
+              imageSize: undefined,
+              options: undefined,
+          }
+        : undefined;
     const resolvedCurrent = resolveCompatibleModel(config, storedCurrent, selectionRequirements) || storedCurrent;
     // 旧画布可能保存过已下架或前端历史内置模型；它们不能重新进入当前可选目录。
     const current = options.includes(resolvedCurrent) ? resolvedCurrent : "";
@@ -75,7 +77,11 @@ export function ModelPicker({
     const priceLines = portraitPriceLines(portraitQuote);
     const creationVariant = variant === "creation";
     const triggerLabel = current
-        ? (creationVariant ? pickerModelDisplayName(config, current, showConfiguredModelName) : pickerModelOptionLabel(config, current, showConfiguredModelName))
+        ? capability === "image"
+            ? imageModelFamilyLabel(config, current)
+            : capability === "video"
+            ? videoModelFamilyLabel(config, current)
+            : (creationVariant ? pickerModelDisplayName(config, current, showConfiguredModelName) : pickerModelOptionLabel(config, current, showConfiguredModelName))
         : portrait ? `${seedancePortraitLabel(storedCurrent)}（不可用）` : placeholder;
 
     useLayoutEffect(() => {
@@ -167,7 +173,6 @@ export function ModelPicker({
                 <div className="canvas-model-picker-options grid min-w-0 gap-1" aria-label="模型列表">
                     {optionGroups.map((group) => (
                         <section key={group.key} className="canvas-model-picker-group min-w-0">
-                            {optionGroups.length > 1 ? <div className="canvas-model-picker-group-label">{group.label}</div> : null}
                             <div className="grid min-w-0 gap-1">
                                 {group.models.map((modelGroup) => {
                                     const selected = modelGroup.models.includes(current);
@@ -197,6 +202,7 @@ export function ModelPicker({
                                             <ModelLabel
                                                 config={config}
                                                 model={displayModel}
+                                                capability={capability}
                                                 showConfiguredModelName={showConfiguredModelName}
                                             />
                                             {selected ? <Check className="canvas-model-picker-option-check ml-1 shrink-0" style={{ color: theme.node.activeStroke }} /> : null}
@@ -268,16 +274,18 @@ function emptyModelLabel(config: AiConfig, capability?: ModelCapability) {
 function ModelLabel({
     config,
     model,
+    capability,
     showConfiguredModelName,
 }: {
     config: AiConfig;
     model: string;
+    capability?: ModelCapability;
     showConfiguredModelName: boolean;
 }) {
     return (
         <span className="canvas-model-picker-option-content flex w-full min-w-0 items-center overflow-hidden">
             <span className="canvas-model-picker-option-name block min-w-0 flex-1 truncate text-[var(--fs-label)] font-medium leading-none">
-                {pickerModelDisplayName(config, model, showConfiguredModelName)}
+                {capability === "image" ? imageModelFamilyLabel(config, model) : capability === "video" ? videoModelFamilyLabel(config, model) : pickerModelDisplayName(config, model, showConfiguredModelName)}
             </span>
         </span>
     );

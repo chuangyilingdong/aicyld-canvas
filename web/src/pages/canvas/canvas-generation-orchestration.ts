@@ -85,6 +85,7 @@ export type ImageNodeFromTextConfig = {
     size?: string;
     quality?: string;
     transparentBackground?: string;
+    imageOutputFormat?: string;
     canvasImageCount?: string;
     count?: string;
 };
@@ -119,6 +120,7 @@ export function createImageNodeFromTextSource(input: {
             size: input.config.size,
             quality: input.config.quality,
             transparentBackground: input.config.transparentBackground,
+            imageOutputFormat: input.config.imageOutputFormat,
             count: getGenerationCount(input.config.canvasImageCount || input.config.count || ""),
         },
     );

@@ -47,6 +47,102 @@ export function groupModelsByDisplayName(config: AiConfig, models: string[]): Di
     return Array.from(groups.values()).map((group) => ({ ...group, models: [...group.models].sort((a, b) => Number(Boolean(seedancePortraitModel(a))) - Number(Boolean(seedancePortraitModel(b)))) }));
 }
 
+const IMAGE_OPERATION_LABEL_PATTERN = /(?:文生图|图生图|图片编辑|图改图|局部重绘|图层拆分|text[-_\s/]*to[-_\s/]*image|image[-_\s/]*to[-_\s/]*image|image[-_\s/]*edit|edit|stable[-_\s/]*token)/gi;
+
+export function imageModelFamilyLabel(config: AiConfig, value: string) {
+    const channel = resolveModelChannel(config, value);
+    const configuredFamily = channel.modelProfiles?.find((item) => item.model === modelOptionName(value))?.family?.trim();
+    if (configuredFamily) return configuredFamily;
+    const displayName = configuredModelDisplayName(config, value);
+    const family = displayName
+        .replace(IMAGE_OPERATION_LABEL_PATTERN, "")
+        .replace(/[（(]\s*[）)]/g, "")
+        .replace(/\s+/g, " ")
+        .replace(/[\s/|·_-]+$/g, "")
+        .trim();
+    const comparable = family.toLowerCase();
+    if (comparable.includes("gpt-image-2.6/sunburst")) return "Lib Image 2.6 Pro · Sunburst";
+    if (comparable.includes("gpt-image-2.6/flare")) return "Lib Image 2.6 Pro · Flare";
+    if (comparable.includes("gpt-image-2.5/sunburst")) return "Lib Image 2.5 Pro · Sunburst";
+    if (comparable.includes("gpt-image-2.5/flare")) return "Lib Image 2.5 Pro · Flare";
+    if (comparable.includes("seedream-v5-pro")) return "Seedream 5 Pro";
+    if (comparable.includes("seedream-v5.5")) return "Seedream 5.5 图层拆分";
+    if (comparable.includes("minimax-h3-image")) return "MiniMax H3 Image";
+    if (comparable.includes("nano-banana-2.1")) return "Nano Banana 2.1";
+    return family || displayName;
+}
+
+export function groupImageModelsByFamily(config: AiConfig, models: string[]): DisplayModelGroup[] {
+    const groups = new Map<string, DisplayModelGroup>();
+    models.forEach((model) => {
+        const channel = resolveModelChannel(config, model);
+        const label = imageModelFamilyLabel(config, model);
+        const key = `${channel.id}\u0000${label.toLocaleLowerCase()}`;
+        const current = groups.get(key);
+        if (current) current.models.push(model);
+        else groups.set(key, { key, label, models: [model] });
+    });
+    return Array.from(groups.values())
+        .map((group) => ({
+            ...group,
+            models: [...group.models].sort((left, right) => {
+                const leftReferences = modelCapabilityConfigFor(config, left).image?.references.maxImages ?? 0;
+                const rightReferences = modelCapabilityConfigFor(config, right).image?.references.maxImages ?? 0;
+                return leftReferences - rightReferences;
+            }),
+        }))
+        .sort((left, right) => left.label.localeCompare(right.label, "zh-CN"));
+}
+
+const VIDEO_OPERATION_LABEL_PATTERN = /(多模态参考生视频|多模态视频|参考生视频|全能参考|全能视频|文生视频|图生视频|首尾帧|图片参考|视频编辑|视频续写|超长视频)/gi;
+
+export function videoModelFamilyLabel(config: AiConfig, value: string) {
+    const displayName = configuredModelDisplayName(config, value);
+    const family = displayName
+        .replace(VIDEO_OPERATION_LABEL_PATTERN, "")
+        .replace(/\bToken\b/gi, "")
+        .replace(/[（(]\s*[）)]/g, "")
+        .replace(/\s+/g, " ")
+        .replace(/[\s/|·_-]+$/g, "")
+        .trim();
+    return family || displayName;
+}
+
+export function groupVideoModelsByFamily(config: AiConfig, models: string[]): DisplayModelGroup[] {
+    const groups = new Map<string, DisplayModelGroup>();
+    models.forEach((model) => {
+        const channel = resolveModelChannel(config, model);
+        const label = videoModelFamilyLabel(config, model);
+        const key = `${channel.id}\u0000${label.toLocaleLowerCase()}`;
+        const current = groups.get(key);
+        if (current) current.models.push(model);
+        else groups.set(key, { key, label, models: [model] });
+    });
+    return Array.from(groups.values())
+        .map((group) => ({
+            ...group,
+            models: [...group.models].sort((left, right) => {
+                const leftOperations = modelCapabilityConfigFor(config, left).video?.operations || [];
+                const rightOperations = modelCapabilityConfigFor(config, right).video?.operations || [];
+                const preferred = ["text_to_video", "image_to_video", "first_last_frame", "reference_to_video", "extend"];
+                const leftRank = Math.min(...leftOperations.map((operation) => preferred.indexOf(operation)).filter((index) => index >= 0));
+                const rightRank = Math.min(...rightOperations.map((operation) => preferred.indexOf(operation)).filter((index) => index >= 0));
+                return (Number.isFinite(leftRank) ? leftRank : 99) - (Number.isFinite(rightRank) ? rightRank : 99);
+            }),
+        }))
+        .sort((left, right) => left.label.localeCompare(right.label, "zh-CN"));
+}
+
+export function videoModelFamilyModels(config: AiConfig, selected: string) {
+    const options = selectableModelsByCapability(config, "video");
+    const group = groupVideoModelsByFamily(config, options).find((item) => item.models.includes(selected));
+    return group?.models || (selected ? [selected] : []);
+}
+
+export function videoModelFamilyOperations(config: AiConfig, selected: string) {
+    return Array.from(new Set(videoModelFamilyModels(config, selected).flatMap((model) => modelCapabilityConfigFor(config, model).video?.operations || [])));
+}
+
 export function configuredModelDisplayName(config: AiConfig, value: string) {
     const portrait = seedancePortraitLabel(value);
     if (portrait) return portrait;
@@ -156,7 +252,7 @@ export function modelCompatibilityError(config: AiConfig, model: string, require
 export function modelRequestOptions(config: AiConfig, capability: ModelCapability) {
     switch (capability) {
         case "image":
-            return { size: config.size, quality: config.quality, transparentBackground: config.transparentBackground === "true", count: Number(config.count) };
+            return { size: config.size, quality: config.quality, transparentBackground: config.transparentBackground === "true", imageOutputFormat: config.imageOutputFormat, count: Number(config.count) };
         case "video":
             return { size: config.size, videoSeconds: Number(config.videoSeconds), vquality: config.vquality, videoGenerateAudio: config.videoGenerateAudio === "true", videoWatermark: config.videoWatermark === "true" };
         case "audio":
@@ -249,8 +345,18 @@ export function resolveCompatibleModel(config: AiConfig, selected: string, requi
     if (seedancePortraitLabel(selected)) return modelCompatibilityError(config, selected, requirements) ? "" : selected;
     const options = selectableModelsByCapability(config, requirements.capability);
     if (!options.length) return selected;
-    const selectedGroup = groupModelsByDisplayName(config, options).find((group) => group.models.includes(selected));
+    const selectedGroup = (requirements.capability === "image" ? groupImageModelsByFamily(config, options) : requirements.capability === "video" ? groupVideoModelsByFamily(config, options) : groupModelsByDisplayName(config, options)).find((group) => group.models.includes(selected));
     if (!selectedGroup) return selected;
+    if (requirements.capability === "image") {
+        const references = (requirements.input?.imageCount || 0) + (requirements.input?.characterCount || 0);
+        const compatible = selectedGroup.models.filter((model) => !modelCompatibilityError(config, model, requirements));
+        if (!compatible.length) return "";
+        const exact = compatible.find((model) => {
+            const maxImages = modelCapabilityConfigFor(config, model).image?.references.maxImages || 0;
+            return references === 0 ? maxImages === 0 : maxImages >= references;
+        });
+        return exact || compatible[0];
+    }
     return compatibleModelInGroup(config, selectedGroup.models, requirements, selected);
 }
 
@@ -259,7 +365,7 @@ export function resolveCompatibleModel(config: AiConfig, selected: string, requi
 // 质量、透明背景等其余能力取当前选中（路由后）模型的配置，与创作页面一致。
 export function mergedImageCapabilityConfig(config: AiConfig, selected: string): ImageCapabilityConfig {
     const options = selectableModelsByCapability(config, "image");
-    const group = options.length ? groupModelsByDisplayName(config, options).find((item) => item.models.includes(selected)) : undefined;
+    const group = options.length ? groupImageModelsByFamily(config, options).find((item) => item.models.includes(selected)) : undefined;
     const models = group?.models.length ? group.models : [selected];
     const selectedProfile = modelCapabilityConfigFor(config, selected).image;
     const profiles = models.map((model) => modelCapabilityConfigFor(config, model).image).filter((profile): profile is ImageCapabilityConfig => Boolean(profile));
@@ -273,15 +379,16 @@ export function mergedImageCapabilityConfig(config: AiConfig, selected: string):
 }
 
 // 切换模型后初始化图片参数为该模型能力默认值，避免旧参数在目标模型族不兼容导致无法切换。
-export function defaultImageParamsForModel(config: AiConfig, model: string): Pick<AiConfig, "size" | "quality" | "transparentBackground"> {
+export function defaultImageParamsForModel(config: AiConfig, model: string): Pick<AiConfig, "size" | "quality" | "transparentBackground" | "imageOutputFormat"> {
     const image = modelCapabilityConfigFor(config, model).image;
-    if (!image) return { size: "1:1", quality: "auto", transparentBackground: "false" };
+    if (!image) return { size: "1:1", quality: "auto", transparentBackground: "false", imageOutputFormat: "png" };
     const sizeValues = image.size.values.filter((value) => value !== "*");
     const sizeDefault = image.size.default !== "*" && image.size.default ? image.size.default : sizeValues[0] || "1:1";
     return {
         size: sizeDefault,
         quality: image.quality.default || "auto",
         transparentBackground: String(image.transparentBackground.default ?? false),
+        imageOutputFormat: image.outputFormat.default || image.outputFormat.values?.[0] || "png",
     };
 }
 
@@ -347,7 +454,7 @@ export function initialMaskEditConfig(config: AiConfig): AiConfig {
     return { ...config, model: targetModel, imageModel: targetModel, size, quality };
 }
 
-export type ModelGenerationDefaults = Pick<AiConfig, "size" | "quality" | "transparentBackground" | "count" | "videoSeconds" | "vquality" | "videoGenerateAudio" | "videoWatermark">;
+export type ModelGenerationDefaults = Pick<AiConfig, "size" | "quality" | "transparentBackground" | "imageOutputFormat" | "count" | "videoSeconds" | "vquality" | "videoGenerateAudio" | "videoWatermark">;
 
 type ModelVideoBooleanOptions = Pick<AiConfig, "videoGenerateAudio" | "videoWatermark">;
 
@@ -375,6 +482,7 @@ export function resolveModelGenerationDefaults(
             quality: source("quality"),
             count: source("count"),
             transparentBackground: source("transparentBackground"),
+            imageOutputFormat: source("imageOutputFormat"),
         });
         return normalized;
     }
@@ -422,7 +530,7 @@ export function modelGroupReferenceLimits(config: AiConfig, selected: string, ca
     if (capability !== "image" && capability !== "video") return undefined;
     if (selected && !hasDeclaredModelCapability(config, selected, capability)) return undefined;
     const options = selectableModelsByCapability(config, capability);
-    const selectedGroup = groupModelsByDisplayName(config, options).find((group) => group.models.includes(selected));
+    const selectedGroup = (capability === "image" ? groupImageModelsByFamily(config, options) : capability === "video" ? groupVideoModelsByFamily(config, options) : groupModelsByDisplayName(config, options)).find((group) => group.models.includes(selected));
     const groupModels = selectedGroup?.models || (selected ? [selected] : []);
     const declaredModels = groupModels.filter((model) => hasDeclaredModelCapability(config, model, capability));
     if (!declaredModels.length) return undefined;
@@ -447,28 +555,81 @@ export function modelGroupReferenceLimits(config: AiConfig, selected: string, ca
 
 export function inferVideoOperation(input: ModelInputSummary) {
     const visualInputCount = input.imageCount + input.characterCount;
-    // 图片或角色决定图生视频主模式，音频只作为附加参考，不应把组合请求
-    // 提升为全模态参考；纯音频输入才使用独立的 audio_to_video 能力。
-    if (input.videoCount > 0 || visualInputCount > 2) return "reference_to_video";
+    // 单图/单角色走图生视频；多图、参考视频或“视觉+音频”组合需要全能参考。
+    // 纯音频输入才使用独立的 audio_to_video 能力。
+    if (input.videoCount > 0 || visualInputCount > 2 || (visualInputCount > 0 && input.audioCount > 0)) return "reference_to_video";
+    if (visualInputCount === 2) return "first_last_frame";
     if (visualInputCount > 0) return "image_to_video";
     if (input.audioCount > 0) return "audio_to_video";
     return "text_to_video";
 }
 
 export function resolveVideoOperation(input: ModelInputSummary, storedOperation?: string) {
-    // 用户在节点上显式选过生成模式时，模式就是配置本身；参考素材只用于
-    // 兼容性校验，不能在提交前把用户选择改写成另一个 operation。
-    if (storedOperation) return storedOperation;
+    if (storedOperation === "reference_to_video" && input.imageCount + input.characterCount + input.videoCount + input.audioCount > 0) return storedOperation;
+    // 首尾帧是用户显式选的模式：只要有两张图就按首尾帧走（对应上游图生视频的首帧+尾帧），
+    // 不再被「图生视频」的素材推断覆盖。
+    if (storedOperation === "first_last_frame" && input.imageCount === 2 && input.videoCount === 0 && input.audioCount === 0) return storedOperation;
+    if (storedOperation === "extend" && input.videoCount > 0) return storedOperation;
+    if (storedOperation && !["text_to_video", "image_to_video", "first_last_frame", "audio_to_video", "extend", "reference_to_video"].includes(storedOperation)) return storedOperation;
     return inferVideoOperation(input);
+}
+
+export function videoOperationInputError(input: ModelInputSummary, operation: string) {
+    const visualInputCount = input.imageCount + input.characterCount;
+    const totalReferences = visualInputCount + input.videoCount + input.audioCount;
+    if (operation === "text_to_video") return totalReferences > 0 ? "上传参考素材后会自动切换生成模式" : "";
+    if (operation === "image_to_video") return visualInputCount === 1 && input.videoCount === 0 && input.audioCount === 0 ? "" : "图生视频需要且仅需要 1 张首帧图片";
+    if (operation === "first_last_frame") return input.imageCount >= 1 && input.imageCount <= 2 && input.characterCount === 0 && input.videoCount === 0 && input.audioCount === 0 ? "" : "首尾帧需要 1–2 张图片";
+    if (operation === "reference_to_video") return totalReferences > 0 ? "" : "全能参考至少需要 1 个参考素材";
+    if (operation === "audio_to_video") return input.audioCount > 0 && visualInputCount === 0 && input.videoCount === 0 ? "" : "音频生视频需要音频，且不能同时传入图片或视频";
+    if (["inpaint", "extend", "replace_element", "camera_motion", "style_transfer"].includes(operation)) return input.videoCount > 0 ? "" : "该模式至少需要 1 个参考视频";
+    return totalReferences > 0 ? "" : "该模式至少需要 1 个参考素材";
+}
+
+export function videoOperationRequirementHint(operation: string) {
+    if (operation === "text_to_video") return "无需素材";
+    if (operation === "image_to_video") return "需 1 张图";
+    if (operation === "first_last_frame") return "需 1–2 张图";
+    if (operation === "reference_to_video") return "需参考素材";
+    if (operation === "audio_to_video") return "需音频";
+    if (["inpaint", "extend", "replace_element", "camera_motion", "style_transfer"].includes(operation)) return "需视频";
+    return "需参考素材";
+}
+
+export function displayVideoOperation(operation: string) {
+    return operation === "image_to_video" ? "first_last_frame" : operation;
+}
+
+export function displayVideoOperations(operations: string[]) {
+    return Array.from(new Set(operations.map(displayVideoOperation)));
+}
+
+export function operationForModelSelection(
+    config: AiConfig,
+    model: string,
+    input: ModelInputSummary,
+    storedOperation?: string,
+) {
+    const operations = videoModelFamilyOperations(config, model);
+    if (!operations.length) return storedOperation;
+    const resolved = resolveVideoOperation(input, storedOperation);
+    if (operations.includes(resolved)) return resolved;
+    const visualInputCount = input.imageCount + input.characterCount;
+    if (visualInputCount === 2 && input.videoCount === 0 && input.audioCount === 0 && operations.includes("first_last_frame")) return "first_last_frame";
+    if (visualInputCount === 1 && input.videoCount === 0 && input.audioCount === 0 && operations.includes("image_to_video")) return "image_to_video";
+    if (visualInputCount === 0 && input.videoCount === 0 && input.audioCount === 0 && operations.includes("text_to_video")) return "text_to_video";
+    const configured = videoModelFamilyModels(config, model)
+        .map((item) => modelCapabilityConfigFor(config, item).video?.defaultOperation)
+        .find((operation): operation is string => Boolean(operation && operations.includes(operation)));
+    return configured || operations[0] || storedOperation;
 }
 
 function videoOperationLabel(operation: string) {
     if (operation === "text_to_video") return "文生视频";
     if (operation === "image_to_video") return "图生视频";
+    if (operation === "first_last_frame") return "首尾帧";
     if (operation === "audio_to_video") return "音频生视频";
-    if (operation === "reference_to_video") return "全模态参考";
+    if (operation === "reference_to_video") return "全能参考";
     if (operation === "extend") return "视频续写";
-    if (operation === "inpaint") return "视频局部修改";
-    if (operation === "draft_to_final") return "样片转成片";
     return "当前生成模式";
 }

@@ -7,7 +7,7 @@ import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceDuration, normalize
 import { isVolcengineArkVideoProtocol } from "@/lib/model-protocols";
 import { type CanvasTheme } from "@/lib/canvas-theme";
 import { formatVideoResolutionLabel, isVideoResolutionMatch, normalizeVideoDuration, sortVideoResolutionOptions, videoDimensionsForRatioAndResolution, VIDEO_DURATION_MIN } from "@/lib/video-generation-options";
-import { modelCapabilityConfigFor, normalizeVideoValue, resolveVideoRatioValue, resolveVideoResolutionValue, videoDurationOptions, videoSupportsTaskTypeConstraints, type VideoCapabilityConfig } from "@/lib/model-capabilities";
+import { contiguousDurationRange, modelCapabilityConfigFor, normalizeVideoValue, resolveVideoRatioValue, resolveVideoResolutionValue, videoDurationOptions, videoSupportsTaskTypeConstraints, type VideoCapabilityConfig } from "@/lib/model-capabilities";
 import { modelOptionName, resolveModelChannel, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
 
 const sizeOptions = [
@@ -356,6 +356,28 @@ function VideoDurationControl({ profile, value, theme, disabled, onChange }: { p
     }
 
     const options = videoDurationOptions(profile);
+    const contiguous = contiguousDurationRange(options);
+    if (contiguous) {
+        const autoOption = options.includes(-1);
+        const autoSelected = normalizedNumber(value) === -1;
+        const normalized = autoSelected
+            ? profile.duration.default
+            : normalizeDurationValue(value, profile.duration.default, contiguous.min, contiguous.max, contiguous.step);
+        return (
+            <DurationRangeControl
+                value={normalized}
+                min={contiguous.min}
+                max={contiguous.max}
+                step={contiguous.step}
+                theme={theme}
+                autoSelected={autoOption ? autoSelected : undefined}
+                onChange={(next) => {
+                    if (!disabled?.(next)) onChange(next);
+                }}
+                onAuto={autoOption ? () => onChange(-1) : undefined}
+            />
+        );
+    }
     return (
         <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${Math.min(options.length, 4)}, minmax(0, 1fr))` }}>
             {options.map((option) => (
@@ -367,7 +389,17 @@ function VideoDurationControl({ profile, value, theme, disabled, onChange }: { p
     );
 }
 
-function DurationRangeControl({ value, min, max, step, theme, onChange, continuous }: { value: number; min: number; max: number; step: number | "any"; theme: CanvasTheme; onChange: (value: number) => void; continuous?: boolean }) {
+function DurationRangeControl({ value, min, max, step, theme, autoSelected, onChange, onAuto, continuous }: {
+    value: number;
+    min: number;
+    max: number;
+    step: number | "any";
+    theme: CanvasTheme;
+    autoSelected?: boolean;
+    onChange: (value: number) => void;
+    onAuto?: () => void;
+    continuous?: boolean;
+}) {
     return (
         <div className="space-y-1.5">
             <div className="flex min-w-0 items-center gap-2">
@@ -384,6 +416,7 @@ function DurationRangeControl({ value, min, max, step, theme, onChange, continuo
                     onMouseDown={(event) => event.stopPropagation()}
                 />
                 <DurationInput value={value} min={min} max={max} theme={theme} onChange={onChange} continuous={continuous} />
+                {onAuto ? <OptionPill selected={autoSelected === true} theme={theme} onClick={onAuto}>自动</OptionPill> : null}
             </div>
             <div className="flex justify-between px-0.5 text-[var(--fs-tiny)]" style={{ color: theme.node.muted }}>
                 <span>{min}s</span>
