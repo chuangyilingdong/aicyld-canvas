@@ -76,6 +76,12 @@ func mapPersistError(err error, req CreateRequest, present Presenter, limit int)
 	if errors.Is(err, repository.ErrLogicalModelUnavailable) {
 		return nil, kernel.BadAuthRequest(LogicalModelUnavailableMessage)
 	}
+	if errors.Is(err, repository.ErrSmartFilmBudgetExceeded) {
+		return nil, kernel.BadAuthRequest(err.Error())
+	}
+	if errors.Is(err, repository.ErrSmartFilmBatchArchived) {
+		return nil, kernel.BadAuthRequest(err.Error())
+	}
 	if mapped := mapTaskScopeError(err); mapped != nil {
 		return nil, mapped
 	}
@@ -113,6 +119,12 @@ func mapTaskResourceError(err error) error {
 // task creators (render, transcription, depth) using the same admission rules.
 // A nil result means the error is not a known validation failure.
 func AdmissionValidationError(err error) error {
+	if errors.Is(err, repository.ErrSmartFilmBatchArchived) {
+		return kernel.BadAuthRequest(err.Error())
+	}
+	if errors.Is(err, repository.ErrSmartFilmBudgetExceeded) {
+		return kernel.BadAuthRequest(err.Error())
+	}
 	if mapped := mapTaskScopeError(err); mapped != nil {
 		return mapped
 	}

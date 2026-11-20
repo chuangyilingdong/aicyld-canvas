@@ -1,15 +1,21 @@
 package project
 
 import (
+	"errors"
 	"strings"
 
 	"infinite-canvas/backend/internal/kernel"
 	"infinite-canvas/backend/internal/model"
+	"infinite-canvas/backend/internal/repository"
 )
 
-func (s *Service) ListSmartFilmBatches(userID, status string, page, pageSize int) (SmartFilmBatchListPage, error) {
+func (s *Service) ListSmartFilmBatches(userID, status, search string, page, pageSize int) (SmartFilmBatchListPage, error) {
 	status = strings.TrimSpace(status)
-	if status != "" && status != smartFilmBatchStatusDraft && status != smartFilmBatchStatusConfirmed && status != smartFilmBatchStatusPartiallyConfirmed {
+	search = strings.TrimSpace(search)
+	if len([]rune(search)) > 200 {
+		return SmartFilmBatchListPage{}, kernel.BadAuthRequest("搜索内容不能超过 200 个字符")
+	}
+	if status != "" && status != smartFilmBatchStatusDraft && status != smartFilmBatchStatusConfirmed && status != smartFilmBatchStatusPartiallyConfirmed && status != smartFilmBatchStatusArchived {
 		return SmartFilmBatchListPage{}, kernel.BadAuthRequest("批次状态无效")
 	}
 	if page < 1 {
@@ -21,7 +27,7 @@ func (s *Service) ListSmartFilmBatches(userID, status string, page, pageSize int
 	if pageSize > 100 {
 		pageSize = 100
 	}
-	batches, total, err := s.repo.SmartFilmBatchesForUser(userID, status, page, pageSize)
+	batches, total, err := s.repo.SmartFilmBatchesForUser(userID, status, search, page, pageSize)
 	if err != nil {
 		return SmartFilmBatchListPage{}, err
 	}
@@ -87,6 +93,9 @@ func (s *Service) DeleteSmartFilmBatch(userID, batchID string) error {
 		}
 	}
 	if err := s.repo.DeleteSmartFilmBatch(userID, batchID); err != nil {
+		if errors.Is(err, repository.ErrSmartFilmBatchActiveTasks) {
+			return kernel.BadAuthRequest("批次仍有生成中的任务，请等待任务结束后再删除")
+		}
 		if s.repo != nil {
 			return mapProjectWriteError(err)
 		}

@@ -246,6 +246,7 @@ type SmartFilmBatch struct {
 	Status                    string    `json:"status" gorm:"index;size:32"`
 	Paused                    bool      `json:"paused" gorm:"index;not null;default:false"`
 	BudgetPoints              int       `json:"budgetPoints" gorm:"not null;default:0"`
+	BudgetUsedPoints          int       `json:"budgetUsedPoints" gorm:"not null;default:0"`
 	Revision                  int64     `json:"revision"`
 	CreatedAt                 time.Time `json:"createdAt" gorm:"index:idx_smart_film_batches_user_updated,priority:2"`
 	UpdatedAt                 time.Time `json:"updatedAt" gorm:"index:idx_smart_film_batches_user_updated,priority:2"`

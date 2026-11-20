@@ -191,13 +191,13 @@ func geminiVeoVideos(response map[string]any) []MediaReference {
 
 func normalizeStatus(raw string) Status {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "queued", "pending", "created", "submitted", "in_queue", "task_status_queued", "preparing":
+	case "create", "queued", "pending", "created", "submitted", "in_queue", "task_status_queued", "preparing":
 		return StatusPending
 	case "running", "processing", "in_progress", "executing", "task_status_running":
 		return StatusProcessing
 	case "succeeded", "success", "completed", "complete", "done", "task_status_succeed":
 		return StatusSucceeded
-	case "cancelled", "canceled", "aborted":
+	case "cancel", "cancelled", "canceled", "aborted":
 		return StatusCancelled
 	case "failed", "fail", "failure", "error", "expired", "task_status_fail":
 		return StatusFailed

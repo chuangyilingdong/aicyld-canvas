@@ -59,6 +59,20 @@ func defaultVideoCapabilityConfig(protocol string, modelName string) *VideoCapab
 		if model.ChannelInterfaceType(protocol) == model.ChannelInterfaceNewAPIChannel1 {
 			video.Resolutions = []string{"480p", "720p", "1080p"}
 		}
+	case model.ChannelInterfaceRunningHubStandardVideo:
+		video.References = VideoReferenceConfig{
+			PromptMaxChars: 20480, MinImages: 0, MaxImages: 30, MaxImageBytes: 50 * 1024 * 1024,
+			MaxVideos: 10, MaxVideoBytes: 50 * 1024 * 1024, MinVideoDuration: 2, MaxVideoDuration: 30, MaxVideoTotalDuration: 30,
+			MaxAudios: 10, MaxAudioBytes: 50 * 1024 * 1024, MinAudioDuration: 2, MaxAudioDuration: 30, MaxAudioTotalDuration: 30,
+		}
+		video.Duration = VideoDurationConfig{Selection: "range", Min: 4, Max: 30, Step: 1, Default: 5}
+		video.Ratios = []string{"adaptive", "16:9", "4:3", "1:1", "3:4", "9:16", "21:9"}
+		video.DefaultRatio = "adaptive"
+		video.Resolutions = []string{"480p", "720p", "native1080p", "1080p", "2k", "4k"}
+		video.DefaultResolution = "720p"
+		video.GenerateAudio = VideoBooleanConfig{Supported: true, Default: true}
+		video.Watermark = VideoBooleanConfig{Supported: true, Default: false}
+		video.Operations = []string{"text_to_video", "image_to_video", "first_last_frame", "reference_to_video"}
 	case model.ChannelInterfaceNewAPIVideo, model.ChannelInterfaceXAIVideo:
 		video.GenerateAudio = VideoBooleanConfig{Supported: false, Default: false}
 	case model.ChannelInterfaceNovitaVideo:

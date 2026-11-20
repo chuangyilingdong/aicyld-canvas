@@ -40,6 +40,41 @@ func TestBillableSkipsLocalExecutors(t *testing.T) {
 	if !Billable(&TaskSnapshot{Type: "canvas_image", Model: "zhenzhen-image-g-v2.5-lowprice", Provider: "managed"}) {
 		t.Fatal("managed image task should be billable")
 	}
+	smartFilmText, _ := json.Marshal(map[string]any{"metadata": map[string]any{"source": "smart-film-batch-worker"}})
+	if !Billable(&TaskSnapshot{Type: "canvas_text", Model: "deepseek/deepseek-v4.1-flash", Provider: "managed", InputJSON: string(smartFilmText)}) {
+		t.Fatal("managed smart-film text task should be billable")
+	}
+	if Billable(&TaskSnapshot{Type: "text", Model: "deepseek/deepseek-v4.1-flash", Provider: "managed"}) {
+		t.Fatal("private text replay task must not be billable")
+	}
+	ordinaryCanvasText, _ := json.Marshal(map[string]any{"metadata": map[string]any{"source": "canvas-online-agent"}})
+	if Billable(&TaskSnapshot{Type: "canvas_text", Model: "deepseek/deepseek-v4.1-flash", Provider: "managed", InputJSON: string(ordinaryCanvasText)}) {
+		t.Fatal("ordinary canvas text must remain outside smart-film billing")
+	}
+}
+
+func TestFactsEstimatesTextTokensForPreauthorization(t *testing.T) {
+	raw, _ := json.Marshal(map[string]any{
+		"mode": "text",
+		"metadata": map[string]any{
+			"source":                  "smart-film-batch-worker",
+			"promptTemplateVariables": map[string]any{"章节正文": "这是一个用于文本预扣估算的中文剧本段落。"},
+		},
+		"textOptions": map[string]any{"maxOutputTokens": 2048},
+	})
+	facts := Facts(&TaskSnapshot{
+		Type: "canvas_text", Operation: "storyboard", Provider: "managed",
+		Model: "deepseek/deepseek-v4.1-flash", Prompt: "请拆分分镜", InputJSON: string(raw),
+	})
+	if facts["category"] != "text" {
+		t.Fatalf("category = %v", facts["category"])
+	}
+	if inputTokens, ok := facts["inputTokens"].(int); !ok || inputTokens <= 0 {
+		t.Fatalf("inputTokens = %v", facts["inputTokens"])
+	}
+	if facts["outputTokens"] != 2048 || facts["cachedInputTokens"] != 0 {
+		t.Fatalf("unexpected token facts: %+v", facts)
+	}
 }
 
 func TestFactsNormalizesNumericVideoResolution(t *testing.T) {

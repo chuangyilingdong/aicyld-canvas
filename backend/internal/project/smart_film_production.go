@@ -71,6 +71,13 @@ func (s *Service) CheckpointSmartFilmProductionRun(userID, batchID, runID string
 }
 
 func (s *Service) StartSmartFilmProductionStage(userID, batchID, runID string, req StartSmartFilmProductionStageRequest) (SmartFilmProductionRunView, error) {
+	batch, batchErr := s.repo.SmartFilmBatchForUser(userID, batchID)
+	if batchErr != nil {
+		return SmartFilmProductionRunView{}, batchErr
+	}
+	if batch.Status == smartFilmBatchStatusArchived {
+		return SmartFilmProductionRunView{}, kernel.BadAuthRequest("批次已归档，不能启动制作")
+	}
 	stage := strings.TrimSpace(req.Stage)
 	if stage != SmartFilmProductionStepAssets && stage != SmartFilmProductionStepStoryboard {
 		return SmartFilmProductionRunView{}, kernel.BadAuthRequest("生产阶段无效")
@@ -120,6 +127,13 @@ func (s *Service) SmartFilmProductionRunForProject(userID, projectID string) (Sm
 }
 
 func (s *Service) ControlSmartFilmBatch(userID, batchID string, req SmartFilmBatchControlRequest) (SmartFilmBatchView, error) {
+	current, currentErr := s.repo.SmartFilmBatchForUser(userID, batchID)
+	if currentErr != nil {
+		return SmartFilmBatchView{}, currentErr
+	}
+	if current.Status == smartFilmBatchStatusArchived {
+		return SmartFilmBatchView{}, kernel.BadAuthRequest("批次已归档，不能继续制作")
+	}
 	action := strings.TrimSpace(req.Action)
 	if action != "pause" && action != "resume" {
 		return SmartFilmBatchView{}, kernel.BadAuthRequest("批次控制动作无效")
@@ -132,6 +146,13 @@ func (s *Service) ControlSmartFilmBatch(userID, batchID string, req SmartFilmBat
 }
 
 func (s *Service) ControlSmartFilmProductionRun(userID, batchID, runID string, req SmartFilmProductionRunControlRequest) (SmartFilmProductionRunView, error) {
+	batch, batchErr := s.repo.SmartFilmBatchForUser(userID, batchID)
+	if batchErr != nil {
+		return SmartFilmProductionRunView{}, batchErr
+	}
+	if batch.Status == smartFilmBatchStatusArchived {
+		return SmartFilmProductionRunView{}, kernel.BadAuthRequest("批次已归档，不能继续制作")
+	}
 	action := strings.TrimSpace(req.Action)
 	run, err := s.repo.SmartFilmProductionRunForUser(userID, batchID, runID)
 	if err != nil {

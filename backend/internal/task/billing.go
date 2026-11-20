@@ -9,7 +9,7 @@ import (
 )
 
 type billingUpdater interface {
-	UpdateTaskBilling(userID, taskID, holdID, status string, points int) error
+	UpdateTaskBilling(task *model.Task) error
 }
 
 // QuoteTask prepares the same normalized task shape as CreateTask and returns a
@@ -40,6 +40,7 @@ func (s *Service) reserveBilling(userID string, task *model.Task) (bool, error) 
 	task.BillingHoldID = reservation.HoldID
 	task.BillingStatus = reservation.Status
 	task.BillingPoints = reservation.Points
+	task.BillingReservedPoints = reservation.Points
 	return true, nil
 }
 
@@ -71,7 +72,9 @@ func (s *Service) updateTaskBilling(task *model.Task) {
 		return
 	}
 	if updater, ok := s.store.(billingUpdater); ok {
-		_ = updater.UpdateTaskBilling(task.UserID, task.ID, task.BillingHoldID, task.BillingStatus, task.BillingPoints)
+		if err := updater.UpdateTaskBilling(task); err != nil {
+			s.log(task.UserID, task.ID, "error", "本地账单状态写入失败，等待对账", errorText(err))
+		}
 	}
 }
 
@@ -79,17 +82,13 @@ func applyBillingSettlement(task *model.Task, settlement *billingclient.BillingS
 	if task == nil || settlement == nil {
 		return
 	}
-	switch strings.TrimSpace(settlement.Status) {
-	case "settled":
-		task.BillingStatus = "settled"
-		task.BillingPoints = settlement.ChargedPoints
-	case "pending_reconcile":
-		task.BillingStatus = "pending_reconcile"
-	case "refunded":
-		task.BillingStatus = "refunded"
+	status := strings.TrimSpace(settlement.Status)
+	switch status {
+	case "settled", "pending_reconcile", "refunded":
 	default:
-		task.BillingStatus = "pending_reconcile"
+		status = "pending_reconcile"
 	}
+	task.ApplyBillingResult(status, settlement.ChargedPoints, settlement.RefundedPoints)
 }
 
 func errorText(err error) string {

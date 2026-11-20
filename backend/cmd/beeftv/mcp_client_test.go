@@ -67,8 +67,8 @@ func TestMCPClientLoop(t *testing.T) {
 			expected = append(expected, op)
 		}
 	}
-	if len(expected) != 40 {
-		t.Fatalf("expected 40 default MCP operations, got %d", len(expected))
+	if len(expected) != 41 {
+		t.Fatalf("expected 41 default MCP operations, got %d", len(expected))
 	}
 	for _, tool := range tools.Tools {
 		if excluded[tool.Name] {
@@ -229,7 +229,7 @@ func TestMCPClientLoop(t *testing.T) {
 	}
 	configured, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "canvas.nodes.configure", Arguments: map[string]any{
 		"canvasId": canvasID, "expectedRevision": 2,
-		"nodes": []any{map[string]any{"nodeId": nodeID, "kind": "image", "patch": map[string]any{"prompt": "MCP 批量配置"}}},
+		"nodes":       []any{map[string]any{"nodeId": nodeID, "kind": "image", "patch": map[string]any{"prompt": "MCP 批量配置"}}},
 		"operationId": "mcp-agent-batch-configure",
 	}})
 	if err != nil || configured.IsError || !toolTextContains(configured, nodeID) {

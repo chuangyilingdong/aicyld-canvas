@@ -136,6 +136,7 @@ func taskInputFromCanvas(input Input) modelcatalog.TaskInput {
 			BaseURL:                  input.Config.BaseURL,
 			Size:                     input.Config.Size,
 			Quality:                  input.Config.Quality,
+			ImageOutputFormat:        input.Config.ImageOutputFormat,
 			Count:                    input.Config.Count,
 			VideoSeconds:             input.Config.VideoSeconds,
 			VQuality:                 input.Config.VQuality,

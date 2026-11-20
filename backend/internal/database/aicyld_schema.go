@@ -7,7 +7,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentAICYLDOverlaySchemaVersion int64 = 1
+const CurrentAICYLDOverlaySchemaVersion int64 = 2
 
 type aicyldOverlayMigration struct {
 	Version   int64 `gorm:"primaryKey;autoIncrement:false"`
@@ -32,6 +32,7 @@ type AICYLDOverlaySchemaStatus struct {
 func canonicalAICYLDOverlayMigrations() []aicyldOverlayMigrationStep {
 	return []aicyldOverlayMigrationStep{
 		{version: 1, name: "hosted-billing-task-fields", apply: migrateAICYLDHostedBillingTaskFields},
+		{version: 2, name: "hosted-billing-reservation-ledger", apply: migrateAICYLDHostedBillingReservationLedger},
 	}
 }
 
@@ -133,6 +134,9 @@ func migrateAICYLDHostedBillingTaskFields(tx *gorm.DB) error {
 		{name: "billing_hold_id", definition: "TEXT"},
 		{name: "billing_status", definition: "TEXT"},
 		{name: "billing_points", definition: "INTEGER NOT NULL DEFAULT 0"},
+		{name: "billing_reserved_points", definition: "INTEGER NOT NULL DEFAULT 0"},
+		{name: "billing_settled_points", definition: "INTEGER NOT NULL DEFAULT 0"},
+		{name: "billing_refunded_points", definition: "INTEGER NOT NULL DEFAULT 0"},
 	} {
 		if err := ensureSQLiteColumn(tx, "tasks", column.name, column.definition); err != nil {
 			return err
@@ -142,8 +146,30 @@ func migrateAICYLDHostedBillingTaskFields(tx *gorm.DB) error {
 		"CREATE INDEX idx_tasks_billing_hold_id ON tasks(billing_hold_id)")
 }
 
+func migrateAICYLDHostedBillingReservationLedger(tx *gorm.DB) error {
+	if err := migrateAICYLDHostedBillingTaskFields(tx); err != nil {
+		return err
+	}
+	return tx.Exec(`UPDATE tasks SET
+		billing_reserved_points = CASE
+			WHEN billing_reserved_points > 0 THEN billing_reserved_points
+			ELSE billing_points
+		END,
+		billing_settled_points = CASE
+			WHEN billing_status = 'settled' AND billing_settled_points = 0 THEN billing_points
+			ELSE billing_settled_points
+		END,
+		billing_refunded_points = CASE
+			WHEN billing_status = 'refunded' AND billing_refunded_points = 0 THEN billing_points
+			ELSE billing_refunded_points
+		END`).Error
+}
+
 func requireAICYLDHostedBillingTaskSchema(db *gorm.DB) error {
-	for _, column := range []string{"billing_hold_id", "billing_status", "billing_points"} {
+	for _, column := range []string{
+		"billing_hold_id", "billing_status", "billing_points",
+		"billing_reserved_points", "billing_settled_points", "billing_refunded_points",
+	} {
 		has, err := sqliteHasColumn(db, "tasks", column)
 		if err != nil {
 			return err

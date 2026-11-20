@@ -84,6 +84,9 @@ const (
 	ChannelInterfaceRunningHubImage             ChannelInterfaceType = "runninghub-workflow-image"
 	ChannelInterfaceRunningHubVideo             ChannelInterfaceType = "runninghub-workflow-video"
 	ChannelInterfaceRunningHubAudio             ChannelInterfaceType = "runninghub-workflow-audio"
+	ChannelInterfaceRunningHubStandardImage     ChannelInterfaceType = "runninghub-standard-image"
+	ChannelInterfaceRunningHubStandardVideo     ChannelInterfaceType = "runninghub-standard-video"
+	ChannelInterfaceRunningHubStandardAudio     ChannelInterfaceType = "runninghub-standard-audio"
 
 	ApiCallStatusSucceeded ApiCallStatus = "succeeded"
 	ApiCallStatusFailed    ApiCallStatus = "failed"

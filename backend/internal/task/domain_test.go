@@ -660,10 +660,12 @@ func TestCancelRejectedForTerminalUnknownAcceptance(t *testing.T) {
 
 func TestPrepareOnlyDoesNotPersist(t *testing.T) {
 	store := newMemStore()
-	svc := domainService(store, nil)
+	svc := domainService(store, func(deps *Dependencies) {
+		deps.Media = blockedTransportMedia{}
+	})
 	task, err := svc.CreateTask("user", CreateRequest{Type: "canvas_image", Prompt: "quote", PrepareOnly: true})
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("quote should not validate uploaded media transport: %v", err)
 	}
 	if task.ID == "" || task.Status != model.TaskStatusQueued {
 		t.Fatalf("prepared = %+v", task)

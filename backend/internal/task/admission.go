@@ -92,8 +92,14 @@ func (s *Service) admit(userID string, req CreateRequest) (*model.Task, error) {
 	if s.deps.Media.ContainsInlineData(normalizedInput) {
 		return nil, kernel.BadAuthRequest(InlineMediaRejectedMessage)
 	}
-	if err := s.deps.Media.ValidateTransport(userID, normalizedInput); err != nil {
-		return nil, err
+	// A quote carries the reference shape so the billing rule can see which
+	// operation is requested, but it intentionally does not upload media. The
+	// transport is validated again on the submitting request, after references
+	// have been persisted as owned resources.
+	if !req.PrepareOnly {
+		if err := s.deps.Media.ValidateTransport(userID, normalizedInput); err != nil {
+			return nil, err
+		}
 	}
 
 	textReplay := s.deps.TextReplay.IsRequest(normalizedInput)

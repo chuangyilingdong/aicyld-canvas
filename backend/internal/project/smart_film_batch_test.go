@@ -97,7 +97,7 @@ func TestSmartFilmBatchGroupsCharacterViewsByNameAndStoresSingleSkill(t *testing
 	if category != model.AssetCategoryCharacter || title != "林默" {
 		t.Fatalf("second character view link = %s/%s", category, title)
 	}
-	page, err := svc.ListSmartFilmBatches("user-1", "", 1, 20)
+	page, err := svc.ListSmartFilmBatches("user-1", "", "", 1, 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -499,6 +499,27 @@ func TestSmartFilmBatchCreatesIndependentProjects(t *testing.T) {
 	}
 }
 
+func TestDeleteSmartFilmBatchRejectsActiveScriptTaskWithoutProject(t *testing.T) {
+	svc, db := newTestService(t, &recordingWorkflows{})
+	batch, err := svc.CreateSmartFilmBatch("user-1", CreateSmartFilmBatchRequest{Title: "生成中", SourceText: "测试想法"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := model.Task{
+		ID: "script-generation-running", UserID: "user-1", Type: "canvas_text", Status: model.TaskStatusRunning,
+		InputJSON: `{"metadata":{"batchId":"` + batch.ID + `","source":"smart-film-batch-script"}}`,
+	}
+	if err := db.Create(&task).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.DeleteSmartFilmBatch("user-1", batch.ID); err == nil {
+		t.Fatal("batch with active script generation task and no project was deleted")
+	}
+	if _, err := svc.SmartFilmBatch("user-1", batch.ID); err != nil {
+		t.Fatalf("batch was deleted despite active script task: %v", err)
+	}
+}
+
 func TestSmartFilmBatchListFiltersAndDeletePreservesProjects(t *testing.T) {
 	svc, db := newTestService(t, &recordingWorkflows{})
 	draft, err := svc.CreateSmartFilmBatch("user-1", CreateSmartFilmBatchRequest{Title: "草稿批次", SourceText: "想法"})
@@ -539,7 +560,7 @@ func TestSmartFilmBatchListFiltersAndDeletePreservesProjects(t *testing.T) {
 	if err := db.Create(&activeTask).Error; err != nil {
 		t.Fatal(err)
 	}
-	page, err := svc.ListSmartFilmBatches("user-1", SmartFilmScriptStatusDraft, 1, 20)
+	page, err := svc.ListSmartFilmBatches("user-1", SmartFilmScriptStatusDraft, "", 1, 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -565,7 +586,7 @@ func TestSmartFilmBatchListFiltersAndDeletePreservesProjects(t *testing.T) {
 	if err := svc.DeleteSmartFilmBatch("user-1", draft.ID); err != nil {
 		t.Fatal(err)
 	}
-	page, err = svc.ListSmartFilmBatches("user-1", "", 1, 20)
+	page, err = svc.ListSmartFilmBatches("user-1", "", "", 1, 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -582,7 +603,7 @@ func TestSmartFilmBatchCostUsesServerQuotesAndBudget(t *testing.T) {
 		}
 		return &billing.BillingQuote{Enabled: true, Points: 3, Balance: 100}, nil
 	}
-	created, err := svc.CreateSmartFilmBatch("user-1", CreateSmartFilmBatchRequest{Title: "预算批次", SourceText: "想法", BudgetPoints: 100, Config: SmartFilmBatchConfig{ShotCount: 2, ShotDurationSeconds: 5, DefaultTextModel: "text-model", DefaultVideoModel: "video-model"}})
+	created, err := svc.CreateSmartFilmBatch("user-1", CreateSmartFilmBatchRequest{Title: "预算批次", SourceText: "想法", BudgetPoints: 100, Config: SmartFilmBatchConfig{ScriptCount: 1, ShotCount: 2, ShotDurationSeconds: 5, DefaultTextModel: "text-model", DefaultImageModel: "image-model", DefaultVideoModel: "video-model"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -595,18 +616,41 @@ func TestSmartFilmBatchCostUsesServerQuotesAndBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 	projectID := confirmed.Scripts[0].ProjectID
-	if err := db.Create(&model.Task{ID: "budget-task", UserID: "user-1", ProjectID: projectID, Type: "canvas_text", Status: model.TaskStatusSucceeded}).Error; err != nil {
+	budgetTask := model.Task{
+		ID: "budget-task", UserID: "user-1", ProjectID: projectID, Type: "canvas_text", Status: model.TaskStatusSucceeded,
+		BillingHoldID: "budget-hold", BillingStatus: "reserved", BillingPoints: 5, BillingReservedPoints: 5,
+	}
+	if err := db.Create(&budgetTask).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Exec("UPDATE tasks SET billing_points = 5, billing_status = 'reserved' WHERE id = 'budget-task'").Error; err != nil {
+	if err := svc.repo.UpdateTaskBilling(&budgetTask); err != nil {
 		t.Fatal(err)
 	}
 	costs, err := svc.SmartFilmBatchCost("user-1", saved.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if costs.CommittedPoints != 5 || costs.EstimatedPoints != 23 || costs.TotalPoints != 28 || costs.OverBudget {
+	if costs.CommittedPoints != 5 || costs.TotalPoints != costs.CommittedPoints+costs.EstimatedPoints || costs.OverBudget {
 		t.Fatalf("costs = %+v", costs)
+	}
+	for _, task := range []model.Task{
+		{ID: "completed-image", UserID: "user-1", ProjectID: projectID, Type: "canvas_image", Status: model.TaskStatusSucceeded, InputJSON: `{"metadata":{"source":"short-drama-workflow","batchId":"` + saved.ID + `","shotId":"shot-1"}}`},
+		{ID: "completed-video", UserID: "user-1", ProjectID: projectID, Type: "canvas_video", Status: model.TaskStatusSucceeded, InputJSON: `{"metadata":{"source":"short-drama-workflow","batchId":"` + saved.ID + `","shotId":"shot-1"}}`},
+	} {
+		if err := db.Create(&task).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	workRows, workErr := svc.repo.SmartFilmBatchTaskWorkCounts("user-1", saved.ID)
+	if workErr != nil || len(workRows) == 0 {
+		t.Fatalf("task work rows = %+v, err=%v", workRows, workErr)
+	}
+	remaining, err := svc.SmartFilmBatchCost("user-1", saved.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if remaining.EstimatedPoints != costs.EstimatedPoints-13 {
+		t.Fatalf("completed image/video still included in remaining estimate: before=%d after=%d", costs.EstimatedPoints, remaining.EstimatedPoints)
 	}
 	updated, err := svc.UpdateSmartFilmBatchBudget("user-1", saved.ID, UpdateSmartFilmBatchBudgetRequest{BudgetPoints: 20})
 	if err != nil || updated.BudgetPoints != 20 {
@@ -615,6 +659,101 @@ func TestSmartFilmBatchCostUsesServerQuotesAndBudget(t *testing.T) {
 	costs, err = svc.SmartFilmBatchCost("user-1", saved.ID)
 	if err != nil || !costs.OverBudget || costs.Balance != 100 {
 		t.Fatalf("over-budget costs = %+v, %v", costs, err)
+	}
+}
+
+func TestPreviewSmartFilmBatchCostDoesNotPersistBatch(t *testing.T) {
+	svc, db := newTestService(t, &recordingWorkflows{})
+	var quotedPrompt string
+	svc.quoteTask = func(_ string, req localtask.CreateRequest) (*billing.BillingQuote, error) {
+		if req.Type == "canvas_text" && req.Operation == "text" {
+			quotedPrompt = req.Prompt
+		}
+		if req.Type == "canvas_video" {
+			return &billing.BillingQuote{Enabled: true, Points: 10, Balance: 120}, nil
+		}
+		return &billing.BillingQuote{Enabled: true, Points: 3, Balance: 100}, nil
+	}
+	costs, err := svc.PreviewSmartFilmBatchCost("user-1", CreateSmartFilmBatchRequest{
+		Title: "预算预览", SourceText: "想法",
+		ScriptPrompt: "完整脚本规则\n参考素材：红色水壶\nJSON 输出格式",
+		Config: SmartFilmBatchConfig{
+			ShotCount: 2, ShotDurationSeconds: 5, ScriptCount: 2, AudioMode: SmartFilmAudioModeNone,
+			DefaultTextModel: "text-model", DefaultImageModel: "image-model", DefaultVideoModel: "video-model",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !costs.Enabled || costs.EstimatedPoints <= 0 || costs.TotalPoints != costs.EstimatedPoints {
+		t.Fatalf("preview costs = %+v", costs)
+	}
+	if quotedPrompt != "完整脚本规则\n参考素材：红色水壶\nJSON 输出格式" {
+		t.Fatalf("script quote prompt = %q", quotedPrompt)
+	}
+	var count int64
+	if err := db.Model(&model.SmartFilmBatch{}).Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("cost preview persisted %d batches", count)
+	}
+}
+
+func TestProductionConfigPreviewAndBudgetUpdateAreSeparated(t *testing.T) {
+	svc, db := newTestService(t, &recordingWorkflows{})
+	svc.quoteTask = func(_ string, req localtask.CreateRequest) (*billing.BillingQuote, error) {
+		points := 2
+		if req.Type == "canvas_image" {
+			points = 3
+		}
+		if req.Type == "canvas_video" {
+			points = 5
+		}
+		return &billing.BillingQuote{Enabled: true, Points: points, Balance: 100}, nil
+	}
+	created, err := svc.CreateSmartFilmBatch("user-1", CreateSmartFilmBatchRequest{
+		Title: "规格预览", SourceText: "测试想法",
+		Config:       SmartFilmBatchConfig{ScriptCount: 1, ShotCount: 2, DefaultTextModel: "text-model", DefaultImageModel: "image-model", DefaultVideoModel: "video-model", AudioMode: SmartFilmAudioModeNone},
+		BudgetPoints: 100,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := svc.SaveSmartFilmBatchScripts("user-1", created.ID, SaveSmartFilmBatchScriptsRequest{ExpectedRevision: created.Revision, Scripts: []SmartFilmScriptInput{{Title: "一条剧本", Content: "完整内容"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := UpdateSmartFilmBatchProductionConfigRequest{ProductionMode: SmartFilmProductionModeFixed, ShotCount: 2, ShotDurationsSeconds: []float64{5, 5}, ExpectedRevision: saved.Revision}
+	preview, err := svc.PreviewSmartFilmBatchProductionConfig("user-1", saved.ID, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.EstimatedPoints <= 0 {
+		t.Fatalf("preview = %+v", preview)
+	}
+	before, err := svc.repo.SmartFilmBatchForUser("user-1", saved.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.Revision != saved.Revision || before.BudgetPoints != 100 {
+		t.Fatalf("preview mutated batch: revision=%d budget=%d", before.Revision, before.BudgetPoints)
+	}
+	newBudget := preview.TotalPoints
+	request.BudgetPoints = &newBudget
+	updated, err := svc.UpdateSmartFilmBatchProductionConfig("user-1", saved.ID, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.BudgetPoints != newBudget || updated.Config.ProductionMode != SmartFilmProductionModeFixed || updated.Revision != saved.Revision+1 {
+		t.Fatalf("atomic config/budget update = %+v", updated)
+	}
+	var stored model.SmartFilmBatch
+	if err := db.First(&stored, "id = ?", saved.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stored.BudgetPoints != newBudget || stored.Revision != saved.Revision+1 {
+		t.Fatalf("stored config/budget update = %+v", stored)
 	}
 }
 
@@ -1290,6 +1429,9 @@ func TestSmartFilmStoryboardUsesPendingAssetPromptsAsTextSettings(t *testing.T) 
 		ProjectID: project.ID, UnitID: unit.ID,
 		AssetStatus: SmartFilmProductionStageStatusReady, StoryboardStatus: SmartFilmProductionStageStatusWaiting,
 		ControlStatus: SmartFilmProductionControlActive, Revision: 1, CreatedAt: now, UpdatedAt: now,
+	}
+	if err := db.Create(&model.SmartFilmBatch{ID: run.BatchID, UserID: "user-1", Title: "分镜批次", Status: "draft"}).Error; err != nil {
+		t.Fatal(err)
 	}
 	if err := db.Create(&run).Error; err != nil {
 		t.Fatal(err)

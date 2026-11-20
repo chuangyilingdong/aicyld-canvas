@@ -89,6 +89,7 @@ type GenerationRequest struct {
 	AspectRatio     string                    `json:"aspectRatio,omitempty"`
 	Resolution      string                    `json:"resolution,omitempty"`
 	Quality         string                    `json:"quality,omitempty"`
+	OutputFormat    string                    `json:"outputFormat,omitempty"`
 	GenerateAudio   bool                      `json:"generateAudio,omitempty"`
 	Watermark       bool                      `json:"watermark,omitempty"`
 	ImageCount      int                       `json:"imageCount,omitempty"`

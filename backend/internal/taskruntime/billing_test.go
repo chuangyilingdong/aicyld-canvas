@@ -28,12 +28,12 @@ func (r *terminalBillingRepoStub) UpdateTaskTerminalState(string, string, model.
 	return true, nil
 }
 
-func (r *terminalBillingRepoStub) UpdateTaskBilling(userID, taskID, holdID, status string, points int) error {
+func (r *terminalBillingRepoStub) UpdateTaskBilling(task *model.Task) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.status = status
-	r.hold = holdID
-	r.points = points
+	r.status = task.BillingStatus
+	r.hold = task.BillingHoldID
+	r.points = task.BillingPoints
 	return nil
 }
 

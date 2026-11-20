@@ -15,7 +15,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion int64 = 47
+const CurrentSchemaVersion int64 = 48
 
 type localSchemaMigration struct {
 	Version   int64 `gorm:"primaryKey;autoIncrement:false"`
@@ -194,6 +194,7 @@ func canonicalLocalMigrations() []localMigration {
 		{version: 47, name: "project-video-resolution", apply: func(tx *gorm.DB) error {
 			return ensureSQLiteColumn(tx, "projects", "default_video_resolution", "TEXT")
 		}},
+		{version: 48, name: "smart-film-atomic-budget-ledger", apply: migrateSmartFilmAtomicBudgetLedger},
 	}
 }
 

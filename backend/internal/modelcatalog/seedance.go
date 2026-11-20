@@ -53,7 +53,7 @@ const (
 func isSeedance2Family(protocol, modelName string) bool {
 	normalizedProtocol := strings.TrimSpace(protocol)
 	switch normalizedProtocol {
-	case "newapi-channel-1", "newapi-channel-2", "newapi", "openai", "openai-videos", "video-generations-json", "seedance-videos-compatible", "full-video":
+	case "newapi-channel-1", "newapi-channel-2", "newapi", "openai", "openai-videos", "video-generations-json", "seedance-videos-compatible", "full-video", "runninghub-standard-video":
 	default:
 		if !model.IsVolcengineArkVideoProtocol(model.ChannelInterfaceType(normalizedProtocol)) {
 			return false

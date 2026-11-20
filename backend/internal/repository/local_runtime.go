@@ -308,6 +308,9 @@ func (r *Repository) CreateTaskWithActiveLimit(task *model.Task, limit int) erro
 		if err := RequireTaskScopeActiveTx(tx, task.UserID, task.ProjectID); err != nil {
 			return err
 		}
+		if err := requireSmartFilmTaskBatchActiveTx(tx, task); err != nil {
+			return err
+		}
 		ids, err := taskInputResourceIDs(task.InputJSON)
 		if err != nil {
 			return err
@@ -345,7 +348,17 @@ func (r *Repository) RetryTaskWithExpectedInput(userID string, prepared *model.T
 func (r *Repository) retryTask(userID string, prepared *model.Task, limit int, expectedInputJSON *string) (*model.Task, error) {
 	var task model.Task
 	err := withImmediateTransaction(r.db, func(tx *gorm.DB) error {
+		var previous model.Task
+		if err := tx.Select(
+			"id", "user_id", "project_id", "input_json", "billing_hold_id", "billing_status",
+			"billing_points", "billing_reserved_points", "billing_settled_points", "billing_refunded_points",
+		).Where("id = ? AND user_id = ?", prepared.ID, userID).First(&previous).Error; err != nil {
+			return err
+		}
 		if err := RequireTaskScopeActiveTx(tx, userID, prepared.ProjectID); err != nil {
+			return err
+		}
+		if err := requireSmartFilmTaskBatchActiveTx(tx, prepared); err != nil {
 			return err
 		}
 		ids, err := taskInputResourceIDs(prepared.InputJSON)
@@ -376,10 +389,8 @@ func (r *Repository) retryTask(userID string, prepared *model.Task, limit int, e
 		if updated.RowsAffected != 1 {
 			return ErrTaskNotRetryable
 		}
-		if tx.Migrator().HasColumn("tasks", "billing_hold_id") {
-			if err := tx.Exec("UPDATE tasks SET billing_hold_id = ?, billing_status = ?, billing_points = ? WHERE id = ? AND user_id = ?", prepared.BillingHoldID, prepared.BillingStatus, prepared.BillingPoints, prepared.ID, userID).Error; err != nil {
-				return err
-			}
+		if err := applyTaskBillingTx(tx, &previous, prepared); err != nil {
+			return err
 		}
 		if err := tx.Delete(&model.TaskTextDelta{}, "user_id = ? AND task_id = ?", userID, prepared.ID).Error; err != nil {
 			return err

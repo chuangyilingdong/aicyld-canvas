@@ -23,17 +23,20 @@ func TestSmartFilmOpenAPIContainsMountedOperations(t *testing.T) {
 	}
 	expected := map[string][]string{
 		"/smart-film-batches":                                                       {"get", "post"},
+		"/smart-film-batches/cost-preview":                                          {"post"},
 		"/smart-film-batches/{batchId}":                                             {"get", "delete"},
 		"/smart-film-batches/{batchId}/budget":                                      {"patch"},
 		"/smart-film-batches/{batchId}/production-config":                           {"patch"},
+		"/smart-film-batches/{batchId}/production-config/preview":                   {"post"},
 		"/smart-film-batches/{batchId}/costs":                                       {"get"},
+		"/smart-film-batches/{batchId}/billing":                                     {"get"},
 		"/smart-film-batches/{batchId}/scripts":                                     {"put"},
 		"/smart-film-batches/{batchId}/recover-scripts":                             {"post"},
 		"/smart-film-batches/{batchId}/scripts/{scriptId}":                          {"patch", "delete"},
 		"/smart-film-batches/{batchId}/confirm":                                     {"post"},
 		"/smart-film-batches/{batchId}/production-runs/{runId}":                     {"patch"},
 		"/smart-film-batches/{batchId}/production-runs/{runId}/start":               {"post"},
-		"/projects/{id}/production-run":                                              {"get"},
+		"/projects/{id}/production-run":                                             {"get"},
 		"/smart-film-batches/{batchId}/control":                                     {"patch"},
 		"/smart-film-batches/{batchId}/production-runs/{runId}/control":             {"patch"},
 		"/projects/{id}/asset-candidates/{candidateId}":                             {"patch"},
@@ -104,7 +107,7 @@ func TestSmartFilmStatusContractsMatchOpenAPI(t *testing.T) {
 		property string
 		want     []string
 	}{
-		{"SmartFilmBatch", "status", []string{"draft", "confirmed", "partially_confirmed"}},
+		{"SmartFilmBatch", "status", []string{"draft", "confirmed", "partially_confirmed", "archived"}},
 		{"SmartFilmScript", "status", []string{"draft", "project_created", "assets_extracted", "storyboard_ready", "needs_attention", "failed"}},
 		{"SmartFilmProductionRun", "status", []string{"pending", "ready", "needs_attention", "failed", "skipped", "archived"}},
 		{"SmartFilmProductionRun", "controlStatus", []string{"active", "paused", "skipped"}},

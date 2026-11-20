@@ -46,7 +46,7 @@ func DefaultImageCapabilityConfig(protocol string, modelName string) *ImageCapab
 		} else if family == "4.0" {
 			sizes = []string{"1K", "2K", "4K"}
 		}
-		return &ImageCapabilityConfig{References: ImageReferenceConfig{PromptMaxChars: 32000, MaxImages: refs, MaxImageBytes: 30 * 1024 * 1024}, Size: ImageSizeConfig{Parameter: "size", Values: sizes, Default: "2K", AllowCustom: true}, Quality: ImageQualityConfig{Default: "auto"}, TransparentBackground: VideoBooleanConfig{Supported: modern}, SequentialGeneration: VideoBooleanConfig{Supported: !modern}, ResponseFormat: ImageResponseFormat{Supported: true}, OutputFormat: ParameterSupport{Supported: modern || family == "lite"}, MaxOutputs: 15}
+		return &ImageCapabilityConfig{References: ImageReferenceConfig{PromptMaxChars: 32000, MaxImages: refs, MaxImageBytes: 30 * 1024 * 1024}, Size: ImageSizeConfig{Parameter: "size", Values: sizes, Default: "2K", AllowCustom: true}, Quality: ImageQualityConfig{Default: "auto"}, TransparentBackground: VideoBooleanConfig{Supported: modern}, SequentialGeneration: VideoBooleanConfig{Supported: !modern}, ResponseFormat: ImageResponseFormat{Supported: true}, OutputFormat: ParameterSupport{Supported: modern || family == "lite", Values: []string{"png", "jpeg"}, Default: "png"}, MaxOutputs: 15}
 	}
 	if contract, ok := providerpreset.BeefAPIImageContract(modelName); ok && protocol == "openai-image" {
 		values := make([]string, 0, len(contract.Sizes))
@@ -76,7 +76,7 @@ func DefaultImageCapabilityConfig(protocol string, modelName string) *ImageCapab
 		Quality:               ImageQualityConfig{Supported: true, Values: []string{"auto", "low", "medium", "high"}, Default: "auto"},
 		TransparentBackground: VideoBooleanConfig{Supported: true, Default: false},
 		ResponseFormat:        ImageResponseFormat{Supported: true},
-		OutputFormat:          ParameterSupport{Supported: true},
+		OutputFormat:          ParameterSupport{Supported: true, Values: []string{"png"}, Default: "png"},
 		MaxOutputs:            15,
 	}
 	if isExtendedGPTImageModel(protocol, modelName) {
@@ -334,6 +334,36 @@ func validateImageCapabilityConfig(value *ImageCapabilityConfig) error {
 	if !value.TransparentBackground.Supported {
 		value.TransparentBackground.Default = false
 	}
+	if value.OutputFormat.Supported {
+		normalized := make([]string, 0, len(value.OutputFormat.Values))
+		seen := make(map[string]bool, len(value.OutputFormat.Values))
+		for _, raw := range value.OutputFormat.Values {
+			format := strings.ToLower(strings.TrimSpace(raw))
+			if format == "" {
+				continue
+			}
+			switch format {
+			case "png", "jpeg", "jpg", "webp", "gif", "svg":
+			default:
+				return kernel.BadAuthRequest("图片输出格式仅支持 PNG、JPEG、WebP、GIF 或 SVG")
+			}
+			if !seen[format] {
+				seen[format] = true
+				normalized = append(normalized, format)
+			}
+		}
+		value.OutputFormat.Values = normalized
+		value.OutputFormat.Default = strings.ToLower(strings.TrimSpace(value.OutputFormat.Default))
+		if len(normalized) == 0 {
+			value.OutputFormat.Values = []string{"png"}
+			value.OutputFormat.Default = "png"
+		} else if value.OutputFormat.Default == "" || !containsCapabilityString(normalized, value.OutputFormat.Default) {
+			value.OutputFormat.Default = normalized[0]
+		}
+	} else {
+		value.OutputFormat.Values = []string{}
+		value.OutputFormat.Default = ""
+	}
 	return nil
 }
 
@@ -441,6 +471,14 @@ func validateImageTask(profile *ImageCapabilityConfig, input TaskInput) error {
 	if !sourced && profile.Size.Parameter == "size" && profile.Size.AllowCustom && isMossImageModel(modelName) && !containsCapabilityString(profile.Size.Values, input.Config.Size) {
 		if err := validateMossImageCustomSize(input.Config.Size); err != nil {
 			return kernel.BadAuthRequest(err.Error())
+		}
+	}
+	if requested := strings.ToLower(strings.TrimSpace(input.Config.ImageOutputFormat)); requested != "" {
+		if !profile.OutputFormat.Supported {
+			return kernel.BadAuthRequest("当前图片模型不支持选择输出格式")
+		}
+		if len(profile.OutputFormat.Values) > 0 && !containsCapabilityString(profile.OutputFormat.Values, requested) {
+			return kernel.BadAuthRequest("图片输出格式不在当前模型支持范围内")
 		}
 	}
 	quality := strings.TrimSpace(input.Config.Quality)

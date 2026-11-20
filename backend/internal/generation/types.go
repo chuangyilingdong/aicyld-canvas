@@ -94,6 +94,7 @@ type Config struct {
 	Size                     string                    `json:"size"`
 	Quality                  string                    `json:"quality"`
 	TransparentBackground    string                    `json:"transparentBackground"`
+	ImageOutputFormat        string                    `json:"imageOutputFormat"`
 	SeedreamMode             string                    `json:"seedreamMode,omitempty"`
 	SeedreamMaxImages        string                    `json:"seedreamMaxImages,omitempty"`
 	SeedreamOutputFormat     string                    `json:"seedreamOutputFormat,omitempty"`
@@ -110,6 +111,7 @@ type Config struct {
 	AudioVoice               string                    `json:"audioVoice"`
 	AudioFormat              string                    `json:"audioFormat"`
 	AudioSpeed               string                    `json:"audioSpeed"`
+	AudioLyrics              string                    `json:"audioLyrics"`
 	AudioInstructions        string                    `json:"audioInstructions"`
 	SystemPrompt             string                    `json:"systemPrompt"`
 	CapabilityConfig         *ModelCapabilityConfig    `json:"capabilityConfig"`

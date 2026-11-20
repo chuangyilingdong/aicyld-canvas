@@ -646,3 +646,126 @@ func TestAsyncMediaPollRejectsUnsupportedCapability(t *testing.T) {
 		t.Fatal("text capability was accepted by async media parser")
 	}
 }
+
+func TestRunningHubSeedreamImageNormalizesInheritedVideoResolution(t *testing.T) {
+	adapter, _ := Builtins().Get("runninghub-standard-image")
+	spec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
+		Capability:  CapabilityImage,
+		Model:       "seedream-v5-pro/text-to-image",
+		Prompt:      "a red apple",
+		AspectRatio: "16:9",
+		Resolution:  "720p",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := object(spec.Body)
+	if body["resolution"] != "1k" {
+		t.Fatalf("Seedream inherited resolution = %#v", body["resolution"])
+	}
+}
+
+func TestRunningHubLayerUsesResolutionTierWithoutAspectRatio(t *testing.T) {
+	adapter, _ := Builtins().Get("runninghub-standard-image")
+	spec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
+		Capability:  CapabilityImage,
+		Model:       "seedream-v5.5/layer-decomposition",
+		Prompt:      "分层",
+		AspectRatio: "16:9",
+		Quality:     "1.5k",
+		Resolution:  "720p",
+		Images:      []MediaReference{{URL: "https://media.example/source.png"}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := object(spec.Body)
+	if body["resolution"] != "1.5k" || body["aspectRatio"] != nil || body["width"] != nil || body["height"] != nil {
+		t.Fatalf("layer body = %#v", body)
+	}
+}
+
+func TestRunningHubMiniMaxImageEditUsesImageURLObjects(t *testing.T) {
+	adapter, _ := Builtins().Get("runninghub-standard-image")
+	spec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
+		Capability:  CapabilityImage,
+		Model:       "minimax/h3-image/image-edit",
+		Prompt:      "replace the background",
+		AspectRatio: "1024x1024",
+		Images: []MediaReference{
+			{URL: "https://media.example/source.png", Role: "edit_source"},
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := object(spec.Body)
+	images, ok := body["imageUrls"].([]map[string]string)
+	if !ok || len(images) != 1 || images[0]["imageUrl"] != "https://media.example/source.png" {
+		t.Fatalf("imageUrls = %#v", body["imageUrls"])
+	}
+}
+
+func TestRunningHubSeedanceFlashImageVideoForcesAdaptiveRatio(t *testing.T) {
+	adapter, _ := Builtins().Get("runninghub-standard-video")
+	spec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
+		Capability:  CapabilityVideo,
+		Model:       "bytedance/seedance-2.5-flash-token/image-to-video",
+		Prompt:      "animate",
+		AspectRatio: "16:9",
+		Resolution:  "480p",
+		Duration:    4,
+		Images: []MediaReference{
+			{URL: "https://media.example/source.png", Role: "first_frame"},
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := object(spec.Body)
+	if body["ratio"] != "adaptive" {
+		t.Fatalf("ratio = %#v", body["ratio"])
+	}
+}
+
+func TestRunningHubSpeechSpeedUsesNumericValues(t *testing.T) {
+	adapter, _ := Builtins().Get("runninghub-standard-audio")
+	spec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
+		Capability: CapabilityAudio,
+		Model:      "rhart-audio/text-to-audio/speech-2.8-turbo",
+		Prompt:     "test",
+		Extra:      map[string]any{"audioVoice": "Wise_Woman", "audioSpeed": "1.25"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if speed, ok := object(spec.Body)["speed"].(float64); !ok || speed != 1.25 {
+		t.Fatalf("speed = %#v", object(spec.Body)["speed"])
+	}
+
+	kling, _ := Builtins().Get("runninghub-standard-audio")
+	klingSpec, err := kling.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
+		Capability: CapabilityAudio,
+		Model:      "kling-lip-sync/tts",
+		Prompt:     "test",
+		Extra:      map[string]any{"audioVoice": "zhinen_xuesheng", "audioSpeed": "1.1"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if speed, ok := object(klingSpec.Body)["voiceSpeed"].(float64); !ok || speed != 1.1 {
+		t.Fatalf("voiceSpeed = %#v", object(klingSpec.Body)["voiceSpeed"])
+	}
+}
+
+func TestRunningHubCreateSurfacesProviderErrorWithoutTaskID(t *testing.T) {
+	adapter, _ := Builtins().Get("runninghub-standard-audio")
+	_, err := adapter.ParseCreate(context.Background(), []byte(`{
+		"errorCode":"1007",
+		"errorMessage":"field 'lyrics' is required, can not be empty",
+		"taskId":""
+	}`))
+	if err == nil || !strings.Contains(err.Error(), "1007") || !strings.Contains(err.Error(), "lyrics") {
+		t.Fatalf("error = %v", err)
+	}
+}

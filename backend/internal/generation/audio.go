@@ -9,6 +9,9 @@ import (
 	"infinite-canvas/backend/internal/beefapi"
 	"net/http"
 	"strings"
+
+	"infinite-canvas/backend/internal/model"
+	"infinite-canvas/backend/internal/protocol"
 )
 
 func RunAudioTask(ctx context.Context, input Input) (map[string]interface{}, error) {
@@ -34,6 +37,13 @@ func RunAudioTask(ctx context.Context, input Input) (map[string]interface{}, err
 	}
 	if input.Config.InterfaceType == "" {
 		input.Config.InterfaceType = "openai-audio"
+	}
+	if input.Config.InterfaceType == string(model.ChannelInterfaceRunningHubStandardAudio) {
+		adapter, ok := protocol.Builtins().Get(input.Config.InterfaceType)
+		if !ok {
+			return nil, RequestPreparationError{Cause: errors.New("RunningHub 标准音频协议未安装")}
+		}
+		return RunProtocolAdapterTask(ctx, input, adapter)
 	}
 	ctx = EnsureOfficialProtocolAdapter(ctx, input.Config.InterfaceType)
 	if _, ok := DeclarativeProtocolAdapterForContext(ctx, input.Config.InterfaceType); !ok {

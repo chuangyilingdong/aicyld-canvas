@@ -71,6 +71,9 @@ func mapProjectWriteError(err error) error {
 	if err == nil {
 		return nil
 	}
+	if errors.Is(err, repository.ErrSmartFilmBatchArchived) {
+		return kernel.BadAuthRequest(err.Error())
+	}
 	if errors.Is(err, repository.ErrProjectRevisionConflict) {
 		return kernel.WrapAppError(kernel.CodeConflict, "项目已被其他操作更新，请重新加载后再保存", err)
 	}

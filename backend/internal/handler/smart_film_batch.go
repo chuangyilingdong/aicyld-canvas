@@ -32,6 +32,26 @@ func RegisterSmartFilmBatchRoutes(r *gin.RouterGroup, owners workspaceOwners, pr
 		ok(c, gin.H{"batch": batch})
 	})
 
+	r.POST("/smart-film-batches/cost-preview", func(c *gin.Context) {
+		user, err := currentUser(c, owners)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)
+		var req localproject.CreateSmartFilmBatchRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			fail(c, http.StatusBadRequest, err)
+			return
+		}
+		costs, err := projects.PreviewSmartFilmBatchCost(user.ID, req)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, costs)
+	})
+
 	r.GET("/smart-film-batches/:id", func(c *gin.Context) {
 		user, err := currentUser(c, owners)
 		if err != nil {
@@ -55,7 +75,7 @@ func RegisterSmartFilmBatchRoutes(r *gin.RouterGroup, owners workspaceOwners, pr
 		}
 		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 		pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "20"))
-		result, err := projects.ListSmartFilmBatches(user.ID, c.Query("status"), page, pageSize)
+		result, err := projects.ListSmartFilmBatches(user.ID, c.Query("status"), c.Query("q"), page, pageSize)
 		if err != nil {
 			failService(c, err)
 			return
@@ -114,6 +134,25 @@ func RegisterSmartFilmBatchRoutes(r *gin.RouterGroup, owners workspaceOwners, pr
 		}
 		ok(c, gin.H{"batch": batch})
 	})
+	r.POST("/smart-film-batches/:id/production-config/preview", func(c *gin.Context) {
+		user, err := currentUser(c, owners)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 64<<10)
+		var req localproject.UpdateSmartFilmBatchProductionConfigRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			fail(c, http.StatusBadRequest, err)
+			return
+		}
+		cost, err := projects.PreviewSmartFilmBatchProductionConfig(user.ID, c.Param("id"), req)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, cost)
+	})
 	r.PATCH("/smart-film-batches/:id/skill", func(c *gin.Context) {
 		user, err := currentUser(c, owners)
 		if err != nil {
@@ -146,6 +185,22 @@ func RegisterSmartFilmBatchRoutes(r *gin.RouterGroup, owners workspaceOwners, pr
 			return
 		}
 		ok(c, costs)
+	})
+
+	r.GET("/smart-film-batches/:id/billing", func(c *gin.Context) {
+		user, err := currentUser(c, owners)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+		pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "50"))
+		billing, err := projects.SmartFilmBatchBilling(user.ID, c.Param("id"), page, pageSize)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, billing)
 	})
 
 	r.PUT("/smart-film-batches/:id/scripts", func(c *gin.Context) {

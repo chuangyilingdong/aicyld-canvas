@@ -15,6 +15,7 @@ import (
 
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/modelcatalog"
+	"infinite-canvas/backend/internal/protocol"
 	"infinite-canvas/backend/internal/providerpreset"
 )
 
@@ -35,6 +36,13 @@ func RunImageTask(ctx context.Context, input Input) (map[string]interface{}, err
 				input.Config.BaseURL = strings.TrimRight(input.Config.BaseURL, "/") + "/v1"
 			}
 		}
+	}
+	if input.Config.InterfaceType == string(model.ChannelInterfaceRunningHubStandardImage) {
+		adapter, ok := protocol.Builtins().Get(input.Config.InterfaceType)
+		if !ok {
+			return nil, RequestPreparationError{Cause: errors.New("RunningHub 标准图片协议未安装")}
+		}
+		return RunProtocolAdapterTask(ctx, input, adapter)
 	}
 	if input.Config.InterfaceType != "" && input.Config.InterfaceType != string(model.ChannelInterfaceOpenAIImage) && input.Config.InterfaceType != string(model.ChannelInterfaceGrokImage) {
 		ctx = EnsureOfficialProtocolAdapter(ctx, input.Config.InterfaceType)
@@ -89,7 +97,7 @@ func RunImageTask(ctx context.Context, input Input) (map[string]interface{}, err
 			writeField(writer, "response_format", ImageResponseFormatValue(input.ImageCapability))
 		}
 		if ImageParameterSupported(input.ImageCapability, "output_format") {
-			writeField(writer, "output_format", "png")
+			writeField(writer, "output_format", imageOutputFormat(input))
 		}
 		if ImageTransparentBackgroundSupported(input.ImageCapability) && input.Config.TransparentBackground == "true" {
 			writeField(writer, "background", "transparent")
@@ -132,7 +140,7 @@ func RunImageTask(ctx context.Context, input Input) (map[string]interface{}, err
 			body["response_format"] = ImageResponseFormatValue(input.ImageCapability)
 		}
 		if ImageParameterSupported(input.ImageCapability, "output_format") {
-			body["output_format"] = "png"
+			body["output_format"] = imageOutputFormat(input)
 		}
 		if ImageTransparentBackgroundSupported(input.ImageCapability) && input.Config.TransparentBackground == "true" {
 			body["background"] = "transparent"
@@ -201,7 +209,11 @@ func ImageDataURLs(payload ImageResponse) ([]map[string]string, error) {
 	images := make([]map[string]string, 0, len(payload.Data))
 	for _, item := range payload.Data {
 		if b64, ok := item["b64_json"].(string); ok && b64 != "" {
-			images = append(images, map[string]string{"dataUrl": "data:image/png;base64," + b64})
+			format := strings.ToLower(strings.TrimSpace(fmt.Sprint(item["output_format"])))
+			if format == "" || format == "<nil>" {
+				format = "png"
+			}
+			images = append(images, map[string]string{"dataUrl": "data:" + imageMimeForOutputFormat(format) + ";base64," + b64})
 			continue
 		}
 		if url, ok := item["url"].(string); ok && url != "" {
@@ -212,4 +224,36 @@ func ImageDataURLs(payload ImageResponse) ([]map[string]string, error) {
 		return nil, errors.New("接口没有返回可用图片")
 	}
 	return images, nil
+}
+
+func imageOutputFormat(input Input) string {
+	format := strings.ToLower(strings.TrimSpace(input.Config.ImageOutputFormat))
+	if format != "" {
+		return format
+	}
+	if input.ImageCapability != nil && input.ImageCapability.OutputFormat.Supported {
+		format = strings.ToLower(strings.TrimSpace(input.ImageCapability.OutputFormat.Default))
+		if format == "" && len(input.ImageCapability.OutputFormat.Values) > 0 {
+			format = strings.ToLower(strings.TrimSpace(input.ImageCapability.OutputFormat.Values[0]))
+		}
+	}
+	if format == "" {
+		return "png"
+	}
+	return format
+}
+
+func imageMimeForOutputFormat(format string) string {
+	switch strings.ToLower(strings.TrimSpace(format)) {
+	case "jpg", "jpeg":
+		return "image/jpeg"
+	case "webp":
+		return "image/webp"
+	case "gif":
+		return "image/gif"
+	case "svg":
+		return "image/svg+xml"
+	default:
+		return "image/png"
+	}
 }

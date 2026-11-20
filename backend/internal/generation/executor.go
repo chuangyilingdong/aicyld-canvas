@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"infinite-canvas/backend/internal/mediatools"
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/outbound"
 	"infinite-canvas/backend/internal/provider/workflow"
@@ -14,7 +15,12 @@ import (
 // Execute owns paid-generation orchestration: prompt templates, config,
 // capability, hydration, workflow resume, placeholder resolution, then the
 // mode-specific upstream call. Config, secrets and style stay on typed ports.
-func Execute(ctx context.Context, input Input) (map[string]any, error) {
+func Execute(ctx context.Context, input Input) (result map[string]any, err error) {
+	defer func() {
+		if err == nil {
+			inspectSmartFilmNativeAudio(ctx, input, result, mediatools.ProbeLocal)
+		}
+	}()
 	runtime, _ := RuntimeFromContext(ctx)
 	userID := strings.TrimSpace(runtime.Call.UserID)
 	if strings.TrimSpace(input.Mode) == "" && (runtime.Call.TaskType == "canvas_video" || strings.HasPrefix(runtime.Call.TaskType, "video_")) {

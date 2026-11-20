@@ -34,18 +34,18 @@ func TestConfiguredRequiresAnOperatorWrittenDocument(t *testing.T) {
 	}
 }
 
-func TestDefaultsIncludeMidjourneyImagineProfile(t *testing.T) {
+func TestDefaultsIncludeRunningHubGPTImageProfile(t *testing.T) {
 	var found *ModelProfile
 	for _, channel := range Defaults() {
 		for index := range channel.ModelProfiles {
-			if channel.ModelProfiles[index].Model == "midjourney-imagine" {
+			if channel.ModelProfiles[index].Model == "rh-gpt-image-2.6-sunburst-i2i" {
 				found = &channel.ModelProfiles[index]
 				break
 			}
 		}
 	}
-	if found == nil || found.Protocol != "midjourney" || found.Capability != "image" {
-		t.Fatalf("Midjourney profile = %#v", found)
+	if found == nil || found.Protocol != "runninghub-standard-image" || found.Capability != "image" {
+		t.Fatalf("RunningHub GPT image profile = %#v", found)
 	}
 	var config struct {
 		Image struct {
@@ -53,43 +53,45 @@ func TestDefaultsIncludeMidjourneyImagineProfile(t *testing.T) {
 				Values  []string `json:"values"`
 				Default string   `json:"default"`
 			} `json:"quality"`
-			MaxOutputs   int `json:"maxOutputs"`
-			FixedOutputs int `json:"fixedOutputs"`
+			References struct {
+				MaxImages     int  `json:"maxImages"`
+				MaskSupported bool `json:"maskSupported"`
+			} `json:"references"`
 		} `json:"image"`
 	}
 	if err := json.Unmarshal(found.CapabilityConfig, &config); err != nil {
 		t.Fatal(err)
 	}
-	if config.Image.MaxOutputs != 4 || config.Image.FixedOutputs != 4 || config.Image.Quality.Default != "relax" || len(config.Image.Quality.Values) != 3 {
-		t.Fatalf("Midjourney capability = %#v", config.Image)
+	if config.Image.References.MaxImages != 16 || !config.Image.References.MaskSupported || config.Image.Quality.Default != "auto" {
+		t.Fatalf("RunningHub GPT image capability = %#v", config.Image)
 	}
 }
 
 func TestDefaultsIncludeVerifiedMultimodalReviewProfile(t *testing.T) {
 	for _, channel := range Defaults() {
 		for _, profile := range channel.ModelProfiles {
-			if profile.Model == "qwen/qwen3.8-omni-flash" {
+			if profile.Model == "openai/gpt-6.2-sol-saver" {
 				if profile.Capability != "text" || profile.Protocol != "chat-completion" {
-					t.Fatalf("Qwen Omni profile = %#v", profile)
+					t.Fatalf("RunningHub review profile = %#v", profile)
 				}
 				return
 			}
 		}
 	}
-	t.Fatal("default platform profiles are missing qwen/qwen3.8-omni-flash")
+	t.Fatal("default platform profiles are missing openai/gpt-6.2-sol-saver")
 }
 
 func TestDefaultsIncludeGPTImage26Capabilities(t *testing.T) {
 	var found *ModelProfile
 	for _, channel := range Defaults() {
 		for index := range channel.ModelProfiles {
-			if channel.ModelProfiles[index].Model == "zhenzhen-image-g-v2.6-lowprice" {
+			if channel.ModelProfiles[index].Model == "rh-gpt-image-2.6-sunburst-i2i" {
 				found = &channel.ModelProfiles[index]
 				break
 			}
 		}
 	}
-	if found == nil || found.Capability != "image" || found.Protocol != "newapi-image" {
+	if found == nil || found.Capability != "image" || found.Protocol != "runninghub-standard-image" {
 		t.Fatalf("GPT Image 2.6 profile = %#v", found)
 	}
 	var config struct {
@@ -108,7 +110,7 @@ func TestDefaultsIncludeGPTImage26Capabilities(t *testing.T) {
 	if err := json.Unmarshal(found.CapabilityConfig, &config); err != nil {
 		t.Fatal(err)
 	}
-	if config.Image.References.PromptMaxChars != 32000 || config.Image.References.MaxImages != 16 || config.Image.MaxOutputs != 1 || config.Image.Quality.Default != "1k" || len(config.Image.Quality.Values) != 1 {
+	if config.Image.References.PromptMaxChars != 32000 || config.Image.References.MaxImages != 16 || config.Image.Quality.Default != "auto" {
 		t.Fatalf("GPT Image 2.6 capability = %#v", config.Image)
 	}
 }

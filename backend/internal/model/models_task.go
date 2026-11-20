@@ -25,6 +25,9 @@ type Task struct {
 	BillingHoldID          string `json:"-" gorm:"column:billing_hold_id;->"`
 	BillingStatus          string `json:"billingStatus,omitempty" gorm:"column:billing_status;->"`
 	BillingPoints          int    `json:"billingPoints,omitempty" gorm:"column:billing_points;->"`
+	BillingReservedPoints  int    `json:"-" gorm:"column:billing_reserved_points;->"`
+	BillingSettledPoints   int    `json:"-" gorm:"column:billing_settled_points;->"`
+	BillingRefundedPoints  int    `json:"-" gorm:"column:billing_refunded_points;->"`
 	LogicalModelID         string `json:"logicalModelId,omitempty" gorm:"size:36;index"`
 	LogicalModelRevisionID string `json:"logicalModelRevisionId,omitempty" gorm:"size:36;index"`
 	RouteID                string `json:"routeId,omitempty" gorm:"size:36;index"`

@@ -42,6 +42,11 @@ const (
 	SmartFilmProductionModeFixed = "fixed"
 	SmartFilmProductionModeSmart = "smart"
 
+	SmartFilmAudioModeAuto     = "auto"
+	SmartFilmAudioModeNative   = "native"
+	SmartFilmAudioModeSeparate = "separate"
+	SmartFilmAudioModeNone     = "none"
+
 	SmartFilmSkillStageScript     = "script"
 	SmartFilmSkillStageAssets     = "assets"
 	SmartFilmSkillStageStoryboard = "storyboard"
@@ -73,6 +78,8 @@ type SmartFilmBatchConfig struct {
 	InputAssetNames        map[string]string       `json:"inputAssetNames,omitempty"`
 	SkillSnapshot          *SmartFilmSkillSnapshot `json:"skillSnapshot,omitempty"`
 	ProductionMode         string                  `json:"productionMode,omitempty"`
+	AudioMode              string                  `json:"audioMode,omitempty"`
+	VideoNativeAudio       bool                    `json:"videoNativeAudio,omitempty"`
 	ScriptCount            int                     `json:"scriptCount"`
 	ShotCount              int                     `json:"shotCount"`
 	ShotDurationSeconds    float64                 `json:"shotDurationSeconds"`
@@ -81,9 +88,11 @@ type SmartFilmBatchConfig struct {
 }
 
 type SmartFilmOrchestrationConfig struct {
-	Text  map[string]any `json:"text,omitempty"`
-	Image map[string]any `json:"image,omitempty"`
-	Video map[string]any `json:"video,omitempty"`
+	Text       map[string]any `json:"text,omitempty"`
+	Image      map[string]any `json:"image,omitempty"`
+	Video      map[string]any `json:"video,omitempty"`
+	AudioVoice map[string]any `json:"audioVoice,omitempty"`
+	AudioMusic map[string]any `json:"audioMusic,omitempty"`
 }
 
 type SmartFilmScript struct {
@@ -134,20 +143,21 @@ type SmartFilmProductionRunView struct {
 }
 
 type SmartFilmBatchView struct {
-	ID             string                       `json:"id"`
-	Title          string                       `json:"title"`
-	SourceText     string                       `json:"sourceText"`
-	InputAssetIDs  []string                     `json:"inputAssetIds"`
-	Config         SmartFilmBatchConfig         `json:"config"`
-	Scripts        []SmartFilmScript            `json:"scripts"`
-	ProductionRuns []SmartFilmProductionRunView `json:"productionRuns"`
-	Status         string                       `json:"status"`
-	Paused         bool                         `json:"paused"`
-	BudgetPoints   int                          `json:"budgetPoints"`
-	Control        SmartFilmBatchControlView    `json:"control"`
-	Revision       int64                        `json:"revision"`
-	CreatedAt      time.Time                    `json:"createdAt"`
-	UpdatedAt      time.Time                    `json:"updatedAt"`
+	ID               string                       `json:"id"`
+	Title            string                       `json:"title"`
+	SourceText       string                       `json:"sourceText"`
+	InputAssetIDs    []string                     `json:"inputAssetIds"`
+	Config           SmartFilmBatchConfig         `json:"config"`
+	Scripts          []SmartFilmScript            `json:"scripts"`
+	ProductionRuns   []SmartFilmProductionRunView `json:"productionRuns"`
+	Status           string                       `json:"status"`
+	Paused           bool                         `json:"paused"`
+	BudgetPoints     int                          `json:"budgetPoints"`
+	BudgetUsedPoints int                          `json:"budgetUsedPoints"`
+	Control          SmartFilmBatchControlView    `json:"control"`
+	Revision         int64                        `json:"revision"`
+	CreatedAt        time.Time                    `json:"createdAt"`
+	UpdatedAt        time.Time                    `json:"updatedAt"`
 }
 
 type SmartFilmBatchListPage struct {
@@ -169,6 +179,7 @@ type SmartFilmBatchControlView struct {
 type CreateSmartFilmBatchRequest struct {
 	Title               string               `json:"title"`
 	SourceText          string               `json:"sourceText"`
+	ScriptPrompt        string               `json:"scriptPrompt,omitempty"`
 	InputAssetIDs       []string             `json:"inputAssetIds"`
 	Config              SmartFilmBatchConfig `json:"config"`
 	OrchestrationConfig map[string]any       `json:"orchestrationConfig,omitempty"`
@@ -180,10 +191,12 @@ type UpdateSmartFilmBatchBudgetRequest struct {
 }
 
 type UpdateSmartFilmBatchProductionConfigRequest struct {
+	AudioMode             string    `json:"audioMode,omitempty"`
 	ProductionMode        string    `json:"productionMode"`
 	ShotCount             int       `json:"shotCount,omitempty"`
 	ShotDurationsSeconds  []float64 `json:"shotDurationsSeconds,omitempty"`
 	TargetDurationSeconds float64   `json:"targetDurationSeconds,omitempty"`
+	BudgetPoints          *int      `json:"budgetPoints,omitempty"`
 	ExpectedRevision      int64     `json:"expectedRevision"`
 }
 
@@ -210,6 +223,47 @@ type SmartFilmBatchCostView struct {
 	OverBudget      bool                     `json:"overBudget"`
 	Balance         int                      `json:"balance"`
 	Items           []SmartFilmBatchCostItem `json:"items"`
+}
+
+type SmartFilmBillingTaskView struct {
+	TaskID            string     `json:"taskId"`
+	ScriptID          string     `json:"scriptId,omitempty"`
+	ScriptTitle       string     `json:"scriptTitle,omitempty"`
+	ProjectID         string     `json:"projectId,omitempty"`
+	UnitID            string     `json:"unitId,omitempty"`
+	ShotID            string     `json:"shotId,omitempty"`
+	Stage             string     `json:"stage"`
+	Label             string     `json:"label"`
+	Source            string     `json:"source"`
+	Model             string     `json:"model,omitempty"`
+	Status            string     `json:"status"`
+	BillingStatus     string     `json:"billingStatus"`
+	ReservedPoints    int        `json:"reservedPoints"`
+	SettledPoints     int        `json:"settledPoints"`
+	RefundedPoints    int        `json:"refundedPoints"`
+	BillingPoints     int        `json:"billingPoints"`
+	ProviderRequestID string     `json:"providerRequestId,omitempty"`
+	Error             string     `json:"error,omitempty"`
+	CreatedAt         time.Time  `json:"createdAt"`
+	StartedAt         *time.Time `json:"startedAt,omitempty"`
+	CompletedAt       *time.Time `json:"completedAt,omitempty"`
+}
+
+type SmartFilmBatchBillingView struct {
+	BudgetPoints    int                        `json:"budgetPoints"`
+	CommittedPoints int                        `json:"committedPoints"`
+	ReservedPoints  int                        `json:"reservedPoints"`
+	SettledPoints   int                        `json:"settledPoints"`
+	RefundedPoints  int                        `json:"refundedPoints"`
+	PendingPoints   int                        `json:"pendingPoints"`
+	UnbilledTasks   int                        `json:"unbilledTasks"`
+	ActiveTasks     int                        `json:"activeTasks"`
+	TerminalTasks   int                        `json:"terminalTasks"`
+	Page            int                        `json:"page"`
+	PageSize        int                        `json:"pageSize"`
+	Total           int64                      `json:"total"`
+	HasMore         bool                       `json:"hasMore"`
+	Tasks           []SmartFilmBillingTaskView `json:"tasks"`
 }
 
 type SmartFilmScriptInput struct {

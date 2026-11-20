@@ -10,10 +10,13 @@ import (
 )
 
 type aicyldBillingTaskRow struct {
-	ID            string `gorm:"primaryKey"`
-	BillingHoldID string `gorm:"column:billing_hold_id"`
-	BillingStatus string `gorm:"column:billing_status"`
-	BillingPoints int    `gorm:"column:billing_points"`
+	ID             string `gorm:"primaryKey"`
+	BillingHoldID  string `gorm:"column:billing_hold_id"`
+	BillingStatus  string `gorm:"column:billing_status"`
+	BillingPoints  int    `gorm:"column:billing_points"`
+	ReservedPoints int    `gorm:"column:billing_reserved_points"`
+	SettledPoints  int    `gorm:"column:billing_settled_points"`
+	RefundedPoints int    `gorm:"column:billing_refunded_points"`
 }
 
 func (aicyldBillingTaskRow) TableName() string { return "tasks" }
@@ -41,7 +44,10 @@ func dropAICYLDHostedBillingTaskFields(t *testing.T, db *gorm.DB) {
 	if err := db.Exec("DROP INDEX IF EXISTS idx_tasks_billing_hold_id").Error; err != nil {
 		t.Fatal(err)
 	}
-	for _, column := range []string{"billing_hold_id", "billing_status", "billing_points"} {
+	for _, column := range []string{
+		"billing_hold_id", "billing_status", "billing_points",
+		"billing_reserved_points", "billing_settled_points", "billing_refunded_points",
+	} {
 		has, err := sqliteHasColumn(db, "tasks", column)
 		if err != nil {
 			t.Fatal(err)
@@ -78,14 +84,15 @@ func TestMigrateAICYLDOverlaySchemaAddsBillingFieldsAndKeepsOfficialLedger(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !status.Ready || status.Current != 1 || status.Expected != 1 {
+	if !status.Ready || status.Current != 2 || status.Expected != 2 {
 		t.Fatalf("unexpected overlay status: %+v", status)
 	}
 	var rows []aicyldOverlayMigration
 	if err := db.Order("version").Find(&rows).Error; err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 1 || rows[0].Version != 1 || rows[0].Name != "hosted-billing-task-fields" {
+	if len(rows) != 2 || rows[0].Version != 1 || rows[0].Name != "hosted-billing-task-fields" ||
+		rows[1].Version != 2 || rows[1].Name != "hosted-billing-reservation-ledger" {
 		t.Fatalf("unexpected overlay ledger: %+v", rows)
 	}
 	var officialAfter []localSchemaMigration
@@ -102,10 +109,11 @@ func TestMigrateAICYLDOverlaySchemaAddsBillingFieldsAndKeepsOfficialLedger(t *te
 	}
 
 	task := aicyldBillingTaskRow{
-		ID:            "task-overlay",
-		BillingHoldID: "hold-1",
-		BillingStatus: "reserved",
-		BillingPoints: 17,
+		ID:             "task-overlay",
+		BillingHoldID:  "hold-1",
+		BillingStatus:  "reserved",
+		BillingPoints:  17,
+		ReservedPoints: 17,
 	}
 	if err := db.Create(&task).Error; err != nil {
 		t.Fatal(err)
@@ -141,7 +149,10 @@ func TestMigrateAICYLDOverlaySchemaRollsBackFailedMigration(t *testing.T) {
 	if err := MigrateAICYLDOverlaySchema(db); err == nil {
 		t.Fatal("migration succeeded despite injected ledger failure")
 	}
-	for _, column := range []string{"billing_hold_id", "billing_status", "billing_points"} {
+	for _, column := range []string{
+		"billing_hold_id", "billing_status", "billing_points",
+		"billing_reserved_points", "billing_settled_points", "billing_refunded_points",
+	} {
 		has, err := sqliteHasColumn(db, "tasks", column)
 		if err != nil {
 			t.Fatal(err)

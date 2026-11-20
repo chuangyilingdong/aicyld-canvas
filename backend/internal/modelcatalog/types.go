@@ -69,7 +69,9 @@ type ImageQualityConfig struct {
 }
 
 type ParameterSupport struct {
-	Supported bool `json:"supported"`
+	Supported bool     `json:"supported"`
+	Values    []string `json:"values,omitempty"`
+	Default   string   `json:"default,omitempty"`
 }
 
 // ImageResponseFormat 是图片接口 response_format 的开关与取值。
@@ -298,6 +300,7 @@ type TaskConfig struct {
 	BaseURL                  string
 	Size                     string
 	Quality                  string
+	ImageOutputFormat        string
 	Count                    string
 	VideoSeconds             string
 	VQuality                 string

@@ -1,11 +1,14 @@
 package project
 
 import (
+	"errors"
+	"fmt"
 	"strings"
 	"unicode/utf8"
 
 	"infinite-canvas/backend/internal/kernel"
 	"infinite-canvas/backend/internal/model"
+	"infinite-canvas/backend/internal/repository"
 )
 
 const (
@@ -14,31 +17,82 @@ const (
 )
 
 func (s *Service) UpdateSmartFilmBatchProductionConfig(userID, batchID string, req UpdateSmartFilmBatchProductionConfigRequest) (SmartFilmBatchView, error) {
+	_, config, err := s.prepareSmartFilmBatchProductionConfig(userID, batchID, req)
+	if err != nil {
+		return SmartFilmBatchView{}, err
+	}
+	fields := map[string]any{"config_json": mustJSON(config)}
+	if req.BudgetPoints != nil {
+		if *req.BudgetPoints < 0 {
+			return SmartFilmBatchView{}, kernel.BadAuthRequest("批次预算不能为负数")
+		}
+		used, usedErr := s.repo.SmartFilmBatchCommittedPoints(userID, batchID)
+		if usedErr != nil {
+			return SmartFilmBatchView{}, usedErr
+		}
+		if *req.BudgetPoints > 0 && *req.BudgetPoints < used {
+			return SmartFilmBatchView{}, kernel.BadAuthRequest(fmt.Sprintf("批次预算不能低于已占用 %d 积分", used))
+		}
+		fields["budget_points"] = *req.BudgetPoints
+	}
+	updated, err := s.repo.UpdateSmartFilmBatch(userID, batchID, req.ExpectedRevision, fields)
+	if err != nil {
+		if errors.Is(err, repository.ErrSmartFilmBudgetBelowUsed) {
+			used, usedErr := s.repo.SmartFilmBatchCommittedPoints(userID, batchID)
+			if usedErr != nil {
+				return SmartFilmBatchView{}, usedErr
+			}
+			return SmartFilmBatchView{}, kernel.BadAuthRequest(fmt.Sprintf("批次预算不能低于已占用 %d 积分", used))
+		}
+		return SmartFilmBatchView{}, mapProjectWriteError(err)
+	}
+	return s.smartFilmBatchResponse(*updated)
+}
+
+func (s *Service) PreviewSmartFilmBatchProductionConfig(userID, batchID string, req UpdateSmartFilmBatchProductionConfigRequest) (SmartFilmBatchCostView, error) {
+	batch, config, err := s.prepareSmartFilmBatchProductionConfig(userID, batchID, req)
+	if err != nil {
+		return SmartFilmBatchCostView{}, err
+	}
+	runs, err := s.repo.SmartFilmProductionRunsForBatch(userID, batchID)
+	if err != nil {
+		return SmartFilmBatchCostView{}, err
+	}
+	return s.smartFilmBatchCostView(userID, batch, config, runs, "")
+}
+
+func (s *Service) prepareSmartFilmBatchProductionConfig(userID, batchID string, req UpdateSmartFilmBatchProductionConfigRequest) (*model.SmartFilmBatch, SmartFilmBatchConfig, error) {
 	if req.ExpectedRevision <= 0 {
-		return SmartFilmBatchView{}, kernel.BadAuthRequest("请刷新后再保存制作规格")
+		return nil, SmartFilmBatchConfig{}, kernel.BadAuthRequest("请刷新后再保存制作规格")
 	}
 	batch, err := s.repo.SmartFilmBatchForUser(userID, batchID)
 	if err != nil {
-		return SmartFilmBatchView{}, err
+		return nil, SmartFilmBatchConfig{}, err
 	}
 	if batch.Revision != req.ExpectedRevision {
-		return SmartFilmBatchView{}, kernel.WrapAppError(kernel.CodeConflict, "批次已发生变化，请刷新后重试", nil)
+		return nil, SmartFilmBatchConfig{}, kernel.WrapAppError(kernel.CodeConflict, "批次已发生变化，请刷新后重试", nil)
 	}
 	scripts, err := s.smartFilmScripts(batch)
 	if err != nil {
-		return SmartFilmBatchView{}, err
+		return nil, SmartFilmBatchConfig{}, err
 	}
 	if len(scripts) == 0 {
-		return SmartFilmBatchView{}, kernel.BadAuthRequest("请先生成并确认剧本，再设置制作规格")
+		return nil, SmartFilmBatchConfig{}, kernel.BadAuthRequest("请先生成并确认剧本，再设置制作规格")
 	}
 	for _, script := range scripts {
 		if strings.TrimSpace(script.ProjectID) != "" {
-			return SmartFilmBatchView{}, kernel.BadAuthRequest("已有项目开始制作，不能再修改批次制作规格")
+			return nil, SmartFilmBatchConfig{}, kernel.BadAuthRequest("已有项目开始制作，不能再修改批次制作规格")
 		}
 	}
 	config, err := smartFilmBatchConfig(batch)
 	if err != nil {
-		return SmartFilmBatchView{}, err
+		return nil, SmartFilmBatchConfig{}, err
+	}
+	if req.AudioMode != "" {
+		config.AudioMode = strings.TrimSpace(req.AudioMode)
+	}
+	if config.AudioMode == SmartFilmAudioModeNative && !config.VideoNativeAudio {
+		return nil, SmartFilmBatchConfig{}, kernel.BadAuthRequest("当前视频模型不支持原生音频")
 	}
 	config.ProductionMode = strings.TrimSpace(req.ProductionMode)
 	config.ShotCount = req.ShotCount
@@ -48,17 +102,14 @@ func (s *Service) UpdateSmartFilmBatchProductionConfig(userID, batchID string, r
 		config.ShotDurationSeconds = req.ShotDurationsSeconds[0]
 	}
 	config.TargetDurationSeconds = req.TargetDurationSeconds
+	if config.ProductionMode == SmartFilmProductionModeSmart && config.AudioMode == SmartFilmAudioModeSeparate {
+		return nil, SmartFilmBatchConfig{}, kernel.BadAuthRequest("智能整片模式需要视频模型原生音频；请选择支持原生音频的视频模型，或使用固定分镜模式")
+	}
 	config, err = normalizeSmartFilmBatchConfig(config)
 	if err != nil {
-		return SmartFilmBatchView{}, err
+		return nil, SmartFilmBatchConfig{}, err
 	}
-	updated, err := s.repo.UpdateSmartFilmBatch(userID, batchID, req.ExpectedRevision, map[string]any{
-		"config_json": mustJSON(config),
-	})
-	if err != nil {
-		return SmartFilmBatchView{}, mapProjectWriteError(err)
-	}
-	return s.smartFilmBatchResponse(*updated)
+	return batch, config, nil
 }
 
 func (s *Service) UpdateSmartFilmBatchSkill(userID, batchID string, req UpdateSmartFilmBatchSkillRequest) (SmartFilmBatchView, error) {

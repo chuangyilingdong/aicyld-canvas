@@ -78,6 +78,7 @@ func billingTaskSnapshot(task *model.Task) *billingclient.TaskSnapshot {
 		Operation:         task.Operation,
 		Provider:          task.Provider,
 		Model:             task.Model,
+		Prompt:            task.Prompt,
 		InputJSON:         task.InputJSON,
 		ClientOperationID: taskClientOperationID(task),
 		BillingHoldID:     task.BillingHoldID,

@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // Client talks to the main-site points ledger. It stays disabled unless
@@ -33,6 +34,7 @@ type TaskSnapshot struct {
 	Operation         string
 	Provider          string
 	Model             string
+	Prompt            string
 	InputJSON         string
 	ClientOperationID string
 	BillingHoldID     string
@@ -322,10 +324,32 @@ func Billable(task *TaskSnapshot) bool {
 		return false
 	}
 	switch task.Type {
-	case "timeline_render", "timeline_transcription", "depth_capture", "canvas_text", "text":
+	case "timeline_render", "timeline_transcription", "depth_capture", "text":
 		return false
+	case "canvas_text":
+		return billableSmartFilmText(task)
 	default:
 		return true
+	}
+}
+
+func billableSmartFilmText(task *TaskSnapshot) bool {
+	if task == nil {
+		return false
+	}
+	var input struct {
+		Metadata struct {
+			Source string `json:"source"`
+		} `json:"metadata"`
+	}
+	if err := json.Unmarshal([]byte(task.InputJSON), &input); err != nil {
+		return false
+	}
+	switch strings.TrimSpace(input.Metadata.Source) {
+	case "smart-film-batch-script", "smart-film-batch-worker":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -353,7 +377,17 @@ func Facts(task *TaskSnapshot) map[string]any {
 	}
 	resolution := normalizeResolution(firstString(config["vquality"], config["resolution"], videoParameters["vquality"], videoParameters["resolution"], metadata["resolution"], metadata["upscaleResolution"]))
 	quality := strings.ToLower(firstString(config["quality"], metadata["quality"], metadata["upscaleQuality"]))
+	outputFormat := strings.ToLower(firstString(config["imageOutputFormat"], config["outputFormat"], metadata["imageOutputFormat"], metadata["outputFormat"]))
 	speed := strings.ToLower(firstString(config["speed"], metadata["speed"]))
+	aspectRatio := firstString(config["size"], config["aspectRatio"], videoParameters["size"], videoParameters["aspectRatio"], input["aspectRatio"], metadata["aspectRatio"])
+	prompt := firstString(taskPrompt(task), config["prompt"], input["prompt"], videoParameters["prompt"], metadata["prompt"])
+	lyrics := firstString(config["audioLyrics"], input["audioLyrics"], metadata["audioLyrics"])
+	if utf8.RuneCountInString(lyrics) > utf8.RuneCountInString(prompt) {
+		prompt = lyrics
+	}
+	imageCount := firstNonZeroInt(collectionLength(input["referenceImages"]), collectionLength(input["images"]), collectionLength(config["referenceImages"]))
+	videoCount := firstNonZeroInt(collectionLength(input["referenceVideos"]), collectionLength(input["videos"]), collectionLength(config["referenceVideos"]))
+	audioCount := firstNonZeroInt(collectionLength(input["referenceAudios"]), collectionLength(input["audios"]), collectionLength(config["referenceAudios"]))
 	outputs := firstInt(config["count"], videoParameters["count"], input["count"], config["n"], input["n"], config["outputCount"])
 	if outputs <= 0 {
 		outputs = 1
@@ -378,7 +412,7 @@ func Facts(task *TaskSnapshot) map[string]any {
 			sourceDuration = milliseconds / 1000
 		}
 	}
-	return map[string]any{
+	facts := map[string]any{
 		"billable":              Billable(task),
 		"modelKey":              modelKey,
 		"providerModelKey":      firstString(config["providerModelKey"], modelKey),
@@ -387,13 +421,36 @@ func Facts(task *TaskSnapshot) map[string]any {
 		"operation":             taskOperation(task),
 		"resolution":            resolution,
 		"quality":               quality,
+		"outputFormat":          outputFormat,
 		"speed":                 speed,
+		"aspectRatio":           aspectRatio,
+		"inputCharacters":       utf8.RuneCountInString(prompt),
+		"imageCount":            imageCount,
+		"videoCount":            videoCount,
+		"audioCount":            audioCount,
 		"durationSeconds":       duration,
 		"outputCount":           outputs,
 		"batchCount":            batch,
 		"generateAudio":         generateAudio,
 		"sourceDurationSeconds": sourceDuration,
 	}
+	if category == "text" {
+		textOptions, _ := input["textOptions"].(map[string]any)
+		inputTokens := estimateTextTokens(taskPrompt(task), taskInputJSON(task))
+		outputTokens := firstInt(
+			textOptions["maxOutputTokens"],
+			config["maxOutputTokens"],
+			input["maxOutputTokens"],
+			metadata["maxOutputTokens"],
+		)
+		if outputTokens <= 0 {
+			outputTokens = 4096
+		}
+		facts["inputTokens"] = inputTokens
+		facts["cachedInputTokens"] = 0
+		facts["outputTokens"] = outputTokens
+	}
+	return facts
 }
 
 // SettlementFacts only carries values explicitly present in the persisted
@@ -463,11 +520,46 @@ func categoryFor(task *TaskSnapshot) string {
 		return "image"
 	case strings.Contains(taskType, "audio"):
 		return "audio"
+	case strings.Contains(taskType, "text"):
+		return "text"
 	case strings.Contains(taskType, "upscale"):
 		return "upscale"
 	default:
 		return "image"
 	}
+}
+
+func taskPrompt(task *TaskSnapshot) string {
+	if task == nil {
+		return ""
+	}
+	return task.Prompt
+}
+
+func taskInputJSON(task *TaskSnapshot) string {
+	if task == nil {
+		return ""
+	}
+	return task.InputJSON
+}
+
+// estimateTextTokens is deliberately conservative: CJK text is commonly close
+// to one token per rune, while ASCII text averages roughly four runes per token.
+// Actual usage replaces this estimate during settlement.
+func estimateTextTokens(prompt, inputJSON string) int {
+	ascii, nonASCII := 0, 0
+	for _, runeValue := range prompt + "\n" + inputJSON {
+		if runeValue <= 0x7f {
+			ascii++
+		} else {
+			nonASCII++
+		}
+	}
+	estimated := (ascii+3)/4 + nonASCII + 64
+	if estimated < 1 {
+		return 1
+	}
+	return estimated
 }
 
 func normalizeResolution(value string) string {
@@ -515,6 +607,26 @@ func firstString(values ...any) string {
 		}
 	}
 	return ""
+}
+
+func collectionLength(value any) int {
+	switch typed := value.(type) {
+	case []any:
+		return len(typed)
+	case []string:
+		return len(typed)
+	default:
+		return 0
+	}
+}
+
+func firstNonZeroInt(values ...int) int {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
+	}
+	return 0
 }
 
 func firstInt(values ...any) int {

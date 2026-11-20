@@ -32,6 +32,13 @@ func ProtocolRequestFromInput(input Input) protocol.GenerationRequest {
 	if input.Mode == "image" {
 		aspectRatio = ProtocolImageAspectRatio(input)
 	}
+	imageOutputFormat := strings.ToLower(strings.TrimSpace(input.Config.ImageOutputFormat))
+	if input.Mode == "image" && imageOutputFormat == "" && input.ImageCapability != nil && input.ImageCapability.OutputFormat.Supported {
+		imageOutputFormat = strings.ToLower(strings.TrimSpace(input.ImageCapability.OutputFormat.Default))
+		if imageOutputFormat == "" && len(input.ImageCapability.OutputFormat.Values) > 0 {
+			imageOutputFormat = strings.ToLower(strings.TrimSpace(input.ImageCapability.OutputFormat.Values[0]))
+		}
+	}
 	request := protocol.GenerationRequest{
 		Capability:    protocol.Capability(input.Mode),
 		Model:         input.Config.Model,
@@ -43,6 +50,7 @@ func ProtocolRequestFromInput(input Input) protocol.GenerationRequest {
 		AspectRatio:   aspectRatio,
 		Resolution:    resolution,
 		Quality:       input.Config.Quality,
+		OutputFormat:  imageOutputFormat,
 		GenerateAudio: ParseBool(input.Config.VideoGenerateAudio, false),
 		Watermark:     ParseBool(input.Config.VideoWatermark, false),
 		Operation:     firstNonEmpty(metadataString(input.Metadata, "videoEditOperation"), metadataString(input.Metadata, "videoOperation")),
@@ -51,6 +59,7 @@ func ProtocolRequestFromInput(input Input) protocol.GenerationRequest {
 			"audioVoice":   strings.TrimSpace(input.Config.AudioVoice),
 			"audioFormat":  defaultString(input.Config.AudioFormat, "mp3"),
 			"audioSpeed":   defaultString(input.Config.AudioSpeed, "1"),
+			"audioLyrics":  input.Config.AudioLyrics,
 			"count":        input.Config.Count,
 		},
 	}

@@ -73,7 +73,7 @@ func Builtins() *Registry {
 	registry, err := NewRegistry(
 		openAIChatAdapter(), openAIResponsesAdapter(), claudeAdapter(),
 		openAIVideosAdapter(), newAPIChannel1Adapter(), newAPIVideosAdapter(), midjourneyAdapter(), xAIVideosAdapter(), arkVideosAdapter(), jimengVideosAdapter(), geminiVeoAdapter(), novitaVideosAdapter(), miniMaxVideosAdapter(),
-		agnesAdapter(),
+		agnesAdapter(), runningHubStandardImageAdapter(), runningHubStandardVideoAdapter(), runningHubStandardAudioAdapter(),
 	)
 	if err != nil {
 		panic(err)
@@ -413,6 +413,564 @@ func miniMaxVideosAdapter() Adapter {
 		mergeExtra(body, r.Extra, "model", "prompt", "duration", "content", "resolution", "aspect_ratio")
 		return jsonSpec(http.MethodPost, "/v2/video_generation", body), nil
 	})
+}
+
+func runningHubStandardImageAdapter() Adapter {
+	info := metadata("runninghub-standard-image", "RunningHub 标准图片", "RunningHub", CapabilityImage, "POST /openapi/v2/{model}", "POST /openapi/v2/query", "application/json")
+	info.Parameters = mediaParams()
+	info.RequiresPublicMediaURLs = true
+	return runningHubStandardAdapter(info, CapabilityImage)
+}
+
+func runningHubStandardVideoAdapter() Adapter {
+	info := metadata("runninghub-standard-video", "RunningHub 标准视频", "RunningHub", CapabilityVideo, "POST /openapi/v2/{model}", "POST /openapi/v2/query", "application/json")
+	info.Parameters = videoParams()
+	info.RequiresPublicMediaURLs = true
+	return runningHubStandardAdapter(info, CapabilityVideo)
+}
+
+func runningHubStandardAudioAdapter() Adapter {
+	info := metadata("runninghub-standard-audio", "RunningHub 标准音频", "RunningHub", CapabilityAudio, "POST /openapi/v2/{model}", "POST /openapi/v2/query", "application/json")
+	info.Parameters = mediaParams()
+	info.RequiresPublicMediaURLs = true
+	return runningHubStandardAdapter(info, CapabilityAudio)
+}
+
+func runningHubStandardAdapter(info Metadata, capability Capability) Adapter {
+	return builtinAdapter{
+		info: info,
+		create: func(request GenerationRequest) (RequestSpec, error) {
+			return runningHubStandardCreate(info.ID, capability, request)
+		},
+		parseCreate: parseRunningHubStandardCreate,
+		poll: func(context PollContext) (RequestSpec, error) {
+			if strings.TrimSpace(context.TaskID) == "" {
+				return RequestSpec{}, fmt.Errorf("RunningHub 查询缺少 taskId")
+			}
+			return RequestSpec{Method: http.MethodPost, Path: "/openapi/v2/query", OriginPath: true, ContentType: "application/json", Body: map[string]any{"taskId": context.TaskID}}, nil
+		},
+		parsePoll: func(context PollContext, payload map[string]any) (PollResult, error) {
+			return parseRunningHubStandardPoll(context, capability, payload)
+		},
+	}
+}
+
+func runningHubStandardCreate(namespace string, capability Capability, request GenerationRequest) (RequestSpec, error) {
+	endpoint := strings.TrimSpace(request.Model)
+	if endpoint == "" {
+		return RequestSpec{}, fmt.Errorf("RunningHub 模型 endpoint 为空")
+	}
+	if strings.Contains(endpoint, "://") {
+		return RequestSpec{}, fmt.Errorf("RunningHub 模型 endpoint 必须使用相对路径")
+	}
+	path := endpoint
+	if !strings.HasPrefix(path, "/") {
+		path = "/openapi/v2/" + strings.TrimPrefix(path, "./")
+	} else if !strings.HasPrefix(path, "/openapi/v2/") {
+		path = "/openapi/v2/" + strings.TrimPrefix(path, "/")
+	}
+	body := map[string]any{}
+	lowerEndpoint := strings.ToLower(endpoint)
+	if (capability == CapabilityImage || capability == CapabilityVideo) &&
+		!strings.Contains(lowerEndpoint, "video-upscaler") &&
+		!strings.Contains(lowerEndpoint, "rh-upscale") &&
+		!strings.Contains(lowerEndpoint, "kling-lip-sync/lip-sync-video") {
+		copyIf(body, "prompt", request.Prompt)
+	}
+	switch capability {
+	case CapabilityImage:
+		runningHubStandardImageFields(body, lowerEndpoint, request)
+	case CapabilityVideo:
+		runningHubStandardVideoFields(body, lowerEndpoint, request)
+	case CapabilityAudio:
+		runningHubStandardAudioFields(body, lowerEndpoint, request)
+	default:
+		return RequestSpec{}, fmt.Errorf("RunningHub 标准协议不支持能力 %s", capability)
+	}
+	if options := object(request.ProviderOptions[namespace]); options != nil {
+		for key, value := range options {
+			body[key] = value
+		}
+	}
+	if err := validateRunningHubStandardPayload(lowerEndpoint, body); err != nil {
+		return RequestSpec{}, err
+	}
+	return RequestSpec{Method: http.MethodPost, Path: path, OriginPath: true, ContentType: "application/json", Body: body}, nil
+}
+
+func runningHubStandardImageFields(body map[string]any, endpoint string, request GenerationRequest) {
+	images, mask := runningHubImages(request.Images)
+	switch {
+	case strings.Contains(endpoint, "layer-decomposition"):
+		if len(images) > 0 {
+			body["imageUrl"] = images[0]
+		}
+	case strings.Contains(endpoint, "image-to-image"), strings.Contains(endpoint, "/edit"), strings.Contains(endpoint, "image-edit"):
+		if len(images) > 0 {
+			if strings.Contains(endpoint, "minimax/h3-image/image-edit") {
+				imageObjects := make([]map[string]string, 0, len(images))
+				for _, image := range images {
+					imageObjects = append(imageObjects, map[string]string{"imageUrl": image})
+				}
+				body["imageUrls"] = imageObjects
+			} else {
+				body["imageUrls"] = images
+			}
+		}
+	}
+	if mask != "" {
+		body["maskUrl"] = mask
+	}
+	if strings.Contains(endpoint, "rhart-image-g-2.5-") || strings.Contains(endpoint, "rhart-image-n-nb") {
+		copyIf(body, "aspectRatio", request.AspectRatio)
+		copyIf(body, "resolution", defaultValue(request.Resolution, "2k"))
+	} else if strings.Contains(endpoint, "rhart-image-g-2.6-") {
+		if isExplicitImageSize(request.AspectRatio) {
+			body["size"] = request.AspectRatio
+		}
+	} else if strings.Contains(endpoint, "seedream-v5") {
+		if strings.Contains(endpoint, "layer-decomposition") {
+			body["resolution"] = runningHubLayerImageResolution(request.Quality, request.Resolution)
+		} else if isExplicitImageSize(request.AspectRatio) {
+			width, height, ok := imageDimensions(request.AspectRatio)
+			if ok {
+				body["width"], body["height"] = width, height
+			}
+		} else {
+			body["resolution"] = runningHubSeedreamImageResolution(endpoint, request.Resolution)
+		}
+	} else if strings.Contains(endpoint, "minimax/h3-image") {
+		if isExplicitImageSize(request.AspectRatio) {
+			body["size"] = request.AspectRatio
+		} else {
+			body["size"] = "auto"
+		}
+		if request.ImageCount > 0 {
+			body["n"] = request.ImageCount
+		}
+		body["outputFormat"] = defaultValue(request.OutputFormat, "jpeg")
+		body["watermark"] = request.Watermark
+	}
+	if format := strings.ToLower(strings.TrimSpace(request.OutputFormat)); format != "" {
+		body["outputFormat"] = format
+	}
+	if request.Quality != "" && strings.Contains(endpoint, "rhart-image-g-2.") {
+		body["quality"] = request.Quality
+	}
+}
+
+func runningHubSeedreamImageResolution(endpoint, value string) string {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	if strings.Contains(endpoint, "layer-decomposition") {
+		switch {
+		case strings.Contains(normalized, "3k"), strings.Contains(normalized, "4k"):
+			return "3k"
+		case strings.Contains(normalized, "1.5k"):
+			return "1.5k"
+		case strings.Contains(normalized, "2k"), strings.Contains(normalized, "1080"):
+			return "2k"
+		case strings.Contains(normalized, "auto"):
+			return "auto"
+		default:
+			return "1k"
+		}
+	}
+	if normalized == "" || strings.Contains(normalized, "2k") || strings.Contains(normalized, "1080") {
+		return "2k"
+	}
+	return "1k"
+}
+
+func runningHubLayerImageResolution(values ...string) string {
+	for _, raw := range values {
+		switch strings.ToLower(strings.TrimSpace(raw)) {
+		case "auto":
+			return "auto"
+		case "1k":
+			return "1k"
+		case "1.5k":
+			return "1.5k"
+		case "2k":
+			return "2k"
+		}
+	}
+	return "auto"
+}
+
+func runningHubStandardVideoFields(body map[string]any, endpoint string, request GenerationRequest) {
+	images, mask := runningHubImages(request.Images)
+	videos := runningHubMediaValues(request.Videos)
+	audios := runningHubMediaValues(request.Audios)
+	switch {
+	case strings.Contains(endpoint, "video-upscaler"), strings.Contains(endpoint, "rh-upscale"):
+		if len(videos) > 0 {
+			body["videoUrl"] = videos[0]
+		}
+		body["targetResolution"] = defaultValue(request.Resolution, "1080p")
+		return
+	case strings.Contains(endpoint, "kling-v2-ai-avatar-standard"):
+		if len(images) > 0 {
+			body["imageUrl"] = images[0]
+		}
+		if len(audios) > 0 {
+			body["audioUrl"] = audios[0]
+		}
+		return
+	case strings.Contains(endpoint, "kling-lip-sync/lip-sync-video"):
+		if len(audios) > 0 {
+			body["audioUrl"] = audios[0]
+		}
+		return
+	case strings.Contains(endpoint, "motion-control"):
+		if len(images) > 0 {
+			body["imageUrl"] = images[0]
+		}
+		if len(videos) > 0 {
+			body["videoUrl"] = videos[0]
+		}
+		body["characterOrientation"] = defaultValue(runningHubExtraString(request.Extra, "characterOrientation"), "video")
+		body["keepOriginalSound"] = true
+		return
+	case strings.Contains(endpoint, "image-to-video"):
+		if strings.Contains(endpoint, "kling-v4") {
+			if len(images) > 0 {
+				body["firstImageUrl"] = images[0]
+			}
+			if len(images) > 1 {
+				body["lastImageUrl"] = images[1]
+			}
+		} else {
+			if len(images) > 0 {
+				body["firstFrameUrl"] = images[0]
+			}
+			if len(images) > 1 {
+				body["lastFrameUrl"] = images[1]
+			}
+		}
+	case strings.Contains(endpoint, "multimodal"), strings.Contains(endpoint, "reference-to-video"), strings.Contains(endpoint, "omni-video"):
+		if len(images) > 0 {
+			body["imageUrls"] = images
+		}
+		if len(videos) > 0 {
+			if strings.Contains(endpoint, "omni-video") {
+				body["videoUrl"] = videos[0]
+			} else {
+				body["videoUrls"] = videos
+			}
+		}
+		if len(audios) > 0 {
+			body["audioUrls"] = audios
+		}
+	}
+	if mask != "" {
+		body["maskUrl"] = mask
+	}
+	if request.Duration > 0 {
+		body["duration"] = strconv.Itoa(request.Duration)
+	} else if raw := runningHubExtraString(request.Extra, "videoSeconds"); raw != "" {
+		body["duration"] = raw
+	}
+	if strings.Contains(endpoint, "seedance-2.5") && strings.Contains(endpoint, "image-to-video") {
+		body["ratio"] = "adaptive"
+	} else if strings.Contains(endpoint, "sparkvideo") || strings.Contains(endpoint, "hailuo-h3") || strings.Contains(endpoint, "seedance-2.5") {
+		copyIf(body, "ratio", request.AspectRatio)
+	} else {
+		copyIf(body, "aspectRatio", request.AspectRatio)
+	}
+	copyIf(body, "resolution", request.Resolution)
+	if strings.Contains(endpoint, "sparkvideo") || strings.Contains(endpoint, "seedance-2.5") {
+		body["generateAudio"] = request.GenerateAudio
+	}
+	if strings.Contains(endpoint, "hailuo-h3") {
+		body["aigc_watermark"] = request.Watermark
+	} else if strings.Contains(endpoint, "alibaba/wan-3.0") {
+		body["audio"] = request.GenerateAudio
+		body["watermark"] = request.Watermark
+	} else {
+		body["watermark"] = request.Watermark
+	}
+	if strings.Contains(endpoint, "seedance-2.5") {
+		body["bitrateMode"] = "standard"
+		body["seed"] = -1
+		body["outputFormat"] = "mp4"
+		body["returnLastFrame"] = false
+		body["webSearch"] = false
+		body["draft"] = false
+	}
+}
+
+func runningHubStandardAudioFields(body map[string]any, endpoint string, request GenerationRequest) {
+	if strings.Contains(endpoint, "kling-lip-sync/tts") {
+		copyIf(body, "text", request.Prompt)
+		body["voiceId"] = defaultValue(runningHubExtraString(request.Extra, "audioVoice"), "genshin_klee2")
+		body["voiceLanguage"] = defaultValue(runningHubExtraString(request.Extra, "audioLanguage"), "zh")
+		body["voiceSpeed"] = runningHubExtraFloat(request.Extra, "audioSpeed", 1)
+		return
+	}
+	if strings.Contains(endpoint, "text-to-audio") || strings.Contains(endpoint, "speech") {
+		copyIf(body, "text", request.Prompt)
+		body["voice_id"] = defaultValue(runningHubExtraString(request.Extra, "audioVoice"), "Wise_Woman")
+		body["speed"] = runningHubExtraFloat(request.Extra, "audioSpeed", 1)
+		body["enable_base64_output"] = false
+		body["english_normalization"] = false
+		return
+	}
+	copyIf(body, "prompt", request.Prompt)
+	copyIf(body, "lyrics", runningHubExtraString(request.Extra, "audioLyrics"))
+	if request.ImageCount > 0 {
+		body["n"] = request.ImageCount
+	} else {
+		body["n"] = 2
+	}
+	body["stream"] = false
+}
+
+func validateRunningHubStandardPayload(endpoint string, body map[string]any) error {
+	switch {
+	case strings.Contains(endpoint, "layer-decomposition"):
+		if !runningHubPayloadString(body, "imageUrl") {
+			return fmt.Errorf("RunningHub 图层拆分缺少 imageUrl")
+		}
+	case strings.Contains(endpoint, "minimax/h3-image/image-edit"):
+		images, ok := body["imageUrls"].([]map[string]string)
+		if !ok || len(images) == 0 {
+			return fmt.Errorf("RunningHub 图片编辑缺少 imageUrls")
+		}
+		for _, image := range images {
+			if strings.TrimSpace(image["imageUrl"]) == "" {
+				return fmt.Errorf("RunningHub 图片编辑的 imageUrls.imageUrl 不能为空")
+			}
+		}
+	case strings.Contains(endpoint, "image-to-image"), strings.Contains(endpoint, "/edit"):
+		if len(runningHubPayloadStrings(body, "imageUrls")) == 0 {
+			return fmt.Errorf("RunningHub 图片编辑缺少 imageUrls")
+		}
+	case strings.Contains(endpoint, "kling-v2-ai-avatar-standard"):
+		if !runningHubPayloadString(body, "imageUrl") || !runningHubPayloadString(body, "audioUrl") {
+			return fmt.Errorf("Kling 数字人需要 imageUrl 与 audioUrl")
+		}
+	case strings.Contains(endpoint, "kling-lip-sync/lip-sync-video"):
+		for _, key := range []string{"sessionId", "faceId", "soundStartTime", "soundEndTime", "soundInsertTime"} {
+			if runningHubPayloadEmpty(body[key]) {
+				return fmt.Errorf("Kling 对口型缺少必填字段 %s", key)
+			}
+		}
+		if !runningHubPayloadString(body, "audioUrl") && !runningHubPayloadString(body, "audioId") {
+			return fmt.Errorf("Kling 对口型需要 audioUrl 或 audioId")
+		}
+	case strings.Contains(endpoint, "motion-control"):
+		if !runningHubPayloadString(body, "imageUrl") || !runningHubPayloadString(body, "videoUrl") {
+			return fmt.Errorf("Kling 动作控制需要 imageUrl 与 videoUrl")
+		}
+	case strings.Contains(endpoint, "video-upscaler"), strings.Contains(endpoint, "rh-upscale"):
+		if !runningHubPayloadString(body, "videoUrl") && runningHubPayloadEmpty(body["2##file"]) {
+			return fmt.Errorf("RunningHub 视频超分缺少 videoUrl")
+		}
+	}
+	return nil
+}
+
+func runningHubPayloadString(body map[string]any, key string) bool {
+	return !runningHubPayloadEmpty(body[key])
+}
+
+func runningHubPayloadStrings(body map[string]any, key string) []string {
+	switch values := body[key].(type) {
+	case []string:
+		return values
+	case []any:
+		result := make([]string, 0, len(values))
+		for _, value := range values {
+			if text := strings.TrimSpace(fmt.Sprint(value)); text != "" && text != "<nil>" {
+				result = append(result, text)
+			}
+		}
+		return result
+	default:
+		return nil
+	}
+}
+
+func runningHubPayloadEmpty(value any) bool {
+	if value == nil {
+		return true
+	}
+	text := strings.TrimSpace(fmt.Sprint(value))
+	return text == "" || text == "<nil>"
+}
+
+func runningHubImages(images []MediaReference) ([]string, string) {
+	values := make([]string, 0, len(images))
+	mask := ""
+	for _, image := range images {
+		value := mediaValue(image)
+		if strings.EqualFold(strings.TrimSpace(image.Role), "mask") {
+			mask = value
+			continue
+		}
+		if value != "" {
+			values = append(values, value)
+		}
+	}
+	return values, mask
+}
+
+func runningHubMediaValues(items []MediaReference) []string {
+	values := make([]string, 0, len(items))
+	for _, item := range items {
+		if value := mediaValue(item); value != "" {
+			values = append(values, value)
+		}
+	}
+	return values
+}
+
+func runningHubExtraString(extra map[string]any, key string) string {
+	value, ok := extra[key]
+	if !ok || value == nil {
+		return ""
+	}
+	text := strings.TrimSpace(fmt.Sprint(value))
+	if text == "<nil>" {
+		return ""
+	}
+	return text
+}
+
+func runningHubExtraFloat(extra map[string]any, key string, fallback float64) float64 {
+	text := runningHubExtraString(extra, key)
+	if text == "" {
+		return fallback
+	}
+	value, err := strconv.ParseFloat(text, 64)
+	if err != nil {
+		return fallback
+	}
+	return value
+}
+
+func isExplicitImageSize(value string) bool {
+	_, _, ok := imageDimensions(value)
+	return ok
+}
+
+func imageDimensions(value string) (int, int, bool) {
+	parts := strings.Split(strings.ToLower(strings.TrimSpace(value)), "x")
+	if len(parts) != 2 {
+		return 0, 0, false
+	}
+	width, widthErr := strconv.Atoi(strings.TrimSpace(parts[0]))
+	height, heightErr := strconv.Atoi(strings.TrimSpace(parts[1]))
+	if widthErr != nil || heightErr != nil || width <= 0 || height <= 0 {
+		return 0, 0, false
+	}
+	return width, height, true
+}
+
+func parseRunningHubStandardCreate(payload map[string]any) (CreateResult, error) {
+	if data := object(payload["data"]); data != nil {
+		payload = mergeMaps(data, payload)
+	}
+	errorCode := strings.TrimSpace(firstString(payload, "errorCode", "error_code"))
+	message := firstString(payload, "errorMessage", "message", "error")
+	status := normalizeStatus(firstString(payload, "status", "taskStatus", "task_status"))
+	if (errorCode != "" && errorCode != "0") || status == StatusFailed {
+		return CreateResult{}, fmt.Errorf(
+			"RunningHub 提交失败（%s）：%s",
+			defaultValue(errorCode, "unknown"),
+			defaultValue(message, "上游未返回错误详情"),
+		)
+	}
+	taskID := firstString(payload, "taskId", "task_id", "id")
+	if taskID == "" {
+		return CreateResult{}, fmt.Errorf("RunningHub 提交响应缺少 taskId")
+	}
+	if status == "" {
+		status = StatusPending
+	}
+	return CreateResult{TaskID: taskID, Status: status, Message: message}, nil
+}
+
+func parseRunningHubStandardPoll(context PollContext, capability Capability, payload map[string]any) (PollResult, error) {
+	if data := object(payload["data"]); data != nil {
+		payload = mergeMaps(data, payload)
+	}
+	taskID := defaultValue(firstString(payload, "taskId", "task_id", "id"), context.TaskID)
+	status := normalizeStatus(firstString(payload, "status", "taskStatus", "task_status"))
+	message := firstString(payload, "errorMessage", "message", "error")
+	if failed := object(payload["failedReason"]); failed != nil {
+		message = defaultValue(firstString(failed, "errorMessage", "message", "reason", "error"), message)
+	}
+	errorCode := strings.TrimSpace(firstString(payload, "errorCode", "error_code"))
+	if status == "" {
+		if errorCode != "" && errorCode != "0" {
+			status = StatusFailed
+			message = defaultValue(message, "RunningHub 查询失败，错误码 "+errorCode)
+		} else {
+			status = StatusProcessing
+		}
+	}
+	if status == StatusFailed || status == StatusCancelled {
+		return PollResult{TaskID: taskID, Status: status, Message: defaultValue(message, "RunningHub 任务失败")}, nil
+	}
+	if status != StatusSucceeded {
+		return PollResult{TaskID: taskID, Status: status, Message: message}, nil
+	}
+	items := arrayValue(payload["results"])
+	if len(items) == 0 {
+		items = arrayValue(payload["outputs"])
+	}
+	result := &Result{Usage: object(payload["usage"])}
+	for _, item := range items {
+		entry := object(item)
+		if entry == nil {
+			continue
+		}
+		rawURL := firstString(entry, "url", "outputUrl", "output_url")
+		outputType := strings.ToLower(firstString(entry, "outputType", "output_type", "type"))
+		if rawURL != "" {
+			kind := runningHubOutputKind(outputType, rawURL, capability)
+			reference := MediaReference{URL: rawURL, Kind: kind}
+			switch kind {
+			case "image":
+				result.Images = append(result.Images, reference)
+			case "video":
+				result.Videos = append(result.Videos, reference)
+			case "audio":
+				result.Audios = append(result.Audios, reference)
+			}
+			continue
+		}
+		if text := firstString(entry, "text", "content", "output"); text != "" {
+			result.Text += text
+		}
+	}
+	if result.Text == "" && len(result.Images) == 0 && len(result.Videos) == 0 && len(result.Audios) == 0 {
+		return PollResult{}, fmt.Errorf("RunningHub 成功响应没有返回可识别产物")
+	}
+	return PollResult{TaskID: taskID, Status: status, Result: result, Message: message}, nil
+}
+
+func runningHubOutputKind(outputType, rawURL string, fallback Capability) string {
+	switch outputType {
+	case "image", "jpg", "jpeg", "png", "webp":
+		return "image"
+	case "video", "mp4", "mov", "webm":
+		return "video"
+	case "audio", "mp3", "wav", "m4a", "flac":
+		return "audio"
+	}
+	lower := strings.ToLower(strings.Split(rawURL, "?")[0])
+	for suffix, kind := range map[string]string{
+		".png": "image", ".jpg": "image", ".jpeg": "image", ".webp": "image",
+		".mp4": "video", ".mov": "video", ".webm": "video",
+		".mp3": "audio", ".wav": "audio", ".m4a": "audio", ".flac": "audio",
+	} {
+		if strings.HasSuffix(lower, suffix) {
+			return kind
+		}
+	}
+	return string(fallback)
 }
 
 func agnesAdapter() Adapter {

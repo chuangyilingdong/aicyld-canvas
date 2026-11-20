@@ -9,7 +9,7 @@ import (
 )
 
 type terminalBillingUpdater interface {
-	UpdateTaskBilling(userID, taskID, holdID, status string, points int) error
+	UpdateTaskBilling(task *model.Task) error
 }
 
 func (c *Terminal) settleBilling(task *model.Task, reason string) {
@@ -67,7 +67,9 @@ func (c *Terminal) updateTaskBilling(task *model.Task) {
 		return
 	}
 	if updater, ok := c.repo.(terminalBillingUpdater); ok {
-		_ = updater.UpdateTaskBilling(task.UserID, task.ID, task.BillingHoldID, task.BillingStatus, task.BillingPoints)
+		if err := updater.UpdateTaskBilling(task); err != nil {
+			c.billingLog(task, "error", "本地账单状态写入失败，等待对账", err)
+		}
 	}
 }
 
@@ -86,15 +88,11 @@ func applyTerminalBillingSettlement(task *model.Task, settlement *billingclient.
 	if task == nil || settlement == nil {
 		return
 	}
-	switch strings.TrimSpace(settlement.Status) {
-	case "settled":
-		task.BillingStatus = "settled"
-		task.BillingPoints = settlement.ChargedPoints
-	case "pending_reconcile":
-		task.BillingStatus = "pending_reconcile"
-	case "refunded":
-		task.BillingStatus = "refunded"
+	status := strings.TrimSpace(settlement.Status)
+	switch status {
+	case "settled", "pending_reconcile", "refunded":
 	default:
-		task.BillingStatus = "pending_reconcile"
+		status = "pending_reconcile"
 	}
+	task.ApplyBillingResult(status, settlement.ChargedPoints, settlement.RefundedPoints)
 }

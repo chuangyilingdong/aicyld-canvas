@@ -87,11 +87,11 @@ func (s repoStore) Logs(userID, id string) ([]model.TaskLog, error) {
 	return s.repo.TaskLogs(userID, id)
 }
 
-func (s repoStore) UpdateTaskBilling(userID, taskID, holdID, status string, points int) error {
+func (s repoStore) UpdateTaskBilling(task *model.Task) error {
 	if err := s.require(); err != nil {
 		return err
 	}
-	return s.repo.UpdateTaskBilling(userID, taskID, holdID, status, points)
+	return s.repo.UpdateTaskBilling(task)
 }
 func (s repoStore) LatestProviderRequestID(taskID string) (string, error) {
 	if err := s.require(); err != nil {

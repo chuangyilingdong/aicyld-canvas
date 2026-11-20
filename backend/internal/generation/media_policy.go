@@ -36,7 +36,7 @@ func MediaHydrationPolicyFor(ctx context.Context, input Input) MediaHydrationPol
 		return policy
 	}
 	switch strings.TrimSpace(input.Config.InterfaceType) {
-	case string(model.ChannelInterfaceNewAPIVideo), string(model.ChannelInterfaceNewAPIChannel1), string(model.ChannelInterfaceNewAPIChannel2), string(model.ChannelInterfaceVolcengineArkVideo), string(model.ChannelInterfaceVolcengineArkAgentPlanVideo), string(model.ChannelInterfaceMiniMaxVideo):
+	case string(model.ChannelInterfaceNewAPIVideo), string(model.ChannelInterfaceNewAPIChannel1), string(model.ChannelInterfaceNewAPIChannel2), string(model.ChannelInterfaceVolcengineArkVideo), string(model.ChannelInterfaceVolcengineArkAgentPlanVideo), string(model.ChannelInterfaceMiniMaxVideo), string(model.ChannelInterfaceRunningHubStandardImage), string(model.ChannelInterfaceRunningHubStandardVideo), string(model.ChannelInterfaceRunningHubStandardAudio):
 		policy.RequireURL = true
 		policy.PreferURL = true
 	}
@@ -44,7 +44,7 @@ func MediaHydrationPolicyFor(ctx context.Context, input Input) MediaHydrationPol
 		policy.RequireURL = adapter.Metadata().RequiresPublicMediaURLs
 		policy.PreferURL = policy.PreferURL || policy.RequireURL
 	}
-	if input.Mode == "image" && input.Mask != nil {
+	if input.Mode == "image" && input.Mask != nil && input.Config.InterfaceType != string(model.ChannelInterfaceRunningHubStandardImage) {
 		policy.RequireURL = false
 		policy.PreferURL = false
 	}

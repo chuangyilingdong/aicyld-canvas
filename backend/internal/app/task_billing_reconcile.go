@@ -118,11 +118,15 @@ func (s *Service) settleReconciledBilling(task *model.Task) {
 	settlement, err := taskBillingAdapter{s.billing}.Settle(context.Background(), task, "succeeded", "任务终态对账")
 	if err != nil || settlement == nil {
 		task.BillingStatus = "pending_reconcile"
-		_ = s.repo.UpdateTaskBilling(task.UserID, task.ID, task.BillingHoldID, task.BillingStatus, task.BillingPoints)
+		if updateErr := s.repo.UpdateTaskBilling(task); updateErr != nil {
+			log.Printf("canvas billing ledger write failed task_id=%s status=%s error=%v", task.ID, task.BillingStatus, updateErr)
+		}
 		return
 	}
 	applyReconciledBillingSettlement(task, settlement)
-	_ = s.repo.UpdateTaskBilling(task.UserID, task.ID, task.BillingHoldID, task.BillingStatus, task.BillingPoints)
+	if updateErr := s.repo.UpdateTaskBilling(task); updateErr != nil {
+		log.Printf("canvas billing ledger write failed task_id=%s status=%s error=%v", task.ID, task.BillingStatus, updateErr)
+	}
 }
 
 func (s *Service) releaseReconciledBilling(task *model.Task, reason string) {
@@ -132,26 +136,26 @@ func (s *Service) releaseReconciledBilling(task *model.Task, reason string) {
 	settlement, err := taskBillingAdapter{s.billing}.Release(context.Background(), task, reason)
 	if err != nil || settlement == nil {
 		task.BillingStatus = "refund_pending"
-		_ = s.repo.UpdateTaskBilling(task.UserID, task.ID, task.BillingHoldID, task.BillingStatus, task.BillingPoints)
+		if updateErr := s.repo.UpdateTaskBilling(task); updateErr != nil {
+			log.Printf("canvas billing ledger write failed task_id=%s status=%s error=%v", task.ID, task.BillingStatus, updateErr)
+		}
 		return
 	}
 	applyReconciledBillingSettlement(task, settlement)
-	_ = s.repo.UpdateTaskBilling(task.UserID, task.ID, task.BillingHoldID, task.BillingStatus, task.BillingPoints)
+	if updateErr := s.repo.UpdateTaskBilling(task); updateErr != nil {
+		log.Printf("canvas billing ledger write failed task_id=%s status=%s error=%v", task.ID, task.BillingStatus, updateErr)
+	}
 }
 
 func applyReconciledBillingSettlement(task *model.Task, settlement *billingclient.BillingSettlement) {
 	if task == nil || settlement == nil {
 		return
 	}
-	switch strings.TrimSpace(settlement.Status) {
-	case "settled":
-		task.BillingStatus = "settled"
-		task.BillingPoints = settlement.ChargedPoints
-	case "pending_reconcile":
-		task.BillingStatus = "pending_reconcile"
-	case "refunded":
-		task.BillingStatus = "refunded"
+	status := strings.TrimSpace(settlement.Status)
+	switch status {
+	case "settled", "pending_reconcile", "refunded":
 	default:
-		task.BillingStatus = "pending_reconcile"
+		status = "pending_reconcile"
 	}
+	task.ApplyBillingResult(status, settlement.ChargedPoints, settlement.RefundedPoints)
 }

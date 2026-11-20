@@ -21,6 +21,7 @@ const (
 	smartFilmBatchStatusDraft              = "draft"
 	smartFilmBatchStatusConfirmed          = "confirmed"
 	smartFilmBatchStatusPartiallyConfirmed = "partially_confirmed"
+	smartFilmBatchStatusArchived           = "archived"
 	smartFilmScriptLimit                   = 10
 	smartFilmInputAssetLimit               = 12
 	smartFilmArchiveReasonRegenerated      = "script_regenerated"
@@ -33,66 +34,18 @@ var smartFilmAspectRatios = map[string]struct{}{
 }
 
 func (s *Service) CreateSmartFilmBatch(userID string, req CreateSmartFilmBatchRequest) (SmartFilmBatchView, error) {
-	title := strings.TrimSpace(req.Title)
-	sourceText := strings.TrimSpace(req.SourceText)
-	if title == "" {
-		title = sourceText
-	}
-	if title == "" {
-		return SmartFilmBatchView{}, kernel.BadAuthRequest("批次名称不能为空")
-	}
-	if sourceText == "" {
-		return SmartFilmBatchView{}, kernel.BadAuthRequest("请先填写视频想法")
-	}
-	if len([]rune(sourceText)) > 50000 {
-		return SmartFilmBatchView{}, kernel.BadAuthRequest("视频想法不能超过 50000 个字符")
-	}
-	config, err := normalizeSmartFilmBatchConfig(req.Config)
+	batch, config, err := s.prepareSmartFilmBatch(userID, req)
 	if err != nil {
 		return SmartFilmBatchView{}, err
 	}
-	inputAssetIDs := normalizeSmartFilmInputAssetIDs(req.InputAssetIDs)
-	if len(inputAssetIDs) > smartFilmInputAssetLimit {
-		return SmartFilmBatchView{}, kernel.BadAuthRequest(fmt.Sprintf("参考图最多 %d 张", smartFilmInputAssetLimit))
-	}
-	if err := s.validateSmartFilmInputAssets(userID, inputAssetIDs); err != nil {
-		return SmartFilmBatchView{}, err
-	}
-	config.InputAssetRoles = filterSmartFilmInputAssetRoles(config.InputAssetRoles, inputAssetIDs)
-	config.InputAssetNames, err = normalizeSmartFilmInputAssetNames(config.InputAssetNames)
-	if err != nil {
-		return SmartFilmBatchView{}, err
-	}
-	config.InputAssetNames = filterSmartFilmInputAssetNames(config.InputAssetNames, inputAssetIDs)
-	if err := validateSmartFilmCharacterNames(config, inputAssetIDs); err != nil {
-		return SmartFilmBatchView{}, err
-	}
-	if req.BudgetPoints < 0 {
-		return SmartFilmBatchView{}, kernel.BadAuthRequest("批次预算不能为负数")
-	}
-	now := time.Now()
-	orchestrationCipher := ""
-	if len(req.OrchestrationConfig) > 0 {
-		if s.encryptSecret == nil {
-			return SmartFilmBatchView{}, kernel.BadAuthRequest("当前环境无法保存后台编排配置")
+	if batch.BudgetPoints <= 0 && len(req.OrchestrationConfig) > 0 {
+		budget, estimateErr := s.estimateInitialSmartFilmBudget(userID, &batch, config, req.ScriptPrompt)
+		if estimateErr != nil {
+			return SmartFilmBatchView{}, estimateErr
 		}
-		raw, marshalErr := json.Marshal(req.OrchestrationConfig)
-		if marshalErr != nil {
-			return SmartFilmBatchView{}, kernel.BadAuthRequest("后台编排配置格式无效")
-		}
-		if len(raw) > 200<<10 {
-			return SmartFilmBatchView{}, kernel.BadAuthRequest("后台编排配置过大")
-		}
-		orchestrationCipher, err = s.encryptSecret(string(raw))
-		if err != nil {
-			return SmartFilmBatchView{}, fmt.Errorf("加密后台编排配置失败: %w", err)
-		}
+		batch.BudgetPoints = budget
 	}
-	batch := model.SmartFilmBatch{
-		ID: kernel.NewID(), UserID: userID, Title: truncateSmartFilmText(title, 240), SourceText: sourceText,
-		InputAssetIDsJSON: mustJSON(inputAssetIDs), ConfigJSON: mustJSON(config), OrchestrationConfigCipher: orchestrationCipher, ScriptsJSON: "[]",
-		Status: smartFilmBatchStatusDraft, BudgetPoints: req.BudgetPoints, Revision: 1, CreatedAt: now, UpdatedAt: now,
-	}
+	batch.ID = kernel.NewID()
 	if err := s.repo.CreateSmartFilmBatch(&batch); err != nil {
 		return SmartFilmBatchView{}, err
 	}
@@ -205,6 +158,9 @@ func (s *Service) ConfirmSmartFilmBatchScripts(userID, batchID string, req Confi
 	batch, err := s.repo.SmartFilmBatchForUser(userID, batchID)
 	if err != nil {
 		return SmartFilmBatchView{}, err
+	}
+	if batch.Status == smartFilmBatchStatusArchived {
+		return SmartFilmBatchView{}, kernel.BadAuthRequest("批次已归档，只能查看历史记录和账单")
 	}
 	scripts, err := s.smartFilmScripts(batch)
 	if err != nil {
@@ -579,7 +535,8 @@ func (s *Service) smartFilmBatchView(batch model.SmartFilmBatch) (SmartFilmBatch
 	return SmartFilmBatchView{
 		ID: batch.ID, Title: batch.Title, SourceText: batch.SourceText, InputAssetIDs: inputAssetIDs,
 		Config: config, Scripts: scripts, ProductionRuns: []SmartFilmProductionRunView{}, Status: batch.Status,
-		Paused: batch.Paused, BudgetPoints: batch.BudgetPoints, Control: SmartFilmBatchControlView{WaitingRunIDs: []string{}}, Revision: batch.Revision,
+		Paused: batch.Paused, BudgetPoints: batch.BudgetPoints, BudgetUsedPoints: batch.BudgetUsedPoints,
+		Control: SmartFilmBatchControlView{WaitingRunIDs: []string{}}, Revision: batch.Revision,
 		CreatedAt: batch.CreatedAt, UpdatedAt: batch.UpdatedAt,
 	}, nil
 }
@@ -734,6 +691,15 @@ func normalizeSmartFilmBatchConfig(config SmartFilmBatchConfig) (SmartFilmBatchC
 	config.ProductionMode = strings.TrimSpace(config.ProductionMode)
 	if config.ProductionMode == "" && config.ShotCount > 0 {
 		config.ProductionMode = SmartFilmProductionModeFixed
+	}
+	config.AudioMode = strings.TrimSpace(config.AudioMode)
+	if config.AudioMode == "" {
+		config.AudioMode = SmartFilmAudioModeAuto
+	}
+	switch config.AudioMode {
+	case SmartFilmAudioModeAuto, SmartFilmAudioModeNative, SmartFilmAudioModeSeparate, SmartFilmAudioModeNone:
+	default:
+		return SmartFilmBatchConfig{}, kernel.BadAuthRequest("视频音频策略只支持自动、原生音频、独立配音配乐或静音")
 	}
 	if config.ScriptCount <= 0 {
 		config.ScriptCount = 3

@@ -59,7 +59,10 @@ func TestStaleReservedTasksAndSafeFailureGuards(t *testing.T) {
 		{"pending-reconcile", "hold-pending", "pending_reconcile"},
 		{"settled", "hold-settled", "settled"},
 	} {
-		if err := repo.UpdateTaskBilling("u", row.id, row.hold, row.status, 1); err != nil {
+		if err := repo.UpdateTaskBilling(&model.Task{
+			ID: row.id, UserID: "u", BillingHoldID: row.hold, BillingStatus: row.status,
+			BillingPoints: 1, BillingReservedPoints: 1,
+		}); err != nil {
 			t.Fatal(err)
 		}
 		if row.status == "reserved" || row.status == "settled" {

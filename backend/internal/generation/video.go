@@ -11,7 +11,9 @@ import (
 	"strconv"
 	"strings"
 
+	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/modelcatalog"
+	"infinite-canvas/backend/internal/protocol"
 	"infinite-canvas/backend/internal/providerpreset"
 )
 
@@ -57,6 +59,13 @@ func RunVideoTaskWithPolicy(ctx context.Context, input Input, pollPolicy VideoPo
 	// 已有官方声明式插件的 InterfaceType 只走适配器。未注入 registry 时补官方包，
 	// 显式空 registry 则报“插件未安装”，不再回退到手写协议。
 	ctx = EnsureOfficialProtocolAdapter(ctx, input.Config.InterfaceType)
+	if input.Config.InterfaceType == string(model.ChannelInterfaceRunningHubStandardVideo) {
+		adapter, ok := protocol.Builtins().Get(input.Config.InterfaceType)
+		if !ok {
+			return nil, errors.New("RunningHub 标准视频协议未安装")
+		}
+		return RunProtocolAdapterTaskWithPolicy(ctx, input, adapter, pollPolicy)
+	}
 	if adapter, ok := DeclarativeProtocolAdapterForContext(ctx, input.Config.InterfaceType); ok {
 		return RunProtocolAdapterTaskWithPolicy(ctx, input, adapter, pollPolicy)
 	}

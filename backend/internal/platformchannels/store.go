@@ -45,9 +45,14 @@ const (
 type ModelProfile struct {
 	Model       string `json:"model"`
 	DisplayName string `json:"displayName,omitempty"`
-	Icon        string `json:"icon,omitempty"`
-	Capability  string `json:"capability"`
-	Protocol    string `json:"protocol"`
+	// Family groups interchangeable upstream SKUs behind one user-facing model.
+	Family     string `json:"family,omitempty"`
+	Icon       string `json:"icon,omitempty"`
+	Capability string `json:"capability"`
+	Protocol   string `json:"protocol"`
+	// Hidden keeps provider endpoints that require out-of-band account state out
+	// of the generic model picker while preserving their audited configuration.
+	Hidden bool `json:"hidden,omitempty"`
 	// ProviderModelKey 是没有任何变体命中时的回退上游模型名（留空则与 Model 同名）。
 	ProviderModelKey string          `json:"providerModelKey,omitempty"`
 	CapabilityConfig json.RawMessage `json:"capabilityConfig,omitempty"`
@@ -569,7 +574,7 @@ func platformProfile(model, displayName, capability, protocol string) ModelProfi
 // Defaults 是首次部署预置的渠道模板：上游 ZhenZhen AI（api.seedance.nz）。
 // 视频走 OpenAI Videos（newapi，POST /v1/videos），图片走 Gemini generateContent
 // （gemini-image，POST /v1beta/models/{model}:generateContent），文本走 chat/completions。
-func Defaults() []Channel {
+func legacyDefaults() []Channel {
 	profiles := []ModelProfile{
 		seedanceFamilyProfile("seedance-2.0-standard", "Seedance 2.0 标准"),
 		seedanceFamilyProfile("seedance-2.0-fast", "Seedance 2.0 快速"),
@@ -860,8 +865,14 @@ func PublicChannels(channels []Channel) []map[string]any {
 			if profile.DisplayName != "" {
 				entry["displayName"] = profile.DisplayName
 			}
+			if profile.Family != "" {
+				entry["family"] = profile.Family
+			}
 			if profile.Icon != "" {
 				entry["icon"] = profile.Icon
+			}
+			if profile.Hidden {
+				entry["hidden"] = true
 			}
 			if len(profile.CapabilityConfig) > 0 {
 				var capabilityConfig any
@@ -994,6 +1005,7 @@ func normalize(channel Channel) (Channel, error) {
 	}
 	result.ModelProfiles = profiles
 	for index := range result.ModelProfiles {
+		result.ModelProfiles[index] = repairKnownProfile(result.ModelProfiles[index])
 		variants := make([]ModelVariant, 0, len(result.ModelProfiles[index].Variants))
 		for _, variant := range result.ModelProfiles[index].Variants {
 			selector := make(map[string]string, len(variant.Selector)+1)

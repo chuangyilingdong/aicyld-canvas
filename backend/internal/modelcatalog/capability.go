@@ -337,6 +337,9 @@ func CapabilitySpecFromModelCapabilityConfig(config *ModelCapabilityConfig, capa
 		if image.Quality.Supported {
 			spec.Options["quality"] = anyValues(image.Quality.Values)
 		}
+		if image.OutputFormat.Supported && len(image.OutputFormat.Values) > 0 {
+			spec.Options["imageOutputFormat"] = anyValues(image.OutputFormat.Values)
+		}
 		if image.TransparentBackground.Supported {
 			spec.Options["transparentBackground"] = boolValues(true)
 		} else {

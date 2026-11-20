@@ -79,8 +79,12 @@ paths:
       summary: 分页查询当前用户的多剧本成片批次
       parameters:
         - in: query
+          name: q
+          description: 按批次标题或想法搜索
+          schema: { type: string, maxLength: 200 }
+        - in: query
           name: status
-          schema: { type: string, enum: [draft, confirmed, partially_confirmed] }
+          schema: { type: string, enum: [draft, confirmed, partially_confirmed, archived] }
         - in: query
           name: page
           schema: { type: integer, minimum: 1, default: 1 }
@@ -101,6 +105,33 @@ paths:
         "400": { $ref: "#/components/responses/Error" }
         "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
+  /smart-film-batches/cost-preview:
+    post:
+      tags: [smart-film]
+      summary: 创建前预览多剧本全流程预算
+      description: |
+        使用与创建接口相同的素材、模型、制作和音频配置计算服务端报价，
+        不创建批次、不会创建生成任务或扣减积分。请求体上限 1 MiB。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateSmartFilmBatchRequest" }
+      responses:
+        "200":
+          description: "`data` 为 SmartFilmBatchCost"
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: "#/components/schemas/Envelope" }
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/SmartFilmBatchCost" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "413": { description: 请求体超过 1 MiB }
   /smart-film-batches/{batchId}:
     parameters:
       - { $ref: "#/components/parameters/BatchId" }
@@ -127,7 +158,8 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
     delete:
       tags: [smart-film]
-      summary: 删除没有生产记录的批次草稿
+      summary: 删除未计费草稿或归档有付费记录的批次
+      description: 有排队或运行中任务时拒绝操作。存在预扣、结算或退款记录时只归档，保留剧本、项目关联及完整账单；归档后禁止提交新任务。
       responses:
         "200": { $ref: "#/components/responses/Envelope" }
         "400": { $ref: "#/components/responses/Error" }
@@ -175,6 +207,25 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
+  /smart-film-batches/{batchId}/production-config/preview:
+    parameters:
+      - { $ref: "#/components/parameters/BatchId" }
+    post:
+      tags: [smart-film]
+      summary: 预览修改制作规格后的预算
+      description: 只报价，不修改配置、创建任务或扣减积分。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateSmartFilmBatchProductionConfigRequest" }
+      responses:
+        "200": { $ref: "#/components/responses/Envelope" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
   /smart-film-batches/{batchId}/costs:
     parameters:
       - { $ref: "#/components/parameters/BatchId" }
@@ -192,6 +243,33 @@ paths:
                   - type: object
                     properties:
                       data: { $ref: "#/components/schemas/SmartFilmBatchCost" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /smart-film-batches/{batchId}/billing:
+    parameters:
+      - { $ref: "#/components/parameters/BatchId" }
+    get:
+      tags: [smart-film]
+      summary: 查询批次逐任务预扣、结算、退款和未计费状态
+      parameters:
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1, default: 1 }
+        - in: query
+          name: pageSize
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+      responses:
+        "200":
+          description: "`data` 为 SmartFilmBatchBilling"
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: "#/components/schemas/Envelope" }
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/SmartFilmBatchBilling" }
         "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
@@ -215,6 +293,17 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "413": { description: 请求体超过 512 KiB }
+  /smart-film-batches/{batchId}/recover-scripts:
+    parameters:
+      - { $ref: "#/components/parameters/BatchId" }
+    post:
+      tags: [smart-film]
+      summary: 从已完成的剧本生成任务恢复缺失候选
+      responses:
+        "200": { $ref: "#/components/responses/Envelope" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
   /smart-film-batches/{batchId}/scripts/{scriptId}:
     parameters:
       - { $ref: "#/components/parameters/BatchId" }
@@ -348,6 +437,33 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
+  /projects/{id}/production-run:
+    get:
+      tags: [smart-film]
+      summary: 查询项目最近一条制作运行记录
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: "`data.run` 为 SmartFilmProductionRun"
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: "#/components/schemas/Envelope" }
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        required: [run]
+                        properties:
+                          run: { $ref: "#/components/schemas/SmartFilmProductionRun" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
   /projects/{id}/chapter-apply-receipts:
     get:
       tags: [projects]
@@ -1307,6 +1423,10 @@ components:
         productionMode:
           type: string
           enum: [fixed, smart]
+        audioMode:
+          type: string
+          enum: [auto, native, separate, none]
+        videoNativeAudio: { type: boolean }
         scriptCount: { type: integer, minimum: 1, maximum: 10 }
         shotCount: { type: integer, minimum: 0, maximum: 200 }
         shotDurationSeconds: { type: number, minimum: 1, maximum: 60 }
@@ -1393,7 +1513,7 @@ components:
         runningCount: { type: integer, minimum: 0 }
     SmartFilmBatch:
       type: object
-      required: [id, title, sourceText, inputAssetIds, config, scripts, productionRuns, status, paused, budgetPoints, control, revision, createdAt, updatedAt]
+      required: [id, title, sourceText, inputAssetIds, config, scripts, productionRuns, status, paused, budgetPoints, budgetUsedPoints, control, revision, createdAt, updatedAt]
       properties:
         id: { type: string }
         title: { type: string }
@@ -1411,9 +1531,10 @@ components:
           items: { $ref: "#/components/schemas/SmartFilmProductionRun" }
         status:
           type: string
-          enum: [draft, confirmed, partially_confirmed]
+          enum: [draft, confirmed, partially_confirmed, archived]
         paused: { type: boolean }
         budgetPoints: { type: integer, minimum: 0 }
+        budgetUsedPoints: { type: integer, minimum: 0 }
         control: { $ref: "#/components/schemas/SmartFilmBatchControl" }
         revision: { type: integer, minimum: 0 }
         createdAt: { type: string, format: date-time }
@@ -1451,6 +1572,50 @@ components:
               count: { type: integer, minimum: 0 }
               points: { type: integer, minimum: 0 }
               enabled: { type: boolean }
+    SmartFilmBatchBilling:
+      type: object
+      required: [budgetPoints, committedPoints, reservedPoints, settledPoints, refundedPoints, pendingPoints, unbilledTasks, activeTasks, terminalTasks, page, pageSize, total, hasMore, tasks]
+      properties:
+        budgetPoints: { type: integer, minimum: 0 }
+        committedPoints: { type: integer, minimum: 0 }
+        reservedPoints: { type: integer, minimum: 0 }
+        settledPoints: { type: integer, minimum: 0 }
+        refundedPoints: { type: integer, minimum: 0 }
+        pendingPoints: { type: integer, minimum: 0 }
+        unbilledTasks: { type: integer, minimum: 0 }
+        activeTasks: { type: integer, minimum: 0 }
+        terminalTasks: { type: integer, minimum: 0 }
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1, maximum: 100 }
+        total: { type: integer, minimum: 0 }
+        hasMore: { type: boolean }
+        tasks:
+          type: array
+          items:
+            type: object
+            required: [taskId, stage, label, status, billingStatus, reservedPoints, settledPoints, refundedPoints, billingPoints, createdAt]
+            properties:
+              taskId: { type: string }
+              scriptId: { type: string }
+              scriptTitle: { type: string }
+              projectId: { type: string }
+              unitId: { type: string }
+              shotId: { type: string }
+              stage: { type: string }
+              label: { type: string }
+              source: { type: string }
+              model: { type: string }
+              status: { type: string }
+              billingStatus: { type: string }
+              reservedPoints: { type: integer, minimum: 0 }
+              settledPoints: { type: integer, minimum: 0 }
+              refundedPoints: { type: integer, minimum: 0 }
+              billingPoints: { type: integer, minimum: 0 }
+              providerRequestId: { type: string }
+              error: { type: string }
+              createdAt: { type: string, format: date-time }
+              startedAt: { type: string, format: date-time }
+              completedAt: { type: string, format: date-time }
     CreateSmartFilmBatchRequest:
       type: object
       required: [title, sourceText]
@@ -1458,6 +1623,7 @@ components:
       properties:
         title: { type: string, minLength: 1, maxLength: 160 }
         sourceText: { type: string, minLength: 1 }
+        scriptPrompt: { type: string, description: 与脚本生成请求完全一致的预览提示词，仅用于报价，不持久化 }
         inputAssetIds:
           type: array
           maxItems: 12
@@ -1479,6 +1645,7 @@ components:
       required: [productionMode, expectedRevision]
       additionalProperties: false
       properties:
+        audioMode: { type: string, enum: [auto, native, separate, none], description: 开始制作前可修改，需重新确认费用 }
         productionMode:
           type: string
           enum: [fixed, smart]
@@ -1489,6 +1656,7 @@ components:
           maxItems: 200
           items: { type: number, minimum: 1, maximum: 60 }
         targetDurationSeconds: { type: number, minimum: 1, maximum: 600 }
+        budgetPoints: { type: integer, minimum: 0, description: 预览确认后与制作规格原子更新 }
         expectedRevision: { type: integer, minimum: 1 }
     SmartFilmScriptInput:
       type: object

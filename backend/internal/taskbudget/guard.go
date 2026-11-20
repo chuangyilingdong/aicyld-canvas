@@ -23,16 +23,18 @@ func New(repo *repository.Repository, client *billing.Client) Guard {
 }
 
 func (g Guard) Check(userID string, task *model.Task) error {
-	if g.Repo == nil || g.Billing == nil || !g.Billing.Enabled() || task == nil || task.ProjectID == "" {
+	if g.Repo == nil || g.Billing == nil || !g.Billing.Enabled() || task == nil {
 		return nil
 	}
-	project, err := g.Repo.ProjectForUser(userID, task.ProjectID)
-	if err != nil || project.BatchID == "" {
-		return nil
-	}
-	batch, err := g.Repo.SmartFilmBatchForUser(userID, project.BatchID)
+	batch, err := g.Repo.SmartFilmBatchForTask(task)
 	if err != nil {
 		return err
+	}
+	if batch == nil {
+		return nil
+	}
+	if batch.Status == "archived" {
+		return kernel.BadAuthRequest("批次已归档，不能创建新的生成任务")
 	}
 	if batch.BudgetPoints <= 0 {
 		return nil
@@ -61,7 +63,7 @@ func billingSnapshot(task *model.Task) *billing.TaskSnapshot {
 	}
 	return &billing.TaskSnapshot{
 		ID: task.ID, ProjectID: task.ProjectID, RouteRun: task.RouteRun, Type: task.Type,
-		Operation: task.Operation, Provider: task.Provider, Model: task.Model, InputJSON: task.InputJSON,
+		Operation: task.Operation, Provider: task.Provider, Model: task.Model, Prompt: task.Prompt, InputJSON: task.InputJSON,
 		ClientOperationID: clientOperationID, BillingHoldID: task.BillingHoldID,
 	}
 }
