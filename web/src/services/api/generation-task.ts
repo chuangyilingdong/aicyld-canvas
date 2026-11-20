@@ -6,6 +6,7 @@ import { resourceIdFromStorageKey, resourceStorageKey, uploadResourceFile } from
 import { createGenerationTask, findGenerationTaskByOperation, waitForGenerationTask, type GenerationTask, type CreateTaskInput } from "@/services/api/task-center";
 import { submitGenerationCommand } from "./generation-submission";
 import { modelCapabilityConfigFor } from "@/lib/model-capabilities";
+import { imageAdvancedProviderOptions } from "@/lib/image-advanced-parameters";
 import { resolveGenerationWorkflowExecution, type GenerationWorkflowExecution } from "@/lib/generation-workflow-execution";
 import { isArkPlanBaseUrl } from "@/lib/seedance-video";
 import { seedreamFamily } from "@/lib/seedream-image";
@@ -440,10 +441,12 @@ function generationMetadata(config: AiConfig, metadata?: Record<string, unknown>
     const modelProfile = channel.modelProfiles?.find((item) => item.model === model);
     const protocol = modelProfile?.protocol || channel.interfaceType;
     const defaults = modelProfile?.defaultOptions;
-    if (!protocol || !defaults || !Object.keys(defaults).length) return metadata;
+    const imageAdvancedOptions = modelCapabilityConfigFor(config, config.model).image?.advanced?.options || [];
+    const imageAdvanced = imageAdvancedProviderOptions(config.imageAdvancedJson, imageAdvancedOptions);
+    if (!protocol || (!Object.keys(defaults || {}).length && !Object.keys(imageAdvanced).length)) return metadata;
     const existing = metadata?.providerOptions && typeof metadata.providerOptions === "object" && !Array.isArray(metadata.providerOptions) ? (metadata.providerOptions as Record<string, unknown>) : {};
     const namespace = existing[protocol] && typeof existing[protocol] === "object" && !Array.isArray(existing[protocol]) ? (existing[protocol] as Record<string, unknown>) : {};
-    return { ...metadata, providerOptions: { ...existing, [protocol]: { ...defaults, ...namespace } } };
+    return { ...metadata, providerOptions: { ...existing, [protocol]: { ...(defaults || {}), ...imageAdvanced, ...namespace } } };
 }
 
 async function prepareBackendMediaReference(media: ReferenceVideo | ReferenceAudio) {

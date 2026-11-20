@@ -159,6 +159,7 @@ export function CanvasImageFormatPicker({
     const normalized = normalizeImageValue(profile, config);
     const formats = profile.outputFormat.supported ? profile.outputFormat.values || [] : [];
     const current = normalized.imageOutputFormat;
+    const [open, setOpen] = useState(false);
     if (formats.length <= 1) return null;
 
     const content = (
@@ -179,9 +180,12 @@ export function CanvasImageFormatPicker({
                         type="button"
                         role="option"
                         aria-selected={selected}
-                        className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-xs outline-none transition-colors hover:bg-black/5 focus-visible:ring-2 focus-visible:ring-ring dark:hover:bg-white/8"
+                        className="canvas-image-format-option flex h-8 w-full cursor-pointer items-center gap-2 rounded-lg px-2 text-left text-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring"
                         style={{ background: selected ? theme.toolbar.activeBg : "transparent", color: theme.node.text }}
-                        onClick={() => onConfigChange("imageOutputFormat", format)}
+                        onClick={() => {
+                            onConfigChange("imageOutputFormat", format);
+                            setOpen(false);
+                        }}
                     >
                         <FileImage className="size-3.5 shrink-0" aria-hidden="true" />
                         <span className="min-w-0 flex-1">{imageOutputFormatLabel(format)}</span>
@@ -194,7 +198,7 @@ export function CanvasImageFormatPicker({
 
     return (
         <span className="inline-flex min-w-0" onMouseDown={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()}>
-            <Popover trigger="click" placement="top" arrow={false} content={content}>
+            <Popover trigger="click" placement="top" arrow={false} content={content} open={open} onOpenChange={setOpen}>
                 <Button
                     size="small"
                     type="text"

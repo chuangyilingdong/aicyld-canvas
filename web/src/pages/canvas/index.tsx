@@ -37,6 +37,7 @@ import { useAppearanceStore } from "@/stores/use-appearance-store";
 import { cn } from "@/lib/utils";
 import { recordDiagnosticEvent } from "@/services/diagnostics/client-diagnostics";
 import { canvasIdsForWorkspaceProjects, canvasWorkspaceProjectId, listCanvasWorkspaceProjectCanvases, listCanvasWorkspaceProjectRoots, previewNodesForWorkspaceProject, resolveWorkspaceExportCanvasIds } from "@/lib/canvas/canvas-workspace-project";
+import { mergeCanvasProjectLibraryEntries } from "@/lib/canvas/canvas-project-library-order";
 
 const CanvasDeleteProjectsDialog = lazy(() => import("@/components/canvas/canvas-delete-projects-dialog").then((module) => ({ default: module.CanvasDeleteProjectsDialog })));
 
@@ -250,6 +251,7 @@ export default function CanvasPage() {
     }, [focusBatchId, folderFilter, keyword, projectFilter, projects, remoteMode, sort]);
     const projectNames = useMemo(() => new Map((projectQuery.data?.projects || []).map(({ project }) => [project.id, project.name])), [projectQuery.data]);
     const visibleProjects = remoteMode ? filteredProjects : filteredProjects.slice(0, loadedProjectCount);
+    const libraryEntries = useMemo(() => mergeCanvasProjectLibraryEntries(visibleStudioProjects, visibleProjects, sort), [sort, visibleProjects, visibleStudioProjects]);
     const hasMore = remoteMode ? libraryQuery.hasNextPage : visibleProjects.length < filteredProjects.length;
     const selectedProjects = projects.filter((project) => selectedIds.includes(project.id));
     const selectedCanvasIds = remoteMode ? selectedIds : canvasIdsForWorkspaceProjects(localProjects, selectedIds);
@@ -473,12 +475,12 @@ export default function CanvasPage() {
                 {!remoteMode && canvasHealth.error ? <div role="alert" className="mb-4 flex flex-wrap items-center gap-3 text-sm"><span>{canvasHealth.error}</span><Button loading={canvasHealth.loading} onClick={()=>void hydrateLocalCanvasProjectsFromBackend()}>重试加载</Button></div> : null}
                 {remoteMode && projectQuery.isError ? (
                     <div role="alert" className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-destructive/25 bg-destructive/5 px-3 py-2 text-sm">
-                        <span>成片项目读取失败，项目画布仍可继续使用。</span>
+                        <span>项目读取不完整，已有画布仍可继续使用。</span>
                         <Button size="small" loading={projectQuery.isFetching} onClick={() => void projectQuery.refetch()}>重试加载项目</Button>
                     </div>
                 ) : null}
                 {remoteMode && projectQuery.isPending && !focusBatchId ? (
-                    <div role="status" className="mb-4 rounded-lg bg-foreground/[.035] px-3 py-2 text-sm text-foreground/55">正在读取成片项目…</div>
+                    <div role="status" className="mb-4 rounded-lg bg-foreground/[.035] px-3 py-2 text-sm text-foreground/55">正在读取项目…</div>
                 ) : null}
                 {remoteMode && libraryQuery.isError ? (
                     <div role="alert">画布列表读取失败<Button onClick={() => void libraryQuery.refetch()}>重试</Button></div>
@@ -488,7 +490,6 @@ export default function CanvasPage() {
                     <WorkspaceLoadingState label="正在整理刚创建的项目" detail="确认同批次项目与制作状态" />
                 ) : visibleProjects.length || visibleStudioProjects.length || (!focusBatchId && !keyword && projectFilter === "all") ? (
                     <CollectionGrid className="canvas-collection-grid">
-                        {visibleStudioProjects.length ? <div className="project-library-group-heading"><strong>成片项目</strong><span>{visibleStudioProjects.length} 个项目</span></div> : null}
                         {!focusBatchId ? <div className="libtv-create-project-entry">
                             <button type="button" className="libtv-create-project-card" onClick={() => createAndEnter()}>
                                 <div className="libtv-create-project-icon"><Plus /></div>
@@ -503,28 +504,26 @@ export default function CanvasPage() {
                                 message.error(error instanceof Error ? error.message : "封面没有保存成功");
                             });
                         }} />)}
-                        {visibleStudioProjects.map((item) => (
+                        {libraryEntries.map((entry) => entry.kind === "studio" ? (
                             <StudioProjectCard
-                                key={`studio-project-${item.project.id}`}
-                                item={item}
-                                onOpen={() => navigate(`/projects/${item.project.id}/overview`)}
-                                onDelete={() => requestDeleteStudioProject(item)}
-                                onDuplicate={() => duplicateStudioProject(item)}
+                                key={`studio-project-${entry.item.project.id}`}
+                                item={entry.item}
+                                onOpen={() => navigate(`/projects/${entry.item.project.id}/overview`)}
+                                onDelete={() => requestDeleteStudioProject(entry.item)}
+                                onDuplicate={() => duplicateStudioProject(entry.item)}
                                 onRename={() => {
-                                    setRenamingStudioProject(item.project);
-                                    setStudioProjectRenameValue(item.project.name);
+                                    setRenamingStudioProject(entry.item.project);
+                                    setStudioProjectRenameValue(entry.item.project.name);
                                 }}
-                                onOpenSettings={() => navigate(`/projects/${item.project.id}/settings`)}
-                                onArchive={() => void toggleStudioProjectArchive(item)}
-                                newBatch={Boolean(focusBatchId && item.project.batchId === focusBatchId)}
+                                onOpenSettings={() => navigate(`/projects/${entry.item.project.id}/settings`)}
+                                onArchive={() => void toggleStudioProjectArchive(entry.item)}
+                                newBatch={Boolean(focusBatchId && entry.item.project.batchId === focusBatchId)}
                             />
-                        ))}
-                        {visibleProjects.length ? <div className="project-library-group-heading"><strong>项目画布</strong><span>{visibleProjects.length} 个画布</span></div> : null}
-                        {visibleProjects.map((project) => (
+                        ) : (
                             <CanvasFolderCard
-                                key={project.id}
-                                project={project}
-                                projectName={project.projectId ? projectNames.get(project.projectId) || "未同步项目" : undefined}
+                                key={entry.project.id}
+                                project={entry.project}
+                                projectName={entry.project.projectId ? projectNames.get(entry.project.projectId) || "未同步项目" : undefined}
                                 folders={folders}
                                 onMoveToFolder={async (folderId) => {
                                     try {
@@ -535,10 +534,10 @@ export default function CanvasPage() {
                                         if (folderId && !folders.some((folder) => folder.id === folderId)) {
                                             throw new Error("目标文件夹不存在");
                                         }
-                                        const projectCanvasIds = canvasIdsForWorkspaceProjects(localProjects, [project.id]);
+                                        const projectCanvasIds = canvasIdsForWorkspaceProjects(localProjects, [entry.project.id]);
                                         moveProjectsToFolder(projectCanvasIds, folderId);
                                         await flushCanvasStorePersistence();
-                                        const movedProject = useCanvasStore.getState().projects.find((item) => item.id === project.id);
+                                        const movedProject = useCanvasStore.getState().projects.find((item) => item.id === entry.project.id);
                                         if (!movedProject || (movedProject.folderId || undefined) !== (folderId || undefined)) {
                                             throw new Error("项目移动未完成，请重试");
                                         }
@@ -550,12 +549,12 @@ export default function CanvasPage() {
                                         message.error(error instanceof Error ? error.message : "移动项目失败");
                                     }
                                 }}
-                                onDuplicate={() => duplicateCanvasProject(project)}
-                                onExport={() => exportWorkspaceProject(project)}
+                                onDuplicate={() => duplicateCanvasProject(entry.project)}
+                                onExport={() => exportWorkspaceProject(entry.project)}
                                 onDelete={() => {
-                                    setDeleteIds([project.id]);
+                                    setDeleteIds([entry.project.id]);
                                 }}
-                                onClick={() => enterProject(project.id)}
+                                onClick={() => enterProject(entry.project.id)}
                                 onPrefetch={preloadProject}
                             />
                         ))}

@@ -61,4 +61,31 @@ describe("release regression source contracts", () => {
         expect(settings).toContain('videoRatioLabel(value)');
         expect(settings).toContain("profile.ratios.length > 1");
     });
+
+    test("keeps every image ratio selected and groups automatic sizing with the ratio choices", () => {
+        const picker = source("components/image-size-picker.tsx");
+        const pickerCss = source("components/image-size-picker.css");
+        const formatPicker = source("components/canvas/canvas-image-settings-popover.tsx");
+        const globals = source("styles/globals.css");
+        expect(picker).toContain("active?.ratio === preset.ratio");
+        expect(picker).toContain("image-size-auto-option");
+        expect(picker).not.toContain('className="image-size-auto"');
+        expect(pickerCss).toContain("button.is-selected");
+        expect(pickerCss).toContain("box-shadow: inset 0 0 0 1px var(--library-selected-stroke) !important");
+        expect(formatPicker).toContain("canvas-image-format-option");
+        expect(formatPicker).toContain("setOpen(false)");
+        expect(globals).toContain('.canvas-image-format-option:hover:not([aria-selected="true"])');
+        expect(source("components/image-settings-panel.tsx")).toContain("高级参数");
+    });
+
+    test("keeps one newest-first project library instead of split project groups", () => {
+        const library = source("pages/canvas/index.tsx");
+        const order = source("lib/canvas/canvas-project-library-order.ts");
+        expect(library).toContain("mergeCanvasProjectLibraryEntries");
+        expect(library).not.toContain(">成片项目<");
+        expect(library).not.toContain(">项目画布<");
+        expect(order).toContain('kind: "studio"');
+        expect(order).toContain('kind: "canvas"');
+        expect(order).toContain("new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()");
+    });
 });

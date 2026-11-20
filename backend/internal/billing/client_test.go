@@ -87,6 +87,33 @@ func TestFactsNormalizesNumericVideoResolution(t *testing.T) {
 	}
 }
 
+func TestFactsExtractsOnlyDocumentedRunningHubImageAdvancedOptions(t *testing.T) {
+	raw, _ := json.Marshal(map[string]any{
+		"config": map[string]any{"providerModelKey": "rh-nano-banana-2.1-t2i", "quality": "4k"},
+		"metadata": map[string]any{
+			"providerOptions": map[string]any{
+				"runninghub-standard-image": map[string]any{
+					"thinkingLevel": "high",
+					"frameCount":    float64(12),
+					"prompt":        "must-not-leak",
+					"apiKey":        "must-not-leak",
+				},
+			},
+		},
+	})
+	facts := Facts(&TaskSnapshot{Type: "canvas_image", Operation: "image", Provider: "managed", Model: "rh-nano-banana-2.1-t2i", InputJSON: string(raw)})
+	advanced, ok := facts["advancedParameters"].(map[string]any)
+	if !ok || advanced["thinkingLevel"] != "high" || advanced["frameCount"] != float64(12) {
+		t.Fatalf("advancedParameters = %#v", facts["advancedParameters"])
+	}
+	if _, leaked := advanced["prompt"]; leaked {
+		t.Fatalf("advancedParameters leaked prompt: %#v", advanced)
+	}
+	if _, leaked := advanced["apiKey"]; leaked {
+		t.Fatalf("advancedParameters leaked secret: %#v", advanced)
+	}
+}
+
 func TestFactsReadsPersistedPublicVideoParametersAfterCompletion(t *testing.T) {
 	raw, _ := json.Marshal(map[string]any{
 		"mode": "video",

@@ -438,6 +438,7 @@ export type AiConfig = {
     size: string;
     transparentBackground: string;
     imageOutputFormat: string;
+    imageAdvancedJson: string;
     seedreamMode?: string;
     seedreamMaxImages?: string;
     seedreamOutputFormat?: string;
@@ -489,7 +490,7 @@ export const defaultConfig: AiConfig = {
     audioModels: [],
     quality: "auto",
     size: "1:1",
-    transparentBackground: "false", imageOutputFormat: "png", seedreamWatermark: "false",
+    transparentBackground: "false", imageOutputFormat: "png", imageAdvancedJson: "{}", seedreamWatermark: "false",
     count: "1",
     canvasImageCount: "1",
 };

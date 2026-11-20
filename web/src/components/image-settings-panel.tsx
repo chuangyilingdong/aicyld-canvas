@@ -10,6 +10,7 @@ import { modelCapabilityConfigFor, normalizeImageValue, type ImageCapabilityConf
 import { mergedImageCapabilityConfig } from "@/lib/model-selection";
 import { type AiConfig } from "@/stores/use-config-store";
 import { seedreamFamily } from "@/lib/seedream-image";
+import { parseImageAdvancedValues } from "@/lib/image-advanced-parameters";
 import { SeedreamSettings } from "./seedream-settings";
 
 const qualityOptions = [
@@ -47,7 +48,7 @@ const aspectOptions: AspectOption[] = [
 
 type ImageSettingsPanelProps = {
     config: AiConfig;
-    onConfigChange: (key: "quality" | "size" | "transparentBackground" | "imageOutputFormat" | "count" | "seedreamMode" | "seedreamMaxImages" | "seedreamOutputFormat" | "seedreamOptimize" | "seedreamWatermark", value: string) => void;
+    onConfigChange: (key: "quality" | "size" | "transparentBackground" | "imageOutputFormat" | "imageAdvancedJson" | "count" | "seedreamMode" | "seedreamMaxImages" | "seedreamOutputFormat" | "seedreamOptimize" | "seedreamWatermark", value: string) => void;
     theme: CanvasTheme;
     showTitle?: boolean;
     showQuality?: boolean;
@@ -74,6 +75,14 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
     const count = Math.max(1, Math.min(effectiveMaxCount, Number(normalized.count)));
     const activeSize = normalized.size;
     const activeQualityOptions = profile.quality.values.map((value) => qualityOptions.find((item) => item.value === value) || { value, label: imageQualityLabel(value, model) });
+    const advancedOptions = profile.advanced?.options || [];
+    const advancedValues = parseImageAdvancedValues(config.imageAdvancedJson);
+    const updateAdvanced = (key: string, value: string) => {
+        const next = { ...advancedValues };
+        if (value.trim()) next[key] = value;
+        else delete next[key];
+        onConfigChange("imageAdvancedJson", JSON.stringify(next));
+    };
 
     return (
         <ImageSettingsTheme theme={theme}>
@@ -122,6 +131,48 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
                     </div>
                 ) : null}
                 {seedream ? <SeedreamSettings config={config} family={seedream} profile={profile} onChange={onConfigChange} theme={theme} /> : showSize ? <ImageSizePicker profile={profile} size={activeSize} quality={quality} onChange={(size, nextQuality) => applyImageSizeSelection(onConfigChange, size, nextQuality)} /> : null}
+                {advancedOptions.length ? (
+                    <details className="rounded-lg border px-2.5 py-2 text-xs" style={{ borderColor: theme.node.stroke }}>
+                        <summary className="cursor-pointer font-medium">高级参数</summary>
+                        <div className="mt-2 space-y-2">
+                            {advancedOptions.map((option) => {
+                                const value = advancedValues[option.key] ?? option.default ?? "";
+                                return (
+                                    <label key={option.key} className="grid grid-cols-[minmax(0,1fr)_132px] items-center gap-2">
+                                        <span className="min-w-0 truncate" title={option.label}>{option.label}</span>
+                                        {option.type === "number" ? (
+                                            <input
+                                                aria-label={option.label}
+                                                type="number"
+                                                min={option.min}
+                                                max={option.max}
+                                                step={option.step}
+                                                className="h-8 min-w-0 rounded-lg border px-2"
+                                                style={{ background: theme.canvas.background, color: theme.node.text, borderColor: theme.node.stroke }}
+                                                value={value}
+                                                placeholder="默认"
+                                                onChange={(event) => updateAdvanced(option.key, event.target.value)}
+                                            />
+                                        ) : (
+                                            <select
+                                                aria-label={option.label}
+                                                className="h-8 min-w-0 rounded-lg border px-2"
+                                                style={{ background: theme.canvas.background, color: theme.node.text, borderColor: theme.node.stroke }}
+                                                value={value}
+                                                onChange={(event) => updateAdvanced(option.key, event.target.value)}
+                                            >
+                                                <option value="">默认</option>
+                                                {(option.type === "boolean" ? ["false", "true"] : option.values || []).map((item) => (
+                                                    <option key={item} value={item}>{advancedOptionLabel(item)}</option>
+                                                ))}
+                                            </select>
+                                        )}
+                                    </label>
+                                );
+                            })}
+                        </div>
+                    </details>
+                ) : null}
                 {!seedream && profile.sequentialGeneration?.supported ? (
                     <label className="block space-y-1.5 text-xs">
                         <span>关联组图上限</span>
@@ -160,6 +211,21 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
             </div>
         </ImageSettingsTheme>
     );
+}
+
+function advancedOptionLabel(value: string) {
+    return ({
+        minimal: "最低",
+        medium: "中",
+        high: "高",
+        low: "低",
+        auto: "自动",
+        none: "关闭",
+        xhigh: "超高",
+        max: "最高",
+        true: "开启",
+        false: "关闭",
+    } as Record<string, string>)[value] || value;
 }
 
 export function applyImageSizeSelection(onConfigChange: ImageSettingsPanelProps["onConfigChange"], size: string, quality?: string) {

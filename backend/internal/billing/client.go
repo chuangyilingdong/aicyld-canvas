@@ -412,6 +412,16 @@ func Facts(task *TaskSnapshot) map[string]any {
 			sourceDuration = milliseconds / 1000
 		}
 	}
+	advancedParameters := map[string]any{}
+	if providerOptions, ok := metadata["providerOptions"].(map[string]any); ok {
+		if imageOptions, ok := providerOptions["runninghub-standard-image"].(map[string]any); ok {
+			for _, key := range []string{"thinkingLevel", "complexity", "moderation", "svgModel", "svgReasoningEffort", "frameCount", "frameDurationMs", "outputCompression", "textRecognition"} {
+				if value, exists := imageOptions[key]; exists {
+					advancedParameters[key] = value
+				}
+			}
+		}
+	}
 	facts := map[string]any{
 		"billable":              Billable(task),
 		"modelKey":              modelKey,
@@ -433,6 +443,9 @@ func Facts(task *TaskSnapshot) map[string]any {
 		"batchCount":            batch,
 		"generateAudio":         generateAudio,
 		"sourceDurationSeconds": sourceDuration,
+	}
+	if len(advancedParameters) > 0 {
+		facts["advancedParameters"] = advancedParameters
 	}
 	if category == "text" {
 		textOptions, _ := input["textOptions"].(map[string]any)

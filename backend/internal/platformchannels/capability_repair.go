@@ -79,6 +79,26 @@ func repairKnownCapability(profile ModelProfile) ModelProfile {
 			}
 			changed = true
 		}
+		if strings.HasPrefix(endpoint, "rhart-image-n-nb21-official/") {
+			image["quality"] = map[string]any{
+				"supported": true,
+				"values":    []string{"1k", "2k", "4k"},
+				"default":   "1k",
+			}
+			image["advanced"] = map[string]any{
+				"options": []any{
+					map[string]any{
+						"key": "thinkingLevel", "label": "思考强度", "type": "select",
+						"values": []string{"minimal", "medium", "high"}, "default": "medium",
+					},
+				},
+			}
+			changed = true
+		}
+		if strings.Contains(endpoint, "rhart-image-g-2.6-") {
+			image["advanced"] = map[string]any{"options": imageAdvancedOptions(endpoint)}
+			changed = true
+		}
 		if endpoint == "seedream-v5.5/layer-decomposition" {
 			if integerValue(references["maxImages"]) < 1 {
 				references["maxImages"] = 1
@@ -90,6 +110,13 @@ func repairKnownCapability(profile ModelProfile) ModelProfile {
 			}
 			image["quality"] = map[string]any{
 				"supported": true, "values": []string{"auto", "1k", "1.5k", "2k"}, "default": "auto",
+			}
+			image["advanced"] = map[string]any{
+				"options": []any{
+					map[string]any{
+						"key": "textRecognition", "label": "文字识别", "type": "boolean", "default": "false",
+					},
+				},
 			}
 			root["image"] = image
 			changed = true
@@ -182,6 +209,41 @@ func imageOutputFormats(endpoint string) ([]string, string, bool) {
 	default:
 		return nil, "", false
 	}
+}
+
+func imageAdvancedOptions(endpoint string) []any {
+	options := []any{
+		map[string]any{
+			"key": "complexity", "label": "规划强度", "type": "select",
+			"values": []string{"low", "medium", "high"}, "default": "",
+		},
+		map[string]any{
+			"key": "frameCount", "label": "GIF 帧数", "type": "number", "min": 2, "max": 16, "default": "",
+		},
+		map[string]any{
+			"key": "frameDurationMs", "label": "GIF 帧间隔（毫秒）", "type": "number", "min": 20, "max": 2000, "step": 10, "default": "",
+		},
+		map[string]any{
+			"key": "outputCompression", "label": "输出压缩率", "type": "number", "min": 0, "max": 100, "default": "",
+		},
+	}
+	if strings.Contains(endpoint, "text-to-image") {
+		options = append(options,
+			map[string]any{
+				"key": "moderation", "label": "审核强度", "type": "select",
+				"values": []string{"auto", "low"}, "default": "",
+			},
+			map[string]any{
+				"key": "svgModel", "label": "SVG 编写模型", "type": "select",
+				"values": []string{"gpt-4.1-mini", "gpt-5.4-mini", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-6-astra", "gpt-6-luna"}, "default": "",
+			},
+			map[string]any{
+				"key": "svgReasoningEffort", "label": "SVG 推理强度", "type": "select",
+				"values": []string{"none", "minimal", "low", "medium", "high", "xhigh", "max"}, "default": "",
+			},
+		)
+	}
+	return options
 }
 
 func objectValue(value any) map[string]any {

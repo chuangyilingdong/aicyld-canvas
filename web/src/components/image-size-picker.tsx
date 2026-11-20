@@ -128,6 +128,7 @@ export function ImageSizePicker({ profile, size, quality, onChange }: { profile:
         }
     };
     if (profile.size.parameter === "none") return null;
+    const autoAvailable = profile.size.values.includes("auto");
     return (
         <div className="image-size-picker">
             {visibleTiers.length ? (
@@ -142,33 +143,39 @@ export function ImageSizePicker({ profile, size, quality, onChange }: { profile:
                     </div>
                 </>
             ) : null}
-            {profile.size.values.includes("auto") ? (
-                <button
-                    type="button"
-                    className="image-size-auto"
-                    aria-pressed={size === "auto"}
-                    onClick={() => {
-                        setError("");
-                        onChange("auto");
-                    }}
-                >
-                    自动尺寸
-                </button>
-            ) : null}
-            {choices.length ? <div className="image-size-label">宽高比</div> : null}
+            {choices.length || autoAvailable ? <div className="image-size-label">宽高比</div> : null}
             <div className="image-size-ratios">
-                {choices.map((preset) => (
+                {autoAvailable ? (
                     <button
                         type="button"
-                        key={`${preset.ratio}:${preset.size}`}
-                        title={ratioOnly ? preset.ratio : `${preset.ratio} · ${preset.width} × ${preset.height}`}
-                        aria-pressed={size !== "auto" && active?.size === preset.size && active?.tier === tier}
-                        onClick={() => changeRatio(preset)}
+                        className={`image-size-auto-option ${size === "auto" ? "is-selected" : ""}`}
+                        title="自动尺寸 · 由模型决定"
+                        aria-pressed={size === "auto"}
+                        onClick={() => {
+                            setError("");
+                            onChange("auto");
+                        }}
                     >
-                        <span className="image-size-ratio-icon" style={{ width: 24 * Math.min(1, preset.width / preset.height), height: 24 * Math.min(1, preset.height / preset.width) }} />
-                        <span>{preset.ratio}</span>
+                        <span className="image-size-auto-icon" aria-hidden="true">A</span>
+                        <span>自动尺寸</span>
                     </button>
-                ))}
+                ) : null}
+                {choices.map((preset) => {
+                    const selected = size !== "auto" && active?.ratio === preset.ratio;
+                    return (
+                        <button
+                            type="button"
+                            key={`${preset.ratio}:${preset.size}`}
+                            className={selected ? "is-selected" : undefined}
+                            title={ratioOnly ? preset.ratio : `${preset.ratio} · ${preset.width} × ${preset.height}`}
+                            aria-pressed={selected}
+                            onClick={() => changeRatio(preset)}
+                        >
+                            <span className="image-size-ratio-icon" style={{ width: 24 * Math.min(1, preset.width / preset.height), height: 24 * Math.min(1, preset.height / preset.width) }} />
+                            <span>{preset.ratio}</span>
+                        </button>
+                    );
+                })}
             </div>
             <output aria-live="polite" className="image-size-output">
                 {size === "auto" ? "尺寸由模型决定" : active ? ratioOnly ? `${active.ratio} · 尺寸由模型版本决定` : `${active.ratio} · ${active.width} × ${active.height} px` : size.replace("x", " × ")}

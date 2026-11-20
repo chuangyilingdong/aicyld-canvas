@@ -35,6 +35,46 @@ func TestRepairKnownCapabilityRestoresProtocolMediaRequirements(t *testing.T) {
 			},
 		},
 		{
+			name:       "nano banana 2.1 keeps provider resolution and thinking level",
+			capability: "image",
+			endpoint:   "rhart-image-n-nb21-official/text-to-image",
+			config:     `{"version":1,"image":{"quality":{"supported":false,"values":[],"default":"auto"}}}`,
+			assert: func(t *testing.T, root map[string]any) {
+				image := objectValue(root["image"])
+				quality := objectValue(image["quality"])
+				if quality["supported"] != true || quality["default"] != "1k" {
+					t.Fatalf("quality = %#v", quality)
+				}
+				if got := stringValues(quality["values"]); len(got) != 3 || got[2] != "4k" {
+					t.Fatalf("resolutions = %#v", got)
+				}
+				advanced := objectValue(image["advanced"])
+				options, _ := advanced["options"].([]any)
+				if len(options) != 1 || objectValue(options[0])["key"] != "thinkingLevel" {
+					t.Fatalf("advanced options = %#v", advanced["options"])
+				}
+			},
+		},
+		{
+			name:       "gpt image 2.6 exposes documented advanced controls",
+			capability: "image",
+			endpoint:   "rhart-image-g-2.6-official-token/sunburst/text-to-image",
+			config:     `{"version":1,"image":{"quality":{"supported":true,"values":["auto","low","medium","high"],"default":"auto"}}}`,
+			assert: func(t *testing.T, root map[string]any) {
+				advanced := objectValue(objectValue(root["image"])["advanced"])
+				options, _ := advanced["options"].([]any)
+				keys := make(map[string]bool)
+				for _, option := range options {
+					keys[objectValue(option)["key"].(string)] = true
+				}
+				for _, key := range []string{"complexity", "moderation", "svgModel", "svgReasoningEffort", "frameCount", "frameDurationMs", "outputCompression"} {
+					if !keys[key] {
+						t.Fatalf("missing advanced option %s in %#v", key, keys)
+					}
+				}
+			},
+		},
+		{
 			name:       "first last frame accepts two images",
 			capability: "video",
 			endpoint:   "bytedance/seedance-2.5-token/image-to-video",

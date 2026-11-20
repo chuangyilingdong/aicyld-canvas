@@ -22,6 +22,17 @@ export type ImageResponseFormat = "b64_json" | "url";
  */
 export type ImageResponseFormatConfig = { supported: boolean; value?: ImageResponseFormat };
 
+export type ImageAdvancedParameter = {
+    key: string;
+    label: string;
+    type: "select" | "number" | "boolean";
+    values?: string[];
+    default?: string;
+    min?: number;
+    max?: number;
+    step?: number;
+};
+
 export type ImageCapabilityConfig = {
     references: {
         promptMaxChars: number;
@@ -49,6 +60,9 @@ export type ImageCapabilityConfig = {
     fixedOutputs?: number;
     /** Total outputs orchestrated across native fixed-size requests. */
     generationOutputs?: number[];
+    advanced?: {
+        options: ImageAdvancedParameter[];
+    };
 };
 
 // 旧版本的“允许自定义”可能只保存了 `*`，前台需要用这组标准值恢复可选项。

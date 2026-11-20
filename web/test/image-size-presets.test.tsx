@@ -240,7 +240,8 @@ describe("统一图片分辨率与宽高比", () => {
         profile.size.allowCustom = true;
         const empty = renderToStaticMarkup(<ImageSizePicker profile={profile} size="auto" onChange={() => {}} />);
         expect(empty).not.toContain('class="image-size-tiers"');
-        expect(empty).not.toContain('class="image-size-label"');
+        expect(empty).toContain('class="image-size-label">宽高比');
+        expect(empty).toMatch(/class="image-size-ratios"[^>]*>[\s\S]*自动尺寸/);
         expect(empty).toContain("自动尺寸");
         expect(empty).toContain("自定义比例或尺寸");
     });
