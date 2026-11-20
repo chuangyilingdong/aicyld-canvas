@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 
 import { describe, expect, test } from "bun:test";
 
-import { canvasNodeRenderPadding, resolveActiveCanvasMediaNodeId } from "../src/lib/canvas/canvas-performance-mode";
+import { canvasNodeRenderPadding, resolveActiveCanvasMediaNodeId, shouldReduceCanvasMediaEffects } from "../src/lib/canvas/canvas-performance-mode";
 import { canvasGestureRenderPadding, shouldCommitCanvasScaleDuringGesture, shouldRefreshCanvasVirtualization } from "../src/lib/canvas/canvas-viewport-render-sync";
 import { videoMetadata } from "../src/lib/canvas/canvas-generation-task-sync";
 import { canvasNodeVideoPreviewUrl, canvasVideoAssetPreviewUrl } from "../src/lib/canvas/canvas-media-preview";
@@ -54,6 +54,12 @@ describe("canvas dimension header rendering", () => {
 });
 
 describe("large canvas media rendering", () => {
+    test("auto performance mode accounts for constrained client hardware", () => {
+        expect(shouldReduceCanvasMediaEffects("auto", [], { hardwareConcurrency: 4, deviceMemory: 8 })).toBe(true);
+        expect(shouldReduceCanvasMediaEffects("auto", [], { hardwareConcurrency: 8, deviceMemory: 4 })).toBe(true);
+        expect(shouldReduceCanvasMediaEffects("auto", [], { hardwareConcurrency: 8, deviceMemory: 8 })).toBe(false);
+        expect(shouldReduceCanvasMediaEffects("quality", [], { hardwareConcurrency: 2, deviceMemory: 2 })).toBe(false);
+    });
     test("refreshes the virtualized node window during continuous viewport movement without committing every wheel event", () => {
         const previous = { x: 0, y: 0, k: 1 };
         const moved = { x: 0, y: -360, k: 1 };

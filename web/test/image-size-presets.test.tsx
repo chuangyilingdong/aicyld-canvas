@@ -1,16 +1,26 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ImageSizePicker } from "../src/components/image-size-picker";
-import { applyImageSizeSelection, imageSizeLabel } from "../src/components/image-settings-panel";
+import { applyImageSizeSelection, imageQualityLabel, imageSizeLabel } from "../src/components/image-settings-panel";
 import { ImageSizePresetsEditor } from "../src/components/image-size-presets-editor";
 import { ModelCapabilityEditor } from "../src/components/model-capability-editor";
 import { defaultImageCapabilityConfig, normalizeImageValue, normalizeModelCapabilityConfig } from "../src/lib/model-capabilities";
-import { IMAGE_RATIOS, IMAGE_RESOLUTIONS, imagePresetForRatio, imagePresetValue, imageQualityForSelection, imageQualityForTier, imageSizeConfigWithPresets, imageSizePresets, imageTierAvailable, imageUsesRatioOnlyPresets } from "../src/lib/image-size-presets";
+import { IMAGE_RATIOS, IMAGE_RESOLUTIONS, imagePresetForRatio, imagePresetValue, imageQualityForSelection, imageQualityForTier, imageRatioPresetPreservingTier, imageSizeConfigWithPresets, imageSizePresets, imageTierAvailable, imageUsesRatioOnlyPresets } from "../src/lib/image-size-presets";
 import { buildImageResolutionOptions } from "../src/lib/image-resolution-tiers";
 import { resolveImageRequestSize, validateImageSize } from "../src/services/api/image-validation";
 import { buildGeminiImageGenerationConfig } from "../src/lib/gemini-image";
 
 describe("统一图片分辨率与宽高比", () => {
+    test("悠船质量数字显示为可理解的 --q 档位", () => {
+        const v81 = "aicyld-runninghub-ai-media::rh-midjourney-v8.1-t2i";
+        const v82 = "aicyld-runninghub-ai-media::rh-midjourney-v8.2-fast-t2i";
+        expect(imageQualityLabel("1", v81)).toBe("标准");
+        expect(imageQualityLabel("4", v81)).toBe("高细节");
+        expect(imageQualityLabel("2", v82)).toBe("增强");
+        expect(imageQualityLabel("4", v82)).toBe("实验");
+        expect(imageQualityLabel("high", v82)).toBe("高");
+    });
+
     test("Midjourney 只显示比例按钮，不伪造清晰度档或覆盖速度档", () => {
         const profile = defaultImageCapabilityConfig("midjourney", "midjourney-imagine");
         expect(imageUsesRatioOnlyPresets(profile)).toBe(true);
@@ -177,6 +187,20 @@ describe("统一图片分辨率与宽高比", () => {
         expect(resolveImageRequestSize(profile, "medium", "1:1")?.value).toBe("1:1");
     });
 
+    test("切换比例时保持当前分辨率，不把 1K 悄悄改成 2K", () => {
+        const profile = defaultImageCapabilityConfig("openai-image", "gpt-image-2.6");
+        profile.size = imageSizeConfigWithPresets(profile, [imagePresetForRatio("1k", "1:1"), imagePresetForRatio("2k", "16:9")]);
+        profile.size.allowCustom = true;
+        const next = imageRatioPresetPreservingTier(profile, "1k", imagePresetForRatio("2k", "16:9"));
+        expect(next.tier).toBe("1k");
+        expect(next.ratio).toBe("16:9");
+        expect(next.size).toBe("1824x1024");
+        expect(imagePresetValue(profile, next)).toBe("1824x1024");
+
+        profile.size.allowCustom = false;
+        expect(imageRatioPresetPreservingTier(profile, "1k", imagePresetForRatio("2k", "16:9")).tier).toBe("2k");
+    });
+
     test("管理员固定显示三档，用户端隐藏未支持档位，不发送尺寸时隐藏", () => {
         const profile = defaultImageCapabilityConfig("grok-image", "grok-imagine-image");
         profile.size.allowCustom = true;
@@ -184,7 +208,7 @@ describe("统一图片分辨率与宽高比", () => {
         for (const label of ["1K", "2K", "4K"]) expect(editor).toMatch(new RegExp(`<strong[^>]*>${label}</strong>`));
         const picker = renderToStaticMarkup(<ImageSizePicker profile={profile} size="16:9" quality="2k" onChange={() => {}} />);
         expect(picker).not.toMatch(/<button[^>]*>4K/);
-        expect(picker).toContain("换算参考");
+        expect(picker).not.toContain("换算参考");
         profile.size.parameter = "none";
         expect(renderToStaticMarkup(<ImageSizePicker profile={profile} size="auto" onChange={() => {}} />)).toBe("");
     });

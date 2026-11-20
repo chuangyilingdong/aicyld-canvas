@@ -501,6 +501,17 @@ func runningHubStandardCreate(namespace string, capability Capability, request G
 func runningHubStandardImageFields(body map[string]any, endpoint string, request GenerationRequest) {
 	images, mask := runningHubImages(request.Images)
 	switch {
+	case strings.Contains(endpoint, "youchuan/text-to-image"):
+		body["aspectRatio"] = runningHubYouchuanAspectRatio(request.AspectRatio)
+		body["quality"] = runningHubYouchuanQuality(endpoint, request.Quality)
+		body["hd"] = false
+		if len(images) > 0 {
+			body["imageUrl"] = images[0]
+		}
+		if len(images) > 1 {
+			body["sref"] = images[1]
+		}
+		return
 	case strings.Contains(endpoint, "layer-decomposition"):
 		if len(images) > 0 {
 			body["imageUrl"] = images[0]
@@ -556,6 +567,31 @@ func runningHubStandardImageFields(body map[string]any, endpoint string, request
 	}
 	if request.Quality != "" && strings.Contains(endpoint, "rhart-image-g-2.") {
 		body["quality"] = request.Quality
+	}
+}
+
+func runningHubYouchuanAspectRatio(value string) string {
+	switch strings.TrimSpace(value) {
+	case "4:3", "3:2", "16:9", "3:4", "2:3", "9:16":
+		return strings.TrimSpace(value)
+	default:
+		return "1:1"
+	}
+}
+
+func runningHubYouchuanQuality(endpoint, value string) string {
+	quality := strings.TrimSpace(value)
+	if strings.Contains(endpoint, "v81") {
+		if quality == "4" {
+			return "4"
+		}
+		return "1"
+	}
+	switch quality {
+	case "2", "3", "4":
+		return quality
+	default:
+		return "1"
 	}
 }
 
@@ -875,11 +911,11 @@ func parseRunningHubStandardCreate(payload map[string]any) (CreateResult, error)
 	message := firstString(payload, "errorMessage", "message", "error")
 	status := normalizeStatus(firstString(payload, "status", "taskStatus", "task_status"))
 	if (errorCode != "" && errorCode != "0") || status == StatusFailed {
-		return CreateResult{}, fmt.Errorf(
+		return CreateResult{Status: StatusFailed, Message: fmt.Sprintf(
 			"RunningHub 提交失败（%s）：%s",
 			defaultValue(errorCode, "unknown"),
 			defaultValue(message, "上游未返回错误详情"),
-		)
+		)}, nil
 	}
 	taskID := firstString(payload, "taskId", "task_id", "id")
 	if taskID == "" {

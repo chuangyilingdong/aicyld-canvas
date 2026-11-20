@@ -66,7 +66,10 @@ export function imageModelFamilyLabel(config: AiConfig, value: string) {
     if (comparable.includes("gpt-image-2.5/sunburst")) return "Lib Image 2.5 Pro · Sunburst";
     if (comparable.includes("gpt-image-2.5/flare")) return "Lib Image 2.5 Pro · Flare";
     if (comparable.includes("seedream-v5-pro")) return "Seedream 5 Pro";
-    if (comparable.includes("seedream-v5.5")) return "Seedream 5.5 图层拆分";
+    if (comparable.includes("seedream-v5.5-layer")) return "Seedream 5.5 图层拆分";
+    if (comparable.includes("seedream-v5.5")) return "Seedream 5.5";
+    if (comparable.includes("悠船 v8.1") || comparable.includes("midjourney-v8.1")) return "悠船 V8.1";
+    if (comparable.includes("悠船 v8.2") || comparable.includes("midjourney-v8.2")) return "悠船 V8.2";
     if (comparable.includes("minimax-h3-image")) return "MiniMax H3 Image";
     if (comparable.includes("nano-banana-2.1")) return "Nano Banana 2.1";
     return family || displayName;
@@ -388,7 +391,7 @@ export function defaultImageParamsForModel(config: AiConfig, model: string): Pic
         size: sizeDefault,
         quality: image.quality.default || "auto",
         transparentBackground: String(image.transparentBackground.default ?? false),
-        imageOutputFormat: image.outputFormat.default || image.outputFormat.values?.[0] || "png",
+        imageOutputFormat: image.outputFormat.supported ? image.outputFormat.default || image.outputFormat.values?.[0] || "png" : "",
     };
 }
 
@@ -555,9 +558,10 @@ export function modelGroupReferenceLimits(config: AiConfig, selected: string, ca
 
 export function inferVideoOperation(input: ModelInputSummary) {
     const visualInputCount = input.imageCount + input.characterCount;
-    // 单图/单角色走图生视频；多图、参考视频或“视觉+音频”组合需要全能参考。
+    // 单图/单角色及“图片 + 音频”都可继续使用图生视频，并携带参考音频；
+    // 参考视频、多图或超过两帧的视觉输入才需要全能参考。
     // 纯音频输入才使用独立的 audio_to_video 能力。
-    if (input.videoCount > 0 || visualInputCount > 2 || (visualInputCount > 0 && input.audioCount > 0)) return "reference_to_video";
+    if (input.videoCount > 0 || visualInputCount > 2) return "reference_to_video";
     if (visualInputCount === 2) return "first_last_frame";
     if (visualInputCount > 0) return "image_to_video";
     if (input.audioCount > 0) return "audio_to_video";
@@ -565,19 +569,16 @@ export function inferVideoOperation(input: ModelInputSummary) {
 }
 
 export function resolveVideoOperation(input: ModelInputSummary, storedOperation?: string) {
-    if (storedOperation === "reference_to_video" && input.imageCount + input.characterCount + input.videoCount + input.audioCount > 0) return storedOperation;
-    // 首尾帧是用户显式选的模式：只要有两张图就按首尾帧走（对应上游图生视频的首帧+尾帧），
-    // 不再被「图生视频」的素材推断覆盖。
-    if (storedOperation === "first_last_frame" && input.imageCount === 2 && input.videoCount === 0 && input.audioCount === 0) return storedOperation;
-    if (storedOperation === "extend" && input.videoCount > 0) return storedOperation;
-    if (storedOperation && !["text_to_video", "image_to_video", "first_last_frame", "audio_to_video", "extend", "reference_to_video"].includes(storedOperation)) return storedOperation;
+    // 用户的模式选择始终优先。素材是否满足该模式只在提交时校验，
+    // 连接或断开素材都不能静默改写用户已经选好的模式。
+    if (storedOperation) return storedOperation;
     return inferVideoOperation(input);
 }
 
 export function videoOperationInputError(input: ModelInputSummary, operation: string) {
     const visualInputCount = input.imageCount + input.characterCount;
     const totalReferences = visualInputCount + input.videoCount + input.audioCount;
-    if (operation === "text_to_video") return totalReferences > 0 ? "上传参考素材后会自动切换生成模式" : "";
+    if (operation === "text_to_video") return totalReferences > 0 ? "文生视频不能同时传入参考素材" : "";
     if (operation === "image_to_video") return visualInputCount === 1 && input.videoCount === 0 && input.audioCount === 0 ? "" : "图生视频需要且仅需要 1 张首帧图片";
     if (operation === "first_last_frame") return input.imageCount >= 1 && input.imageCount <= 2 && input.characterCount === 0 && input.videoCount === 0 && input.audioCount === 0 ? "" : "首尾帧需要 1–2 张图片";
     if (operation === "reference_to_video") return totalReferences > 0 ? "" : "全能参考至少需要 1 个参考素材";

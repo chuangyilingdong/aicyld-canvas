@@ -18,7 +18,6 @@ import {
     resolveVideoOperation,
     videoModelFamilyOperations,
     videoOperationInputError,
-    videoOperationRequirementHint,
     type ModelRequirements,
 } from "@/lib/model-selection";
 import { navigateToSettings } from "@/lib/settings-navigation";
@@ -138,6 +137,7 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
     const [manualPromptHeight, setManualPromptHeight] = useState<number | null>(null);
     const [paramsExpanded, setParamsExpanded] = useState(false); // #98 决策2：B区参数区折叠状态（手风琴）
     const [promptOptimizerOpen, setPromptOptimizerOpen] = useState(false);
+    const [submitAttempted, setSubmitAttempted] = useState(false);
     const [autoLinkEnabled, setAutoLinkEnabled] = useState(true);
     const pickConnectTargetNodeId = useCanvasPickConnectStore((state) => state.pickConnectTargetNodeId);
     const togglePickConnectTargetNodeId = useCanvasPickConnectStore((state) => state.togglePickConnectTargetNodeId);
@@ -208,26 +208,28 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
     const videoFrameOptions = useMemo(() => resolvedMentionReferences.filter((item) => item.active && item.kind === "image").map((item) => ({ nodeId: item.nodeId, label: item.label, title: item.title, previewUrl: item.previewUrl })), [resolvedMentionReferences]);
     const h3Model = isH3Model(config.model);
     const h3Max = isH3MaxModel(config.model);
+    const videoInputSummary = requirements.input || { textCount: 0, imageCount: 0, videoCount: 0, audioCount: 0, characterCount: 0 };
     const effectiveVideoOperation = mode === "video"
         ? operationForModelSelection(
               config,
               config.model,
-              requirements.input || { textCount: 0, imageCount: 0, videoCount: 0, audioCount: 0, characterCount: 0 },
+              videoInputSummary,
               node.metadata?.videoEditOperation,
           )
         : undefined;
     const videoProfile = mode === "video" ? modelCapabilityConfigFor(config, config.model).video : undefined;
+    const videoFamilyOperations = mode === "video" ? videoModelFamilyOperations(config, config.model) : [];
     const endFrameSupported = mode === "video"
-        ? (!isH3Style(config.model) && (h3Model || (videoProfile ? videoReferencesForOperation(videoProfile, "image_to_video").maxImages >= 2 : true)))
+        ? (!isH3Style(config.model) && (h3Model || videoFamilyOperations.includes("first_last_frame") || (videoProfile ? videoReferencesForOperation(videoProfile, "image_to_video").maxImages >= 2 : true)))
         : false;
     const referenceVideoSupported = mode === "video"
-        ? (h3Model ? !isH3Style(config.model) : Boolean(videoProfile?.operations.includes("reference_to_video")))
+        ? (h3Model ? !isH3Style(config.model) : videoFamilyOperations.includes("reference_to_video"))
         : false;
     const referenceFramesSupported = mode === "video"
-        ? (h3Model ? !isH3Style(config.model) : Boolean(videoProfile?.operations.includes("image_to_video")))
+        ? (h3Model ? !isH3Style(config.model) : videoFamilyOperations.includes("image_to_video") || videoFamilyOperations.includes("first_last_frame"))
         : false;
     const videoModeState = useMemo(() => {
-        if (mode !== "video" || simpleMode || ["extend", "inpaint"].includes(effectiveVideoOperation || "")) return undefined;
+        if (mode !== "video" || simpleMode || !["image_to_video", "first_last_frame", "reference_to_video"].includes(effectiveVideoOperation || "")) return undefined;
         return resolveVideoReferenceModeState({
             metadata: node.metadata,
             references: resolvedMentionReferences,
@@ -250,6 +252,9 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
             maxAudios: limits.maxAudios,
         });
     }, [resolvedMentionReferences, videoModeState, videoProfile]);
+    const videoOperationError = effectiveVideoOperation ? videoOperationInputError(videoInputSummary, effectiveVideoOperation) : "";
+    const videoSubmissionError = videoModeWarning || (videoModeState ? "" : videoOperationError);
+    const visibleVideoSubmissionError = submitAttempted ? videoSubmissionError : "";
     const videoReferenceInputs = useMemo(() => activeReferences.flatMap((reference) => reference.kind === "skill" ? [] : [{ nodeId: reference.nodeId, type: reference.kind, title: reference.title }]), [activeReferences]);
     const h3SelectedFrames = [node.metadata?.videoStartFrameNodeId, node.metadata?.videoEndFrameNodeId, node.metadata?.videoMiddleFrameNodeId];
     const hasH3ReferenceOrder = isH3ReferenceOrderModel(config.model) && videoReferenceInputs.some((input) => ["image", "character", "video", "audio"].includes(input.type) && !h3SelectedFrames.includes(input.nodeId));
@@ -296,8 +301,8 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
         return { width: Math.round(rect.width), height: Math.round(rect.height) };
     };
     const isSubmitDisabled = !isRunning && !prompt.trim();
-    const submitDisabled = isRunning || isSubmitDisabled || insufficientBillingPoints || billingQuoteUnavailable || Boolean(videoModeWarning);
-    const submitBlockedReason = !prompt.trim() ? "请先输入提示词" : isRunning ? "当前任务仍在生成中，请等待完成" : videoModeWarning || (insufficientBillingPoints ? `积分不足：本次预计 ${estimatedBillingPoints} 积分，当前 ${availableBillingBalance ?? 0} 积分` : billingQuoteUnavailable ? billingQuoteErrorMessage : "");
+    const submitDisabled = isRunning || isSubmitDisabled || insufficientBillingPoints || billingQuoteUnavailable || Boolean(videoSubmissionError);
+    const submitBlockedReason = !prompt.trim() ? "请先输入提示词" : isRunning ? "当前任务仍在生成中，请等待完成" : videoSubmissionError || (insufficientBillingPoints ? `积分不足：本次预计 ${estimatedBillingPoints} 积分，当前 ${availableBillingBalance ?? 0} 积分` : billingQuoteUnavailable ? billingQuoteErrorMessage : "");
     const canExpandPrompt = mode === "image" || mode === "video";
     const canOptimizePrompt = Boolean(promptOptimizerProvider) && canExpandPrompt;
     const isPortraitTexture = mode === "image" && Boolean(node.metadata?.portraitTexture);
@@ -316,6 +321,7 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
     useEffect(() => {
         setReferenceAction(null);
         setCaretRequest(null);
+        setSubmitAttempted(false);
         promptSelectionRef.current = null;
         setCanvasNodePromptSelection(node.id, null);
         setExpandedPromptOpen(false);
@@ -372,8 +378,9 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
     };
 
     const submit = () => {
+        setSubmitAttempted(true);
         const text = prompt.trim();
-        if (!text || isRunning || insufficientBillingPoints || billingQuoteUnavailable) {
+        if (!text || isRunning || insufficientBillingPoints || billingQuoteUnavailable || videoSubmissionError) {
             if (submitBlockedReason) message.warning(submitBlockedReason);
             return false;
         }
@@ -473,7 +480,8 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                 type="text"
                 className="canvas-node-composer-submit canvas-node-composer-submit-canvas"
                 disabled={false}
-                aria-disabled={submitDisabled}
+                aria-disabled={isRunning}
+                aria-describedby={visibleVideoSubmissionError ? "canvas-video-submit-error" : undefined}
                 style={
                     {
                         color: submitDisabled ? theme.node.faint : theme.node.text,
@@ -523,15 +531,16 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
             </Tooltip>
         );
     };
-    const renderVideoModeWarning = () => videoModeWarning ? (
+    const renderVideoModeWarning = () => visibleVideoSubmissionError ? (
         <div
+            id="canvas-video-submit-error"
             role="alert"
             aria-live="polite"
             className="mx-2.5 mb-1 flex items-start gap-1.5 rounded-md border px-2 py-1.5 text-[var(--fs-tiny)] leading-relaxed"
             style={{ color: theme.accent.danger, borderColor: `${theme.accent.danger}55`, background: `${theme.accent.danger}12` }}
         >
             <AlertTriangle className="mt-0.5 size-3 shrink-0" />
-            <span>{videoModeWarning}</span>
+            <span>{visibleVideoSubmissionError}</span>
         </div>
     ) : null;
     const renderBillingQuoteError = () => billingQuoteErrorMessage ? (
@@ -566,7 +575,7 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
             </div>
         ) : (
             <div className="canvas-node-composer-footer">
-                <div className={expanded ? "min-w-0 flex-1" : "canvas-node-composer-model"}>
+                <div className={expanded ? "canvas-node-composer-model min-w-0 flex-1" : "canvas-node-composer-model"}>
                     {availableModels.length ? (
                         <div className="flex min-w-0 flex-1 items-center gap-1">
                             <div className="min-w-0 flex-1">
@@ -604,13 +613,6 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                                 />
                             </div>
                             {mode === "video" ? (() => {
-                                const modeInput = {
-                                    textCount: 0,
-                                    imageCount: requirements.input?.imageCount || 0,
-                                    videoCount: requirements.input?.videoCount || 0,
-                                    audioCount: requirements.input?.audioCount || 0,
-                                    characterCount: requirements.input?.characterCount || 0,
-                                };
                                 const declaredOperations = displayVideoOperations(videoModelFamilyOperations(config, config.model));
                                 if (declaredOperations.length <= 1) return null;
                                 return (
@@ -618,21 +620,14 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                                         aria-label="视频生成模式"
                                         size="small"
                                         popupMatchSelectWidth={false}
-                                        className="canvas-node-composer-mode-select !h-7 shrink-0 [&_.ant-select-selector]:!h-7 [&_.ant-select-selection-item]:!text-[var(--fs-tiny)] [&_.ant-select-selection-item]:!leading-7"
-                                        value={displayVideoOperation(effectiveVideoOperation || resolveVideoOperation(modeInput, node.metadata?.videoEditOperation))}
+                                        className="canvas-node-composer-mode-select !h-7 !w-[104px] shrink-0 [&_.ant-select-selector]:!h-7 [&_.ant-select-selection-item]:!text-[var(--fs-tiny)] [&_.ant-select-selection-item]:!leading-7"
+                                        value={displayVideoOperation(effectiveVideoOperation || resolveVideoOperation(videoInputSummary, node.metadata?.videoEditOperation))}
                                         options={canvasVideoModeOptions
                                             .filter((option) => declaredOperations.includes(option.value))
                                             .map((option) => {
-                                                const reason = videoOperationInputError(modeInput, option.value);
                                                 return {
                                                     ...option,
-                                                    label: (
-                                                        <span title={reason || undefined}>
-                                                            {option.label}
-                                                            {reason ? <span className="opacity-55"> · {videoOperationRequirementHint(option.value)}</span> : null}
-                                                        </span>
-                                                    ),
-                                                    disabled: Boolean(reason),
+                                                    label: option.label,
                                                 };
                                             })}
                                         onChange={(value) => onConfigChange(node.id, { videoEditOperation: value as CanvasVideoEditOperation })}
@@ -652,7 +647,7 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                         </button>
                     )}
                 </div>
-                <div className="ml-auto flex min-w-0 shrink-0 items-center gap-1">
+                <div className="canvas-node-composer-actions ml-auto flex min-w-0 items-center gap-1">
                     <ReferenceToolsPopover
                         canAutoMention={canAutoMention}
                         autoLinkEnabled={autoLinkEnabled}

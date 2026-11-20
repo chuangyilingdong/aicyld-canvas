@@ -706,6 +706,72 @@ func TestRunningHubMiniMaxImageEditUsesImageURLObjects(t *testing.T) {
 	}
 }
 
+func TestRunningHubSeedream55ImageUsesEndpointSpecificFields(t *testing.T) {
+	adapter, _ := Builtins().Get("runninghub-standard-image")
+	textSpec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
+		Capability:   CapabilityImage,
+		Model:        "seedream-v5.5/text-to-image",
+		Prompt:       "a red apple",
+		AspectRatio:  "2048x1152",
+		Resolution:   "2k",
+		OutputFormat: "png",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	textBody := object(textSpec.Body)
+	if textBody["width"] != 2048 || textBody["height"] != 1152 || textBody["outputFormat"] != "png" {
+		t.Fatalf("v5.5 text body = %#v", textBody)
+	}
+
+	imageSpec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
+		Capability:  CapabilityImage,
+		Model:       "seedream-v5.5/image-to-image",
+		Prompt:      "keep the subject",
+		AspectRatio: "1024x1024",
+		Images:      []MediaReference{{URL: "https://media.example/source.png"}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	imageBody := object(imageSpec.Body)
+	images, ok := imageBody["imageUrls"].([]string)
+	if !ok || len(images) != 1 || images[0] != "https://media.example/source.png" {
+		t.Fatalf("v5.5 imageUrls = %#v", imageBody["imageUrls"])
+	}
+}
+
+func TestRunningHubYouchuanUsesDocumentedGenerationFields(t *testing.T) {
+	adapter, _ := Builtins().Get("runninghub-standard-image")
+	spec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
+		Capability:   CapabilityImage,
+		Model:        "youchuan/text-to-image-v8.2-fast",
+		Prompt:       "a quiet tea bowl",
+		AspectRatio:  "9:16",
+		Quality:      "3",
+		OutputFormat: "png",
+		Images: []MediaReference{
+			{URL: "https://media.example/source.png"},
+			{URL: "https://media.example/style.png"},
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := object(spec.Body)
+	if body["aspectRatio"] != "9:16" || body["quality"] != "3" || body["hd"] != false {
+		t.Fatalf("Youchuan body = %#v", body)
+	}
+	if body["imageUrl"] != "https://media.example/source.png" || body["sref"] != "https://media.example/style.png" {
+		t.Fatalf("Youchuan references = %#v", body)
+	}
+	for _, unsupported := range []string{"outputFormat", "n", "imageUrls"} {
+		if body[unsupported] != nil {
+			t.Fatalf("Youchuan body unexpectedly contains %s: %#v", unsupported, body)
+		}
+	}
+}
+
 func TestRunningHubSeedanceFlashImageVideoForcesAdaptiveRatio(t *testing.T) {
 	adapter, _ := Builtins().Get("runninghub-standard-video")
 	spec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
@@ -760,12 +826,15 @@ func TestRunningHubSpeechSpeedUsesNumericValues(t *testing.T) {
 
 func TestRunningHubCreateSurfacesProviderErrorWithoutTaskID(t *testing.T) {
 	adapter, _ := Builtins().Get("runninghub-standard-audio")
-	_, err := adapter.ParseCreate(context.Background(), []byte(`{
-		"errorCode":"1007",
-		"errorMessage":"field 'lyrics' is required, can not be empty",
+	created, err := adapter.ParseCreate(context.Background(), []byte(`{
+		"errorCode":"40310",
+		"errorMessage":"this model is no longer available on the selected endpoint",
 		"taskId":""
 	}`))
-	if err == nil || !strings.Contains(err.Error(), "1007") || !strings.Contains(err.Error(), "lyrics") {
-		t.Fatalf("error = %v", err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Status != StatusFailed || !strings.Contains(created.Message, "40310") || !strings.Contains(created.Message, "no longer available") {
+		t.Fatalf("created = %#v", created)
 	}
 }

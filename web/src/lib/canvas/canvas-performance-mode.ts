@@ -23,11 +23,24 @@ export function persistCanvasMediaPerformanceMode(mode: CanvasMediaPerformanceMo
     }
 }
 
-export function shouldReduceCanvasMediaEffects(mode: CanvasMediaPerformanceMode, nodes: CanvasNodeData[]) {
+export type CanvasRuntimeCapacity = { hardwareConcurrency?: number; deviceMemory?: number };
+
+function constrainedCanvasRuntime(capacity?: CanvasRuntimeCapacity) {
+    if (!capacity) return false;
+    const cores = Number(capacity.hardwareConcurrency || 8);
+    const memory = Number(capacity.deviceMemory || 8);
+    return cores <= 4 || memory <= 4;
+}
+
+export function shouldReduceCanvasMediaEffects(mode: CanvasMediaPerformanceMode, nodes: CanvasNodeData[], capacity?: CanvasRuntimeCapacity) {
     if (mode === "performance") return true;
     if (mode === "quality") return false;
     const mediaCount = nodes.filter((node) => node.type === CanvasNodeType.Image || node.type === CanvasNodeType.Video || node.type === CanvasNodeType.Audio).length;
-    return nodes.length >= 80 || mediaCount >= 32;
+    const runtime = capacity ?? (typeof navigator === "undefined" ? undefined : {
+        hardwareConcurrency: navigator.hardwareConcurrency,
+        deviceMemory: (navigator as Navigator & { deviceMemory?: number }).deviceMemory,
+    });
+    return constrainedCanvasRuntime(runtime) || nodes.length >= 80 || mediaCount >= 32;
 }
 
 export function canvasNodeRenderPadding(reduceMediaEffects: boolean, previouslyRendered: boolean) {

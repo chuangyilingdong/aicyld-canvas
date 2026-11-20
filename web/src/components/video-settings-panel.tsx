@@ -43,7 +43,8 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
     const resolution = resolveVideoResolutionValue(profile, config.vquality);
     const ratio = resolveVideoRatioValue(profile, config.size);
     const dimensions = videoDimensionsForRatioAndResolution(ratio, resolution);
-    const sizeSupported = profile.ratios.length > 0;
+    const ratioOptions = taskConstraints?.ratioLabel ? ["adaptive"] : profile.ratios;
+    const sizeSupported = ratioOptions.length > 1 || Boolean(taskConstraints?.ratioLabel);
     const configuredResolutions = sortVideoResolutionOptions(profile.resolutions).map((value) => ({ value, label: formatVideoResolutionLabel(value) }));
     const generateAudio = boolConfig(config.videoGenerateAudio, profile.generateAudio.default);
     const watermark = boolConfig(config.videoWatermark, profile.watermark.default);
@@ -87,7 +88,7 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
                             </div>
                         ) : null}
                         <div className="grid grid-cols-3 gap-1.5">
-                            {profile.ratios.map((value) => (
+                            {ratioOptions.map((value) => (
                                 <button
                                     key={value}
                                     type="button"
@@ -97,7 +98,7 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
                                     onClick={() => onConfigChange("size", value)}
                                 >
                                     <SizePreview width={ratioPreview(value).width} height={ratioPreview(value).height} color={theme.node.text} />
-                                    <span>{value}</span>
+                                    <span>{videoRatioLabel(value)}</span>
                                 </button>
                             ))}
                         </div>
@@ -131,15 +132,15 @@ function JiMengVideoSettingsPanel({ config, profile, onConfigChange, theme, show
         <ImageSettingsTheme theme={theme}>
             <div className={className} style={{ color: theme.node.text }} onMouseDown={(event) => event.stopPropagation()}>
                 {showTitle ? <div className="text-sm font-semibold">视频设置</div> : null}
-                <SettingGroup title="比例" color={theme.node.muted}>
+                {profile.ratios.length > 1 ? <SettingGroup title="比例" color={theme.node.muted}>
                     <div className="grid grid-cols-3 gap-1.5">
                         {profile.ratios.map((value) => (
                             <OptionPill key={value} selected={config.size === value} theme={theme} onClick={() => onConfigChange("size", value)}>
-                                {value}
+                                {videoRatioLabel(value)}
                             </OptionPill>
                         ))}
                     </div>
-                </SettingGroup>
+                </SettingGroup> : null}
                 <SettingGroup title="秒数" color={theme.node.muted}>
                     <VideoDurationControl profile={profile} value={Number(seconds)} theme={theme} onChange={(value) => onConfigChange("videoSeconds", String(value))} />
                 </SettingGroup>
@@ -186,10 +187,10 @@ function SeedanceVideoSettingsPanel({ config, profile, onConfigChange, theme, sh
                         })}
                     </div>
                 </SettingGroup>
-                <SettingGroup title="比例" color={theme.node.muted}>
+                {(profile.ratios.length > 1 || Boolean(taskConstraints?.ratioLabel)) ? <SettingGroup title="比例" color={theme.node.muted}>
                     <div className="grid grid-cols-4 gap-1.5">
                         {(taskConstraints?.ratioLabel ? ["adaptive"] : profile.ratios).map((value) => {
-                            const item = { value, label: taskConstraints?.ratioLabel || value };
+                            const item = { value, label: taskConstraints?.ratioLabel || videoRatioLabel(value) };
                             return (
                                 <button
                                     key={item.value}
@@ -208,7 +209,7 @@ function SeedanceVideoSettingsPanel({ config, profile, onConfigChange, theme, sh
                             );
                         })}
                     </div>
-                </SettingGroup>
+                </SettingGroup> : null}
                 <SettingGroup title="时长" color={theme.node.muted}>
                     {taskConstraints?.durationLocked ? <p className="text-sm">随原视频</p> : <VideoDurationControl profile={profile} value={duration} theme={theme} onChange={(value) => onConfigChange("videoSeconds", String(value))} />}
                 </SettingGroup>
@@ -241,12 +242,16 @@ export function videoResolutionLabel(value: string) {
 
 export function videoSizeLabel(value: string) {
     const ratio = normalizeSeedanceRatio(value);
-    if (value === "adaptive" || value === "auto") return "自适应";
+    if (value === "adaptive" || value === "auto") return videoRatioLabel(value);
     // The compact summary must mirror the selected value (for example 16:9),
     // while the settings panel can still use semantic labels such as 横屏.
     if (ratio === value) return ratio;
     const size = normalizeVideoSizeValue(value);
     return sizeOptions.find((item) => item.value === size)?.label || size;
+}
+
+export function videoRatioLabel(value: string) {
+    return value === "adaptive" || value === "auto" ? "自适应" : value;
 }
 
 export function videoSecondsLabel(value: string, profile?: VideoCapabilityConfig) {

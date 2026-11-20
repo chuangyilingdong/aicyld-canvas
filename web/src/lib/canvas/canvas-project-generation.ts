@@ -495,7 +495,7 @@ export function buildVideoGenerationMetadata(
     const defaultFrames =
         !ignoreFrameSelection &&
         !h3 &&
-        videoEditOperation === "image_to_video" &&
+        (videoEditOperation === "image_to_video" || videoEditOperation === "first_last_frame") &&
         !storedStartFrame &&
         !storedEndFrame &&
         (context?.referenceVideos.length || 0) === 0 &&

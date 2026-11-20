@@ -37,7 +37,7 @@ export function CanvasImageSettingsPopover({ config, onConfigChange, onOpenChang
     const summaryParts = [
         ...(seedream && config.seedreamMode === "layers" ? ["图层拆分"] : []),
         ...(profile.size.parameter !== "none" ? [imageSizeLabel(normalized.size, profile)] : []),
-        ...(profile.quality.supported ? [imageQualityLabel(normalized.quality)] : []),
+        ...(profile.quality.supported ? [imageQualityLabel(normalized.quality, config.model || config.imageModel)] : []),
         ...(!seedream && profile.outputFormat.supported && (profile.outputFormat.values?.length || 0) > 1 && normalized.imageOutputFormat ? [imageOutputFormatLabel(normalized.imageOutputFormat)] : []),
         ...(seedream && seedream !== "pro" && seedream !== "flash" && Number(config.seedreamMaxImages) > 1 ? [`每批最多 ${config.seedreamMaxImages} 张`] : []),
         ...(showCount && profile.maxOutputs > 1 ? [`${normalized.count} ${seedream ? "批" : "张"}`] : []),

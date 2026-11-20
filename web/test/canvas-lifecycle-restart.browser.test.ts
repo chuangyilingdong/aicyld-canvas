@@ -11,6 +11,8 @@ let commits: any[] = [];
 let taskReads = 0;
 let taskPosts: any[] = [];
 let manifests: any[] = [];
+const commitConnections = (commit: any) => commit.params.document?.connections ?? (commit.params.nodes ? backend.connections : []);
+const commitChatSessions = (commit: any) => commit.params.document?.chatSessions ?? (commit.params.nodes ? backend.chatSessions : []);
 const remote = { id: "c1", revision: 111, title: "Restart", createdAt: "2026-10-02", updatedAt: "2026-10-02", nodes: Array.from({ length: 10 }, (_, i) => ({ id: `n${i}`, type: "image", title: `Node ${i}`, width: 320, height: 200, position: { x: i * 400, y: 0 }, metadata: {} })), connections: Array.from({ length: 6 }, (_, i) => ({ id: `e${i}`, fromNodeId: `n${i}`, toNodeId: `n${i + 1}` })), chatSessions: [], activeChatId: null, appearance: canvasAppearanceForTheme("dark"), backgroundMode: "grid", showImageInfo: false, viewport: { x: 0, y: 0, k: 1 }, directorScenes: [] };
 let backend = structuredClone(remote);
 
@@ -42,6 +44,18 @@ beforeAll(async () => {
             if (body.params.expectedRevision !== backend.revision) return Response.json({ code: 409, data: null, msg: "Revision conflict", reason: "canvas_revision_conflict" }, { status: 409 });
             commits.push(body);
             backend = { ...body.params.document, revision: backend.revision + 1 };
+            return json({ revision: backend.revision, result: { canvasId: "c1", revision: backend.revision, title: backend.title, updatedAt: backend.updatedAt } });
+        }
+        if (path === "/api/ops/canvas.nodes.patch") {
+            const body = await request.json();
+            if (body.params.expectedRevision !== backend.revision) return Response.json({ code: 409, data: null, msg: "Revision conflict", reason: "canvas_revision_conflict" }, { status: 409 });
+            commits.push(body);
+            const patches = new Map<string, any>((body.params.nodes || []).map((node: any) => [node.id, node]));
+            backend = {
+                ...backend,
+                revision: backend.revision + 1,
+                nodes: backend.nodes.map((node: any) => patches.has(node.id) ? { ...node, ...patches.get(node.id) } : node),
+            };
             return json({ revision: backend.revision, result: { canvasId: "c1", revision: backend.revision, title: backend.title, updatedAt: backend.updatedAt } });
         }
         if (path === "/api/tasks/late-failed") {
@@ -125,7 +139,7 @@ for (const restartLoad of [false, true]) test(`confirmed edges survive cached lo
     expect(errors).toEqual([]);
     await page.evaluate(() => (window as any).__lifecycle.save());
     expect(backend.connections).toHaveLength(6);
-    expect(commits.every(c => c.params.document.connections.length === 6)).toBe(true);
+    expect(commits.every(c => commitConnections(c).length === 6)).toBe(true);
     await page.close();
 }, 30000);
 
@@ -138,7 +152,7 @@ test("manual deletion after a completed projection is still saved and survives r
     await page.waitForFunction(() => (window as any).__lifecycle.updates.at(-1)?.edges === 0);
     await page.evaluate(() => (window as any).__lifecycle.save());
     expect(backend.connections).toEqual([]);
-    expect(commits.at(-1).params.document.connections).toEqual([]);
+    expect(commitConnections(commits.at(-1))).toEqual([]);
     await page.goto(`${server.url}?scenario=reopen-stamp`);
     await page.waitForFunction(() => document.querySelector('[data-testid="graph"]')?.textContent === "true:10:0");
     expect(backend.connections).toEqual([]);
@@ -154,7 +168,7 @@ for (const scenario of ["missing-cache", "missing-cache-and-journal"]) test(`${s
     await page.waitForTimeout(50);
     await page.evaluate(() => (window as any).__lifecycle.save());
     expect(backend.connections).toHaveLength(6);
-    expect(commits.every(c => c.params.document.connections.length === 6)).toBe(true);
+    expect(commits.every(c => commitConnections(c).length === 6)).toBe(true);
     await page.close();
 }, 30000);
 
@@ -169,7 +183,7 @@ test("dirty cached graph with a stale journal merges into a newer backend graph 
     expect(backend.nodes[0].title).toBe("Unsaved manual title");
     expect(commits.length).toBeGreaterThan(0);
     expect(commits[0].params.expectedRevision).toBe(111);
-    expect(commits.every(c => c.params.document.connections.length === 6)).toBe(true);
+    expect(commits.every(c => commitConnections(c).length === 6)).toBe(true);
     await page.close();
 }, 30000);
 
@@ -187,7 +201,7 @@ test("an edit made while the opened backend graph is landing is merged, not repl
     await page.evaluate(() => (window as any).__lifecycle.save());
     expect(backend.connections).toHaveLength(6);
     expect(backend.nodes[0].title).toBe("Local unsaved text");
-    expect(commits.every(c => c.params.document.connections.length === 6)).toBe(true);
+    expect(commits.every(c => commitConnections(c).length === 6)).toBe(true);
     expect(errors).toEqual([]);
     await page.close();
 }, 30000);
@@ -259,7 +273,7 @@ for (const dragging of [false, true]) test(`an edit made while an opened graph w
     expect([active.metadata.status, active.metadata.taskId, active.metadata.errorDetails]).toEqual(["loading", "task-active", "正在从任务中心恢复生成状态..."]);
     await page.evaluate(() => (window as any).__lifecycle.save());
     expect(commits.length).toBeGreaterThan(0);
-    expect(commits.every(c => c.params.document.connections.length === 6)).toBe(true);
+    expect(commits.every(c => commitConnections(c).length === 6)).toBe(true);
     expect(backend.nodes).toHaveLength(13);
     expect(backend.nodes[0]!.title).toBe("Local unsaved text");
     const savedActive = backend.nodes.find(item => item.id === "n-active")!.metadata as any;
@@ -420,7 +434,7 @@ test("assistant sessions merged by a refresh are not overwritten by the next edi
     expect(backend.nodes[0].title).toBe("Local unsaved text");
     expect(backend.chatSessions).toEqual([session as never]);
     expect(commits.length).toBeGreaterThan(0);
-    expect(commits.every(c => c.params.document.chatSessions.length === 1)).toBe(true);
+    expect(commits.every(c => commitChatSessions(c).length === 1)).toBe(true);
     // The assistant panel shows the merged sessions too, not only the saved document.
     expect(await page.evaluate(() => (window as any).__lifecycle.chatIds())).toEqual(["s-remote"]);
     expect(errors).toEqual([]);

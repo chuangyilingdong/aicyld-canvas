@@ -171,7 +171,7 @@ export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | u
         quality: generationDefaults.quality || requestedConfig.quality,
         size: generationDefaults.size ?? requestedConfig.size,
         transparentBackground: generationDefaults.transparentBackground || (requestedConfig.transparentBackground === "true" ? "true" : "false"),
-        imageOutputFormat: generationDefaults.imageOutputFormat || requestedConfig.imageOutputFormat,
+        imageOutputFormat: generationDefaults.imageOutputFormat ?? requestedConfig.imageOutputFormat,
         videoSeconds: generationDefaults.videoSeconds || requestedConfig.videoSeconds,
         vquality: resolvedVquality,
         videoGenerateAudio: generationDefaults.videoGenerateAudio || requestedConfig.videoGenerateAudio,

@@ -40,8 +40,24 @@ export type WorkspaceBootstrapPayload = {
     features?: FeatureAvailability;
 };
 
+let workspaceBootstrapRequest: Promise<WorkspaceBootstrapPayload> | undefined;
+
 export function getWorkspaceBootstrap() {
+    workspaceBootstrapRequest ??= fetchWorkspaceBootstrap();
+    return workspaceBootstrapRequest;
+}
+
+export function fetchWorkspaceBootstrap() {
     return http.get<WorkspaceBootstrapPayload>("/workspace/bootstrap");
+}
+
+/**
+ * Validate the hosted session before importing the canvas route and stores.
+ * The request is cached and reused by WorkspaceBootstrapHydrator, so this does
+ * not add a second bootstrap call for authenticated users.
+ */
+export function primeWorkspaceBootstrap() {
+    return getWorkspaceBootstrap();
 }
 
 export function getLocalModelConfig() {

@@ -71,7 +71,7 @@ describe("generation quote reference counts", () => {
         expect(input.input.referenceImages).toHaveLength(1);
         expect(input.input.referenceImages?.[0]?.dataUrl).toBe("");
         expect(input.input.referenceImages?.[0]?.storageKey).toBeUndefined();
-        expect(input.operation).toBe("image_to_video");
+        expect(input.operation).toBe("first_last_frame");
     });
 
     test("gives synthetic video and audio placeholders a valid duration", () => {

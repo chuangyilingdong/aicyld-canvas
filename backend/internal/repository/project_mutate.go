@@ -68,28 +68,30 @@ type WorkflowProgressPlan struct {
 }
 
 func (r *Repository) CreateProjectWithWorkflow(project *model.Project, instance *model.WorkflowInstance, steps []model.WorkflowStepInstance) error {
-	return r.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Create(project).Error; err != nil {
-			return err
-		}
-		if instance == nil {
-			return nil
-		}
-		if err := tx.Create(instance).Error; err != nil {
-			return err
-		}
-		if len(steps) > 0 {
-			if err := tx.Create(&steps).Error; err != nil {
+	return retrySQLiteBusy(func() error {
+		return r.db.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Create(project).Error; err != nil {
 				return err
 			}
-		}
-		now := time.Now()
-		if err := bumpProjectRevisionTx(tx, project.ID, now); err != nil {
-			return err
-		}
-		project.Revision++
-		project.UpdatedAt = now
-		return nil
+			if instance == nil {
+				return nil
+			}
+			if err := tx.Create(instance).Error; err != nil {
+				return err
+			}
+			if len(steps) > 0 {
+				if err := tx.Create(&steps).Error; err != nil {
+					return err
+				}
+			}
+			now := time.Now()
+			if err := bumpProjectRevisionTx(tx, project.ID, now); err != nil {
+				return err
+			}
+			project.Revision++
+			project.UpdatedAt = now
+			return nil
+		})
 	})
 }
 

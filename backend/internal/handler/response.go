@@ -10,6 +10,7 @@ import (
 	"infinite-canvas/backend/internal/kernel"
 
 	"github.com/gin-gonic/gin"
+	"github.com/mattn/go-sqlite3"
 )
 
 const internalErrorMessage = "系统处理失败，请稍后重试"
@@ -114,6 +115,17 @@ func logHandlerError(c *gin.Context, status int, err error) {
 			route = "<unmatched>"
 		}
 	}
-	// 普通访问日志会输出 Gin error；这里只记录错误类型，避免密钥或上游响应体进入日志。
+	var sqliteErr sqlite3.Error
+	if errors.As(err, &sqliteErr) {
+		// SQLite errors are local schema/constraint codes. Keep them visible so
+		// sporadic project-write failures can be root-caused without exposing
+		// request bodies, prompts or credentials.
+		log.Printf(
+			"handler request failed: method=%s route=%s status=%d error_type=%T sqlite_code=%d sqlite_extended_code=%d system_errno=%d sqlite_message=%q",
+			method, route, status, err, sqliteErr.Code, sqliteErr.ExtendedCode, sqliteErr.SystemErrno, sqliteErr.Error(),
+		)
+		return
+	}
+	// 普通访问日志会输出 Gin error；其余错误只记录类型，避免密钥或上游响应体进入日志。
 	log.Printf("handler request failed: method=%s route=%s status=%d error_type=%T", method, route, status, err)
 }

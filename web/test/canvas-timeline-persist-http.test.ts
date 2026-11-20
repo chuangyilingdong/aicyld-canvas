@@ -105,6 +105,7 @@ async function write(path, body) {
 `,
 );
 const operationsPath = join(dir, "operations.ts");
+const canvasCommitPath = join(dir, "canvas-commit-payload.ts");
 const journalPath = join(dir, "journal.ts");
 writeFileSync(
     operationsPath,
@@ -113,6 +114,20 @@ export async function commitCanvasDocument(input) {
   return http.post("/ops/canvas.document.commit", {
     opId: input.operationId,
     params: { canvasId: input.canvasId, expectedRevision: input.expectedRevision, document: input.document },
+  });
+}
+`,
+);
+writeFileSync(
+    canvasCommitPath,
+    `import { http } from ${JSON.stringify(pathToFileURL(requestPath).href)};
+export function prepareCanvasCommitPayload(canvasId, expectedRevision, _confirmed, settled) {
+  return { kind: "document", canvasId, expectedRevision, document: structuredClone(settled) };
+}
+export function sendCanvasCommitPayload(operationId, payload) {
+  return http.post("/ops/canvas.document.commit", {
+    opId: operationId,
+    params: { canvasId: payload.canvasId, expectedRevision: payload.expectedRevision, document: payload.document },
   });
 }
 `,
@@ -185,6 +200,7 @@ writeFileSync(
         .replace('"@/stores/canvas/use-canvas-history-store"', JSON.stringify(pathToFileURL(historyPath).href))
         .replace('"@/services/api/request"', JSON.stringify(pathToFileURL(requestPath).href))
         .replace('"@/services/api/operations"', JSON.stringify(pathToFileURL(operationsPath).href))
+        .replace('"@/services/canvas-commit-payload"', JSON.stringify(pathToFileURL(canvasCommitPath).href))
         .replace('"@/services/canvas-operation-journal"', JSON.stringify(pathToFileURL(journalPath).href))
         .replace('"@/services/api/resources"', JSON.stringify(pathToFileURL(resourcesPath).href))
         .replace('"@/stores/use-asset-store"', JSON.stringify(pathToFileURL(assetsPath).href))

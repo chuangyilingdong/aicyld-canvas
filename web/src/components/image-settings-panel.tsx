@@ -63,6 +63,7 @@ type ImageSettingsPanelProps = {
 export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = true, showQuality = true, showTransparent = true, showFormat = true, showSize = true, showCount = true, className = "w-[304px] space-y-3 rounded-2xl px-1 py-0.5", maxCount = 15, quickCount = 3 }: ImageSettingsPanelProps) {
     const profile = mergedImageCapabilityConfig(config, config.model || config.imageModel);
     const seedream = seedreamFamily(config.model || config.imageModel);
+    const model = config.model || config.imageModel;
     const normalized = normalizeImageValue(profile, config);
     const quality = normalized.quality;
     const transparentBackground = normalized.transparentBackground === "true";
@@ -72,7 +73,7 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
     const effectiveMaxCount = Math.min(maxCount, batchCounts?.length ? Math.max(...batchCounts) : profile.maxOutputs);
     const count = Math.max(1, Math.min(effectiveMaxCount, Number(normalized.count)));
     const activeSize = normalized.size;
-    const activeQualityOptions = profile.quality.values.map((value) => qualityOptions.find((item) => item.value === value) || { value, label: value });
+    const activeQualityOptions = profile.quality.values.map((value) => qualityOptions.find((item) => item.value === value) || { value, label: imageQualityLabel(value, model) });
 
     return (
         <ImageSettingsTheme theme={theme}>
@@ -99,9 +100,6 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
                 {showTransparent && profile.transparentBackground.supported && (!seedream || config.seedreamMode !== "layers") ? <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
                         <SettingTitle color={theme.node.muted}>透明背景</SettingTitle>
-                        <div className="mt-1 text-[var(--fs-label)]" style={{ color: theme.node.muted }}>
-                            {seedream ? "保留参考图中的透明区域，需要连接一张透明图片。" : "请求模型输出保留 Alpha 通道的 PNG"}
-                        </div>
                     </div>
                     <span title="是否支持透明背景由当前模型接口决定" onMouseDown={(event) => event.stopPropagation()}>
                         <Switch
@@ -137,9 +135,6 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
                             value={config.seedreamMaxImages || "1"}
                             onChange={(event) => onConfigChange("seedreamMaxImages", event.target.value)}
                         />
-                        <span className="block leading-relaxed" style={{ color: theme.node.muted }}>
-                            同一次生成中的关联图片，按实际出图收费；参考图与输出图合计最多 15 张。
-                        </span>
                     </label>
                 ) : null}
                 {showCount && profile.fixedOutputs ? (
@@ -148,7 +143,6 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
                         <div className="grid grid-cols-3 gap-1.5">
                             {(batchCounts?.length ? batchCounts : [profile.fixedOutputs]).map((value) => <OptionPill key={value} selected={count === value} theme={theme} onClick={() => onConfigChange("count", String(value))}>{value}</OptionPill>)}
                         </div>
-                        <div className="text-[var(--fs-label)]" style={{ color: theme.node.muted }}>每批 {profile.fixedOutputs} 张，共 {count / profile.fixedOutputs} 批；按实际批次计费</div>
                     </div>
                 ) : showCount && effectiveMaxCount > 1 ? (
                     <div className="space-y-2">
@@ -186,8 +180,20 @@ export function ImageSettingsTheme({ theme, children }: { theme: CanvasTheme; ch
     );
 }
 
-export function imageQualityLabel(value: string) {
-    return ({ auto: "自动", high: "高", xhigh: "超高", max: "最高", medium: "中", low: "低", "1k": "1K", "2k": "2K", "4k": "4K" } as Record<string, string>)[value.toLowerCase()] || value || "默认";
+export function imageQualityLabel(value: string, model?: string) {
+    const normalized = value.trim().toLowerCase();
+    if (isYouchuanImageModel(model)) {
+        if (normalized === "1") return "标准";
+        if (normalized === "2") return "增强";
+        if (normalized === "3") return "高细节";
+        if (normalized === "4") return model?.toLowerCase().includes("v8.1") ? "高细节" : "实验";
+    }
+    return ({ auto: "自动", high: "高", xhigh: "超高", max: "最高", medium: "中", low: "低", "1k": "1K", "2k": "2K", "4k": "4K" } as Record<string, string>)[normalized] || value || "默认";
+}
+
+function isYouchuanImageModel(model?: string) {
+    const normalized = String(model || "").toLowerCase();
+    return normalized.includes("youchuan") || normalized.includes("midjourney-v8");
 }
 
 export function imageOutputFormatLabel(value: string) {

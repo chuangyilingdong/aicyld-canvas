@@ -47,7 +47,7 @@ export function VideoReferenceModeSwitch({
             aria-disabled={!state.canSelectFrames}
             aria-label={state.endFrameSupported ? "首尾帧模式" : "首帧模式"}
             data-canvas-no-drag
-            className={`inline-flex h-5 items-center rounded-[var(--r-sm)] px-2 text-[var(--fs-tiny)] font-medium leading-none transition-colors ${state.canSelectFrames ? "cursor-pointer" : "cursor-not-allowed opacity-45"}`}
+            className={`inline-flex h-6 items-center rounded-[var(--r-sm)] px-2.5 text-[var(--fs-tiny)] font-medium leading-none transition-colors ${state.canSelectFrames ? "cursor-pointer opacity-100" : "cursor-not-allowed opacity-45"}`}
             style={{
                 background: framesActive ? theme.node.panel : "transparent",
                 color: framesActive ? theme.node.text : theme.node.muted,
@@ -58,6 +58,7 @@ export function VideoReferenceModeSwitch({
                 if (!state.canSelectFrames || framesActive) return;
                 applyMode("frames");
             }}
+            onMouseDown={(event) => event.stopPropagation()}
             onPointerDown={(event) => event.stopPropagation()}
         >
             {state.endFrameSupported ? "首尾帧" : "首帧"}
@@ -71,7 +72,7 @@ export function VideoReferenceModeSwitch({
             aria-disabled={!state.canSelectAll}
             aria-label="全能参考模式"
             data-canvas-no-drag
-            className={`inline-flex h-5 items-center rounded-[var(--r-sm)] px-2 text-[var(--fs-tiny)] font-medium leading-none transition-colors ${state.canSelectAll ? "cursor-pointer" : "cursor-not-allowed opacity-45"}`}
+            className={`inline-flex h-6 items-center rounded-[var(--r-sm)] px-2.5 text-[var(--fs-tiny)] font-medium leading-none transition-colors ${state.canSelectAll ? "cursor-pointer opacity-100" : "cursor-not-allowed opacity-45"}`}
             style={{
                 background: allActive ? theme.node.panel : "transparent",
                 color: allActive ? theme.node.text : theme.node.muted,
@@ -82,6 +83,7 @@ export function VideoReferenceModeSwitch({
                 if (!state.canSelectAll || allActive) return;
                 applyMode("all");
             }}
+            onMouseDown={(event) => event.stopPropagation()}
             onPointerDown={(event) => event.stopPropagation()}
         >
             全能参考

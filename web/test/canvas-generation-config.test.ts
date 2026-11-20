@@ -68,6 +68,35 @@ test("resolved requirements retain admitted defaults rather than restoring raw n
     expect(resolvedCanvasGenerationRequirements(resolved, imageNode, "image", input).options).toMatchObject({ count: 2, size: "3:2" });
 });
 
+test("unsupported image output format is removed from the request config", () => {
+    const capabilityConfig = defaultModelCapabilityConfig("runninghub-standard-image");
+    capabilityConfig.image!.outputFormat = { supported: false };
+    const profile = {
+        model: "youchuan-image",
+        displayName: "悠船 V8.2",
+        capability: "image" as const,
+        protocol: "runninghub-standard-image" as const,
+        capabilityConfig,
+        capabilitySource: "user" as const,
+    };
+    const global = {
+        ...defaultConfig,
+        imageModel: "channel::youchuan-image",
+        imageOutputFormat: "png",
+        channels: [{
+            id: "channel",
+            name: "Fixture",
+            baseUrl: "https://www.runninghub.ai",
+            apiKey: "fixture",
+            apiFormat: "openai" as const,
+            models: [profile.model],
+            modelProfiles: [profile],
+        }],
+    } as AiConfig;
+    const imageNode = { ...node, type: CanvasNodeType.Image, metadata: { model: global.imageModel } };
+    expect(buildGenerationConfig(global, imageNode, "image").imageOutputFormat).toBe("");
+});
+
 for (const savedModel of [false, true]) {
     for (const mode of ["image", "video"] as const) {
         test(`new ${mode} nodes preserve parameters supported by another same-name model, saved model: ${savedModel}`, () => {

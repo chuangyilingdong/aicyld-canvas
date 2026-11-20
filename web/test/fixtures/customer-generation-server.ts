@@ -47,6 +47,17 @@ export async function startCustomerScenarioServer(options: { port?: number } = {
             state.project = { ...body.params.document, revision: state.project.revision + 1 };
             return json({ revision: state.project.revision, result: { canvasId: state.project.id, revision: state.project.revision, title: state.project.title, updatedAt: state.project.updatedAt } });
         }
+        if (url.pathname === "/api/ops/canvas.nodes.patch") {
+            const body = await request.json();
+            const replacements = new Map(body.params.nodes.map((node: any) => [node.id, node]));
+            state.project = {
+                ...state.project,
+                nodes: state.project.nodes.map(node => replacements.get(node.id) || node),
+                revision: state.project.revision + 1,
+                updatedAt: new Date().toISOString(),
+            };
+            return json({ revision: state.project.revision, result: { canvasId: state.project.id, revision: state.project.revision, title: state.project.title, updatedAt: state.project.updatedAt } });
+        }
         if (url.pathname === `/api/canvas-projects/${state.project.id}`) return json({ project: state.project });
         if (url.pathname === "/api/tasks" && request.method === "POST") {
             const body = await request.json();

@@ -26,6 +26,7 @@ const seedream = {
 describe("image size ratio choices", () => {
     test("keeps landscape and portrait ratios discoverable across resolution tiers", () => {
         expect(imageSizeRatioChoices(seedream, "1k").map((item) => item.ratio)).toEqual(["1:1", "3:2", "2:3", "16:9", "9:16"]);
+        expect(imageSizeRatioChoices(seedream, "2k").map((item) => item.ratio)).toEqual(["1:1", "3:2", "2:3", "16:9", "9:16"]);
     });
 
     test("selects the declared 2K pixel size for 16:9 and 9:16", () => {

@@ -13,7 +13,7 @@ import { CanvasPresetPicker, type CanvasPromptPreset } from "./canvas-preset-pic
 import type { CanvasGenerationMode, CanvasNodeMetadata, CanvasWorkspaceMode } from "@/types/canvas";
 import { CanvasH3ReferenceOrder } from "./canvas-h3-reference-order";
 import { h3VideoOperation, isH3MaxModel, isH3Model, isH3Style } from "@/lib/h3-video";
-import { resolveVideoOperation } from "@/lib/model-selection";
+import { resolveVideoOperation, videoModelFamilyOperations } from "@/lib/model-selection";
 import { modelCapabilityConfigFor, videoReferencesForOperation } from "@/lib/model-capabilities";
 import { useEffectiveConfig } from "@/stores/use-config-store";
 import { findPromptFirstFrameNodeId, resolveVideoReferenceModeState, stripPromptFirstFrameClauses, videoReferenceModeWarning } from "@/lib/canvas/video-reference-mode";
@@ -68,16 +68,17 @@ export function CanvasConfigComposer({ value, inputs, skillReferences = [], gene
     const simpleMode = workspaceMode === "simple";
     const workflowVideoReferenceMode = generationMode === "video" && isCanvasWorkflowProvider(metadata);
     const videoProfile = generationMode === "video" ? modelCapabilityConfigFor(config, model).video : undefined;
+    const familyVideoOperations = generationMode === "video" ? videoModelFamilyOperations(config, model) : [];
     const h3Model = isH3Model(model);
     const h3Style = isH3Style(model);
     const endFrameSupported = generationMode === "video"
-        ? (!h3Style && (h3Model || (videoProfile ? videoReferencesForOperation(videoProfile, "image_to_video").maxImages >= 2 : true)))
+        ? (!h3Style && (h3Model || familyVideoOperations.includes("first_last_frame") || (videoProfile ? videoReferencesForOperation(videoProfile, "image_to_video").maxImages >= 2 : true)))
         : false;
     const referenceVideoSupported = generationMode === "video"
-        ? (h3Model ? !h3Style : Boolean(videoProfile?.operations.includes("reference_to_video")))
+        ? (h3Model ? !h3Style : familyVideoOperations.includes("reference_to_video"))
         : false;
     const referenceFramesSupported = generationMode === "video"
-        ? (h3Model ? !h3Style : Boolean(videoProfile?.operations.includes("image_to_video")))
+        ? (h3Model ? !h3Style : familyVideoOperations.includes("image_to_video") || familyVideoOperations.includes("first_last_frame"))
         : false;
     const videoModeState = useMemo(() => {
         if (generationMode !== "video" || simpleMode || workflowVideoReferenceMode) return undefined;

@@ -4,6 +4,7 @@ import { gzipSync } from "node:zlib";
 
 const PROJECT_GZIP_BUDGET = 450 * 1024;
 const ANTD_GZIP_BUDGET = 450 * 1024;
+const INITIAL_CORE_GZIP_BUDGET = 840 * 1024;
 
 export function checkCanvasBundleBudget(dist = join(import.meta.dir, "..", "dist")) {
     const manifest = JSON.parse(readFileSync(join(dist, "version.json"), "utf8"));
@@ -28,7 +29,13 @@ export function checkCanvasBundleBudget(dist = join(import.meta.dir, "..", "dist
     if (antd[0].gzip > ANTD_GZIP_BUDGET) {
         throw new Error(`Ant Design chunk ${Math.round(antd[0].gzip / 1024)}KB gzip 超过 ${ANTD_GZIP_BUDGET / 1024}KB 预算`);
     }
-    return { projects, antd };
+    const applicationCss = files.filter((file) => /^static\/application-.*\.css$/.test(file)).map(measure).sort((a, b) => b.gzip - a.gzip)[0];
+    const initialCoreGzip = projects[0].gzip + antd[0].gzip + (applicationCss?.gzip || 0);
+    console.log(`[bundle] initial-core raw=${Math.round((projects[0].raw + antd[0].raw + (applicationCss?.raw || 0)) / 1024)}KB gzip=${Math.round(initialCoreGzip / 1024)}KB`);
+    if (initialCoreGzip > INITIAL_CORE_GZIP_BUDGET) {
+        throw new Error(`画布首载核心资源 ${Math.round(initialCoreGzip / 1024)}KB gzip 超过 ${INITIAL_CORE_GZIP_BUDGET / 1024}KB 预算`);
+    }
+    return { projects, antd, applicationCss, initialCoreGzip };
 }
 
 if (import.meta.main) {

@@ -1,4 +1,4 @@
-import { buildImageResolutionOptions, type ImageResolutionOption, type ImageResolutionTier } from "./image-resolution-tiers";
+import { buildImageResolutionOptions, IMAGE_RATIO_DISPLAY_ORDER, type ImageResolutionOption, type ImageResolutionTier } from "./image-resolution-tiers";
 import type { ImageCapabilityConfig } from "./model-capabilities";
 
 export const IMAGE_RESOLUTIONS: ImageResolutionTier[] = ["1k", "2k", "4k"];
@@ -128,7 +128,32 @@ export function imageSizeRatioChoices(profile: ImageCapabilityConfig, tier: Imag
         seen.add(preset.ratio);
         choices.push(preset);
     }
-    return choices;
+    const order = new Map(IMAGE_RATIO_DISPLAY_ORDER.map((ratio, index) => [ratio, index]));
+    return choices.sort((left, right) => (order.get(left.ratio) ?? Number.MAX_SAFE_INTEGER) - (order.get(right.ratio) ?? Number.MAX_SAFE_INTEGER));
+}
+
+/**
+ * Keep the user's selected resolution when they switch aspect ratio.
+ * The ratio grid intentionally includes ratios from other tiers so they stay
+ * discoverable, but selecting one must not silently change 1K to 2K/4K.
+ * Models that allow a custom ratio can synthesize the requested ratio at the
+ * current tier; fixed-preset models still fall back to the declared tier.
+ */
+export function imageRatioPresetPreservingTier(
+    profile: ImageCapabilityConfig,
+    tier: ImageResolutionTier,
+    choice: ImageResolutionOption,
+): ImageResolutionOption {
+    const exact = imageSizePresets(profile).find((preset) => preset.tier === tier && preset.ratio === choice.ratio);
+    if (exact) return exact;
+    if (!profile.size.allowCustom) return choice;
+    const custom = imagePresetForRatio(tier, choice.ratio);
+    if (profile.size.parameter === "size" && !profile.size.values.includes(custom.size)) {
+        custom.width = Math.round(custom.width / 16) * 16;
+        custom.height = Math.round(custom.height / 16) * 16;
+        custom.size = `${custom.width}x${custom.height}`;
+    }
+    return custom;
 }
 
 export function imagePresetValue(profile: ImageCapabilityConfig, preset: ImageResolutionOption) {

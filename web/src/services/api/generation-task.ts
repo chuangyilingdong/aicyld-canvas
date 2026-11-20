@@ -517,11 +517,12 @@ export function backendProviderConfig(config: AiConfig, mode: BackendGenerationM
     const workflow = resolveGenerationWorkflowExecution(config, mode);
     if (workflow) return workflowProviderConfig(config, requestConfig, workflow);
     const seedream = Boolean(seedreamFamily(requestConfig.model || config.model));
+    const supportsImageOutputFormat = modelCapabilityConfigFor(config, requestConfig.model).image?.outputFormat.supported === true;
     const generationOptions = {
         size: config.size,
         quality: omittedImageQuality(config.quality, requestConfig),
         transparentBackground: config.transparentBackground,
-        imageOutputFormat: config.imageOutputFormat || config.seedreamOutputFormat,
+        imageOutputFormat: supportsImageOutputFormat ? config.imageOutputFormat || config.seedreamOutputFormat : "",
         seedreamMode: config.seedreamMode,
         seedreamMaxImages: config.seedreamMaxImages,
         seedreamOutputFormat: config.seedreamOutputFormat,

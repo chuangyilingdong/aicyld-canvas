@@ -13,7 +13,6 @@ import {
     resolveVideoOperation,
     videoModelFamilyOperations,
     videoOperationInputError,
-    videoOperationRequirementHint,
 } from "@/lib/model-selection";
 
 import {
@@ -176,8 +175,12 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, onConfigC
     const hasAnyInput = Boolean(inputSummary.textCount || inputSummary.imageCount || inputSummary.videoCount || inputSummary.audioCount || inputSummary.characterCount);
     const hasComposerContent = Boolean((node.metadata?.composerContent ?? node.metadata?.prompt ?? "").trim());
     const workflowParameterError = firstWorkflowParameterError(dynamicWorkflowFields, node.metadata?.workflowParameters || {});
+    const videoOperationError = mode === "video" && effectiveVideoOperation && workflowProvider === "model"
+        ? videoOperationInputError(inputSummary, effectiveVideoOperation)
+        : "";
     const capabilityError =
         workflowParameterError ||
+        videoOperationError ||
         (workflowProvider === "runninghub"
             ? !workflowProviderPluginEnabled(runtimeStatuses, "runninghub")
                 ? "RunningHub 工作流插件未启用"
@@ -285,13 +288,8 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, onConfigC
                                     const reason = videoOperationInputError(inputSummary, option.value);
                                     return {
                                         ...option,
-                                        label: (
-                                            <span title={reason || undefined}>
-                                                {option.label}
-                                                {reason ? <span className="opacity-55"> · {videoOperationRequirementHint(option.value)}</span> : null}
-                                            </span>
-                                        ),
-                                        disabled: Boolean(reason),
+                                        label: option.label,
+                                        title: reason || undefined,
                                     };
                                 })}
                             onChange={(value) => onConfigChange(node.id, { videoEditOperation: value as CanvasVideoEditOperation })}

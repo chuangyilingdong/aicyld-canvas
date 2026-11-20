@@ -24,7 +24,7 @@ test("local and hosted canvas edits schedule and explicit saves await backend pe
     expect(lifecycle).toContain("await syncLocalCanvasProjectToBackend(projectId);");
     expect(repository).toContain("await flushCanvasStorePersistence();\n        await syncLocalCanvasProject(id);");
     expect(repository).toContain("const backendSaveTails = new Map<string, Promise<void>>()");
-    expect(repository).toContain("commitCanvasDocument");
+    expect(repository).toContain("sendCanvasCommitPayload");
     expect(operations).toContain("ensureAgentUiSession");
     expect(operations).toContain("X-Beeftv-Ui-Session");
     expect(operations).toContain("await ensureAgentUiSession()");

@@ -11,7 +11,7 @@ export type ImageResolutionOption = {
 export type ImageResolutionChoice = "auto" | ImageResolutionTier;
 
 const tierOrder: ImageResolutionTier[] = ["1k", "2k", "4k"];
-const ratioOrder = ["1:1", "3:2", "2:3", "4:3", "3:4", "4:5", "5:4", "16:9", "9:16", "2:1", "1:2", "21:9"];
+export const IMAGE_RATIO_DISPLAY_ORDER = ["1:1", "3:2", "2:3", "4:3", "3:4", "4:5", "5:4", "16:9", "9:16", "2:1", "1:2", "21:9"];
 
 export function supportsImageResolutionPresets(size: { parameter: string; values: string[]; allowCustom?: boolean }) {
     return size.parameter === "size" && size.values.some((value) => /^\d+x\d+$/i.test(value.trim()));
@@ -24,7 +24,7 @@ export function buildImageResolutionOptions(values: string[]) {
         .sort((left, right) => {
             const tierDifference = tierOrder.indexOf(left.tier) - tierOrder.indexOf(right.tier);
             if (tierDifference) return tierDifference;
-            return ratioOrder.indexOf(left.ratio) - ratioOrder.indexOf(right.ratio);
+            return IMAGE_RATIO_DISPLAY_ORDER.indexOf(left.ratio) - IMAGE_RATIO_DISPLAY_ORDER.indexOf(right.ratio);
         });
 }
 
@@ -72,7 +72,7 @@ function parseImageResolutionOption(value: string): ImageResolutionOption | null
 function closestRatio(value: number) {
     let result = "";
     let bestDifference = Number.POSITIVE_INFINITY;
-    for (const label of ratioOrder) {
+    for (const label of IMAGE_RATIO_DISPLAY_ORDER) {
         const [width, height] = label.split(":").map(Number);
         const expected = width / height;
         const difference = Math.abs(value - expected) / expected;

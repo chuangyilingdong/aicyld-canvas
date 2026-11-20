@@ -31,7 +31,7 @@ export function CanvasVideoSettingsPopover({ config, onConfigChange, buttonClass
     const capabilityConfig = modelCapabilityConfigFor(config, config.model);
     const videoProfile = capabilityConfig.video;
     const resolutionSupported = Boolean(videoProfile?.resolutions.length);
-    const sizeSupported = Boolean(videoProfile?.ratios.length);
+    const sizeSupported = Boolean(videoProfile && (videoProfile.ratios.length > 1 || taskConstraints?.ratioLabel));
     const resolution = videoProfile ? resolveVideoResolutionValue(videoProfile, config.vquality) : "";
     const size = videoProfile ? resolveVideoRatioValue(videoProfile, config.size) : "";
     const draftActive = Boolean(videoProfile?.draft?.supported && config.videoDraft === "true" && (!resolution || isVideoResolutionMatch(resolution, "480p")));

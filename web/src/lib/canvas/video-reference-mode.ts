@@ -128,9 +128,9 @@ export function resolveVideoReferenceModeState({
         && videoCount === 0
         && audioCount <= allowedFrameAudios;
     const hasReference = visualCount + videoCount + audioCount > 0;
-    // 模型能力决定选项是否可用，已连接素材决定当前模式能否继续沿用。
-    const canSelectFrames = framesSupported && (!hasReference || frameReferencesCompatible);
-    const canSelectAll = !h3Style && referenceVideoSupported && hasReference;
+    // 用户先选模式，提交时再校验素材。只有模型本身不支持时才不能选。
+    const canSelectFrames = framesSupported;
+    const canSelectAll = !h3Style && referenceVideoSupported;
     const framesDisabledReason = canSelectFrames
         ? undefined
         : characterCount > 0
@@ -147,7 +147,7 @@ export function resolveVideoReferenceModeState({
     const allDisabledReason = !canSelectAll ? "当前模型仅支持首帧/首尾帧模式，不支持全能参考" : undefined;
     const selectedMode = metadata?.videoEditOperation === "reference_to_video"
         ? "all"
-        : metadata?.videoEditOperation === "image_to_video"
+        : metadata?.videoEditOperation === "image_to_video" || metadata?.videoEditOperation === "first_last_frame"
           ? "frames"
           : undefined;
     const mode: "frames" | "all" = selectedMode === "all" && canSelectAll

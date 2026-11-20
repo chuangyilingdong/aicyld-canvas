@@ -9493,6 +9493,13 @@ html:not(.dark) .creation-studio-control:hover,
         color: var(--cn-text);
         box-shadow: var(--canvas-composer-shadow);
         padding: var(--space-3);
+        /* The canvas composer carries the primary creation controls. Keep its
+           metadata one step above the global micro-label floor so model,
+           mode and validation text remain readable at normal zoom. */
+        --fs-micro: 10px;
+        --fs-tiny: 11px;
+        --fs-label: 12px;
+        --fs-caption: 13px;
     }
 
     /* LibTV's canvas composer is a compact surface. Keep every existing
@@ -10942,17 +10949,32 @@ html:not(.dark) .creation-studio-control:hover,
     .canvas-node-composer-footer {
         display: flex;
         min-width: 0;
+        flex-wrap: wrap;
         align-items: center;
         justify-content: space-between;
         gap: var(--space-1);
+        row-gap: var(--space-1-half);
         margin-top: var(--space-1);
         padding-top: var(--space-2);
     }
 
     .canvas-node-composer-model {
-        min-width: 148px;
-        max-width: 220px;
-        flex: 1 1 220px;
+        /* Model + video mode share this row. Preserve enough room for the
+           model family name; the action group wraps instead of compressing it. */
+        min-width: 220px;
+        max-width: 300px;
+        flex: 1 1 240px;
+    }
+
+    .canvas-node-composer-actions {
+        flex: 1 1 auto;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        row-gap: var(--space-1);
+    }
+
+    .canvas-node-composer-mode-select {
+        min-width: 104px;
     }
 
     .canvas-node-composer-settings-trigger {

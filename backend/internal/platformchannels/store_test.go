@@ -67,6 +67,49 @@ func TestDefaultsIncludeRunningHubGPTImageProfile(t *testing.T) {
 	}
 }
 
+func TestDefaultsIncludeSeedream55AndYouchuanProfiles(t *testing.T) {
+	want := map[string]struct {
+		family      string
+		providerKey string
+		maxImages   int
+		baseURL     string
+	}{
+		"rh-seedream-v5.5-t2i":         {family: "Seedream 5.5", providerKey: "seedream-v5.5/text-to-image", maxImages: 0, baseURL: "https://www.runninghub.cn"},
+		"rh-seedream-v5.5-i2i":         {family: "Seedream 5.5", providerKey: "seedream-v5.5/image-to-image", maxImages: 10, baseURL: "https://www.runninghub.cn"},
+		"rh-midjourney-v8.1-t2i":       {family: "悠船 V8.1", providerKey: "youchuan/text-to-image-v81", maxImages: 2, baseURL: "https://www.runninghub.ai"},
+		"rh-midjourney-v8.2-fast-t2i":  {family: "悠船 V8.2", providerKey: "youchuan/text-to-image-v8.2-fast", maxImages: 2, baseURL: "https://www.runninghub.ai"},
+		"rh-midjourney-v8.2-turbo-t2i": {family: "悠船 V8.2", providerKey: "youchuan/text-to-image-v8.2-turbo", maxImages: 2, baseURL: "https://www.runninghub.ai"},
+	}
+	for _, channel := range Defaults() {
+		for _, profile := range channel.ModelProfiles {
+			expected, ok := want[profile.Model]
+			if !ok {
+				continue
+			}
+			if profile.Family != expected.family || profile.ProviderModelKey != expected.providerKey || channel.BaseURL != expected.baseURL {
+				t.Fatalf("%s profile = %#v", profile.Model, profile)
+			}
+			var capability struct {
+				Image struct {
+					References struct {
+						MaxImages int `json:"maxImages"`
+					} `json:"references"`
+				} `json:"image"`
+			}
+			if err := json.Unmarshal(profile.CapabilityConfig, &capability); err != nil {
+				t.Fatal(err)
+			}
+			if capability.Image.References.MaxImages != expected.maxImages {
+				t.Fatalf("%s maxImages = %d", profile.Model, capability.Image.References.MaxImages)
+			}
+			delete(want, profile.Model)
+		}
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing default profiles: %#v", want)
+	}
+}
+
 func TestDefaultsIncludeVerifiedMultimodalReviewProfile(t *testing.T) {
 	for _, channel := range Defaults() {
 		for _, profile := range channel.ModelProfiles {

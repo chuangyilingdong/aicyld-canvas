@@ -7,8 +7,10 @@ import {
     operationForModelSelection,
     resolveVideoOperation,
     videoModelFamilyOperations,
+    videoOperationInputError,
 } from "@/lib/model-selection";
 import { encodeChannelModel, type AiConfig } from "@/stores/use-config-store";
+import { videoRatioLabel } from "@/components/video-settings-panel";
 
 const base = defaultModelCapabilityConfig();
 
@@ -56,6 +58,11 @@ function input(imageCount: number) {
 }
 
 describe("video model-first selection regression", () => {
+    test("shows adaptive ratio in plain Chinese", () => {
+        expect(videoRatioLabel("adaptive")).toBe("自适应");
+        expect(videoRatioLabel("16:9")).toBe("16:9");
+    });
+
     test("keeps image-only families selectable before media is connected", () => {
         expect(videoModelFamilyOperations(config, values.i2v)).toEqual(["image_to_video", "first_last_frame", "reference_to_video"]);
         expect(operationForModelSelection(config, values.i2v, input(0), "text_to_video")).toBe("image_to_video");
@@ -64,9 +71,19 @@ describe("video model-first selection regression", () => {
     });
 
     test("infers video mode from connected references", () => {
-        expect(resolveVideoOperation(input(0), "text_to_video")).toBe("text_to_video");
-        expect(resolveVideoOperation(input(1), "text_to_video")).toBe("image_to_video");
-        expect(resolveVideoOperation(input(2), "image_to_video")).toBe("first_last_frame");
-        expect(resolveVideoOperation(input(4), "text_to_video")).toBe("reference_to_video");
+        expect(resolveVideoOperation(input(0))).toBe("text_to_video");
+        expect(resolveVideoOperation(input(1))).toBe("image_to_video");
+        expect(resolveVideoOperation(input(2))).toBe("first_last_frame");
+        expect(resolveVideoOperation(input(4))).toBe("reference_to_video");
+    });
+
+    test("keeps the user's explicit mode before media is connected", () => {
+        expect(resolveVideoOperation(input(0), "image_to_video")).toBe("image_to_video");
+        expect(resolveVideoOperation(input(0), "reference_to_video")).toBe("reference_to_video");
+        expect(resolveVideoOperation(input(0), "first_last_frame")).toBe("first_last_frame");
+        expect(resolveVideoOperation(input(2), "reference_to_video")).toBe("reference_to_video");
+        expect(operationForModelSelection(config, values.i2v, input(0), "first_last_frame")).toBe("first_last_frame");
+        expect(videoOperationInputError(input(0), "image_to_video")).toContain("1 张首帧图片");
+        expect(videoOperationInputError(input(1), "text_to_video")).toContain("不能同时传入参考素材");
     });
 });

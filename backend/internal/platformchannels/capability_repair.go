@@ -29,8 +29,14 @@ func knownModelFamily(model string) string {
 		return "Lib Image 2.5 Pro · Flare"
 	case strings.HasPrefix(name, "rh-seedream-v5-pro-"):
 		return "Seedream 5 Pro"
-	case strings.HasPrefix(name, "rh-seedream-v5.5-"):
+	case strings.HasPrefix(name, "rh-seedream-v5.5-layer"):
 		return "Seedream 5.5 图层拆分"
+	case strings.HasPrefix(name, "rh-seedream-v5.5-"):
+		return "Seedream 5.5"
+	case strings.HasPrefix(name, "rh-midjourney-v8.1-"):
+		return "悠船 V8.1"
+	case strings.HasPrefix(name, "rh-midjourney-v8.2-"):
+		return "悠船 V8.2"
 	case strings.HasPrefix(name, "rh-minimax-h3-image-"):
 		return "MiniMax H3 Image"
 	case strings.HasPrefix(name, "rh-nano-banana-2.1-"):
