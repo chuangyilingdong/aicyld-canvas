@@ -115,4 +115,11 @@ describe("release regression source contracts", () => {
         expect(scriptGeneration).toContain("quoteGenerationTask(");
         expect(scriptGeneration).toContain("buildBackendGenerationTaskQuoteInput({");
     });
+
+    test("keeps the unified timeline shell inside one bounded editor surface", () => {
+        const timeline = source("components/canvas/canvas-timeline-dialog.tsx");
+        expect(timeline).toContain('height: "min(820px, calc(100dvh - 24px))"');
+        expect(timeline).toContain('body: { minHeight: 0, flex: "1 1 0px"');
+        expect(timeline).toContain("timeline-editor-body flex min-h-0 flex-1 flex-col overflow-hidden");
+    });
 });

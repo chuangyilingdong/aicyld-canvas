@@ -701,6 +701,7 @@ export function CanvasTimelineDialog({
     return (
         <AppModal
             className="canvas-timeline-dialog"
+            classNames={{ body: "text-sm" }}
             style={{
                 "--editor-bg": theme.node.panel,
                 "--editor-panel": theme.node.fill,
@@ -711,6 +712,11 @@ export function CanvasTimelineDialog({
                 "--editor-button-line": theme.toolbar.border,
                 "--editor-clip-text": canvasThemes.dark.node.text,
             } as CSSProperties}
+            styles={{
+                container: { height: "min(820px, calc(100dvh - 24px))", display: "flex", flexDirection: "column" },
+                header: { flexShrink: 0 },
+                body: { minHeight: 0, flex: "1 1 0px", display: "flex", flexDirection: "column", overflow: "hidden", color: theme.node.text },
+            }}
             title={title}
             open={open}
             centered
@@ -726,7 +732,7 @@ export function CanvasTimelineDialog({
             }}
             flush
         >
-            <div className="media-editor-body timeline-editor-body flex flex-col text-sm" style={{ color: theme.node.text }}>
+            <div className="media-editor-body timeline-editor-body flex min-h-0 flex-1 flex-col overflow-hidden text-sm" style={{ color: theme.node.text }}>
                 <div ref={toolbarRef} className="canvas-timeline-toolbar media-editor-toolbar flex flex-wrap items-center gap-2" style={{ borderColor: theme.toolbar.border, background: theme.toolbar.panel }}>
                     <span className="min-w-24 rounded-md border px-2 py-1 text-xs font-semibold tabular-nums" style={{ borderColor: theme.toolbar.border, background: theme.node.fill, color: theme.accent.primary }}>
                         {formatTimelineTime(playheadMs)}
