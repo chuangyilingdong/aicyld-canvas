@@ -27,7 +27,9 @@ type Service struct {
 	recoveryErr    error
 	lookPath       func(file string) (string, error)
 	transcode      func(ctx context.Context, src string, dst string) error
+	renderPoster   func(ctx context.Context, src string, dst string, width int) error
 	slots          chan struct{}
+	posterSlots    chan struct{}
 	cacheMu        sync.Mutex
 }
 
@@ -39,6 +41,10 @@ func New(deps Deps) *Service {
 	transcode := deps.Transcode
 	if transcode == nil {
 		transcode = runH264Transcode
+	}
+	renderPoster := deps.RenderPoster
+	if renderPoster == nil {
+		renderPoster = runVideoPoster
 	}
 	ctx := deps.Context
 	if ctx == nil {
@@ -52,7 +58,9 @@ func New(deps Deps) *Service {
 		runtimeContext: deps.RuntimeContext,
 		lookPath:       lookPath,
 		transcode:      transcode,
+		renderPoster:   renderPoster,
 		slots:          make(chan struct{}, 1),
+		posterSlots:    make(chan struct{}, 2),
 	}
 }
 

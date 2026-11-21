@@ -19,25 +19,33 @@ const node = (videoPreview?: CanvasNodeData["metadata"]["videoPreview"]): Canvas
     },
 });
 
-test("legacy and source-mismatched posters are hydrated again", () => {
-    expect(canvasVideoPreviewNeedsHydration(node({ content: "/api/resources/old-poster/file" }))).toBe(true);
+test("managed videos use server posters while unowned legacy previews still hydrate", () => {
+    expect(canvasVideoPreviewNeedsHydration(node({ content: "/api/resources/old-poster/file" }))).toBe(false);
     expect(
-        canvasVideoPreviewNeedsHydration(
-            node({
-                content: "/api/resources/poster/file",
-                captureVersion: CANVAS_VIDEO_PREVIEW_VERSION,
-                sourceKey: "resource:other-source",
-            }),
-        ),
+        canvasVideoPreviewNeedsHydration({
+            metadata: {
+                content: "https://cdn.example.com/source.mp4",
+                storageKey: "external-source",
+                videoPreview: {
+                    content: "https://cdn.example.com/old-poster.jpg",
+                    captureVersion: CANVAS_VIDEO_PREVIEW_VERSION,
+                    sourceKey: "external-other",
+                },
+            },
+        }),
     ).toBe(true);
     expect(
-        canvasVideoPreviewNeedsHydration(
-            node({
-                content: "/api/resources/poster/file",
-                captureVersion: CANVAS_VIDEO_PREVIEW_VERSION,
-                sourceKey: "resource:source",
-            }),
-        ),
+        canvasVideoPreviewNeedsHydration({
+            metadata: {
+                content: "https://cdn.example.com/source.mp4",
+                storageKey: "external-source",
+                videoPreview: {
+                    content: "https://cdn.example.com/poster.jpg",
+                    captureVersion: CANVAS_VIDEO_PREVIEW_VERSION,
+                    sourceKey: "external-source",
+                },
+            },
+        }),
     ).toBe(false);
 });
 

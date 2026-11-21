@@ -1,5 +1,6 @@
 import { onStorageNamespaceChange } from "@/lib/user-scope";
 import { captureVideoPoster } from "@/lib/video-poster";
+import { ownedResourceVideoPosterUrl } from "@/lib/canvas/canvas-media-preview";
 import { resourceIdFromStorageKey } from "@/services/api/resources";
 import { acquireCanvasVideoSource } from "@/services/canvas-video-source";
 import type { CanvasNodeData, CanvasNodeMetadata } from "@/types/canvas";
@@ -90,6 +91,7 @@ export function acquireCanvasVideoPreview(node: VideoPreviewSource) {
 export function canvasVideoPreviewNeedsHydration(node: VideoPreviewSource) {
     const sourceKey = canvasVideoPreviewSourceKey(node);
     if (!sourceKey) return false;
+    if (ownedResourceVideoPosterUrl(node.metadata?.storageKey, node.metadata?.content)) return false;
     const preview = node.metadata?.videoPreview;
     return !preview?.content || preview.captureVersion !== CANVAS_VIDEO_PREVIEW_VERSION || preview.sourceKey !== sourceKey;
 }

@@ -321,12 +321,14 @@ if data.get('commit') not in (commit, commit[:8]):
     raise SystemExit('public commit mismatch')
 PY
 
-"$python_bin" - "$root" "$version" "$commit" "$build_time" "$go_version" "$node_version" "$entry" <<'PY'
+"$python_bin" - "$root" "$version" "$commit" "$build_time" "$go_version" "$node_version" "$entry" "$backup" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" <<'PY'
 import json, sys
-root, version, commit, build_time, go_version, node_version, entry = sys.argv[1:]
+root, version, commit, build_time, go_version, node_version, entry, rollback_backup, deployed_at = sys.argv[1:]
 release_path = f'{root}/RELEASE.json'
 with open(release_path, encoding='utf-8') as handle:
     release = json.load(handle)
+with open(f'{root}/web-dist/version.json', encoding='utf-8') as handle:
+    frontend_manifest = json.load(handle)
 release.update({
     'version': version,
     'commit': commit,
@@ -341,6 +343,9 @@ release.update({
     'backendCommit': commit,
     'agentHostCommit': commit,
     'backendBuildTime': build_time,
+    'deployedAt': deployed_at,
+    'rollbackBackup': rollback_backup,
+    'frontendBuildId': frontend_manifest.get('buildId', release.get('frontendBuildId')),
 })
 with open(release_path, 'w', encoding='utf-8') as handle:
     json.dump(release, handle, ensure_ascii=False, indent=2)

@@ -4,7 +4,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { AssetMediaPreview } from "@/components/asset-media-preview";
 import { bindCanvasViewportVideoPause, CanvasNodeVideoPlayer } from "@/components/canvas/canvas-node-video-player";
 import { applyCanvasLiveViewport } from "@/lib/canvas/canvas-live-viewport";
+import { canvasNodeVideoPreviewUrl, canvasVideoAssetPreviewUrl } from "@/lib/canvas/canvas-media-preview";
+import { canvasVideoPreviewNeedsHydration } from "@/services/canvas-video-preview";
 import type { Asset } from "@/stores/use-asset-store";
+import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 
 const originals = new Map<string, PropertyDescriptor | undefined>();
 function stubGlobal(key: string, value: unknown) {
@@ -56,6 +59,26 @@ test("asset cards render an available cover before they mount a video decoder", 
     expect(html).toContain("<img");
     expect(html).toContain("cover.jpg");
     expect(html).not.toContain("<video");
+});
+
+test("owned videos use the cached server poster and skip browser frame extraction", () => {
+    const node = {
+        id: "video-resource",
+        type: CanvasNodeType.Video,
+        title: "服务端封面",
+        position: { x: 0, y: 0 },
+        width: 320,
+        height: 180,
+        metadata: {
+            content: "/api/resources/video-resource/file",
+            storageKey: "resource:video-resource",
+            mimeType: "video/mp4",
+        },
+    } as CanvasNodeData;
+    const poster = "/api/resources/video-resource/file?proxy=1&thumbnail=480";
+    expect(canvasNodeVideoPreviewUrl(node)).toBe(poster);
+    expect(canvasVideoAssetPreviewUrl(node.metadata?.content || "")).toBe(poster);
+    expect(canvasVideoPreviewNeedsHydration(node)).toBe(false);
 });
 
 test("viewport zoom pauses active video decode and resumes only playback paused by the gesture", () => {

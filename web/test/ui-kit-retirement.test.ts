@@ -16,24 +16,23 @@ function walkSourceFiles(dir: string): string[] {
 }
 
 const srcRoot = resolve(import.meta.dir, "../src");
+const sourceFiles = walkSourceFiles(srcRoot).map((file) => ({
+    path: file,
+    name: relative(srcRoot, file),
+    text: readFileSync(file, "utf8"),
+}));
 
 test("command confirms use App.useApp().modal instead of static Modal.confirm", () => {
-    const offenders = walkSourceFiles(srcRoot)
-        .filter((file) => readFileSync(file, "utf8").includes("Modal.confirm("))
-        .map((file) => relative(srcRoot, file));
+    const offenders = sourceFiles.filter((file) => file.text.includes("Modal.confirm(")).map((file) => file.name);
     expect(offenders).toEqual([]);
 });
 
 test("generic empties do not import antd Empty", () => {
-    const offenders = walkSourceFiles(srcRoot)
-        .filter((file) => /import\s*\{[^}]*\bEmpty\b/.test(readFileSync(file, "utf8")))
-        .map((file) => relative(srcRoot, file));
+    const offenders = sourceFiles.filter((file) => /import\s*\{[^}]*\bEmpty\b/.test(file.text)).map((file) => file.name);
     expect(offenders).toEqual([]);
 });
 
 test("flush modal and drawer spacing is owned by product shells", () => {
-    const offenders = walkSourceFiles(srcRoot)
-        .filter((file) => /styles\s*=\s*\{\{\s*body:\s*\{\s*padding:\s*0\s*\}\s*\}\}/.test(readFileSync(file, "utf8")))
-        .map((file) => relative(srcRoot, file));
+    const offenders = sourceFiles.filter((file) => /styles\s*=\s*\{\{\s*body:\s*\{\s*padding:\s*0\s*\}\s*\}\}/.test(file.text)).map((file) => file.name);
     expect(offenders).toEqual([]);
 });

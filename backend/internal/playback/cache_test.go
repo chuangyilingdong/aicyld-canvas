@@ -73,6 +73,19 @@ func (s *cacheTestStore) PlaybackCopiesForUser(userID string) ([]model.Resource,
 	}
 	return rows, nil
 }
+
+func (s *cacheTestStore) VideoResourcesForUser(userID string) ([]model.Resource, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var rows []model.Resource
+	for _, r := range s.resources {
+		if r.UserID == userID && r.Provider == "local" && r.Status == model.ResourceStatusReady && r.Kind == "video" {
+			rows = append(rows, *r)
+		}
+	}
+	return rows, nil
+}
+
 func (s *cacheTestStore) ResetPlaybackCopy(userID, id, key string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

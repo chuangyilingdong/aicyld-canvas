@@ -1,5 +1,5 @@
 {
-  "appLines": 11138,
+  "appLines": 11142,
   "largeFiles": {
     "backend/internal/handler/project.go": 1025,
     "backend/internal/platformchannels/store.go": 1054,
@@ -22,7 +22,7 @@
     "web/src/pages/projects/detail/workflow-production-workbench.tsx": 1188,
     "web/src/services/local-workspace-repository.ts": 1253,
     "web/src/stores/use-config-store.ts": 1223,
-    "web/src/styles/globals.css": 21542,
+    "web/src/styles/globals.css": 21541,
     "web/src/styles/workspace-product.css": 1542
   },
   "modelLiterals": 656,

@@ -102,6 +102,15 @@ describe("desktop release build contract", () => {
 
         expect(script).toContain('cp -a "$backup/open_ai_canvas.db" "$db_path"; chown aicyld:aicyld "$db_path"; chmod 600 "$db_path"');
     });
+
+    test("deployment records the actual release timestamp and rollback point", () => {
+        const script = readFileSync(resolve(root, "scripts/deploy-canvas-release.sh"), "utf8");
+
+        expect(script).toContain("'deployedAt': deployed_at");
+        expect(script).toContain("'rollbackBackup': rollback_backup");
+        expect(script).toContain("'frontendBuildId': frontend_manifest.get('buildId'");
+    });
+
     test("keeps every source file required by the local release gate", () => {
         const gate = readFileSync(resolve(root, "scripts/verify-beeftv-local-release.sh"), "utf8");
         const exporter = readFileSync(resolve(root, "scripts/public-release-export.sh"), "utf8");

@@ -1113,11 +1113,16 @@ paths:
     get:
       tags: [resources]
       summary: 读取资源二进制（非 JSON 信封）
+      description: 图片和本地视频均可传 thumbnail 获取 JPEG 缩略图；视频封面按资源版本与宽度缓存，并使用独立 ETag。
       parameters:
         - in: path
           name: id
           required: true
           schema: { type: string }
+        - in: query
+          name: thumbnail
+          schema: { type: integer, minimum: 64, maximum: 1280 }
+          description: 缩略图目标宽度；对图片缩放，对本地视频从首帧生成封面。
       responses:
         "200":
           description: 文件流

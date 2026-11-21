@@ -225,7 +225,9 @@ MiniMax speech 的 OpenAI 音频兼容目录通过 `audioOptions` 提供官方�
 
 `GET /resources/:id/file?variant=playback&proxy=1` 在副本就绪时读取预览文件。原文件下载和模型素材引用不改变。预览尺寸不超过 1920×1080，保持比例，不放大小视频。
 
-`DELETE /resources/playback-cache` 清理当前用户已完成或失败的本地预览记录和副本，返回 `{ cleared }`。正在转换的预览和原资源不删除；其他用户的缓存不改变。
+`GET /resources/:id/file?thumbnail=480&proxy=1` 对当前用户拥有的本地视频按需提取首帧并返回 JPEG。宽度限制为 64–1280，响应使用独立 ETag 和私有长缓存；同一资源版本和宽度只生成一次。生成的封面缓存在工作区数据目录，不占用播放副本的转码队列。
+
+`DELETE /resources/playback-cache` 清理当前用户已完成或失败的本地预览记录、播放副本和视频封面缓存，返回 `{ cleared }`。正在转换的预览和原资源不删除；其他用户的缓存不改变。
 
 ### 素材与操作
 

@@ -11,6 +11,7 @@ import (
 // In-flight work is left alone; original resource objects are never removed.
 type CacheStore interface {
 	PlaybackCopiesForUser(userID string) ([]model.Resource, error)
+	VideoResourcesForUser(userID string) ([]model.Resource, error)
 	ResetPlaybackCopy(userID, id, objectKey string) error
 }
 
@@ -50,6 +51,19 @@ func (s *Service) ClearCache(userID string) (int, error) {
 			}
 		}
 		cleared++
+	}
+	videos, err := store.VideoResourcesForUser(userID)
+	if err != nil {
+		return cleared, err
+	}
+	for _, row := range videos {
+		removed, err := s.clearPosterCache(row.ID)
+		if err != nil {
+			return cleared, err
+		}
+		if removed {
+			cleared++
+		}
 	}
 	return cleared, nil
 }

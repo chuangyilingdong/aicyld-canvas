@@ -36,6 +36,10 @@ func (s playbackStore) PlaybackCopiesForUser(userID string) ([]model.Resource, e
 	return s.repo.PlaybackCopiesForUser(userID)
 }
 
+func (s playbackStore) VideoResourcesForUser(userID string) ([]model.Resource, error) {
+	return s.repo.VideoResourcesForUser(userID)
+}
+
 func (s playbackStore) ResetPlaybackCopy(userID, id, objectKey string) error {
 	return s.repo.ResetPlaybackCopy(userID, id, objectKey)
 }

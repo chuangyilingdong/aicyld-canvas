@@ -49,4 +49,5 @@ type Deps struct {
 	RuntimeContext func() context.Context
 	LookPath       func(file string) (string, error)
 	Transcode      func(ctx context.Context, src, dst string) error
+	RenderPoster   func(ctx context.Context, src, dst string, width int) error
 }
