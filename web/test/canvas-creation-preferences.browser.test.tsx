@@ -52,3 +52,29 @@ for (const mode of ["image", "video"]) {
         } finally { await page.close(); }
     }, 30000);
 }
+
+test("canvas model picker groups providers and remembers the selected provider", async () => {
+    const page = await browser.newPage();
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.route("**/*", (route) => (new URL(route.request().url()).origin === server.url.origin ? route.continue() : route.abort()));
+    try {
+        await page.goto(`${server.url}?mode=image`);
+        await page.getByRole("button", { name: "image-a", exact: true }).click();
+        const picker = page.getByRole("dialog", { name: "选择图片模型" });
+        await picker.waitFor();
+        await picker.getByRole("button", { name: /默认供应商/ }).click();
+        await page.getByRole("menu", { name: "供应商" }).getByRole("menuitemradio", { name: "Second" }).click();
+        await picker.getByRole("option", { name: "image-c", exact: true }).click();
+
+        const current = JSON.parse((await page.getByTestId("current-config").textContent())!);
+        expect(current.model).toBe("fixture-second::image-c");
+
+        await page.getByRole("button", { name: "image-c", exact: true }).click();
+        const reopened = page.getByRole("dialog", { name: "选择图片模型" });
+        await reopened.getByRole("button", { name: /默认供应商.*Second/ }).waitFor({ state: "visible" });
+        expect(errors).toEqual([]);
+    } finally {
+        await page.close();
+    }
+}, 30000);

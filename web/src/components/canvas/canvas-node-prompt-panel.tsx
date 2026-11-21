@@ -608,7 +608,7 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                                     capability={mode}
                                     requirements={resolvedRequirements}
                                     onMissingConfig={() => navigateToSettings({ section: "channels", continueCreation: true })}
-                                    variant="creation"
+                                    variant="canvas"
                                     showConfiguredModelName
                                 />
                             </div>

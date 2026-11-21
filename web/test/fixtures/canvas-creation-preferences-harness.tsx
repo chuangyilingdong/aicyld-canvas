@@ -20,7 +20,16 @@ channel.modelProfiles = channel.models.map((model) => {
     capabilityConfig.video!.duration = { selection: "enum", values: [5, 10], default: 5 };
     return { model, displayName: model, capability: mode, protocol: mode === "image" ? "openai-image" : "openai-videos", capabilityConfig };
 });
-const config = { ...defaultConfig, channels: [channel], imageModel: "fixture::image-a", videoModel: "fixture::video-a" };
+const secondChannel = createModelChannel({ id: "fixture-second", name: "Second", baseUrl: "https://example.invalid", apiKey: "fixture", models: [`${mode}-c`] });
+secondChannel.modelProfiles = secondChannel.models.map((model) => {
+    const capabilityConfig = defaultModelCapabilityConfig(mode === "image" ? "openai-image" : "openai-videos");
+    capabilityConfig.image!.size = { parameter: "size", values: ["1:1", "16:9"], default: "1:1", allowCustom: false };
+    capabilityConfig.video!.ratios = ["9:16"];
+    capabilityConfig.video!.defaultRatio = "9:16";
+    capabilityConfig.video!.duration = { selection: "enum", values: [5, 10], default: 5 };
+    return { model, displayName: model, capability: mode, protocol: mode === "image" ? "openai-image" : "openai-videos", capabilityConfig };
+});
+const config = { ...defaultConfig, channels: [channel, secondChannel], imageModel: "fixture::image-a", videoModel: "fixture::video-a" };
 useConfigStore.setState({ config, isAiConfigReady: true });
 useCreationPreferencesStore.setState({ preferences: { [mode]: { model: `fixture::${mode}-a`, ratio: "16:9" } } });
 const initial: CanvasNodeData = { id: "source", type: mode === "image" ? CanvasNodeType.Image : CanvasNodeType.Video, title: "Fixture", width: 500, height: 300, position: { x: 0, y: 0 }, metadata: { model: `fixture::${mode}-a`, size: "16:9", seconds: "10", count: 2, generateAudio: "false", watermark: "false", prompt: "Fixture prompt" } };

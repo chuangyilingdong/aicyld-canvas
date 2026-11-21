@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
 import { scopedLocalStorage } from "@/lib/user-scope";
+import type { ModelCapability } from "@/stores/use-config-store";
 import type { CanvasGenerationMode } from "@/types/canvas";
 
 export type CreationModePreference = "text" | "image" | "video";
@@ -37,6 +38,7 @@ export type CreationComposerPreferences = {
     mode?: CreationModePreference;
     image?: CreationImagePreferences;
     video?: CreationVideoPreferences;
+    providers?: Partial<Record<ModelCapability, string>>;
     customPresets?: CreationCustomPreset[];
 };
 
@@ -49,6 +51,7 @@ type CreationPreferencesStore = {
     rememberPromptFontSize: (fontSize: number) => void;
     rememberImageSettings: (settings: CreationImagePreferences) => void;
     rememberVideoSettings: (settings: CreationVideoPreferences) => void;
+    rememberModelProvider: (capability: ModelCapability, providerId: string) => void;
     saveCustomPreset: (input: { name?: string; description?: string; prompt: string; mode: CanvasGenerationMode; modes?: CanvasGenerationMode[] }) => CreationCustomPreset | null;
     renameCustomPreset: (id: string, name: string) => CreationCustomPreset | null;
     removeCustomPreset: (id: string) => void;
@@ -123,12 +126,21 @@ export function normalizeCreationComposerPreferences(value: unknown): CreationCo
     const raw = value as Record<string, unknown>;
     const image = normalizeImagePreferences(raw.image);
     const video = normalizeVideoPreferences(raw.video);
+    const providers: Partial<Record<ModelCapability, string>> = {};
+    if (raw.providers && typeof raw.providers === "object" && !Array.isArray(raw.providers)) {
+        for (const [key, providerId] of Object.entries(raw.providers)) {
+            if (VALID_GENERATION_MODES.has(key as CanvasGenerationMode) && nonEmptyString(providerId)) {
+                providers[key as ModelCapability] = providerId.trim();
+            }
+        }
+    }
     const customPresets = normalizeCustomPresets(raw.customPresets);
     return {
         ...(typeof raw.promptFontSize === "number" && Number.isFinite(raw.promptFontSize) ? { promptFontSize: normalizePromptFontSize(raw.promptFontSize) } : {}),
         ...(raw.mode === "text" || raw.mode === "image" || raw.mode === "video" ? { mode: raw.mode } : {}),
         ...(image ? { image } : {}),
         ...(video ? { video } : {}),
+        ...(Object.keys(providers).length ? { providers } : {}),
         ...(customPresets ? { customPresets } : {}),
     };
 }
@@ -144,6 +156,16 @@ export const useCreationPreferencesStore = create<CreationPreferencesStore>()(
             },
             rememberImageSettings: (settings) => set((state) => ({ preferences: { ...state.preferences, image: { ...state.preferences.image, ...settings } } })),
             rememberVideoSettings: (settings) => set((state) => ({ preferences: { ...state.preferences, video: { ...state.preferences.video, ...settings } } })),
+            rememberModelProvider: (capability, providerId) => {
+                const cleanProviderId = providerId.trim();
+                if (!cleanProviderId) return;
+                set((state) => ({
+                    preferences: {
+                        ...state.preferences,
+                        providers: { ...state.preferences.providers, [capability]: cleanProviderId },
+                    },
+                }));
+            },
             saveCustomPreset: ({ name, description, prompt, mode, modes }) => {
                 const cleanPrompt = prompt.trim();
                 if (!cleanPrompt) return null;
