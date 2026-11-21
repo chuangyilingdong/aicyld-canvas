@@ -2,6 +2,7 @@ package project
 
 import (
 	"encoding/hex"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -697,6 +698,36 @@ func TestPreviewSmartFilmBatchCostDoesNotPersistBatch(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("cost preview persisted %d batches", count)
+	}
+}
+
+func TestCreateSmartFilmBatchKeepsDraftWhenInitialQuoteIsUnavailable(t *testing.T) {
+	svc, db := newTestService(t, &recordingWorkflows{})
+	svc.encryptSecret = func(value string) (string, error) { return value, nil }
+	svc.decryptSecret = func(value string) (string, error) { return value, nil }
+	svc.quoteTask = func(string, localtask.CreateRequest) (*billing.BillingQuote, error) {
+		return nil, errors.New("报价服务暂时不可用")
+	}
+
+	created, err := svc.CreateSmartFilmBatch("user-1", CreateSmartFilmBatchRequest{
+		Title: "待报价批次", SourceText: "生成三条独立短片剧本",
+		Config: SmartFilmBatchConfig{
+			ScriptCount: 3, DefaultTextModel: "text-model", DefaultImageModel: "image-model", DefaultVideoModel: "video-model",
+		},
+		OrchestrationConfig: map[string]any{"text": map[string]any{"model": "text-model"}},
+	})
+	if err != nil {
+		t.Fatalf("quote failure should not discard the draft: %v", err)
+	}
+	if created.ID == "" || created.BudgetPoints != 0 || created.Status != smartFilmBatchStatusDraft {
+		t.Fatalf("created batch = %+v", created)
+	}
+	var stored model.SmartFilmBatch
+	if err := db.First(&stored, "id = ?", created.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stored.BudgetPoints != 0 {
+		t.Fatalf("unavailable quote persisted a fabricated budget: %+v", stored)
 	}
 }
 

@@ -40,10 +40,9 @@ func (s *Service) CreateSmartFilmBatch(userID string, req CreateSmartFilmBatchRe
 	}
 	if batch.BudgetPoints <= 0 && len(req.OrchestrationConfig) > 0 {
 		budget, estimateErr := s.estimateInitialSmartFilmBudget(userID, &batch, config, req.ScriptPrompt)
-		if estimateErr != nil {
-			return SmartFilmBatchView{}, estimateErr
+		if estimateErr == nil {
+			batch.BudgetPoints = budget
 		}
-		batch.BudgetPoints = budget
 	}
 	batch.ID = kernel.NewID()
 	if err := s.repo.CreateSmartFilmBatch(&batch); err != nil {

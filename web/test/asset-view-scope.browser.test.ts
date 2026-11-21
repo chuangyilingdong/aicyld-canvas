@@ -11,6 +11,8 @@ let gateConfirm = false;
 let confirmHits = 0;
 let videoFixture = false;
 let localVideoFixture = false;
+let paginatedAssets = false;
+let requestedAssetPages: number[] = [];
 let confirmGate: { promise: Promise<void>; resolve: () => void } | undefined;
 
 function resetConfirmGate() {
@@ -23,11 +25,19 @@ function resetConfirmGate() {
 
 function libraryAsset(title: string) {
     const id = title === "A-PRIVATE-SECRET" ? "asset-secret" : "asset-replacement";
-    if (videoFixture) return {
-        id, kind: "video", title, coverUrl: "", tags: [], status: "confirmed", category: "material",
-        createdAt: "2026-10-02T00:00:00.000Z", updatedAt: "2026-10-02T00:00:00.000Z",
-        data: { url: localVideoFixture ? "blob:expired-previous-page" : `/api/resources/${id}/file`, storageKey: localVideoFixture ? "video:owner-a:local-fixture" : `resource:${id}`, width: 64, height: 64, bytes: 8, mimeType: "video/mp4" },
-    };
+    if (videoFixture)
+        return {
+            id,
+            kind: "video",
+            title,
+            coverUrl: "",
+            tags: [],
+            status: "confirmed",
+            category: "material",
+            createdAt: "2026-10-02T00:00:00.000Z",
+            updatedAt: "2026-10-02T00:00:00.000Z",
+            data: { url: localVideoFixture ? "blob:expired-previous-page" : `/api/resources/${id}/file`, storageKey: localVideoFixture ? "video:owner-a:local-fixture" : `resource:${id}`, width: 64, height: 64, bytes: 8, mimeType: "video/mp4" },
+        };
     return {
         id,
         kind: "image",
@@ -49,7 +59,7 @@ function libraryAsset(title: string) {
     };
 }
 
-function assetsPayload(title: string) {
+function assetsPayload(title: string, page = 1, total = 1) {
     return {
         assets: [libraryAsset(title)],
         kindCounts: { [videoFixture ? "video" : "image"]: 1, all: 1 },
@@ -60,10 +70,10 @@ function assetsPayload(title: string) {
         projectCounts: {},
         generatedTotal: 0,
         generatedKindCounts: {},
-        page: 1,
+        page,
         pageSize: 40,
-        total: 1,
-        hasMore: false,
+        total,
+        hasMore: page * 40 < total,
     };
 }
 
@@ -121,12 +131,21 @@ beforeAll(async () => {
                 if (url.searchParams.get("status") === "archived") {
                     return json({ ...assetsPayload("REPLACEMENT-VISIBLE"), assets: [], total: 0, kindCounts: {}, categoryCounts: {} });
                 }
+                const page = Math.max(1, Number(url.searchParams.get("page")) || 1);
+                requestedAssetPages.push(page);
+                if (paginatedAssets) return json(assetsPayload(`ASSET-PAGE-${page}`, page, 80));
                 return json(assetsPayload("A-PRIVATE-SECRET"));
             }
             if (path === "/api/asset-folders") return json({ folders: [] });
-            if (/^\/api\/resources\/[^/]+(?:\/playback)?$/.test(path)) return json({ resource: {
-                id: path.split("/")[3], kind: "video", provider: "local", playbackStatus: "ready",
-            } });
+            if (/^\/api\/resources\/[^/]+(?:\/playback)?$/.test(path))
+                return json({
+                    resource: {
+                        id: path.split("/")[3],
+                        kind: "video",
+                        provider: "local",
+                        playbackStatus: "ready",
+                    },
+                });
             if (/^\/api\/resources\/[^/]+\/file$/.test(path)) return new Response(new Uint8Array(8), { headers: { "Content-Type": "video/mp4" } });
             if (path.startsWith("/api/")) return json([]);
             return new Response('<meta name="viewport" content="width=device-width, initial-scale=1"><div id="root"></div><script type="module" src="/harness.js"></script>', { headers: { "Content-Type": "text/html" } });
@@ -143,6 +162,8 @@ beforeEach(async () => {
     failConfirm = false;
     gateConfirm = false;
     confirmHits = 0;
+    paginatedAssets = false;
+    requestedAssetPages = [];
     resetConfirmGate();
     page = await browser.newPage();
     await page.goto(server.url.toString());
@@ -173,9 +194,24 @@ test("local video detail restores persisted bytes after a page reload", async ()
     expect(await page.locator(".asset-archive-preview video").evaluate(async (video) => (await fetch((video as HTMLVideoElement).src)).text())).toBe("persisted-local-video");
 }, 15_000);
 
+test("remote asset picker advances to the requested page", async () => {
+    paginatedAssets = true;
+    await page.reload();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByText("ASSET-PAGE-1", { exact: true }).waitFor();
+
+    const pageTwo = dialog.getByRole("button", { name: "2", exact: true });
+    expect(await pageTwo.getAttribute("class")).toContain("app-pagination-btn");
+    expect(await pageTwo.isDisabled()).toBe(false);
+    await pageTwo.click();
+
+    await page.waitForTimeout(500);
+    expect(await dialog.locator('[aria-current="page"]').allTextContents()).toEqual(["2"]);
+    expect(requestedAssetPages).toContain(2);
+    await dialog.getByText("ASSET-PAGE-2", { exact: true }).waitFor();
+}, 15_000);
+
 afterAll(async () => {
     await browser?.close();
     server?.stop(true);
 });
-
-

@@ -23,7 +23,11 @@ title: 多剧本成片
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | `POST` | `/api/smart-film-batches` | 创建批次 |
+| `POST` | `/api/smart-film-batches/cost-preview` | 按与创建相同的批次输入预览剧本阶段报价，不写记录 |
 | `GET` | `/api/smart-film-batches/:id` | 读取批次与剧本候选 |
+| `PATCH` | `/api/smart-film-batches/:id/production-config` | 保存制作策略与时长，并可同步批次预算 |
+| `POST` | `/api/smart-film-batches/:id/production-config/preview` | 预览资产、分镜、图片、视频与音频阶段报价 |
+| `GET` | `/api/smart-film-batches/:id/costs` | 读取已占用和剩余预计积分 |
 | `PUT` | `/api/smart-film-batches/:id/scripts` | 保存整组剧本候选 |
 | `PATCH` | `/api/smart-film-batches/:id/scripts/:scriptId` | 修改或重新生成单条剧本 |
 | `DELETE` | `/api/smart-film-batches/:id/scripts/:scriptId?expectedRevision=N` | 删除未创建项目的剧本 |
@@ -51,7 +55,7 @@ ProductionRun 同时保存 `assetStatus`、`assetTaskId`、`assetCount`、`story
 
 ## 前端流程
 
-1. 用户填写想法、上传产品图，并设置剧本数量、每条视频分镜数和单镜时长。
+1. 用户填写想法、上传产品图，并设置剧本数量；分镜策略和时长在剧本确认后设置。
 2. 文本模型生成严格 JSON 的剧本候选，保存到批次。
 3. 用户可逐条编辑、重新生成或删除，也可多选要制作的剧本。
 4. 确认后每条剧本创建独立项目、章节和 ProductionRun，并关联批次产品图；失败时可在批次页修复。
@@ -60,6 +64,12 @@ ProductionRun 同时保存 `assetStatus`、`assetTaskId`、`assetCount`、`story
 7. 资产确认完成后生成分镜，再进入项目确认分镜提示词并生成视频。
 
 批次详情页负责候选选择、独立项目创建、资产提取和分镜生成；资产图与分镜提示词的最终确认仍在各项目工作台完成。
+
+## 积分与报价
+
+创建前通过 `POST /api/smart-film-batches/cost-preview` 获取剧本阶段的服务端报价，页面显示预计积分和当前余额；积分不足时阻止创建。报价暂不可用不会删除批次草稿或伪造预算，实际文本任务提交时仍会重新核价。
+
+剧本确认并设置制作策略后，页面通过制作规格预览接口重新计算资产、分镜、图片、视频和音频阶段的剩余预计积分，并在保存规格时把同一报价写回批次预算。批次详情同时读取 `GET /api/smart-film-batches/:id/costs`，展示已占用与预计总积分。
 
 ## 资产图确认
 

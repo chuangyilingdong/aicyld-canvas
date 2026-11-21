@@ -62,7 +62,7 @@ describe("release regression source contracts", () => {
 
     test("does not show a one-option adaptive ratio selector", () => {
         const settings = source("components/video-settings-panel.tsx");
-        expect(settings).toContain('videoRatioLabel(value)');
+        expect(settings).toContain("videoRatioLabel(value)");
         expect(settings).toContain("profile.ratios.length > 1");
     });
 
@@ -91,5 +91,19 @@ describe("release regression source contracts", () => {
         expect(order).toContain('kind: "studio"');
         expect(order).toContain('kind: "canvas"');
         expect(order).toContain("new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()");
+    });
+
+    test("keeps smart-film asset pagination and server-side cost previews wired", () => {
+        const picker = source("components/assets/asset-library-picker-modal.tsx");
+        const createPage = source("pages/smart-film/batch-new.tsx");
+        const detailPage = source("pages/smart-film/batch-detail.tsx");
+        expect(picker).toContain("placeholderData: (previousData) => previousData");
+        expect(picker).toContain("if (!remoteEnabled || !remoteQuery.data) return;");
+        expect(createPage).toContain("previewSmartFilmBatchCost(request)");
+        expect(createPage).toContain("budgetPoints: smartFilmBatchBudgetPoints(quote)");
+        expect(createPage).toContain("smart-film-batch-quote");
+        expect(detailPage).toContain("previewSmartFilmBatchProductionConfig(batch.id");
+        expect(detailPage).toContain("budgetPoints");
+        expect(detailPage).toContain("getSmartFilmBatchCosts(batchId)");
     });
 });

@@ -14,6 +14,8 @@ import {
     confirmSmartFilmBatchScripts,
     deleteSmartFilmBatchScript,
     getSmartFilmBatch,
+    getSmartFilmBatchCosts,
+    previewSmartFilmBatchProductionConfig,
     recoverSmartFilmBatchScripts,
     saveSmartFilmBatchScripts,
     startSmartFilmProductionStage,
@@ -96,9 +98,16 @@ export default function SmartFilmBatchDetailPage() {
         queryKey: ["smart-film-batch", batchId],
         queryFn: ({ signal }) => getSmartFilmBatch(batchId, signal).then((result) => result.batch),
         enabled: Boolean(batchId),
-        refetchInterval: (query) => query.state.data?.productionRuns?.some((run) => ["queued", "running"].includes(run.assetStatus) || ["queued", "running"].includes(run.storyboardStatus)) ? 3000 : false,
+        refetchInterval: (query) => (query.state.data?.productionRuns?.some((run) => ["queued", "running"].includes(run.assetStatus) || ["queued", "running"].includes(run.storyboardStatus)) ? 3000 : false),
     });
     const batch = batchQuery.data;
+    const batchCostQuery = useQuery({
+        queryKey: ["smart-film-batch-costs", batchId, batch?.revision],
+        queryFn: () => getSmartFilmBatchCosts(batchId),
+        enabled: Boolean(batchId && batch?.scripts.length),
+        retry: false,
+        staleTime: 15_000,
+    });
     const resolvedProductionVideoModel = batch?.config.defaultVideoModel || effectiveConfig.videoModel;
     const productionVideoProfile = useMemo(() => modelCapabilityConfigFor(effectiveConfig, resolvedProductionVideoModel).video, [effectiveConfig, resolvedProductionVideoModel]);
     const productionDurationOptions = useMemo(() => smartFilmDurationOptions(productionVideoProfile), [productionVideoProfile]);
@@ -106,44 +115,35 @@ export default function SmartFilmBatchDetailPage() {
     const productionMaxClipSeconds = smartFilmMaxClipSeconds(productionVideoProfile);
     const productionMaxTargetSeconds = productionMaxClipSeconds;
     const normalizedDraftShotCount = normalizeSmartFilmShotCount(shotCountDraft);
-    const productionConfigValid = productionModeDraft === "fixed"
-        ? shotDurationsDraft.length === normalizedDraftShotCount && shotDurationsDraft.every((duration) => duration > 0 && duration <= productionMaxClipSeconds)
-        : productionModeDraft === "smart"
-            ? Number(targetDurationDraft) >= 1 && Number(targetDurationDraft) <= productionMaxTargetSeconds
-            : false;
+    const productionConfigValid = productionModeDraft === "fixed" ? shotDurationsDraft.length === normalizedDraftShotCount && shotDurationsDraft.every((duration) => duration > 0 && duration <= productionMaxClipSeconds) : productionModeDraft === "smart" ? Number(targetDurationDraft) >= 1 && Number(targetDurationDraft) <= productionMaxTargetSeconds : false;
     const productionDraftMatchesSaved = useMemo(() => {
         if (!batch) return false;
-        const savedDurations = batch.config.shotDurationsSeconds?.length
-            ? batch.config.shotDurationsSeconds
-            : Array.from({ length: batch.config.shotCount || 0 }, () => batch.config.shotDurationSeconds || 0);
-        return productionModeDraft === batch.config.productionMode
-            && (productionModeDraft === "fixed"
-                ? normalizedDraftShotCount === (batch.config.shotCount || 0) && JSON.stringify(shotDurationsDraft) === JSON.stringify(savedDurations)
-                : Math.round(Number(targetDurationDraft) || 0) === (batch.config.targetDurationSeconds || 0));
+        const savedDurations = batch.config.shotDurationsSeconds?.length ? batch.config.shotDurationsSeconds : Array.from({ length: batch.config.shotCount || 0 }, () => batch.config.shotDurationSeconds || 0);
+        return productionModeDraft === batch.config.productionMode && (productionModeDraft === "fixed" ? normalizedDraftShotCount === (batch.config.shotCount || 0) && JSON.stringify(shotDurationsDraft) === JSON.stringify(savedDurations) : Math.round(Number(targetDurationDraft) || 0) === (batch.config.targetDurationSeconds || 0));
     }, [batch, normalizedDraftShotCount, productionModeDraft, shotDurationsDraft, targetDurationDraft]);
     const batchSpec = useMemo(() => {
         if (!batch) return "";
-        const durationCopy = batch.config.productionMode === "smart"
-            ? `智能整片 · 目标 ${batch.config.targetDurationSeconds || 0} 秒`
-            : batch.config.productionMode === "fixed"
-                ? (() => {
-                      const durations = batch.config.shotDurationsSeconds?.length
-                          ? batch.config.shotDurationsSeconds
-                          : Array.from({ length: batch.config.shotCount || 0 }, () => batch.config.shotDurationSeconds || 0);
-                      return durations.length && durations.every((duration) => duration === durations[0])
-                          ? `${batch.config.shotCount} 镜 × ${durations[0]} 秒`
-                          : `逐镜 ${durations.join(" / ")} 秒`;
-                  })()
-                : "分镜策略待设置";
-        const styleTitle = parseStyleProfile(batch.config.styleProfileJson)?.title
-            || resolveCanvasStylePreset(batch.config.stylePresetId || "")?.title
-            || (batch.config.stylePresetId ? "自定义画风" : "未设置画风");
+        const durationCopy =
+            batch.config.productionMode === "smart"
+                ? `智能整片 · 目标 ${batch.config.targetDurationSeconds || 0} 秒`
+                : batch.config.productionMode === "fixed"
+                  ? (() => {
+                        const durations = batch.config.shotDurationsSeconds?.length ? batch.config.shotDurationsSeconds : Array.from({ length: batch.config.shotCount || 0 }, () => batch.config.shotDurationSeconds || 0);
+                        return durations.length && durations.every((duration) => duration === durations[0]) ? `${batch.config.shotCount} 镜 × ${durations[0]} 秒` : `逐镜 ${durations.join(" / ")} 秒`;
+                    })()
+                  : "分镜策略待设置";
+        const styleTitle = parseStyleProfile(batch.config.styleProfileJson)?.title || resolveCanvasStylePreset(batch.config.stylePresetId || "")?.title || (batch.config.stylePresetId ? "自定义画风" : "未设置画风");
         return `画幅 ${batch.config.aspectRatio} · ${durationCopy} · ${styleTitle}`;
     }, [batch]);
-    const scriptReferences = useMemo(() => (batch?.inputAssetIds || []).map((id, index) => ({
-        title: batch?.config.inputAssetNames?.[id] || assets.find((item) => item.id === id && item.kind === "image")?.title || `参考图 ${index + 1}`,
-        role: batch?.config.inputAssetRoles?.[id] || "other",
-    })), [assets, batch?.inputAssetIds, batch?.config.inputAssetNames, batch?.config.inputAssetRoles]);
+    const productionCostLabel = !batch?.scripts.length ? "待生成" : !batch.config.productionMode ? "待定规格" : batchCostQuery.isFetching ? "核算中" : batchCostQuery.isError ? "待核对" : batchCostQuery.data?.enabled ? `${batchCostQuery.data.totalPoints} 积分` : "未启用";
+    const scriptReferences = useMemo(
+        () =>
+            (batch?.inputAssetIds || []).map((id, index) => ({
+                title: batch?.config.inputAssetNames?.[id] || assets.find((item) => item.id === id && item.kind === "image")?.title || `参考图 ${index + 1}`,
+                role: batch?.config.inputAssetRoles?.[id] || "other",
+            })),
+        [assets, batch?.inputAssetIds, batch?.config.inputAssetNames, batch?.config.inputAssetRoles],
+    );
     const draftScripts = batch?.scripts.filter((script) => !script.projectId) || [];
     const projectScripts = batch?.scripts.filter((script) => Boolean(script.projectId)) || [];
     const productionLocked = projectScripts.length > 0;
@@ -160,40 +160,20 @@ export default function SmartFilmBatchDetailPage() {
     const runsByScript = useMemo(() => new Map<string, SmartFilmProductionRun>((batch?.productionRuns || []).filter((run) => run.status !== "archived").map((run) => [run.scriptId, run])), [batch?.productionRuns]);
     const selectedScripts = useMemo(() => (batch?.scripts || []).filter((script) => selected.has(script.id)), [batch?.scripts, selected]);
     const selectedDraftCount = selectedScripts.filter((script) => !script.projectId).length;
-    const createProjectHint = !selectedDraftCount
-        ? "请先勾选尚未创建项目的剧本"
-        : productionSaving
-            ? "制作规格正在自动保存，请稍候"
-            : !productionConfigValid
-                ? "请完成分镜方式和时长设置"
-                : !productionDraftMatchesSaved
-                    ? "正在同步最新制作规格"
-                    : undefined;
+    const createProjectHint = !selectedDraftCount ? "请先勾选尚未创建项目的剧本" : productionSaving ? "制作规格正在自动保存，请稍候" : !productionConfigValid ? "请完成分镜方式和时长设置" : !productionDraftMatchesSaved ? "正在同步最新制作规格" : undefined;
     const assetExtractionScripts = projectScripts.filter((script) => {
         const run = runsByScript.get(script.id);
-        return script.status === "project_created"
-            && Boolean(run)
-            && (run!.assetStatus === "pending" || run!.assetStatus === "waiting")
-            && run!.status !== "needs_attention"
-            && run!.status !== "failed";
+        return script.status === "project_created" && Boolean(run) && (run!.assetStatus === "pending" || run!.assetStatus === "waiting") && run!.status !== "needs_attention" && run!.status !== "failed";
     });
     const storyboardGenerationScripts = projectScripts.filter((script) => {
         const run = runsByScript.get(script.id);
-        return script.status === "assets_extracted"
-            && Boolean(run)
-            && run!.assetStatus === "confirmed"
-            && (run!.storyboardStatus === "pending" || run!.storyboardStatus === "waiting")
-            && run!.status !== "needs_attention"
-            && run!.status !== "failed";
+        return script.status === "assets_extracted" && Boolean(run) && run!.assetStatus === "confirmed" && (run!.storyboardStatus === "pending" || run!.storyboardStatus === "waiting") && run!.status !== "needs_attention" && run!.status !== "failed";
     });
-    const recoverableScripts = batch?.scripts.filter((script) => {
-        const run = runsByScript.get(script.id);
-        return Boolean(script.projectId && !script.unitId)
-            || script.status === "needs_attention"
-            || script.status === "failed"
-            || run?.status === "needs_attention"
-            || run?.status === "failed";
-    }) || [];
+    const recoverableScripts =
+        batch?.scripts.filter((script) => {
+            const run = runsByScript.get(script.id);
+            return Boolean(script.projectId && !script.unitId) || script.status === "needs_attention" || script.status === "failed" || run?.status === "needs_attention" || run?.status === "failed";
+        }) || [];
 
     useEffect(() => {
         if (!batch) return;
@@ -225,9 +205,12 @@ export default function SmartFilmBatchDetailPage() {
         await queryClient.invalidateQueries({ queryKey: ["projects"] });
     }, [batchId, queryClient]);
 
-    const updateBatch = useCallback((next: SmartFilmBatch) => {
-        queryClient.setQueryData(["smart-film-batch", batchId], next);
-    }, [batchId, queryClient]);
+    const updateBatch = useCallback(
+        (next: SmartFilmBatch) => {
+            queryClient.setQueryData(["smart-film-batch", batchId], next);
+        },
+        [batchId, queryClient],
+    );
 
     useEffect(() => {
         setSkillDraftId(currentSkillId);
@@ -251,21 +234,24 @@ export default function SmartFilmBatchDetailPage() {
         }
     };
 
-    const recoverMissingScripts = useCallback(async (announce = true) => {
-        if (!batch || busy) return false;
-        setBusy("正在恢复上次生成结果…");
-        try {
-            const result = await recoverSmartFilmBatchScripts(batch.id);
-            updateBatch(result.batch);
-            message.success(`已恢复 ${result.batch.scripts.length} 条上次生成成功的剧本`);
-            return true;
-        } catch (error) {
-            if (announce) message.warning(error instanceof Error ? error.message : "没有找到可恢复的剧本生成结果");
-            return false;
-        } finally {
-            setBusy("");
-        }
-    }, [batch, busy, message, updateBatch]);
+    const recoverMissingScripts = useCallback(
+        async (announce = true) => {
+            if (!batch || busy) return false;
+            setBusy("正在恢复上次生成结果…");
+            try {
+                const result = await recoverSmartFilmBatchScripts(batch.id);
+                updateBatch(result.batch);
+                message.success(`已恢复 ${result.batch.scripts.length} 条上次生成成功的剧本`);
+                return true;
+            } catch (error) {
+                if (announce) message.warning(error instanceof Error ? error.message : "没有找到可恢复的剧本生成结果");
+                return false;
+            } finally {
+                setBusy("");
+            }
+        },
+        [batch, busy, message, updateBatch],
+    );
 
     useEffect(() => {
         if (!batch || batch.scripts.length || busy || scriptRecoveryAttemptedRef.current) return;
@@ -290,9 +276,18 @@ export default function SmartFilmBatchDetailPage() {
     productionSavePayloadRef.current = productionSavePayload;
 
     useEffect(() => {
-        if (!batch || productionLocked) { setProductionSaving(false); return; }
-        if (!productionConfigValid) { setProductionSaving(false); return; }
-        if (productionDraftMatchesSaved) { setProductionSaving(false); return; }
+        if (!batch || productionLocked) {
+            setProductionSaving(false);
+            return;
+        }
+        if (!productionConfigValid) {
+            setProductionSaving(false);
+            return;
+        }
+        if (productionDraftMatchesSaved) {
+            setProductionSaving(false);
+            return;
+        }
         setProductionSaving(true);
         const timer = window.setTimeout(() => {
             if (productionSaveInFlightRef.current) {
@@ -306,8 +301,19 @@ export default function SmartFilmBatchDetailPage() {
                         const payload = productionSavePayloadRef.current;
                         if (!payload) break;
                         const requestSignature = JSON.stringify(payload);
+                        let budgetPoints: number | undefined;
+                        try {
+                            const preview = await previewSmartFilmBatchProductionConfig(batch.id, {
+                                ...payload,
+                                expectedRevision: productionSaveRevisionRef.current,
+                            });
+                            if (preview.enabled) budgetPoints = preview.totalPoints;
+                        } catch {
+                            // Spec persistence must remain available when pricing is temporarily unavailable.
+                        }
                         const result = await updateSmartFilmBatchProductionConfig(batch.id, {
                             ...payload,
+                            ...(budgetPoints === undefined ? {} : { budgetPoints }),
                             expectedRevision: productionSaveRevisionRef.current,
                         });
                         productionSaveRevisionRef.current = result.batch.revision;
@@ -346,11 +352,15 @@ export default function SmartFilmBatchDetailPage() {
                 existingTitles: batch.scripts.map((script) => script.title),
                 skillSnapshot: batch.config.skillSnapshot,
             });
-            const result = await saveSmartFilmBatchScripts(batch.id, generated.scripts.map((script) => ({
-                title: script.title,
-                content: script.content,
-                taskId: generated.taskId,
-            })), batch.revision);
+            const result = await saveSmartFilmBatchScripts(
+                batch.id,
+                generated.scripts.map((script) => ({
+                    title: script.title,
+                    content: script.content,
+                    taskId: generated.taskId,
+                })),
+                batch.revision,
+            );
             updateBatch(result.batch);
             message.success(`已生成 ${generated.scripts.length} 条独立剧本`);
         } catch (error) {
@@ -473,8 +483,12 @@ export default function SmartFilmBatchDetailPage() {
                     newRuns.forEach((run) => autoStartedAssetRunsRef.current.add(run.scriptId));
                     const failures: string[] = [];
                     for (const run of newRuns) {
-                        try { await startSmartFilmProductionStage(batch.id, run.id, "assets"); }
-                        catch (error) { autoStartedAssetRunsRef.current.delete(run.scriptId); failures.push(error instanceof Error ? error.message : "启动失败"); }
+                        try {
+                            await startSmartFilmProductionStage(batch.id, run.id, "assets");
+                        } catch (error) {
+                            autoStartedAssetRunsRef.current.delete(run.scriptId);
+                            failures.push(error instanceof Error ? error.message : "启动失败");
+                        }
                     }
                     const latest = await getSmartFilmBatch(batch.id);
                     updateBatch(latest.batch);
@@ -501,7 +515,11 @@ export default function SmartFilmBatchDetailPage() {
         if (!batch || busy || !recoverableScripts.length) return;
         setBusy(`正在恢复 ${recoverableScripts.length} 条剧本的创建任务…`);
         try {
-            const result = await confirmSmartFilmBatchScripts(batch.id, recoverableScripts.map((script) => script.id), batch.revision);
+            const result = await confirmSmartFilmBatchScripts(
+                batch.id,
+                recoverableScripts.map((script) => script.id),
+                batch.revision,
+            );
             updateBatch(result.batch);
             await queryClient.invalidateQueries({ queryKey: ["projects"] });
             message.success("多剧本项目创建已恢复");
@@ -523,9 +541,16 @@ export default function SmartFilmBatchDetailPage() {
             const failures: string[] = [];
             for (const script of targets) {
                 const run = runsByScript.get(script.id);
-                if (!run) { failures.push(`${script.title}：缺少生产运行记录`); continue; }
-                try { await startSmartFilmProductionStage(batch.id, run.id, "assets"); }
-                catch (error) { autoStartedAssetRunsRef.current.delete(script.id); failures.push(`${script.title}：${error instanceof Error ? error.message : "启动失败"}`); }
+                if (!run) {
+                    failures.push(`${script.title}：缺少生产运行记录`);
+                    continue;
+                }
+                try {
+                    await startSmartFilmProductionStage(batch.id, run.id, "assets");
+                } catch (error) {
+                    autoStartedAssetRunsRef.current.delete(script.id);
+                    failures.push(`${script.title}：${error instanceof Error ? error.message : "启动失败"}`);
+                }
             }
             if (failures.length) message.warning(`资产分析自动启动失败：${failures.slice(0, 3).join("；")}`);
             else message.success("项目已创建，剧本资产分析已自动开始");
@@ -545,9 +570,16 @@ export default function SmartFilmBatchDetailPage() {
             const failures: string[] = [];
             for (const script of targets) {
                 const run = runsByScript.get(script.id);
-                if (!run) { failures.push(`${script.title}：缺少生产运行记录`); continue; }
-                try { await startSmartFilmProductionStage(batch.id, run.id, "storyboard"); }
-                catch (error) { autoStartedStoryboardRunsRef.current.delete(script.id); failures.push(`${script.title}：${error instanceof Error ? error.message : "启动失败"}`); }
+                if (!run) {
+                    failures.push(`${script.title}：缺少生产运行记录`);
+                    continue;
+                }
+                try {
+                    await startSmartFilmProductionStage(batch.id, run.id, "storyboard");
+                } catch (error) {
+                    autoStartedStoryboardRunsRef.current.delete(script.id);
+                    failures.push(`${script.title}：${error instanceof Error ? error.message : "启动失败"}`);
+                }
             }
             if (failures.length) message.warning(`分镜生成自动启动失败：${failures.slice(0, 3).join("；")}`);
             else message.success("资产已确认，分镜提示词已自动开始生成");
@@ -595,32 +627,69 @@ export default function SmartFilmBatchDetailPage() {
     const toggle = (id: string, checked: boolean) => {
         setSelected((current) => {
             const next = new Set(current);
-            if (checked) next.add(id); else next.delete(id);
+            if (checked) next.add(id);
+            else next.delete(id);
             return next;
         });
     };
 
     if (batchQuery.isLoading) {
-        return <WorkspacePage className="smart-film-page"><div className="smart-film-generating"><LoaderCircle className="size-7 animate-spin" /><strong>正在读取多剧本项目…</strong></div></WorkspacePage>;
+        return (
+            <WorkspacePage className="smart-film-page">
+                <div className="smart-film-generating">
+                    <LoaderCircle className="size-7 animate-spin" />
+                    <strong>正在读取多剧本项目…</strong>
+                </div>
+            </WorkspacePage>
+        );
     }
     if (batchQuery.isError && !batch) {
-        return <WorkspacePage className="smart-film-page"><div className="smart-film-script-empty" role="alert"><strong>生成记录读取失败</strong><span>当前无法连接项目服务，这条记录没有被删除。</span><div className="flex flex-wrap justify-center gap-2"><Button loading={batchQuery.isFetching} onClick={() => void batchQuery.refetch()}>重新读取</Button><Button onClick={() => navigate("/smart-film/batches")}>返回生成记录</Button></div></div></WorkspacePage>;
+        return (
+            <WorkspacePage className="smart-film-page">
+                <div className="smart-film-script-empty" role="alert">
+                    <strong>生成记录读取失败</strong>
+                    <span>当前无法连接项目服务，这条记录没有被删除。</span>
+                    <div className="flex flex-wrap justify-center gap-2">
+                        <Button loading={batchQuery.isFetching} onClick={() => void batchQuery.refetch()}>
+                            重新读取
+                        </Button>
+                        <Button onClick={() => navigate("/smart-film/batches")}>返回生成记录</Button>
+                    </div>
+                </div>
+            </WorkspacePage>
+        );
     }
     if (!batch) {
-        return <WorkspacePage className="smart-film-page"><div className="smart-film-script-empty"><strong>没有找到这条生成记录</strong><span>它可能已被删除，或者不属于当前账号。</span><Button onClick={() => navigate("/smart-film/batches")}>返回剧本记录</Button></div></WorkspacePage>;
+        return (
+            <WorkspacePage className="smart-film-page">
+                <div className="smart-film-script-empty">
+                    <strong>没有找到这条生成记录</strong>
+                    <span>它可能已被删除，或者不属于当前账号。</span>
+                    <Button onClick={() => navigate("/smart-film/batches")}>返回剧本记录</Button>
+                </div>
+            </WorkspacePage>
+        );
     }
 
     return (
         <WorkspacePage className="smart-film-page smart-film-batch-page">
             <header className="smart-film-hero">
                 <div>
-                    <span className="smart-film-eyebrow"><Clapperboard className="size-3.5" /> INDEPENDENT FILMS</span>
+                    <span className="smart-film-eyebrow">
+                        <Clapperboard className="size-3.5" /> INDEPENDENT FILMS
+                    </span>
                     <h1>{batch.title}</h1>
                     <p>{batch.sourceText}</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                    {projectScripts.length ? <Button type="primary" icon={<Clapperboard className="size-4" />} onClick={() => navigate(`/projects?batch=${encodeURIComponent(batch.id)}`)}>查看已创建的 {projectScripts.length} 个项目</Button> : null}
-                    <Button icon={<ArrowLeft className="size-4" />} onClick={() => navigate("/projects")}>返回项目库</Button>
+                    {projectScripts.length ? (
+                        <Button type="primary" icon={<Clapperboard className="size-4" />} onClick={() => navigate(`/projects?batch=${encodeURIComponent(batch.id)}`)}>
+                            查看已创建的 {projectScripts.length} 个项目
+                        </Button>
+                    ) : null}
+                    <Button icon={<ArrowLeft className="size-4" />} onClick={() => navigate("/projects")}>
+                        返回项目库
+                    </Button>
                 </div>
             </header>
 
@@ -629,12 +698,29 @@ export default function SmartFilmBatchDetailPage() {
                     <div>
                         <h2>每条剧本都是独立视频</h2>
                         <p>{busy || "选择剧本后分别创建项目；系统会分析所需资产并生成可修改的资产提示词。"}</p>
-                        <p>{batchSpec}{batch.config.skillSnapshot ? ` · 技能：${batch.config.skillSnapshot.name} · 路由：${batch.config.skillSnapshot.routingMode === "manifest" ? "技能声明" : "自动固化"}` : " · 技能：平台默认"}</p>
+                        <p>
+                            {batchSpec}
+                            {batch.config.skillSnapshot ? ` · 技能：${batch.config.skillSnapshot.name} · 路由：${batch.config.skillSnapshot.routingMode === "manifest" ? "技能声明" : "自动固化"}` : " · 技能：平台默认"}
+                        </p>
                     </div>
                     <div className="smart-film-batch-summary-stats">
-                        <div><span>剧本</span><strong>{batch.scripts.length}</strong></div>
-                        <div><span>已建项目</span><strong>{projectScripts.length}</strong></div>
-                        <div><span>参考图</span><strong>{batch.inputAssetIds.length}</strong></div>
+                        <div>
+                            <span>剧本</span>
+                            <strong>{batch.scripts.length}</strong>
+                        </div>
+                        <div>
+                            <span>已建项目</span>
+                            <strong>{projectScripts.length}</strong>
+                        </div>
+                        <div>
+                            <span>参考图</span>
+                            <strong>{batch.inputAssetIds.length}</strong>
+                        </div>
+                        <div>
+                            <span>积分估算</span>
+                            <strong>{productionCostLabel}</strong>
+                            {batchCostQuery.data?.enabled && batch.config.productionMode ? <small>含已占用 {batchCostQuery.data.committedPoints} 积分</small> : null}
+                        </div>
                     </div>
                 </section>
 
@@ -650,36 +736,23 @@ export default function SmartFilmBatchDetailPage() {
                         <label>
                             <span>唯一 Skill</span>
                             {productionLocked ? (
-                                <div className="smart-film-skill-locked-copy">
-                                    {currentSkillSnapshot ? `${currentSkillSnapshot.name}${currentSkillSnapshot.version ? ` · ${currentSkillSnapshot.version}` : ""}` : "平台默认技能规则"}
-                                </div>
+                                <div className="smart-film-skill-locked-copy">{currentSkillSnapshot ? `${currentSkillSnapshot.name}${currentSkillSnapshot.version ? ` · ${currentSkillSnapshot.version}` : ""}` : "平台默认技能规则"}</div>
                             ) : (
-                                <Select
-                                    allowClear
-                                    showSearch
-                                    value={skillDraftId || undefined}
-                                    loading={skillsLoading}
-                                    disabled={Boolean(busy) || productionSaving || skillSaving}
-                                    optionFilterProp="label"
-                                    placeholder="选择本次项目唯一技能"
-                                    options={skillOptions}
-                                    onChange={(value) => setSkillDraftId(value || "")}
-                                    aria-label="更换本次项目唯一技能"
-                                />
+                                <Select allowClear showSearch value={skillDraftId || undefined} loading={skillsLoading} disabled={Boolean(busy) || productionSaving || skillSaving} optionFilterProp="label" placeholder="选择本次项目唯一技能" options={skillOptions} onChange={(value) => setSkillDraftId(value || "")} aria-label="更换本次项目唯一技能" />
                             )}
                         </label>
                         <div className="smart-film-skill-edit-actions">
-                            {!productionLocked ? <Button type="primary" loading={skillSaving} disabled={!skillDirty || Boolean(busy) || productionSaving || skillsLoading} onClick={() => void applyBatchSkill()}>应用技能</Button> : null}
-                            <Button disabled={Boolean(busy) || skillSaving} onClick={() => navigate("/skills")}>管理技能</Button>
+                            {!productionLocked ? (
+                                <Button type="primary" loading={skillSaving} disabled={!skillDirty || Boolean(busy) || productionSaving || skillsLoading} onClick={() => void applyBatchSkill()}>
+                                    应用技能
+                                </Button>
+                            ) : null}
+                            <Button disabled={Boolean(busy) || skillSaving} onClick={() => navigate("/skills")}>
+                                管理技能
+                            </Button>
                         </div>
                     </div>
-                    <p className="smart-film-skill-edit-note">
-                        {productionLocked
-                            ? "已有项目进入制作，技能和版本已锁定。"
-                            : batch.scripts.length
-                                ? "更换技能不会自动重写已有剧本；建议更换后重新生成剧本，再创建项目。"
-                                : "选择并应用后，后续剧本、资产、分镜和视频都会使用这一个 Skill。"}
-                    </p>
+                    <p className="smart-film-skill-edit-note">{productionLocked ? "已有项目进入制作，技能和版本已锁定。" : batch.scripts.length ? "更换技能不会自动重写已有剧本；建议更换后重新生成剧本，再创建项目。" : "选择并应用后，后续剧本、资产、分镜和视频都会使用这一个 Skill。"}</p>
                 </section>
 
                 {batch.scripts.length ? (
@@ -711,15 +784,7 @@ export default function SmartFilmBatchDetailPage() {
                             <div className="smart-film-production-fixed">
                                 <label>
                                     <span>镜头数量</span>
-                                    <InputNumber
-                                        min={1}
-                                        max={200}
-                                        precision={0}
-                                        value={shotCountDraft}
-                                        disabled={productionLocked || Boolean(busy)}
-                                        onChange={setShotCountDraft}
-                                        addonAfter="镜"
-                                    />
+                                    <InputNumber min={1} max={200} precision={0} value={shotCountDraft} disabled={productionLocked || Boolean(busy)} onChange={setShotCountDraft} addonAfter="镜" />
                                 </label>
                                 <div className="smart-film-production-duration-heading">
                                     <strong>逐镜时长</strong>
@@ -729,12 +794,7 @@ export default function SmartFilmBatchDetailPage() {
                                     {shotDurationsDraft.map((duration, index) => (
                                         <label key={index}>
                                             <span>镜头 {index + 1}</span>
-                                            <Select
-                                                value={duration}
-                                                disabled={productionLocked || Boolean(busy)}
-                                                options={productionDurationOptions.map((value) => ({ value, label: `${value} 秒` }))}
-                                                onChange={(value) => setShotDurationsDraft((current) => current.map((item, itemIndex) => itemIndex === index ? value : item))}
-                                            />
+                                            <Select value={duration} disabled={productionLocked || Boolean(busy)} options={productionDurationOptions.map((value) => ({ value, label: `${value} 秒` }))} onChange={(value) => setShotDurationsDraft((current) => current.map((item, itemIndex) => (itemIndex === index ? value : item)))} />
                                         </label>
                                     ))}
                                 </div>
@@ -744,15 +804,7 @@ export default function SmartFilmBatchDetailPage() {
                             <div className="smart-film-production-smart">
                                 <label>
                                     <span>目标成片总时长</span>
-                                    <InputNumber
-                                        min={1}
-                                        max={productionMaxTargetSeconds}
-                                        precision={0}
-                                        value={targetDurationDraft}
-                                        disabled={productionLocked || Boolean(busy)}
-                                        onChange={setTargetDurationDraft}
-                                        addonAfter="秒"
-                                    />
+                                    <InputNumber min={1} max={productionMaxTargetSeconds} precision={0} value={targetDurationDraft} disabled={productionLocked || Boolean(busy)} onChange={setTargetDurationDraft} addonAfter="秒" />
                                 </label>
                                 <p>模型会根据剧本和总时长自动决定分镜数量。当前视频模型单次最多生成 {productionMaxTargetSeconds} 秒，分镜图确认后会把全部镜头图作为一个完整视频生成。</p>
                             </div>
@@ -766,19 +818,31 @@ export default function SmartFilmBatchDetailPage() {
 
                 <div className="smart-film-batch-toolbar">
                     <div className="flex items-center gap-2">
-                        <Checkbox
-                            checked={Boolean(batch.scripts.length) && selectedScripts.length === batch.scripts.length}
-                            indeterminate={selectedScripts.length > 0 && selectedScripts.length < batch.scripts.length}
-                            onChange={(event) => setSelected(event.target.checked ? new Set(batch.scripts.map((script) => script.id)) : new Set())}
-                        >选择全部剧本</Checkbox>
+                        <Checkbox checked={Boolean(batch.scripts.length) && selectedScripts.length === batch.scripts.length} indeterminate={selectedScripts.length > 0 && selectedScripts.length < batch.scripts.length} onChange={(event) => setSelected(event.target.checked ? new Set(batch.scripts.map((script) => script.id)) : new Set())}>
+                            选择全部剧本
+                        </Checkbox>
                         <span className="text-xs text-foreground/45">已选 {selectedScripts.length} 条</span>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
-                        {!batch.scripts.length ? <Button icon={<Sparkles className="size-4" />} loading={Boolean(busy)} onClick={() => void generateMissingScripts()}>生成剧本</Button> : null}
-                        {recoverableScripts.length ? <Button danger icon={<RefreshCcw className="size-4" />} disabled={Boolean(busy)} onClick={() => void retryFailedRuns()}>修复项目创建（{recoverableScripts.length}）</Button> : null}
-                        <Button icon={<Columns3 className="size-4" />} disabled={!canCompareSmartFilmScripts(selectedScripts) || Boolean(busy)} onClick={() => setComparisonOpen(true)}>对比剧本</Button>
+                        {!batch.scripts.length ? (
+                            <Button icon={<Sparkles className="size-4" />} loading={Boolean(busy)} onClick={() => void generateMissingScripts()}>
+                                生成剧本
+                            </Button>
+                        ) : null}
+                        {recoverableScripts.length ? (
+                            <Button danger icon={<RefreshCcw className="size-4" />} disabled={Boolean(busy)} onClick={() => void retryFailedRuns()}>
+                                修复项目创建（{recoverableScripts.length}）
+                            </Button>
+                        ) : null}
+                        <Button icon={<Columns3 className="size-4" />} disabled={!canCompareSmartFilmScripts(selectedScripts) || Boolean(busy)} onClick={() => setComparisonOpen(true)}>
+                            对比剧本
+                        </Button>
                         <Tooltip title={createProjectHint}>
-                            <span className="inline-flex"><Button type="primary" icon={<Play className="size-4" />} disabled={!selectedDraftCount || Boolean(busy) || productionSaving || !productionConfigValid || !productionDraftMatchesSaved} onClick={() => void confirmSelected()}>创建独立视频项目</Button></span>
+                            <span className="inline-flex">
+                                <Button type="primary" icon={<Play className="size-4" />} disabled={!selectedDraftCount || Boolean(busy) || productionSaving || !productionConfigValid || !productionDraftMatchesSaved} onClick={() => void confirmSelected()}>
+                                    创建独立视频项目
+                                </Button>
+                            </span>
                         </Tooltip>
                     </div>
                 </div>
@@ -799,15 +863,17 @@ export default function SmartFilmBatchDetailPage() {
                                     <p>{script.content}</p>
                                     {runsByScript.get(script.id) ? (
                                         <div className="mt-2 flex flex-wrap items-center gap-1">
-                                            <Tag bordered={false}>资产分析：{stageStatusCopy[runsByScript.get(script.id)!.assetStatus]}{runsByScript.get(script.id)!.assetCount ? ` · ${runsByScript.get(script.id)!.assetCount} 个` : ""}</Tag>
-                                            <Tag bordered={false}>分镜生成：{stageStatusCopy[runsByScript.get(script.id)!.storyboardStatus]}{runsByScript.get(script.id)!.storyboardShotCount ? ` · ${runsByScript.get(script.id)!.storyboardShotCount} 镜` : ""}</Tag>
+                                            <Tag bordered={false}>
+                                                资产分析：{stageStatusCopy[runsByScript.get(script.id)!.assetStatus]}
+                                                {runsByScript.get(script.id)!.assetCount ? ` · ${runsByScript.get(script.id)!.assetCount} 个` : ""}
+                                            </Tag>
+                                            <Tag bordered={false}>
+                                                分镜生成：{stageStatusCopy[runsByScript.get(script.id)!.storyboardStatus]}
+                                                {runsByScript.get(script.id)!.storyboardShotCount ? ` · ${runsByScript.get(script.id)!.storyboardShotCount} 镜` : ""}
+                                            </Tag>
                                         </div>
                                     ) : null}
-                                    {script.error || runsByScript.get(script.id)?.error ? (
-                                        <div className="smart-film-script-error">
-                                            {script.error || `创建中断（${runsByScript.get(script.id)?.failedStep || "未知步骤"}）：${runsByScript.get(script.id)?.error}`}
-                                        </div>
-                                    ) : null}
+                                    {script.error || runsByScript.get(script.id)?.error ? <div className="smart-film-script-error">{script.error || `创建中断（${runsByScript.get(script.id)?.failedStep || "未知步骤"}）：${runsByScript.get(script.id)?.error}`}</div> : null}
                                     {smartFilmRecoveryStage(runsByScript.get(script.id)?.failedStep) ? (
                                         <div className="smart-film-recovery-hint">
                                             <span>重试并优先复用：有可复用结果时直接继续，否则提交新任务。</span>
@@ -816,28 +882,56 @@ export default function SmartFilmBatchDetailPage() {
                                     ) : null}
                                 </div>
                                 <div className="smart-film-script-actions">
-                                    <Button size="small" icon={<Edit3 className="size-3.5" />} onClick={() => openEditor(script)}>修改</Button>
-                                    {!script.projectId ? <Button size="small" icon={<RefreshCcw className="size-3.5" />} disabled={Boolean(busy)} onClick={() => void regenerateScript(script)}>重新生成</Button> : null}
-                                    {!script.projectId ? <Button size="small" danger icon={<Trash2 className="size-3.5" />} disabled={Boolean(busy)} onClick={() => void deleteScript(script)}>删除</Button> : null}
+                                    <Button size="small" icon={<Edit3 className="size-3.5" />} onClick={() => openEditor(script)}>
+                                        修改
+                                    </Button>
+                                    {!script.projectId ? (
+                                        <Button size="small" icon={<RefreshCcw className="size-3.5" />} disabled={Boolean(busy)} onClick={() => void regenerateScript(script)}>
+                                            重新生成
+                                        </Button>
+                                    ) : null}
+                                    {!script.projectId ? (
+                                        <Button size="small" danger icon={<Trash2 className="size-3.5" />} disabled={Boolean(busy)} onClick={() => void deleteScript(script)}>
+                                            删除
+                                        </Button>
+                                    ) : null}
                                     {script.projectId && script.unitId ? (
                                         <>
                                             {script.status === "project_created" ? (
-                                                runsByScript.get(script.id)?.assetStatus === "queued" || runsByScript.get(script.id)?.assetStatus === "running"
-                                                    ? <Button size="small" loading disabled>资产分析中</Button>
-                                                    : null
+                                                runsByScript.get(script.id)?.assetStatus === "queued" || runsByScript.get(script.id)?.assetStatus === "running" ? (
+                                                    <Button size="small" loading disabled>
+                                                        资产分析中
+                                                    </Button>
+                                                ) : null
                                             ) : null}
-                                            {script.status === "assets_extracted" && runsByScript.get(script.id)?.assetStatus !== "confirmed" ? <Button size="small" type="primary" icon={<CheckCircle2 className="size-3.5" />} onClick={() => navigate(`/projects/${script.projectId}/assets`)}>确认资产与资产图</Button> : null}
+                                            {script.status === "assets_extracted" && runsByScript.get(script.id)?.assetStatus !== "confirmed" ? (
+                                                <Button size="small" type="primary" icon={<CheckCircle2 className="size-3.5" />} onClick={() => navigate(`/projects/${script.projectId}/assets`)}>
+                                                    确认资产与资产图
+                                                </Button>
+                                            ) : null}
                                             {script.status === "assets_extracted" && runsByScript.get(script.id)?.assetStatus === "confirmed" ? (
-                                                runsByScript.get(script.id)?.storyboardStatus === "queued" || runsByScript.get(script.id)?.storyboardStatus === "running"
-                                                    ? <Button size="small" loading disabled>分镜提示词生成中</Button>
-                                                    : null
+                                                runsByScript.get(script.id)?.storyboardStatus === "queued" || runsByScript.get(script.id)?.storyboardStatus === "running" ? (
+                                                    <Button size="small" loading disabled>
+                                                        分镜提示词生成中
+                                                    </Button>
+                                                ) : null
                                             ) : null}
-                                            {script.status === "storyboard_ready" ? <Button size="small" type="primary" icon={<Clapperboard className="size-3.5" />} onClick={() => navigate(`/projects/${script.projectId}/workflow/${script.unitId}/storyboard`)}>查看分镜</Button> : null}
-                                            <Button size="small" icon={<CheckCircle2 className="size-3.5" />} onClick={() => navigate(`/projects/${script.projectId}/overview`)}>查看项目</Button>
+                                            {script.status === "storyboard_ready" ? (
+                                                <Button size="small" type="primary" icon={<Clapperboard className="size-3.5" />} onClick={() => navigate(`/projects/${script.projectId}/workflow/${script.unitId}/storyboard`)}>
+                                                    查看分镜
+                                                </Button>
+                                            ) : null}
+                                            <Button size="small" icon={<CheckCircle2 className="size-3.5" />} onClick={() => navigate(`/projects/${script.projectId}/overview`)}>
+                                                查看项目
+                                            </Button>
                                             {(runsByScript.get(script.id)?.status === "needs_attention" || script.status === "needs_attention") && smartFilmRecoveryStage(runsByScript.get(script.id)?.failedStep) ? (
                                                 <>
-                                                    <Button size="small" icon={<RefreshCcw className="size-3.5" />} disabled={Boolean(busy)} onClick={() => void retryProject(script)}>重试并优先复用</Button>
-                                                    <Button size="small" danger icon={<RefreshCcw className="size-3.5" />} disabled={Boolean(busy)} onClick={() => regenerateProject(script)}>重新生成</Button>
+                                                    <Button size="small" icon={<RefreshCcw className="size-3.5" />} disabled={Boolean(busy)} onClick={() => void retryProject(script)}>
+                                                        重试并优先复用
+                                                    </Button>
+                                                    <Button size="small" danger icon={<RefreshCcw className="size-3.5" />} disabled={Boolean(busy)} onClick={() => regenerateProject(script)}>
+                                                        重新生成
+                                                    </Button>
                                                 </>
                                             ) : null}
                                         </>
@@ -852,8 +946,12 @@ export default function SmartFilmBatchDetailPage() {
                         <strong>这次多剧本生成还没有剧本</strong>
                         <span>上次生成成功的剧本可能尚未保存。先尝试恢复上次结果；找不到时再按同一组想法和参考图重新生成 {batch.config.scriptCount} 条独立剧本。</span>
                         <div className="flex flex-wrap justify-center gap-2">
-                            <Button type="primary" loading={Boolean(busy)} onClick={() => void generateMissingScripts()}>重新生成剧本</Button>
-                            <Button icon={<RefreshCcw className="size-4" />} loading={Boolean(busy)} onClick={() => void recoverMissingScripts()}>恢复上次生成结果</Button>
+                            <Button type="primary" loading={Boolean(busy)} onClick={() => void generateMissingScripts()}>
+                                重新生成剧本
+                            </Button>
+                            <Button icon={<RefreshCcw className="size-4" />} loading={Boolean(busy)} onClick={() => void recoverMissingScripts()}>
+                                恢复上次生成结果
+                            </Button>
                         </div>
                     </div>
                 )}
@@ -862,12 +960,20 @@ export default function SmartFilmBatchDetailPage() {
                 <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" role="dialog" aria-modal="true">
                     <div className="w-full max-w-3xl rounded-2xl border border-border bg-background p-5 shadow-2xl">
                         <div className="mb-4 flex items-center justify-between gap-4">
-                            <div><strong className="text-base">修改独立剧本</strong><p className="mt-1 text-xs text-foreground/45">只修改当前这条剧本，不会影响其他独立视频。</p></div>
+                            <div>
+                                <strong className="text-base">修改独立剧本</strong>
+                                <p className="mt-1 text-xs text-foreground/45">只修改当前这条剧本，不会影响其他独立视频。</p>
+                            </div>
                             <Button onClick={() => setEditing(null)}>关闭</Button>
                         </div>
                         <Input value={draftTitle} maxLength={120} onChange={(event) => setDraftTitle(event.target.value)} placeholder="剧本标题" />
                         <Input.TextArea className="mt-3" value={draftContent} onChange={(event) => setDraftContent(event.target.value)} autoSize={{ minRows: 12, maxRows: 24 }} placeholder="剧本正文" />
-                        <div className="mt-4 flex justify-end gap-2"><Button onClick={() => setEditing(null)}>取消</Button><Button type="primary" loading={Boolean(busy)} onClick={() => void saveEditor()}>保存剧本</Button></div>
+                        <div className="mt-4 flex justify-end gap-2">
+                            <Button onClick={() => setEditing(null)}>取消</Button>
+                            <Button type="primary" loading={Boolean(busy)} onClick={() => void saveEditor()}>
+                                保存剧本
+                            </Button>
+                        </div>
                     </div>
                 </div>
             ) : null}

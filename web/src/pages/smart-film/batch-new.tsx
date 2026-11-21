@@ -2,23 +2,26 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { App, Button, Input, InputNumber, Progress, Select } from "antd";
 import { ArrowLeft, ImagePlus, Library, LoaderCircle, Palette, Sparkles, Trash2 } from "lucide-react";
 import { useNavigate } from "react-router";
+import { useQuery } from "@tanstack/react-query";
 
 import { AssetLibraryPickerModal, type AssetLibraryPickerItem } from "@/components/assets/asset-library-picker-modal";
 import { CachedResourceImage } from "@/components/cached-resource-image";
 import { CanvasStylePickerModal, type CanvasStylePreset } from "@/components/canvas/canvas-style-picker-modal";
 import { ModelPicker } from "@/components/model-picker";
 import { WorkspacePage } from "@/components/layout/workspace-page";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { ASSET_CATEGORY_LABELS, normalizeAssetCategory, type AssetCategory } from "@/lib/asset-category";
+import { smartFilmBatchBudgetPoints, smartFilmBatchCostStatus } from "@/lib/canvas/smart-film-batch-cost";
 import { defaultModelCapabilityConfig, modelCapabilityConfigFor, normalizeVideoValue } from "@/lib/model-capabilities";
 import { createStyleProfileSnapshot, serializeStyleProfile } from "@/lib/canvas/style-profile";
-import type { SmartFilmScriptReference } from "@/lib/canvas/smart-film-scripts";
+import { smartFilmScriptPrompt, type SmartFilmScriptReference } from "@/lib/canvas/smart-film-scripts";
 import { needsPlatformDefaultSkillConfirmation, referenceDefaultName, SMART_FILM_LAST_SKILL_STORAGE_KEY } from "@/lib/canvas/smart-film-reference-defaults";
 import { uploadWorkspaceAssetFiles } from "@/services/workspace-asset-upload";
-import { createSmartFilmBatch, saveSmartFilmBatchScripts, type SmartFilmReferenceRole, type SmartFilmSkillSnapshot } from "@/services/api/smart-film-batches";
+import { createSmartFilmBatch, previewSmartFilmBatchCost, saveSmartFilmBatchScripts, type SmartFilmBatchCost, type SmartFilmBatchCreateInput, type SmartFilmReferenceRole, type SmartFilmSkillSnapshot } from "@/services/api/smart-film-batches";
 import { backendProviderConfig } from "@/services/api/generation-task";
 import type { Skill } from "@/services/api/skills";
 import { useSkillRuntimeCatalog } from "@/components/skills/skill-runtime-picker";
-import { createSmartFilmSkillSnapshot } from "@/services/smart-film-skill";
+import { createSmartFilmSkillSnapshot, smartFilmSkillStagePrompt } from "@/services/smart-film-skill";
 import { useAssetStore, type ImageAsset } from "@/stores/use-asset-store";
 import { logicalModelIDForConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { generateSmartFilmScripts } from "./smart-film-script-generation";
@@ -70,6 +73,10 @@ export default function SmartFilmBatchNewPage() {
     const [generating, setGenerating] = useState(false);
     const [generationProgress, setGenerationProgress] = useState(0);
     const [status, setStatus] = useState("");
+    const [submitError, setSubmitError] = useState("");
+    const [selectedSkillSnapshot, setSelectedSkillSnapshot] = useState<SmartFilmSkillSnapshot>();
+    const [skillSnapshotLoading, setSkillSnapshotLoading] = useState(false);
+    const [skillSnapshotError, setSkillSnapshotError] = useState("");
     useEffect(() => {
         if (!generating) return;
         const timer = window.setInterval(() => setGenerationProgress((progress) => Math.min(90, progress + 1)), 1500);
@@ -79,11 +86,10 @@ export default function SmartFilmBatchNewPage() {
         const asset = assets.find((item) => item.id === id && item.kind === "image");
         return asset ? [asset as ImageAsset] : [];
     });
-    const referenceAssetsByRole = Object.fromEntries(REFERENCE_ROLE_OPTIONS.map((option) => [
-        option.value,
-        productAssets.filter((asset) => (referenceRoles[asset.id] || "prop") === option.value),
-    ])) as Record<BatchReferenceRole, ImageAsset[]>;
+    const referenceAssetsByRole = Object.fromEntries(REFERENCE_ROLE_OPTIONS.map((option) => [option.value, productAssets.filter((asset) => (referenceRoles[asset.id] || "prop") === option.value)])) as Record<BatchReferenceRole, ImageAsset[]>;
     const selectedSkill = useMemo<Skill | undefined>(() => installedSkills.find((skill) => skill.skillId === selectedSkillId), [installedSkills, selectedSkillId]);
+    const resolvedTextModel = textModel || effectiveConfig.textModel;
+    const resolvedImageModel = imageModel || effectiveConfig.imageModel;
     const selectedVideoModel = videoModel || effectiveConfig.videoModel;
     const videoProfile = useMemo(() => modelCapabilityConfigFor(effectiveConfig, selectedVideoModel).video || defaultModelCapabilityConfig(undefined, selectedVideoModel).video!, [effectiveConfig, selectedVideoModel]);
     const resolvedVideoResolution = normalizeVideoValue(videoProfile, { resolution: videoResolution || effectiveConfig.vquality || videoProfile.defaultResolution }).resolution;
@@ -92,18 +98,163 @@ export default function SmartFilmBatchNewPage() {
         if (installedSkills.some((skill) => skill.skillId === selectedSkillId)) return;
         setSelectedSkillId("");
     }, [installedSkills, selectedSkillId, skillsLoading]);
-    const productPickerItems = useMemo<AssetLibraryPickerItem[]>(() => assets
-        .filter((asset) => asset.kind === "image" && asset.status !== "archived")
-        .map((asset) => ({
-            id: asset.id,
-            title: asset.title,
-            category: normalizeAssetCategory(asset.category),
-            kindLabel: "图片",
-            mediaKind: "image",
-            asset,
-            searchText: (asset.tags || []).join(" "),
-            folderId: asset.folderId,
-        })), [assets]);
+    useEffect(() => {
+        if (!selectedSkill) {
+            setSelectedSkillSnapshot(undefined);
+            setSkillSnapshotLoading(false);
+            setSkillSnapshotError("");
+            return;
+        }
+        let cancelled = false;
+        setSkillSnapshotLoading(true);
+        setSkillSnapshotError("");
+        void createSmartFilmSkillSnapshot(selectedSkill, installedSkills)
+            .then((snapshot) => {
+                if (!cancelled) setSelectedSkillSnapshot(snapshot);
+            })
+            .catch((error) => {
+                if (cancelled) return;
+                setSelectedSkillSnapshot(undefined);
+                setSkillSnapshotError(error instanceof Error ? error.message : "所选技能规则读取失败");
+            })
+            .finally(() => {
+                if (!cancelled) setSkillSnapshotLoading(false);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [installedSkills, selectedSkill]);
+    const productPickerItems = useMemo<AssetLibraryPickerItem[]>(
+        () =>
+            assets
+                .filter((asset) => asset.kind === "image" && asset.status !== "archived")
+                .map((asset) => ({
+                    id: asset.id,
+                    title: asset.title,
+                    category: normalizeAssetCategory(asset.category),
+                    kindLabel: "图片",
+                    mediaKind: "image",
+                    asset,
+                    searchText: (asset.tags || []).join(" "),
+                    folderId: asset.folderId,
+                })),
+        [assets],
+    );
+    const quoteIdea = useDebouncedValue(idea.trim(), 500);
+
+    const buildInputAssetNames = () =>
+        Object.fromEntries(
+            productAssetIds.flatMap((id, index) => {
+                const asset = assets.find((item) => item.id === id && item.kind === "image");
+                if (!asset) return [];
+                return [[id, (referenceNames[id] || referenceDefaultName(asset.title, referenceRoles[id] || "prop", index)).trim()]];
+            }),
+        );
+
+    const buildBatchInput = (sourceText: string, skillSnapshot = selectedSkillSnapshot): SmartFilmBatchCreateInput => {
+        const resolvedScriptCount = Math.max(1, Math.min(10, Number(scriptCount) || 3));
+        const inputAssetNames = buildInputAssetNames();
+        const references = productAssets.map((asset) => ({
+            title: inputAssetNames[asset.id] || asset.title,
+            role: referenceRoles[asset.id] || "prop",
+        })) satisfies SmartFilmScriptReference[];
+        const scriptPrompt = smartFilmSkillStagePrompt(skillSnapshot, "script", smartFilmScriptPrompt({ idea: sourceText, references, count: resolvedScriptCount }));
+        const textProvider = {
+            ...backendProviderConfig({ ...effectiveConfig, model: resolvedTextModel, textModel: resolvedTextModel }, "text"),
+            logicalModelId: logicalModelIDForConfig({ ...effectiveConfig, model: resolvedTextModel, textModel: resolvedTextModel }) || undefined,
+        };
+        const imageProvider = {
+            ...backendProviderConfig({ ...effectiveConfig, model: resolvedImageModel, imageModel: resolvedImageModel }, "image"),
+            logicalModelId: logicalModelIDForConfig({ ...effectiveConfig, model: resolvedImageModel, imageModel: resolvedImageModel }) || undefined,
+        };
+        const videoProvider = {
+            ...backendProviderConfig({ ...effectiveConfig, model: selectedVideoModel, videoModel: selectedVideoModel }, "video"),
+            logicalModelId: logicalModelIDForConfig({ ...effectiveConfig, model: selectedVideoModel, videoModel: selectedVideoModel }) || undefined,
+        };
+        return {
+            title: sourceText.slice(0, 24) || "多剧本成片",
+            sourceText,
+            scriptPrompt,
+            inputAssetIds: productAssetIds,
+            config: {
+                aspectRatio,
+                ...(selectedStyle
+                    ? {
+                          stylePresetId: selectedStyle.id,
+                          styleProfileJson: serializeStyleProfile(selectedStyle.profile || createStyleProfileSnapshot(selectedStyle)),
+                      }
+                    : {}),
+                defaultTextModel: resolvedTextModel,
+                defaultImageModel: resolvedImageModel,
+                defaultVideoModel: selectedVideoModel,
+                defaultVideoResolution: resolvedVideoResolution,
+                inputAssetRoles: referenceRoles,
+                inputAssetNames,
+                ...(skillSnapshot ? { skillSnapshot } : {}),
+                scriptCount: resolvedScriptCount,
+            },
+            orchestrationConfig: {
+                text: textProvider,
+                image: imageProvider,
+                video: videoProvider,
+            },
+        };
+    };
+    const costPreviewSignature = JSON.stringify({
+        idea: quoteIdea,
+        scriptCount,
+        aspectRatio,
+        selectedStyleId: selectedStyle?.id || "",
+        selectedSkillHash: selectedSkillSnapshot?.contentHash || "",
+        resolvedTextModel,
+        resolvedImageModel,
+        resolvedVideoModel: selectedVideoModel,
+        resolvedVideoResolution,
+        productAssetIds,
+        referenceRoles,
+        referenceNames,
+        assetTitles: productAssetIds.map((id) => assets.find((asset) => asset.id === id)?.title || ""),
+    });
+    const costPreviewReady = Boolean(
+        quoteIdea &&
+        resolvedTextModel &&
+        resolvedImageModel &&
+        selectedVideoModel &&
+        isAiConfigReady(effectiveConfig, resolvedTextModel) &&
+        isAiConfigReady(effectiveConfig, resolvedImageModel) &&
+        isAiConfigReady(effectiveConfig, selectedVideoModel) &&
+        !skillsLoading &&
+        !skillSnapshotLoading &&
+        !skillSnapshotError &&
+        !generating,
+    );
+    const costPreviewQuery = useQuery({
+        queryKey: ["smart-film-batch-cost-preview", costPreviewSignature],
+        queryFn: () => previewSmartFilmBatchCost(buildBatchInput(quoteIdea)),
+        enabled: costPreviewReady,
+        retry: false,
+        staleTime: 30_000,
+    });
+    const costPreview = costPreviewQuery.data;
+    const costStatus = smartFilmBatchCostStatus(costPreview);
+    const costInsufficient = costStatus === "insufficient";
+    const costSummaryText = skillSnapshotLoading
+        ? "正在读取所选技能规则…"
+        : skillSnapshotError
+          ? `技能规则读取失败：${skillSnapshotError}`
+          : !idea.trim()
+            ? "填写视频想法后自动核算本轮剧本积分"
+            : !resolvedTextModel || !resolvedImageModel || !selectedVideoModel
+              ? "选择文本、图片和视频模型后核算积分"
+              : costPreviewQuery.isError
+                ? `积分报价暂不可用：${costPreviewQuery.error instanceof Error ? costPreviewQuery.error.message : "请稍后重试"}`
+                : costPreviewQuery.isFetching
+                  ? "正在核算本轮剧本积分…"
+                  : costStatus === "disabled"
+                    ? "当前渠道未启用积分计费"
+                    : costPreview
+                      ? `本轮生成剧本预计 ${costPreview.totalPoints} 积分 · 当前余额 ${costPreview.balance} 积分`
+                      : "等待积分报价";
 
     const addProductImages = async (role: BatchReferenceRole, files: File[]) => {
         if (!files.length) return;
@@ -135,19 +286,15 @@ export default function SmartFilmBatchNewPage() {
         const sourceText = idea.trim();
         const resolvedScriptCount = Number(scriptCount) || 0;
         if (skillsLoading) return message.warning("正在读取技能库，请稍候再生成剧本");
-        const resolvedTextModel = textModel || effectiveConfig.textModel;
-        const resolvedImageModel = imageModel || effectiveConfig.imageModel;
-        const resolvedVideoModel = videoModel || effectiveConfig.videoModel;
+        if (skillSnapshotLoading) return message.warning("正在读取所选技能规则，请稍候再生成剧本");
+        if (skillSnapshotError) return message.warning(skillSnapshotError);
         if (!sourceText) return message.warning("请先填写视频想法");
         if (resolvedScriptCount < 1 || resolvedScriptCount > 10) return message.warning("剧本数量需要在 1–10 条之间");
         if (productAssetIds.length > MAX_BATCH_PRODUCT_IMAGES) return message.warning(`参考图最多 ${MAX_BATCH_PRODUCT_IMAGES} 张`);
-        const inputAssetNames = Object.fromEntries(productAssets.map((asset, index) => [
-            asset.id,
-            (referenceNames[asset.id] || referenceDefaultName(asset.title, referenceRoles[asset.id] || "prop", index)).trim(),
-        ]));
+        const inputAssetNames = buildInputAssetNames();
         if (productAssets.some((asset) => !inputAssetNames[asset.id])) return message.warning("请为每张参考图填写可用于剧情和提示词的资产名称");
-        if (!resolvedTextModel || !resolvedImageModel || !resolvedVideoModel) return message.warning("请先选择文本、图片和视频模型");
-        if ([resolvedTextModel, resolvedImageModel, resolvedVideoModel].some((model) => !isAiConfigReady(effectiveConfig, model))) {
+        if (!resolvedTextModel || !resolvedImageModel || !selectedVideoModel) return message.warning("请先选择文本、图片和视频模型");
+        if ([resolvedTextModel, resolvedImageModel, selectedVideoModel].some((model) => !isAiConfigReady(effectiveConfig, model))) {
             return message.warning("所选模型当前不可用，请先检查模型配置");
         }
         if (needsPlatformDefaultSkillConfirmation(installedSkills.length, selectedSkillId)) {
@@ -163,44 +310,29 @@ export default function SmartFilmBatchNewPage() {
             });
             if (!usePlatformDefault) return;
         }
+        setSubmitError("");
         setGenerating(true);
         setGenerationProgress(5);
-        setStatus("正在创建多剧本项目…");
+        setStatus("正在核算生成剧本所需积分…");
         let batchId = "";
         try {
-            let skillSnapshot: SmartFilmSkillSnapshot | undefined;
-            if (selectedSkill) {
-                setStatus("正在读取所选技能的阶段规范…");
-                skillSnapshot = await createSmartFilmSkillSnapshot(selectedSkill, installedSkills);
+            const request = buildBatchInput(sourceText, selectedSkill ? selectedSkillSnapshot : undefined);
+            let quote: SmartFilmBatchCost | undefined;
+            try {
+                quote = await previewSmartFilmBatchCost(request);
+            } catch (error) {
+                setSubmitError(`积分报价暂不可用，将继续创建剧本；实际提交任务时会再次核价。${error instanceof Error ? ` ${error.message}` : ""}`);
             }
-            const textProvider = { ...backendProviderConfig({ ...effectiveConfig, model: resolvedTextModel, textModel: resolvedTextModel }, "text"), logicalModelId: logicalModelIDForConfig({ ...effectiveConfig, model: resolvedTextModel, textModel: resolvedTextModel }) || undefined };
-            const imageProvider = { ...backendProviderConfig({ ...effectiveConfig, model: resolvedImageModel, imageModel: resolvedImageModel }, "image"), logicalModelId: logicalModelIDForConfig({ ...effectiveConfig, model: resolvedImageModel, imageModel: resolvedImageModel }) || undefined };
-            const videoProvider = { ...backendProviderConfig({ ...effectiveConfig, model: resolvedVideoModel, videoModel: resolvedVideoModel }, "video"), logicalModelId: logicalModelIDForConfig({ ...effectiveConfig, model: resolvedVideoModel, videoModel: resolvedVideoModel }) || undefined };
+            if (smartFilmBatchCostStatus(quote) === "insufficient") {
+                const reason = `积分不足：本次预计 ${quote?.totalPoints || 0} 积分，当前余额 ${quote?.balance || 0} 积分`;
+                setSubmitError(reason);
+                message.warning(reason);
+                return;
+            }
+            setStatus("正在创建多剧本项目…");
             const created = await createSmartFilmBatch({
-                title: sourceText.slice(0, 24) || "多剧本成片",
-                sourceText,
-                inputAssetIds: productAssetIds,
-                config: {
-                    aspectRatio,
-                    ...(selectedStyle ? {
-                        stylePresetId: selectedStyle.id,
-                        styleProfileJson: serializeStyleProfile(selectedStyle.profile || createStyleProfileSnapshot(selectedStyle)),
-                    } : {}),
-                    defaultTextModel: resolvedTextModel,
-                    defaultImageModel: resolvedImageModel,
-                    defaultVideoModel: resolvedVideoModel,
-                    defaultVideoResolution: resolvedVideoResolution,
-                    inputAssetRoles: referenceRoles,
-                    inputAssetNames,
-                    ...(skillSnapshot ? { skillSnapshot } : {}),
-                    scriptCount: resolvedScriptCount,
-                },
-                budgetPoints: 0,
-                orchestrationConfig: {
-                    text: textProvider,
-                    image: imageProvider,
-                    video: videoProvider,
-                },
+                ...request,
+                budgetPoints: smartFilmBatchBudgetPoints(quote),
             });
             batchId = created.batch.id;
             setGenerationProgress(10);
@@ -212,9 +344,9 @@ export default function SmartFilmBatchNewPage() {
                     role: referenceRoles[asset.id] || "prop",
                 })) satisfies SmartFilmScriptReference[],
                 count: resolvedScriptCount,
-                config: { ...effectiveConfig, model: resolvedTextModel, textModel: resolvedTextModel, imageModel: resolvedImageModel, videoModel: resolvedVideoModel },
+                config: { ...effectiveConfig, model: resolvedTextModel, textModel: resolvedTextModel, imageModel: resolvedImageModel, videoModel: selectedVideoModel },
                 batchId,
-                skillSnapshot,
+                skillSnapshot: selectedSkill ? selectedSkillSnapshot : undefined,
                 onProgress: (progress, stage) => {
                     setGenerationProgress(Math.max(10, progress));
                     if (stage) setStatus(stage);
@@ -230,7 +362,9 @@ export default function SmartFilmBatchNewPage() {
             setGenerationProgress(100);
             navigate(`/smart-film/batches/${batchId}`);
         } catch (error) {
-            message.error(error instanceof Error ? error.message : "多剧本生成失败，请重试");
+            const reason = error instanceof Error ? error.message : "多剧本生成失败，请重试";
+            setSubmitError(reason);
+            message.error(reason);
             if (batchId) navigate(`/smart-film/batches/${batchId}`);
         } finally {
             setGenerating(false);
@@ -243,16 +377,26 @@ export default function SmartFilmBatchNewPage() {
         <WorkspacePage className="smart-film-page smart-film-batch-page">
             <header className="smart-film-hero">
                 <div>
-                    <span className="smart-film-eyebrow"><Sparkles className="size-3.5" /> MULTI FILM BATCH</span>
+                    <span className="smart-film-eyebrow">
+                        <Sparkles className="size-3.5" /> MULTI FILM BATCH
+                    </span>
                     <h1>多剧本成片</h1>
                     <p>一次生成多条独立剧本，每条对应一条独立视频。后续资产、分镜和视频都在各自项目中确认与生成，互不合并。</p>
                 </div>
-                <Button icon={<ArrowLeft className="size-4" />} onClick={() => navigate("/smart-film/batches")}>返回剧本记录</Button>
+                <Button icon={<ArrowLeft className="size-4" />} onClick={() => navigate("/smart-film/batches")}>
+                    返回剧本记录
+                </Button>
             </header>
 
             <main className="smart-film-batch-form">
                 <section className="smart-film-batch-section">
-                    <div className="smart-film-batch-section-title"><span>01</span><div><strong>想法与参考素材</strong><small>可上传产品、场景、人物、道具等参考图；创建项目后会分析剧本所需资产并生成可修改的提示词</small></div></div>
+                    <div className="smart-film-batch-section-title">
+                        <span>01</span>
+                        <div>
+                            <strong>想法与参考素材</strong>
+                            <small>可上传产品、场景、人物、道具等参考图；创建项目后会分析剧本所需资产并生成可修改的提示词</small>
+                        </div>
+                    </div>
                     <Input.TextArea value={idea} onChange={(event) => setIdea(event.target.value)} autoSize={{ minRows: 5, maxRows: 10 }} placeholder="例如：为这款便携咖啡机做 3 条不同角度的独立短视频，分别突出办公室、露营和早晨通勤。" />
                     <div className="smart-film-reference-groups">
                         {REFERENCE_ROLE_OPTIONS.map((option) => {
@@ -261,14 +405,32 @@ export default function SmartFilmBatchNewPage() {
                             return (
                                 <section className="smart-film-reference-group" key={option.value}>
                                     <header>
-                                        <div><strong>{option.label}</strong><small>{roleAssets.length ? `已添加 ${roleAssets.length} 张` : "可选，不添加也可以继续"}</small></div>
+                                        <div>
+                                            <strong>{option.label}</strong>
+                                            <small>{roleAssets.length ? `已添加 ${roleAssets.length} 张` : "可选，不添加也可以继续"}</small>
+                                        </div>
                                         <div className="smart-film-reference-group-actions">
-                                            <button type="button" disabled={Boolean(uploadingRole) || generating} onClick={() => { pendingUploadRoleRef.current = option.value; fileInputRef.current?.click(); }}>
+                                            <button
+                                                type="button"
+                                                disabled={Boolean(uploadingRole) || generating}
+                                                onClick={() => {
+                                                    pendingUploadRoleRef.current = option.value;
+                                                    fileInputRef.current?.click();
+                                                }}
+                                            >
                                                 {uploading ? <LoaderCircle className="size-3.5 animate-spin" /> : <ImagePlus className="size-3.5" />}
                                                 {uploading ? "正在上传" : `添加${option.label}`}
                                             </button>
-                                            <button type="button" disabled={generating} onClick={() => { setPickerRole(option.value); setAssetPickerOpen(true); }}>
-                                                <Library className="size-3.5" />素材库
+                                            <button
+                                                type="button"
+                                                disabled={generating}
+                                                onClick={() => {
+                                                    setPickerRole(option.value);
+                                                    setAssetPickerOpen(true);
+                                                }}
+                                            >
+                                                <Library className="size-3.5" />
+                                                素材库
                                             </button>
                                         </div>
                                     </header>
@@ -285,7 +447,25 @@ export default function SmartFilmBatchNewPage() {
                                                     aria-label={`${asset.title} 的${option.label}名称`}
                                                     onChange={(event) => setReferenceNames((current) => ({ ...current, [asset.id]: event.target.value }))}
                                                 />
-                                                <button type="button" aria-label={`移除 ${asset.title}`} onClick={() => { setProductAssetIds((current) => current.filter((id) => id !== asset.id)); setReferenceRoles((current) => { const next = { ...current }; delete next[asset.id]; return next; }); setReferenceNames((current) => { const next = { ...current }; delete next[asset.id]; return next; }); }}><Trash2 className="size-3.5" /></button>
+                                                <button
+                                                    type="button"
+                                                    aria-label={`移除 ${asset.title}`}
+                                                    onClick={() => {
+                                                        setProductAssetIds((current) => current.filter((id) => id !== asset.id));
+                                                        setReferenceRoles((current) => {
+                                                            const next = { ...current };
+                                                            delete next[asset.id];
+                                                            return next;
+                                                        });
+                                                        setReferenceNames((current) => {
+                                                            const next = { ...current };
+                                                            delete next[asset.id];
+                                                            return next;
+                                                        });
+                                                    }}
+                                                >
+                                                    <Trash2 className="size-3.5" />
+                                                </button>
                                             </div>
                                         ))}
                                     </div>
@@ -297,7 +477,13 @@ export default function SmartFilmBatchNewPage() {
                     <div className="smart-film-skill-select-row">
                         <div>
                             <strong>制作技能</strong>
-                            <span>{selectedSkillId ? "本次多剧本项目会固定这组 Skill；已安装的同套件导演、分镜、全链路和剪辑 Skill 会自动组合。" : installedSkills.length ? "当前未选择 Skill；继续制作前会再次确认使用平台默认规则。" : "没有安装 Skill 时使用平台默认规则。"}</span>
+                            <span>
+                                {selectedSkillId
+                                    ? "本次多剧本项目会固定这组 Skill；已安装的同套件导演、分镜、全链路和剪辑 Skill 会自动组合。"
+                                    : installedSkills.length
+                                      ? "当前未选择 Skill；继续制作前会再次确认使用平台默认规则。"
+                                      : "没有安装 Skill 时使用平台默认规则。"}
+                            </span>
                         </div>
                         <div className="smart-film-skill-select-actions">
                             <Select
@@ -321,20 +507,49 @@ export default function SmartFilmBatchNewPage() {
                                 notFoundContent={skillsLoading ? "正在读取技能库" : "还没有已安装技能"}
                                 aria-label="本次多剧本项目使用的单一技能"
                             />
-                            <Button size="small" disabled={generating} onClick={() => navigate("/skills")}>管理技能</Button>
+                            <Button size="small" disabled={generating} onClick={() => navigate("/skills")}>
+                                管理技能
+                            </Button>
                         </div>
                     </div>
                     <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/avif" multiple hidden onChange={(event) => void addProductImages(pendingUploadRoleRef.current, Array.from(event.target.files || []))} />
                 </section>
 
                 <section className="smart-film-batch-section">
-                    <div className="smart-film-batch-section-title"><span>02</span><div><strong>剧本与画面规格</strong><small>先确定剧本数量和统一画幅、画风；分镜策略将在剧本确认后设置</small></div></div>
+                    <div className="smart-film-batch-section-title">
+                        <span>02</span>
+                        <div>
+                            <strong>剧本与画面规格</strong>
+                            <small>先确定剧本数量和统一画幅、画风；分镜策略将在剧本确认后设置</small>
+                        </div>
+                    </div>
                     <div className="smart-film-batch-number-grid">
-                        <label><span>生成剧本数量</span><InputNumber min={1} max={10} precision={0} value={scriptCount} onChange={setScriptCount} addonAfter="条" /></label>
-                        <label><span>成片画幅</span><Select value={aspectRatio} onChange={setAspectRatio} disabled={generating} options={[{ label: "9:16 竖屏", value: "9:16" }, { label: "16:9 横屏", value: "16:9" }, { label: "1:1 方形", value: "1:1" }]} /></label>
+                        <label>
+                            <span>生成剧本数量</span>
+                            <InputNumber min={1} max={10} precision={0} value={scriptCount} onChange={setScriptCount} addonAfter="条" />
+                        </label>
+                        <label>
+                            <span>成片画幅</span>
+                            <Select
+                                value={aspectRatio}
+                                onChange={setAspectRatio}
+                                disabled={generating}
+                                options={[
+                                    { label: "9:16 竖屏", value: "9:16" },
+                                    { label: "16:9 横屏", value: "16:9" },
+                                    { label: "1:1 方形", value: "1:1" },
+                                ]}
+                            />
+                        </label>
                         <label>
                             <span>清晰度</span>
-                            <Select value={resolvedVideoResolution || undefined} onChange={setVideoResolution} disabled={generating || !videoProfile.resolutions.length} placeholder="模型默认" options={videoProfile.resolutions.map((value) => ({ value, label: value.toUpperCase() }))} />
+                            <Select
+                                value={resolvedVideoResolution || undefined}
+                                onChange={setVideoResolution}
+                                disabled={generating || !videoProfile.resolutions.length}
+                                placeholder="模型默认"
+                                options={videoProfile.resolutions.map((value) => ({ value, label: value.toUpperCase() }))}
+                            />
                         </label>
                     </div>
                     <div className="smart-film-batch-style-row">
@@ -349,11 +564,26 @@ export default function SmartFilmBatchNewPage() {
                 </section>
 
                 <section className="smart-film-batch-section">
-                    <div className="smart-film-batch-section-title"><span>03</span><div><strong>生成模型</strong><small>文本模型用于剧本，图片和视频模型写入每个独立项目</small></div></div>
+                    <div className="smart-film-batch-section-title">
+                        <span>03</span>
+                        <div>
+                            <strong>生成模型</strong>
+                            <small>文本模型用于剧本，图片和视频模型写入每个独立项目</small>
+                        </div>
+                    </div>
                     <div className="smart-film-batch-model-grid">
-                        <label><span>文本模型</span><ModelPicker config={effectiveConfig} value={textModel || effectiveConfig.textModel} onChange={setTextModel} capability="text" fullWidth variant="creation" placeholder="选择文本模型" /></label>
-                        <label><span>图片模型</span><ModelPicker config={effectiveConfig} value={imageModel || effectiveConfig.imageModel} onChange={setImageModel} capability="image" fullWidth variant="creation" placeholder="选择图片模型" /></label>
-                        <label><span>视频模型</span><ModelPicker config={effectiveConfig} value={videoModel || effectiveConfig.videoModel} onChange={setVideoModel} capability="video" fullWidth variant="creation" placeholder="选择视频模型" /></label>
+                        <label>
+                            <span>文本模型</span>
+                            <ModelPicker config={effectiveConfig} value={textModel || effectiveConfig.textModel} onChange={setTextModel} capability="text" fullWidth variant="creation" placeholder="选择文本模型" />
+                        </label>
+                        <label>
+                            <span>图片模型</span>
+                            <ModelPicker config={effectiveConfig} value={imageModel || effectiveConfig.imageModel} onChange={setImageModel} capability="image" fullWidth variant="creation" placeholder="选择图片模型" />
+                        </label>
+                        <label>
+                            <span>视频模型</span>
+                            <ModelPicker config={effectiveConfig} value={videoModel || effectiveConfig.videoModel} onChange={setVideoModel} capability="video" fullWidth variant="creation" placeholder="选择视频模型" />
+                        </label>
                     </div>
                 </section>
 
@@ -361,10 +591,35 @@ export default function SmartFilmBatchNewPage() {
                     <div className="smart-film-batch-submit-copy">
                         <strong>确认后生成独立剧本候选</strong>
                         <span>每条剧本都可以单独重新生成、修改和选择是否制作。</span>
-                        {generating ? <div className="smart-film-generation-progress"><Progress percent={generationProgress} size="small" /><small>{status || "正在生成剧本候选"}</small></div> : null}
+                        <div className={`smart-film-batch-quote${costInsufficient || skillSnapshotError ? " is-error" : ""}`} aria-live="polite">
+                            <span>{costSummaryText}</span>
+                            {costPreview?.items?.length ? (
+                                <small>{costPreview.items.map((item) => `${item.label} × ${item.count} = ${item.points} 积分`).join("；")}</small>
+                            ) : (
+                                <small>这里仅核算剧本生成；资产、分镜、图片和视频会在剧本确认并按制作规格另行核算。</small>
+                            )}
+                        </div>
+                        {submitError ? (
+                            <span className="smart-film-batch-submit-error" role="alert">
+                                {submitError}
+                            </span>
+                        ) : null}
+                        {generating ? (
+                            <div className="smart-film-generation-progress">
+                                <Progress percent={generationProgress} size="small" />
+                                <small>{status || "正在生成剧本候选"}</small>
+                            </div>
+                        ) : null}
                     </div>
-                    <Button type="primary" size="large" loading={generating || Boolean(uploadingRole) || skillsLoading} icon={<Sparkles className="size-4" />} onClick={() => void createBatch()}>
-                        {generating ? `${generationProgress}%` : skillsLoading ? "正在读取技能库" : `生成 ${scriptCount || 0} 条剧本`}
+                    <Button
+                        type="primary"
+                        size="large"
+                        loading={generating || Boolean(uploadingRole) || skillsLoading || skillSnapshotLoading}
+                        disabled={Boolean(skillSnapshotError) || (costInsufficient && !costPreviewQuery.isFetching)}
+                        icon={<Sparkles className="size-4" />}
+                        onClick={() => void createBatch()}
+                    >
+                        {generating ? `${generationProgress}%` : skillsLoading ? "正在读取技能库" : skillSnapshotLoading ? "正在读取技能规则" : costInsufficient ? "积分不足" : `生成 ${scriptCount || 0} 条剧本`}
                     </Button>
                 </div>
             </main>
@@ -401,7 +656,9 @@ export default function SmartFilmBatchNewPage() {
                     setReferenceRoles((current) => {
                         const selected = new Set(ids);
                         const next: Record<string, BatchReferenceRole> = {};
-                        nextIds.forEach((id) => { next[id] = selected.has(id) ? pickerRole : current[id] || "prop"; });
+                        nextIds.forEach((id) => {
+                            next[id] = selected.has(id) ? pickerRole : current[id] || "prop";
+                        });
                         return next;
                     });
                     setAssetPickerOpen(false);

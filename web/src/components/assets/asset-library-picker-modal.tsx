@@ -139,32 +139,40 @@ export function AssetLibraryPickerModal({
     const remoteQueryKind = remoteKind || (mediaKind === "all" ? undefined : mediaKind);
     const remoteQuery = useQuery({
         queryKey: assetPickerQueryKey(remotePage, remotePageSize, category, remoteKeyword, remoteQueryKind),
-        queryFn: ({ signal }) => loadAssetLibraryPage({
-            page: remotePage,
-            pageSize: remotePageSize,
-            kind: remoteQueryKind,
-            category: category === "all" || category === remoteQueryKind ? undefined : category,
-            status: "active",
-            query: remoteKeyword,
-            signal,
-        }),
+        queryFn: ({ signal }) =>
+            loadAssetLibraryPage({
+                page: remotePage,
+                pageSize: remotePageSize,
+                kind: remoteQueryKind,
+                category: category === "all" || category === remoteQueryKind ? undefined : category,
+                status: "active",
+                query: remoteKeyword,
+                signal,
+            }),
         enabled: remoteEnabled && open && sessionHydrated,
+        placeholderData: (previousData) => previousData,
     });
-    const remoteItems = useMemo<AssetLibraryPickerItem[]>(() => (remoteQuery.data?.assets || []).filter((asset) => asset.kind !== "entity" && asset.kind !== "model").map((asset) => {
-        const parent = items.find((item) => item.id === asset.id);
-        return {
-            ...parent,
-            id: asset.id,
-            title: asset.title,
-            category: asset.category || "other",
-            archived: asset.status === "archived",
-            asset,
-            kindLabel: asset.kind === "image" ? "图片" : asset.kind === "video" ? "视频" : asset.kind === "audio" ? "音频" : "文本",
-            mediaKind: pickerAssetMediaKind(asset),
-            searchText: (asset.tags ?? []).join(" "),
-            disabledReason: workspaceAssetPickerDisabledReason(asset, items, mediaKinds, remoteKind),
-        };
-    }), [items, mediaKinds, remoteKind, remoteQuery.data]);
+    const remoteItems = useMemo<AssetLibraryPickerItem[]>(
+        () =>
+            (remoteQuery.data?.assets || [])
+                .filter((asset) => asset.kind !== "entity" && asset.kind !== "model")
+                .map((asset) => {
+                    const parent = items.find((item) => item.id === asset.id);
+                    return {
+                        ...parent,
+                        id: asset.id,
+                        title: asset.title,
+                        category: asset.category || "other",
+                        archived: asset.status === "archived",
+                        asset,
+                        kindLabel: asset.kind === "image" ? "图片" : asset.kind === "video" ? "视频" : asset.kind === "audio" ? "音频" : "文本",
+                        mediaKind: pickerAssetMediaKind(asset),
+                        searchText: (asset.tags ?? []).join(" "),
+                        disabledReason: workspaceAssetPickerDisabledReason(asset, items, mediaKinds, remoteKind),
+                    };
+                }),
+        [items, mediaKinds, remoteKind, remoteQuery.data],
+    );
     const uploadInputRef = useRef<HTMLInputElement>(null);
     const initialSelectedIdsRef = useRef(initialSelectedIds);
     const itemsRef = useRef(items);
@@ -176,15 +184,25 @@ export function AssetLibraryPickerModal({
     itemsRef.current = allItems;
     const localItems = useMemo(() => allItems.filter((item) => !item.external), [allItems]);
     const remoteTotal = remoteQuery.data?.total ?? 0;
-    const remoteReady = remoteEnabled && remoteQuery.isSuccess;
+    const remoteReady = remoteEnabled && Boolean(remoteQuery.data);
     const useRemoteItems = Boolean(remoteReady);
     const traversalTotal = remoteReady && remoteQuery.data ? workspaceAssetTraversalTotal(remoteQuery.data) : (pagination?.total ?? 0);
-    const effectivePagination = useRemoteItems ? { current: remotePage, pageSize: remotePageSize, total: traversalTotal, onChange: (page: number, pageSize: number) => { setRemotePage(page); setRemotePageSize(pageSize); } } : pagination;
+    const effectivePagination = useRemoteItems
+        ? {
+              current: remotePage,
+              pageSize: remotePageSize,
+              total: traversalTotal,
+              onChange: (page: number, pageSize: number) => {
+                  setRemotePage(page);
+                  setRemotePageSize(pageSize);
+              },
+          }
+        : pagination;
     useEffect(() => {
-        if (!remoteEnabled) return;
+        if (!remoteEnabled || !remoteQuery.data) return;
         const maxPage = Math.max(1, Math.ceil(traversalTotal / remotePageSize));
         setRemotePage((value) => Math.min(value, maxPage));
-    }, [remoteEnabled, remotePageSize, traversalTotal]);
+    }, [remoteEnabled, remotePageSize, remoteQuery.data, traversalTotal]);
     const pluginItems = useMemo(() => allItems.filter((item) => Boolean(item.external)), [allItems]);
     const hasPluginSource = useMemo(() => Object.keys(categoryLabels).some((value) => value.startsWith("external:")) || pluginItems.some((item) => item.category.startsWith("external:")), [categoryLabels, pluginItems]);
     // 媒体类型在分类之前收窄数据源，让左侧分类计数、网格和分页始终描述同一批素材。
@@ -197,7 +215,13 @@ export function AssetLibraryPickerModal({
     const mediaKindOptions = useMemo(() => (remoteKind ? [] : Array.from(new Set(mediaKinds))), [mediaKinds, remoteKind]);
     const sourceFolders = source === "plugin" ? folders : [];
     const showCategories = source === "local" || !sourceFolders.length;
-    const normalCategories = useMemo(() => useRemoteItems ? Object.keys(categoryLabels).filter((value) => value !== "archived" && !value.startsWith("external:")) : ["all", ...Array.from(new Set(activeSourceItems.map((item) => item.category || "other"))).filter((value) => value !== "all")], [activeSourceItems, categoryLabels, useRemoteItems]);
+    const normalCategories = useMemo(
+        () =>
+            useRemoteItems
+                ? Object.keys(categoryLabels).filter((value) => value !== "archived" && !value.startsWith("external:"))
+                : ["all", ...Array.from(new Set(activeSourceItems.map((item) => item.category || "other"))).filter((value) => value !== "all")],
+        [activeSourceItems, categoryLabels, useRemoteItems],
+    );
 
     const visibleItems = useMemo(() => {
         const query = keyword.trim().toLowerCase();
@@ -439,7 +463,7 @@ export function AssetLibraryPickerModal({
                                     <span>请稍后重试。</span>
                                     <Button onClick={() => void remoteQuery.refetch()}>重试</Button>
                                 </div>
-                            ) : loading || (remoteEnabled && !remoteQuery.isSuccess) ? (
+                            ) : loading || (remoteEnabled && !remoteQuery.data) ? (
                                 <div className="asset-picker-empty">
                                     <LoaderCircle className="animate-spin" />
                                     <strong>正在读取素材</strong>
@@ -455,7 +479,9 @@ export function AssetLibraryPickerModal({
                                 </div>
                             )}
                         </div>
-                        {effectivePagination ? <PaginationBar alwaysShow current={effectivePagination.current} pageSize={effectivePagination.pageSize} total={effectivePagination.total} itemLabel="项" pageSizeOptions={[20, 40, 80]} onChange={effectivePagination.onChange} /> : null}
+                        {effectivePagination ? (
+                            <PaginationBar alwaysShow current={effectivePagination.current} pageSize={effectivePagination.pageSize} total={effectivePagination.total} itemLabel="项" pageSizeOptions={[20, 40, 80]} onChange={effectivePagination.onChange} />
+                        ) : null}
                     </div>
                 </div>
                 <footer className={cn("asset-picker-footer", !activeUpload && "is-compact")}>
@@ -513,12 +539,7 @@ function pickerAssetMediaKind(asset: Asset): AssetPickerMediaKind | undefined {
 }
 
 /** Empty parent items must not disable a SQLite asset that matches the picker media constraint. */
-export function workspaceAssetPickerDisabledReason(
-    asset: Asset,
-    items: AssetLibraryPickerItem[],
-    mediaKinds: AssetPickerMediaKind[] = DEFAULT_MEDIA_KINDS,
-    remoteKind?: string,
-) {
+export function workspaceAssetPickerDisabledReason(asset: Asset, items: AssetLibraryPickerItem[], mediaKinds: AssetPickerMediaKind[] = DEFAULT_MEDIA_KINDS, remoteKind?: string) {
     const parent = items.find((item) => item.id === asset.id);
     if (parent) return parent.disabledReason;
     const mediaKind = pickerAssetMediaKind(asset);

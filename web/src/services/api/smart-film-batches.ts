@@ -118,15 +118,22 @@ export type SmartFilmScriptInput = {
     taskId?: string;
 };
 
-export function createSmartFilmBatch(input: {
+export type SmartFilmBatchCreateInput = {
     title: string;
     sourceText: string;
+    scriptPrompt?: string;
     inputAssetIds: string[];
     config: SmartFilmBatchConfig;
     orchestrationConfig?: Record<string, unknown>;
     budgetPoints?: number;
-}) {
+};
+
+export function createSmartFilmBatch(input: SmartFilmBatchCreateInput) {
     return http.post<{ batch: SmartFilmBatch }>("/smart-film-batches", input);
+}
+
+export function previewSmartFilmBatchCost(input: SmartFilmBatchCreateInput) {
+    return http.post<SmartFilmBatchCost>("/smart-film-batches/cost-preview", input);
 }
 
 export function getSmartFilmBatch(batchId: string, signal?: AbortSignal, stage?: SmartFilmSkillStage) {
@@ -149,14 +156,31 @@ export function updateSmartFilmBatchBudget(batchId: string, budgetPoints: number
     return http.patch<{ batch: SmartFilmBatch }>(`/smart-film-batches/${encodeURIComponent(batchId)}/budget`, { budgetPoints });
 }
 
-export function updateSmartFilmBatchProductionConfig(batchId: string, input: {
-    productionMode: "fixed" | "smart";
-    shotCount?: number;
-    shotDurationsSeconds?: number[];
-    targetDurationSeconds?: number;
-    expectedRevision: number;
-}) {
+export function updateSmartFilmBatchProductionConfig(
+    batchId: string,
+    input: {
+        productionMode: "fixed" | "smart";
+        shotCount?: number;
+        shotDurationsSeconds?: number[];
+        targetDurationSeconds?: number;
+        budgetPoints?: number;
+        expectedRevision: number;
+    },
+) {
     return http.patch<{ batch: SmartFilmBatch }>(`/smart-film-batches/${encodeURIComponent(batchId)}/production-config`, input);
+}
+
+export function previewSmartFilmBatchProductionConfig(
+    batchId: string,
+    input: {
+        productionMode: "fixed" | "smart";
+        shotCount?: number;
+        shotDurationsSeconds?: number[];
+        targetDurationSeconds?: number;
+        expectedRevision: number;
+    },
+) {
+    return http.post<SmartFilmBatchCost>(`/smart-film-batches/${encodeURIComponent(batchId)}/production-config/preview`, input);
 }
 
 export function updateSmartFilmBatchSkill(batchId: string, skillSnapshot: SmartFilmSkillSnapshot | undefined, expectedRevision: number) {
@@ -198,25 +222,23 @@ export function recoverSmartFilmBatchScripts(batchId: string) {
     return http.post<{ batch: SmartFilmBatch; recovered: boolean }>(`/smart-film-batches/${encodeURIComponent(batchId)}/recover-scripts`, {});
 }
 
-export function updateSmartFilmBatchScript(batchId: string, scriptId: string, input: {
-    title: string;
-    content: string;
-    status?: SmartFilmScriptStatus;
-    taskId?: string;
-    expectedRevision: number;
-    expectedScriptRevision?: number;
-}) {
-    return http.patch<{ batch: SmartFilmBatch }>(
-        `/smart-film-batches/${encodeURIComponent(batchId)}/scripts/${encodeURIComponent(scriptId)}`,
-        input,
-    );
+export function updateSmartFilmBatchScript(
+    batchId: string,
+    scriptId: string,
+    input: {
+        title: string;
+        content: string;
+        status?: SmartFilmScriptStatus;
+        taskId?: string;
+        expectedRevision: number;
+        expectedScriptRevision?: number;
+    },
+) {
+    return http.patch<{ batch: SmartFilmBatch }>(`/smart-film-batches/${encodeURIComponent(batchId)}/scripts/${encodeURIComponent(scriptId)}`, input);
 }
 
 export function deleteSmartFilmBatchScript(batchId: string, scriptId: string, expectedRevision: number) {
-    return http.delete<{ batch: SmartFilmBatch }>(
-        `/smart-film-batches/${encodeURIComponent(batchId)}/scripts/${encodeURIComponent(scriptId)}`,
-        { params: { expectedRevision: String(expectedRevision) } },
-    );
+    return http.delete<{ batch: SmartFilmBatch }>(`/smart-film-batches/${encodeURIComponent(batchId)}/scripts/${encodeURIComponent(scriptId)}`, { params: { expectedRevision: String(expectedRevision) } });
 }
 
 export function confirmSmartFilmBatchScripts(batchId: string, scriptIds: string[], expectedRevision: number) {
@@ -226,24 +248,22 @@ export function confirmSmartFilmBatchScripts(batchId: string, scriptIds: string[
     });
 }
 
-export function checkpointSmartFilmProductionRun(batchId: string, runId: string, input: {
-    stage: "assets" | "storyboard";
-    status: "pending" | "waiting" | "queued" | "running" | "ready" | "needs_attention";
-    taskId?: string;
-    error?: string;
-    resourceCount?: number;
-}) {
-    return http.patch<{ run: SmartFilmProductionRun }>(
-        `/smart-film-batches/${encodeURIComponent(batchId)}/production-runs/${encodeURIComponent(runId)}`,
-        input,
-    );
+export function checkpointSmartFilmProductionRun(
+    batchId: string,
+    runId: string,
+    input: {
+        stage: "assets" | "storyboard";
+        status: "pending" | "waiting" | "queued" | "running" | "ready" | "needs_attention";
+        taskId?: string;
+        error?: string;
+        resourceCount?: number;
+    },
+) {
+    return http.patch<{ run: SmartFilmProductionRun }>(`/smart-film-batches/${encodeURIComponent(batchId)}/production-runs/${encodeURIComponent(runId)}`, input);
 }
 
 export function startSmartFilmProductionStage(batchId: string, runId: string, stage: "assets" | "storyboard") {
-    return http.post<{ run: SmartFilmProductionRun }>(
-        `/smart-film-batches/${encodeURIComponent(batchId)}/production-runs/${encodeURIComponent(runId)}/start`,
-        { stage },
-    );
+    return http.post<{ run: SmartFilmProductionRun }>(`/smart-film-batches/${encodeURIComponent(batchId)}/production-runs/${encodeURIComponent(runId)}/start`, { stage });
 }
 
 export function controlSmartFilmBatch(batchId: string, action: "pause" | "resume") {
@@ -251,8 +271,5 @@ export function controlSmartFilmBatch(batchId: string, action: "pause" | "resume
 }
 
 export function controlSmartFilmProductionRun(batchId: string, runId: string, action: "pause" | "resume" | "skip" | "retry" | "regenerate", stage?: "assets" | "storyboard") {
-    return http.patch<{ run: SmartFilmProductionRun }>(
-        `/smart-film-batches/${encodeURIComponent(batchId)}/production-runs/${encodeURIComponent(runId)}/control`,
-        { action, ...(stage ? { stage } : {}) },
-    );
+    return http.patch<{ run: SmartFilmProductionRun }>(`/smart-film-batches/${encodeURIComponent(batchId)}/production-runs/${encodeURIComponent(runId)}/control`, { action, ...(stage ? { stage } : {}) });
 }

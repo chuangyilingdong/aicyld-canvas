@@ -352,8 +352,50 @@
     font-size: 11px;
 }
 
-.smart-film-batch-submit strong { font-size: 14px; }
-.smart-film-batch-submit span { margin-top: 4px; color: color-mix(in srgb, var(--foreground) 48%, transparent); font-size: 11px; }
+.smart-film-batch-submit strong {
+    font-size: 14px;
+}
+.smart-film-batch-submit span {
+    margin-top: 4px;
+    color: color-mix(in srgb, var(--foreground) 48%, transparent);
+    font-size: 11px;
+}
+
+.smart-film-batch-quote {
+    display: grid;
+    gap: 3px;
+    margin-top: 10px;
+    border-left: 2px solid color-mix(in srgb, var(--workspace-accent) 52%, transparent);
+    padding-left: 9px;
+}
+
+.smart-film-batch-quote span {
+    margin: 0;
+    color: var(--foreground);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+}
+
+.smart-film-batch-quote small {
+    color: color-mix(in srgb, var(--foreground) 46%, transparent);
+    font-size: 10px;
+    line-height: 1.55;
+}
+
+.smart-film-batch-quote.is-error {
+    border-left-color: var(--destructive);
+}
+
+.smart-film-batch-quote.is-error span,
+.smart-film-batch-submit-error {
+    color: var(--destructive);
+}
+
+.smart-film-batch-submit-error {
+    margin-top: 8px;
+    font-size: 11px;
+    line-height: 1.55;
+}
 
 .smart-film-batch-summary {
     display: grid;
@@ -380,6 +422,8 @@
 .smart-film-batch-summary-stats {
     display: flex;
     align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
     gap: 18px;
 }
 
@@ -394,6 +438,14 @@
     color: var(--foreground);
     font-size: 22px;
     font-variant-numeric: tabular-nums;
+}
+
+.smart-film-batch-summary-stats small {
+    display: block;
+    margin-top: 3px;
+    color: color-mix(in srgb, var(--foreground) 38%, transparent);
+    font-size: 9px;
+    white-space: nowrap;
 }
 
 .smart-film-batch-toolbar {
@@ -699,7 +751,7 @@
     color: color-mix(in srgb, var(--foreground) 38%, transparent);
     font-family: var(--font-mono);
     font-size: 11px;
-    letter-spacing: .08em;
+    letter-spacing: 0.08em;
 }
 
 .smart-film-script-compare-section {
@@ -823,8 +875,15 @@
     text-align: center;
 }
 
-.smart-film-script-empty strong { font-size: 15px; }
-.smart-film-script-empty span { max-width: 520px; color: color-mix(in srgb, var(--foreground) 46%, transparent); font-size: 12px; line-height: 1.7; }
+.smart-film-script-empty strong {
+    font-size: 15px;
+}
+.smart-film-script-empty span {
+    max-width: 520px;
+    color: color-mix(in srgb, var(--foreground) 46%, transparent);
+    font-size: 12px;
+    line-height: 1.7;
+}
 
 @media (max-width: 900px) {
     .smart-film-batch-number-grid,
