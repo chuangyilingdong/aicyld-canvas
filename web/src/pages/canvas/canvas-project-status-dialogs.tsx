@@ -2,14 +2,12 @@ import { Button, Modal } from "antd";
 import { XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { CanvasImagePreview } from "@/components/canvas/canvas-image-preview";
+import { CanvasNodeMediaViewer } from "@/components/canvas/canvas-node-media-viewer";
 import { TaskDetailItem } from "./canvas-project-feedback";
 import { generationTaskShowsProgress, generationTaskStageLabel } from "@/lib/generation-task-display";
 import { canRecoverTaskOutcome, readTaskOutcome } from "@/lib/task-outcome";
 import { formatTaskLog, type GenerationTask, type TaskLog } from "@/services/api/task-center";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
-import { VideoPlayer } from "@/components/video-player";
-import { AppModal } from "@/components/ui/product/app-modal";
 import { modelDisplayName, useEffectiveConfig } from "@/stores/use-config-store";
 import { resolveImageUrl } from "@/services/image-storage";
 import { resolveMediaUrl } from "@/services/file-storage";
@@ -27,12 +25,13 @@ type CanvasProjectStatusDialogsProps = {
     retrievingTaskId?: string | null;
     previewNode: CanvasNodeData | null;
     onClosePreview: () => void;
+    onOpenNodeInfo?: (nodeId: string) => void;
     clearConfirmOpen: boolean;
     onCancelClear: () => void;
     onConfirmClear: () => void;
 };
 
-export function CanvasProjectStatusDialogs({ theme, task, taskLogs, taskLoading, taskError, previewNode, clearConfirmOpen, onCloseTask, onCancelTask, onRetrieveTask, retrievingTaskId, onClosePreview, onCancelClear, onConfirmClear }: CanvasProjectStatusDialogsProps) {
+export function CanvasProjectStatusDialogs({ theme, task, taskLogs, taskLoading, taskError, previewNode, clearConfirmOpen, onCloseTask, onCancelTask, onRetrieveTask, retrievingTaskId, onClosePreview, onOpenNodeInfo, onCancelClear, onConfirmClear }: CanvasProjectStatusDialogsProps) {
     const config = useEffectiveConfig();
     const previewSource = useResolvedPreviewSource(previewNode);
     return (
@@ -86,27 +85,12 @@ export function CanvasProjectStatusDialogs({ theme, task, taskLogs, taskLoading,
                 ) : null}
             </Modal>
 
-
-            <AppModal
-                title="视频预览"
-                open={Boolean(previewNode?.metadata?.content && previewNode.type === CanvasNodeType.Video)}
-                centered
-                onCancel={onClosePreview}
-                footer={null}
-                width="min(1200px, calc(100vw - 32px))"
-                flush
-                styles={{ body: { display: "flex", justifyContent: "center", alignItems: "center", maxHeight: "84vh", overflow: "hidden", background: "var(--workspace-canvas-deep)" } }}
-            >
-                {previewSource && previewNode?.type === CanvasNodeType.Video ? (
-                    <VideoPlayer src={previewSource} mimeType={previewNode.metadata?.mimeType} title={previewNode.title || "视频预览"} hasAudio={typeof previewNode.metadata?.hasAudio === "boolean" ? previewNode.metadata.hasAudio : undefined} className="max-h-[84vh] max-w-full bg-black" />
-                ) : null}
-            </AppModal>
-
-            {previewSource && previewNode?.type === CanvasNodeType.Image ? (
-                <CanvasImagePreview
-                    src={previewSource}
-                    alt={previewNode.title || "图片"}
+            {previewSource && previewNode && (previewNode.type === CanvasNodeType.Image || previewNode.type === CanvasNodeType.Video) ? (
+                <CanvasNodeMediaViewer
+                    node={previewNode}
+                    source={previewSource}
                     onClose={onClosePreview}
+                    onOpenNodeInfo={onOpenNodeInfo}
                 />
             ) : null}
 

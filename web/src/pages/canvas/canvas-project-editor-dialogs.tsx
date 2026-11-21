@@ -287,6 +287,10 @@ export function CanvasProjectEditorDialogs({
                 retrievingTaskId={generation.retrievingTaskId}
                 previewNode={previewNode}
                 onClosePreview={() => dialogs.setPreviewNodeId(null)}
+                onOpenNodeInfo={(nodeId) => {
+                    dialogs.setPreviewNodeId(null);
+                    dialogs.setInfoNodeId(nodeId);
+                }}
                 clearConfirmOpen={dialogs.clearConfirmOpen}
                 onCancelClear={() => dialogs.setClearConfirmOpen(false)}
                 onConfirmClear={onClearCanvas}
