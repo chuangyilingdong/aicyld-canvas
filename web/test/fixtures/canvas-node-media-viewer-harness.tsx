@@ -12,6 +12,9 @@ useConfigStore.setState({ config: defaultConfig, isAiConfigReady: true });
 const image =
     "data:image/svg+xml;charset=utf-8," +
     encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="#456"/></svg>');
+const previousImage =
+    "data:image/svg+xml;charset=utf-8," +
+    encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="#654"/></svg>');
 
 const node: CanvasNodeData = {
     id: "viewer-node",
@@ -26,6 +29,15 @@ const node: CanvasNodeData = {
         naturalHeight: 180,
         size: "16:9",
         mimeType: "image/svg+xml",
+        imageHistory: [{
+            id: "previous",
+            content: previousImage,
+            prompt: "历史版本提示词",
+            naturalWidth: 320,
+            naturalHeight: 180,
+            size: "16:9",
+            mimeType: "image/svg+xml",
+        }],
     },
 };
 

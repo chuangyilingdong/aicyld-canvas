@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { canvasNodeMediaViewerFacts } from "@/components/canvas/canvas-node-media-viewer";
+import { canvasNodeMediaHistoryEntries, canvasNodeMediaViewerFacts } from "@/components/canvas/canvas-node-media-viewer";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 
 function mediaNode(overrides: Partial<CanvasNodeData["metadata"]> = {}): CanvasNodeData {
@@ -46,4 +46,19 @@ test("unified media facts omit unknown values instead of inventing metadata", ()
         { label: "类型", value: "图片" },
         { label: "格式", value: "image/png" },
     ]);
+});
+
+test("image history removes the live version and duplicate entries from the filmstrip", () => {
+    const node = mediaNode({
+        content: "data:image/png;base64,current",
+        storageKey: "resource:current",
+        imageHistory: [
+            { id: "current-copy", content: "data:image/png;base64,current" },
+            { id: "old", content: "data:image/png;base64,old" },
+            { id: "old-copy", content: "data:image/png;base64,old" },
+            { id: "old-storage", storageKey: "resource:old" },
+        ],
+    });
+    node.type = CanvasNodeType.Image;
+    expect(canvasNodeMediaHistoryEntries(node).map((entry) => entry.id)).toEqual(["old", "old-storage"]);
 });

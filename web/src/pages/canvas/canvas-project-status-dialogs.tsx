@@ -26,12 +26,13 @@ type CanvasProjectStatusDialogsProps = {
     previewNode: CanvasNodeData | null;
     onClosePreview: () => void;
     onOpenNodeInfo?: (nodeId: string) => void;
+    onCompareVersions?: (node: CanvasNodeData) => void;
     clearConfirmOpen: boolean;
     onCancelClear: () => void;
     onConfirmClear: () => void;
 };
 
-export function CanvasProjectStatusDialogs({ theme, task, taskLogs, taskLoading, taskError, previewNode, clearConfirmOpen, onCloseTask, onCancelTask, onRetrieveTask, retrievingTaskId, onClosePreview, onOpenNodeInfo, onCancelClear, onConfirmClear }: CanvasProjectStatusDialogsProps) {
+export function CanvasProjectStatusDialogs({ theme, task, taskLogs, taskLoading, taskError, previewNode, clearConfirmOpen, onCloseTask, onCancelTask, onRetrieveTask, retrievingTaskId, onClosePreview, onOpenNodeInfo, onCompareVersions, onCancelClear, onConfirmClear }: CanvasProjectStatusDialogsProps) {
     const config = useEffectiveConfig();
     const previewSource = useResolvedPreviewSource(previewNode);
     return (
@@ -91,6 +92,7 @@ export function CanvasProjectStatusDialogs({ theme, task, taskLogs, taskLoading,
                     source={previewSource}
                     onClose={onClosePreview}
                     onOpenNodeInfo={onOpenNodeInfo}
+                    onCompareVersions={onCompareVersions ? () => onCompareVersions(previewNode) : undefined}
                 />
             ) : null}
 

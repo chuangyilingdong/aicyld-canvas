@@ -58,6 +58,12 @@ test("image and video share the media viewer shell, information sidebar and node
         await sidebar.waitFor();
         expect(await sidebar.innerText()).toContain("统一的图片预览提示词");
 
+        await viewer.getByRole("button", { name: "版本 1", exact: true }).click();
+        await sidebar.getByText("历史版本提示词", { exact: true }).waitFor();
+        await viewer.getByRole("button", { name: "对比", exact: true }).click();
+        await viewer.getByText("A · 版本 1", { exact: true }).waitFor();
+        await viewer.getByText("B · 当前", { exact: true }).waitFor();
+
         await viewer.getByRole("button", { name: "收起生成信息栏" }).click();
         expect(await sidebar.count()).toBe(0);
         await viewer.getByRole("button", { name: "展开生成信息栏" }).click();

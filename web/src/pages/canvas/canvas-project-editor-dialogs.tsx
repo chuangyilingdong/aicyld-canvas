@@ -291,6 +291,10 @@ export function CanvasProjectEditorDialogs({
                     dialogs.setPreviewNodeId(null);
                     dialogs.setInfoNodeId(nodeId);
                 }}
+                onCompareVersions={(node) => {
+                    dialogs.setPreviewNodeId(null);
+                    dialogs.setVersionCompareRootId(node.metadata?.versionOfNodeId || node.id);
+                }}
                 clearConfirmOpen={dialogs.clearConfirmOpen}
                 onCancelClear={() => dialogs.setClearConfirmOpen(false)}
                 onConfirmClear={onClearCanvas}

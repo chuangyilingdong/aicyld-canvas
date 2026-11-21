@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { App } from "antd";
-import { Copy, Download, Info, PanelRightClose, PanelRightOpen, X } from "lucide-react";
+import { Columns2, Copy, Download, History, Info, PanelRightClose, PanelRightOpen, X } from "lucide-react";
 import { createPortal } from "react-dom";
 
 import { VideoPlayer } from "@/components/video-player";
@@ -9,11 +9,38 @@ import { buildCanvasMediaDownloadFileName, mediaFileExtension } from "@/lib/canv
 import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes, formatDuration } from "@/lib/image-utils";
 import { downloadOwnedOrBrowserMedia } from "@/services/desktop-media-save";
+import { resolveImageUrl } from "@/services/image-storage";
 import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
 import { modelDisplayName, useEffectiveConfig } from "@/stores/use-config-store";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 
 export type CanvasMediaViewerFact = { label: string; value: string };
+type CanvasMediaVersion = {
+    id: string;
+    label: string;
+    source: string;
+    prompt?: string;
+    model?: string;
+    size?: string;
+    quality?: string;
+    naturalWidth?: number;
+    naturalHeight?: number;
+    bytes?: number;
+    mimeType?: string;
+    createdAt?: string;
+};
+
+export function canvasNodeMediaHistoryEntries(node: CanvasNodeData) {
+    const seen = new Set<string>();
+    const content = node.metadata?.content || "";
+    const storageKey = node.metadata?.storageKey || "";
+    return (node.metadata?.imageHistory || []).filter((entry) => {
+        const identity = entry.storageKey || entry.content || entry.id;
+        if (!identity || (entry.storageKey && entry.storageKey === storageKey) || (!entry.storageKey && entry.content === content) || seen.has(identity)) return false;
+        seen.add(identity);
+        return true;
+    });
+}
 
 export function canvasNodeMediaViewerFacts(node: CanvasNodeData): CanvasMediaViewerFact[] {
     const metadata = node.metadata;
@@ -38,11 +65,13 @@ export function CanvasNodeMediaViewer({
     source,
     onClose,
     onOpenNodeInfo,
+    onCompareVersions,
 }: {
     node: CanvasNodeData;
     source: string;
     onClose: () => void;
     onOpenNodeInfo?: (nodeId: string) => void;
+    onCompareVersions?: () => void;
 }) {
     const { message } = App.useApp();
     const theme = canvasThemes[useActiveTheme()];
@@ -50,11 +79,56 @@ export function CanvasNodeMediaViewer({
     const copyText = useCopyText();
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [downloading, setDownloading] = useState(false);
+    const [activeVersionId, setActiveVersionId] = useState("current");
+    const [compareVersions, setCompareVersions] = useState(false);
+    const [historySources, setHistorySources] = useState<Record<string, string>>({});
     const dialogRef = useRef<HTMLDivElement>(null);
     const isVideo = node.type === CanvasNodeType.Video;
-    const prompt = node.metadata?.prompt?.trim() || "";
-    const facts = canvasNodeMediaViewerFacts(node);
-    const model = node.metadata?.model ? modelDisplayName(config, node.metadata.model) : "";
+    const historyEntries = useMemo(() => canvasNodeMediaHistoryEntries(node), [node]);
+    const versions = useMemo<CanvasMediaVersion[]>(() => [
+        {
+            id: "current",
+            label: "当前",
+            source,
+            prompt: node.metadata?.prompt,
+            model: node.metadata?.model,
+            size: node.metadata?.size,
+            quality: node.metadata?.vquality || node.metadata?.quality,
+            naturalWidth: node.metadata?.naturalWidth,
+            naturalHeight: node.metadata?.naturalHeight,
+            bytes: node.metadata?.bytes,
+            mimeType: node.metadata?.mimeType,
+            createdAt: node.metadata?.taskCompletedAt || node.metadata?.taskCreatedAt,
+        },
+        ...historyEntries.map((entry, index) => ({
+            id: entry.id,
+            label: `版本 ${historyEntries.length - index}`,
+            source: historySources[entry.id] || "",
+            prompt: entry.prompt,
+            model: entry.model,
+            size: entry.size,
+            quality: entry.quality,
+            naturalWidth: entry.naturalWidth,
+            naturalHeight: entry.naturalHeight,
+            bytes: entry.bytes,
+            mimeType: entry.mimeType || node.metadata?.mimeType,
+            createdAt: entry.createdAt,
+        })),
+    ], [historyEntries, historySources, node.metadata, source]);
+    const activeVersion = versions.find((item) => item.id === activeVersionId) || versions[0];
+    const compareVersion = versions.find((item) => item.id !== activeVersion.id && item.source);
+    const prompt = activeVersion.prompt?.trim() || "";
+    const facts = activeVersion.id === "current"
+        ? canvasNodeMediaViewerFacts(node)
+        : [
+              { label: "类型", value: "图片" },
+              ...(activeVersion.naturalWidth && activeVersion.naturalHeight ? [{ label: "像素尺寸", value: `${activeVersion.naturalWidth} × ${activeVersion.naturalHeight} px` }] : []),
+              ...(activeVersion.size ? [{ label: "比例", value: activeVersion.size }] : []),
+              ...(activeVersion.quality ? [{ label: "质量 / 分辨率", value: activeVersion.quality }] : []),
+              ...(activeVersion.bytes ? [{ label: "文件大小", value: formatBytes(activeVersion.bytes) }] : []),
+              ...(activeVersion.mimeType ? [{ label: "格式", value: activeVersion.mimeType }] : []),
+          ];
+    const model = activeVersion.model ? modelDisplayName(config, activeVersion.model) : "";
 
     useEffect(() => {
         const previous = document.activeElement;
@@ -70,6 +144,24 @@ export function CanvasNodeMediaViewer({
             if (previous instanceof HTMLElement && previous.isConnected) previous.focus({ preventScroll: true });
         };
     }, [onClose]);
+
+    useEffect(() => {
+        let cancelled = false;
+        void Promise.all(historyEntries.map(async (entry) => {
+            if (!entry.storageKey) return [entry.id, entry.content || ""] as const;
+            try {
+                const resolved = await resolveImageUrl(entry.storageKey, entry.content || "", { cacheMiss: true });
+                return [entry.id, resolved || entry.content || ""] as const;
+            } catch {
+                return [entry.id, entry.content || ""] as const;
+            }
+        })).then((entries) => {
+            if (!cancelled) setHistorySources(Object.fromEntries(entries));
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [historyEntries]);
 
     const download = async () => {
         setDownloading(true);
@@ -121,6 +213,29 @@ export function CanvasNodeMediaViewer({
                     <Download className="size-3.5" />
                     下载
                 </button>
+                {!isVideo && versions.length > 1 ? (
+                    <button
+                        type="button"
+                        className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs"
+                        style={{ background: compareVersions ? theme.toolbar.activeBg : theme.toolbar.itemHover }}
+                        aria-pressed={compareVersions}
+                        onClick={() => setCompareVersions((value) => !value)}
+                    >
+                        <Columns2 className="size-3.5" />
+                        对比
+                    </button>
+                ) : null}
+                {!isVideo && onCompareVersions && (node.metadata?.versionLabel || node.metadata?.versionOfNodeId) ? (
+                    <button
+                        type="button"
+                        className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs"
+                        style={{ background: theme.toolbar.itemHover }}
+                        onClick={onCompareVersions}
+                    >
+                        <History className="size-3.5" />
+                        版本记录
+                    </button>
+                ) : null}
                 <button
                     type="button"
                     className="grid size-8 place-items-center rounded-md border"
@@ -142,23 +257,46 @@ export function CanvasNodeMediaViewer({
                 </button>
             </header>
             <div className="flex min-h-0 flex-1">
-                <main className="grid min-h-0 min-w-0 flex-1 place-items-center overflow-hidden p-4">
-                    {isVideo ? (
-                        <VideoPlayer
-                            src={source}
-                            mimeType={node.metadata?.mimeType}
-                            title={node.title || "视频预览"}
-                            hasAudio={typeof node.metadata?.hasAudio === "boolean" ? node.metadata.hasAudio : undefined}
-                            className="max-h-full max-w-full bg-black"
-                        />
-                    ) : (
-                        <img
-                            src={source}
-                            alt={node.title || "图片预览"}
-                            className="max-h-full max-w-full object-contain"
-                            draggable={false}
-                        />
-                    )}
+                <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+                    <div className={`grid min-h-0 flex-1 gap-3 overflow-hidden ${compareVersions && compareVersion ? "grid-cols-2 p-4" : "place-items-center p-4"}`}>
+                        {isVideo ? (
+                            <VideoPlayer
+                                src={source}
+                                mimeType={node.metadata?.mimeType}
+                                title={node.title || "视频预览"}
+                                hasAudio={typeof node.metadata?.hasAudio === "boolean" ? node.metadata.hasAudio : undefined}
+                                className="max-h-full max-w-full bg-black"
+                            />
+                        ) : compareVersions && compareVersion ? (
+                            <>
+                                <VersionStage version={activeVersion} alt={node.title || "图片预览"} label="A" />
+                                <VersionStage version={compareVersion} alt={node.title || "对比图片"} label="B" />
+                            </>
+                        ) : activeVersion.source ? (
+                            <img src={activeVersion.source} alt={node.title || "图片预览"} className="max-h-full max-w-full object-contain" draggable={false} />
+                        ) : (
+                            <span role="status" className="text-xs" style={{ color: theme.node.muted }}>正在读取历史版本…</span>
+                        )}
+                    </div>
+                    {!isVideo && versions.length > 1 ? (
+                        <div className="flex shrink-0 gap-2 overflow-x-auto border-t p-3" style={{ borderColor: theme.toolbar.border, background: theme.node.panel }}>
+                            {versions.map((version) => (
+                                <button
+                                    key={version.id}
+                                    type="button"
+                                    className="w-28 shrink-0 overflow-hidden rounded-md border text-left"
+                                    aria-pressed={activeVersion.id === version.id}
+                                    style={{ borderColor: activeVersion.id === version.id ? theme.node.activeStroke : theme.toolbar.border, background: theme.toolbar.itemHover }}
+                                    onClick={() => setActiveVersionId(version.id)}
+                                >
+                                    <span className="block h-16 overflow-hidden" style={{ background: theme.node.fill }}>
+                                        {version.source ? <img src={version.source} alt="" className="size-full object-cover" draggable={false} /> : null}
+                                    </span>
+                                    <span className="block truncate px-2 py-1.5 text-[11px]">{version.label}</span>
+                                </button>
+                            ))}
+                        </div>
+                    ) : null}
                 </main>
                 {sidebarOpen ? (
                     <aside
@@ -217,5 +355,14 @@ export function CanvasNodeMediaViewer({
             </div>
         </div>,
         overlayRoot,
+    );
+}
+
+function VersionStage({ version, alt, label }: { version: CanvasMediaVersion; alt: string; label: string }) {
+    return (
+        <figure className="relative grid min-h-0 place-items-center overflow-hidden">
+            {version.source ? <img src={version.source} alt={alt} className="max-h-full max-w-full object-contain" draggable={false} /> : <span role="status">正在读取版本…</span>}
+            <figcaption className="absolute left-3 top-3 rounded bg-black/65 px-2 py-1 text-xs text-white">{label} · {version.label}</figcaption>
+        </figure>
     );
 }
