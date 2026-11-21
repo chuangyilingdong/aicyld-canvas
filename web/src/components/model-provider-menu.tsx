@@ -7,6 +7,8 @@ import type { DisplayModelGroup } from "@/lib/model-selection";
 import { useCreationPreferencesStore } from "@/stores/use-creation-preferences-store";
 import type { ModelCapability } from "@/stores/use-config-store";
 
+import "./model-provider-menu.css";
+
 const capabilityLabels: Record<ModelCapability, string> = {
     text: "文本模型",
     image: "图片模型",

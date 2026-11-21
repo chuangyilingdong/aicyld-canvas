@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { App, Button, Checkbox, Input, InputNumber, Select, Tag, Tooltip } from "antd";
-import { ArrowLeft, CheckCircle2, CircleAlert, Clapperboard, Columns3, Edit3, LoaderCircle, Play, RefreshCcw, Sparkles, Trash2 } from "lucide-react";
+import { App, Button, Checkbox, Tag, Tooltip } from "antd";
+import { CheckCircle2, CircleAlert, Clapperboard, Columns3, Edit3, LoaderCircle, Play, RefreshCcw, Sparkles, Trash2 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router";
 
@@ -37,6 +37,10 @@ import { smartFilmRecoveryMessage, smartFilmRecoveryStage, type SmartFilmRecover
 import { canCompareSmartFilmScripts } from "./smart-film-script-comparison";
 import { SmartFilmScriptComparisonDialog } from "./smart-film-script-comparison-dialog";
 import { smartFilmScriptReferenceBundle } from "./smart-film-script-references";
+import { SmartFilmBatchProductionConfig } from "./smart-film-batch-production-config";
+import { SmartFilmBatchScriptEditDialog, SmartFilmBatchScriptEmptyState } from "./smart-film-batch-script-states";
+import { smartFilmBatchModelConfig, smartFilmScriptStatusColor } from "./smart-film-batch-detail-utils";
+import { SmartFilmBatchDetailHero } from "./smart-film-batch-detail-hero";
 
 import "./smart-film.css";
 import "./smart-film-batch.css";
@@ -49,7 +53,6 @@ const statusCopy: Record<SmartFilmScriptStatus, string> = {
     needs_attention: "需要处理",
     failed: "生成失败",
 };
-
 const stageStatusCopy: Record<"pending" | "waiting" | "queued" | "running" | "ready" | "confirmed" | "needs_attention", string> = {
     pending: "待处理",
     waiting: "待启动",
@@ -182,7 +185,7 @@ export default function SmartFilmBatchDetailPage() {
                       count: Math.max(1, batch.config.scriptCount || 3),
                       shotCount: batch.config.shotCount || undefined,
                       shotDurationSeconds: batch.config.shotDurationSeconds || undefined,
-                      config: modelConfig(batch, effectiveConfig),
+                      config: smartFilmBatchModelConfig(batch, effectiveConfig),
                       batchId: batch.id,
                       existingTitles: batch.scripts.map((script) => script.title),
                       skillSnapshot: batch.config.skillSnapshot,
@@ -761,25 +764,13 @@ export default function SmartFilmBatchDetailPage() {
 
     return (
         <WorkspacePage className="smart-film-page smart-film-batch-page">
-            <header className="smart-film-hero">
-                <div>
-                    <span className="smart-film-eyebrow">
-                        <Clapperboard className="size-3.5" /> INDEPENDENT FILMS
-                    </span>
-                    <h1>{batch.title}</h1>
-                    <p>{batch.sourceText}</p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                    {projectScripts.length ? (
-                        <Button type="primary" icon={<Clapperboard className="size-4" />} onClick={() => navigate(`/projects?batch=${encodeURIComponent(batch.id)}`)}>
-                            查看已创建的 {projectScripts.length} 个项目
-                        </Button>
-                    ) : null}
-                    <Button icon={<ArrowLeft className="size-4" />} onClick={() => navigate("/projects")}>
-                        返回项目库
-                    </Button>
-                </div>
-            </header>
+            <SmartFilmBatchDetailHero
+                title={batch.title}
+                sourceText={batch.sourceText}
+                projectCount={projectScripts.length}
+                onViewProjects={() => navigate(`/projects?batch=${encodeURIComponent(batch.id)}`)}
+                onBackProjects={() => navigate("/projects")}
+            />
 
             <div className="smart-film-batch-detail">
                 <section className="smart-film-batch-summary">
@@ -812,125 +803,35 @@ export default function SmartFilmBatchDetailPage() {
                     </div>
                 </section>
 
-                <section className="smart-film-production-config smart-film-skill-edit">
-                    <div className="smart-film-production-config-head">
-                        <div>
-                            <strong>项目制作技能</strong>
-                            <span>一次多剧本生成只能固定一个完整 Skill 包。已有项目开始制作后不可更换。</span>
-                        </div>
-                        <Tag bordered={false}>{productionLocked ? "已锁定" : skillDirty ? "有修改" : currentSkillSnapshot ? "已固定" : "平台默认"}</Tag>
-                    </div>
-                    <div className="smart-film-production-mode-row">
-                        <label>
-                            <span>唯一 Skill</span>
-                            {productionLocked ? (
-                                <div className="smart-film-skill-locked-copy">{currentSkillSnapshot ? `${currentSkillSnapshot.name}${currentSkillSnapshot.version ? ` · ${currentSkillSnapshot.version}` : ""}` : "平台默认技能规则"}</div>
-                            ) : (
-                                <Select
-                                    allowClear
-                                    showSearch
-                                    value={skillDraftId || undefined}
-                                    loading={skillsLoading}
-                                    disabled={Boolean(busy) || productionSaving || skillSaving}
-                                    optionFilterProp="label"
-                                    placeholder="选择本次项目唯一技能"
-                                    options={skillOptions}
-                                    onChange={(value) => setSkillDraftId(value || "")}
-                                    aria-label="更换本次项目唯一技能"
-                                />
-                            )}
-                        </label>
-                        <div className="smart-film-skill-edit-actions">
-                            {!productionLocked ? (
-                                <Button type="primary" loading={skillSaving} disabled={!skillDirty || Boolean(busy) || productionSaving || skillsLoading} onClick={() => void applyBatchSkill()}>
-                                    应用技能
-                                </Button>
-                            ) : null}
-                            <Button disabled={Boolean(busy) || skillSaving} onClick={() => navigate("/skills")}>
-                                管理技能
-                            </Button>
-                        </div>
-                    </div>
-                    <p className="smart-film-skill-edit-note">
-                        {productionLocked ? "已有项目进入制作，技能和版本已锁定。" : batch.scripts.length ? "更换技能不会自动重写已有剧本；建议更换后重新生成剧本，再创建项目。" : "选择并应用后，后续剧本、资产、分镜和视频都会使用这一个 Skill。"}
-                    </p>
-                </section>
-
-                {batch.scripts.length ? (
-                    <section className="smart-film-production-config">
-                        <div className="smart-film-production-config-head">
-                            <div>
-                                <strong>制作规格与分镜策略</strong>
-                                <span>剧本确认后再决定分镜。模型已在创建本次项目时固定，后续不再重复选择。</span>
-                            </div>
-                            <Tag bordered={false}>{productionLocked ? "已锁定" : productionSaving ? "保存中" : productionConfigValid && productionDraftMatchesSaved ? "已设置" : productionModeDraft ? "待完善" : "待设置"}</Tag>
-                        </div>
-                        <div className="smart-film-production-mode-row">
-                            <label>
-                                <span>分镜方式</span>
-                                <Select
-                                    value={productionModeDraft || undefined}
-                                    disabled={productionLocked || Boolean(busy)}
-                                    placeholder="选择分镜方式"
-                                    onChange={(value) => setProductionModeDraft(value)}
-                                    options={[
-                                        { value: "fixed", label: "固定分镜：一张分镜图对应一个镜头视频" },
-                                        { value: "smart", label: "智能整片：由模型决定镜头，全部镜头图合成一个视频" },
-                                    ]}
-                                />
-                            </label>
-                            {!productionModeDraft ? <p>先生成并挑选剧本，再选择固定分镜或智能整片。</p> : null}
-                        </div>
-                        {productionModeDraft === "fixed" ? (
-                            <div className="smart-film-production-fixed">
-                                <label>
-                                    <span>镜头数量</span>
-                                    <InputNumber min={1} max={200} precision={0} value={shotCountDraft} disabled={productionLocked || Boolean(busy)} onChange={setShotCountDraft} addonAfter="镜" />
-                                </label>
-                                <div className="smart-film-production-duration-heading">
-                                    <strong>逐镜时长</strong>
-                                    <span>当前视频模型单镜上限 {productionMaxClipSeconds} 秒；每个分镜图会对应一个镜头视频。</span>
-                                </div>
-                                <div className="smart-film-duration-grid">
-                                    {shotDurationsDraft.map((duration, index) => (
-                                        <label key={index}>
-                                            <span>镜头 {index + 1}</span>
-                                            <Select
-                                                value={duration}
-                                                disabled={productionLocked || Boolean(busy)}
-                                                options={productionDurationOptions.map((value) => ({ value, label: `${value} 秒` }))}
-                                                onChange={(value) => setShotDurationsDraft((current) => current.map((item, itemIndex) => (itemIndex === index ? value : item)))}
-                                            />
-                                        </label>
-                                    ))}
-                                </div>
-                            </div>
-                        ) : null}
-                        {productionModeDraft === "smart" ? (
-                            <div className="smart-film-production-smart">
-                                <label>
-                                    <span>目标成片总时长</span>
-                                    <InputNumber min={1} max={productionMaxTargetSeconds} precision={0} value={targetDurationDraft} disabled={productionLocked || Boolean(busy)} onChange={setTargetDurationDraft} addonAfter="秒" />
-                                </label>
-                                <p>模型会根据剧本和总时长自动决定分镜数量。当前视频模型单次最多生成 {productionMaxTargetSeconds} 秒，分镜图确认后会把全部镜头图作为一个完整视频生成。</p>
-                            </div>
-                        ) : null}
-                        <div className="smart-film-production-config-foot">
-                            <span>视频模型：{batch.config.defaultVideoModel || effectiveConfig.videoModel || "未配置"}</span>
-                            <span>
-                                {productionLocked
-                                    ? "项目已经开始制作，制作规格不可再修改。"
-                                    : productionSaving
-                                      ? "正在自动保存…"
-                                      : productionConfigValid && productionDraftMatchesSaved
-                                        ? "已自动保存"
-                                        : productionConfigValid
-                                          ? "等待同步…"
-                                          : "选择后自动保存"}
-                            </span>
-                        </div>
-                    </section>
-                ) : null}
+                <SmartFilmBatchProductionConfig
+                    batch={batch}
+                    effectiveVideoModel={effectiveConfig.videoModel}
+                    currentSkillSnapshot={currentSkillSnapshot}
+                    productionLocked={productionLocked}
+                    skillDirty={skillDirty}
+                    skillDraftId={skillDraftId}
+                    skillsLoading={skillsLoading}
+                    skillSaving={skillSaving}
+                    busy={busy}
+                    productionSaving={productionSaving}
+                    skillOptions={skillOptions}
+                    productionConfigValid={productionConfigValid}
+                    productionDraftMatchesSaved={productionDraftMatchesSaved}
+                    productionModeDraft={productionModeDraft}
+                    shotCountDraft={shotCountDraft}
+                    shotDurationsDraft={shotDurationsDraft}
+                    productionMaxClipSeconds={productionMaxClipSeconds}
+                    productionDurationOptions={productionDurationOptions}
+                    targetDurationDraft={targetDurationDraft}
+                    productionMaxTargetSeconds={productionMaxTargetSeconds}
+                    onSkillDraftChange={setSkillDraftId}
+                    onApplySkill={() => void applyBatchSkill()}
+                    onManageSkills={() => navigate("/skills")}
+                    onProductionModeChange={setProductionModeDraft}
+                    onShotCountChange={setShotCountDraft}
+                    onShotDurationChange={(index, value) => setShotDurationsDraft((current) => current.map((item, itemIndex) => (itemIndex === index ? value : item)))}
+                    onTargetDurationChange={setTargetDurationDraft}
+                />
 
                 <div className="smart-film-batch-toolbar">
                     <div className="flex items-center gap-2">
@@ -988,7 +889,7 @@ export default function SmartFilmBatchDetailPage() {
                                     <header>
                                         <span className="text-xs font-mono text-foreground/35">SCRIPT {String(index + 1).padStart(2, "0")}</span>
                                         <h3>{script.title}</h3>
-                                        <Tag color={scriptStatusColor(script.status)}>{statusCopy[script.status] || script.status}</Tag>
+                                        <Tag color={smartFilmScriptStatusColor(script.status)}>{statusCopy[script.status] || script.status}</Tag>
                                     </header>
                                     <p>{script.content}</p>
                                     {runsByScript.get(script.id) ? (
@@ -1073,57 +974,26 @@ export default function SmartFilmBatchDetailPage() {
                         ))}
                     </div>
                 ) : (
-                    <div className="smart-film-script-empty">
-                        <Sparkles className="size-7 text-foreground/30" />
-                        <strong>这次多剧本生成还没有剧本</strong>
-                        <span>上次生成成功的剧本可能尚未保存。先尝试恢复上次结果；找不到时再按同一组想法和参考图重新生成 {batch.config.scriptCount} 条独立剧本。</span>
-                        <small className="smart-film-script-generation-quote">{scriptGenerationQuoteText}</small>
-                        <div className="flex flex-wrap justify-center gap-2">
-                            <Button type="primary" loading={Boolean(busy)} onClick={() => void generateMissingScripts()}>
-                                重新生成剧本
-                            </Button>
-                            <Button icon={<RefreshCcw className="size-4" />} loading={Boolean(busy)} onClick={() => void recoverMissingScripts()}>
-                                恢复上次生成结果
-                            </Button>
-                        </div>
-                    </div>
+                    <SmartFilmBatchScriptEmptyState
+                        batch={batch}
+                        quoteText={scriptGenerationQuoteText}
+                        busy={busy}
+                        onGenerate={() => void generateMissingScripts()}
+                        onRecover={() => void recoverMissingScripts()}
+                    />
                 )}
             </div>
-            {editing ? (
-                <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" role="dialog" aria-modal="true">
-                    <div className="w-full max-w-3xl rounded-2xl border border-border bg-background p-5 shadow-2xl">
-                        <div className="mb-4 flex items-center justify-between gap-4">
-                            <div>
-                                <strong className="text-base">修改独立剧本</strong>
-                                <p className="mt-1 text-xs text-foreground/45">只修改当前这条剧本，不会影响其他独立视频。</p>
-                            </div>
-                            <Button onClick={() => setEditing(null)}>关闭</Button>
-                        </div>
-                        <Input value={draftTitle} maxLength={120} onChange={(event) => setDraftTitle(event.target.value)} placeholder="剧本标题" />
-                        <Input.TextArea className="mt-3" value={draftContent} onChange={(event) => setDraftContent(event.target.value)} autoSize={{ minRows: 12, maxRows: 24 }} placeholder="剧本正文" />
-                        <div className="mt-4 flex justify-end gap-2">
-                            <Button onClick={() => setEditing(null)}>取消</Button>
-                            <Button type="primary" loading={Boolean(busy)} onClick={() => void saveEditor()}>
-                                保存剧本
-                            </Button>
-                        </div>
-                    </div>
-                </div>
-            ) : null}
+            <SmartFilmBatchScriptEditDialog
+                open={Boolean(editing)}
+                title={draftTitle}
+                content={draftContent}
+                busy={busy}
+                onTitleChange={setDraftTitle}
+                onContentChange={setDraftContent}
+                onClose={() => setEditing(null)}
+                onSave={() => void saveEditor()}
+            />
             <SmartFilmScriptComparisonDialog open={comparisonOpen} scripts={selectedScripts} onClose={() => setComparisonOpen(false)} />
         </WorkspacePage>
     );
-}
-
-function modelConfig(batch: SmartFilmBatch, effectiveConfig: ReturnType<typeof useEffectiveConfig>) {
-    const textModel = batch.config.defaultTextModel || effectiveConfig.textModel;
-    return { ...effectiveConfig, model: textModel, textModel, imageModel: batch.config.defaultImageModel || effectiveConfig.imageModel, videoModel: batch.config.defaultVideoModel || effectiveConfig.videoModel };
-}
-
-function scriptStatusColor(status: SmartFilmScriptStatus) {
-    if (status === "storyboard_ready") return "green";
-    if (status === "assets_extracted") return "cyan";
-    if (status === "project_created") return "blue";
-    if (status === "needs_attention" || status === "failed") return "red";
-    return "default";
 }

@@ -700,8 +700,7 @@ export function CanvasTimelineDialog({
 
     return (
         <AppModal
-            className="canvas-timeline-dialog"
-            classNames={{ body: "text-sm" }}
+            className="canvas-timeline-dialog" classNames={{ body: "text-sm" }}
             style={{
                 "--editor-bg": theme.node.panel,
                 "--editor-panel": theme.node.fill,
@@ -712,15 +711,10 @@ export function CanvasTimelineDialog({
                 "--editor-button-line": theme.toolbar.border,
                 "--editor-clip-text": canvasThemes.dark.node.text,
             } as CSSProperties}
-            styles={{
-                container: { height: "min(820px, calc(100dvh - 24px))", display: "flex", flexDirection: "column" },
-                header: { flexShrink: 0 },
-                body: { minHeight: 0, flex: "1 1 0px", display: "flex", flexDirection: "column", overflow: "hidden", color: theme.node.text },
-            }}
+            styles={{ container: { height: "min(820px, calc(100dvh - 24px))", display: "flex", flexDirection: "column" }, header: { flexShrink: 0 }, body: { minHeight: 0, flex: "1 1 0px", display: "flex", flexDirection: "column", overflow: "hidden", color: theme.node.text } }}
             title={title}
             open={open}
-            centered
-            footer={null}
+            centered footer={null}
             // Keep the desktop LibTV proportions while allowing the editor to
             // remain usable on narrow screens instead of rendering a clipped
             // fixed-width modal.
