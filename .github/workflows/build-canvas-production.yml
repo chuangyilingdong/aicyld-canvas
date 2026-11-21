@@ -118,7 +118,16 @@ jobs:
         env:
           CANVAS_BUILD_VERSION: ${{ steps.version.outputs.value }}
           VITE_BUILD_COMMIT: ${{ github.sha }}
-        run: bun --bun ./node_modules/vite/bin/vite.js build
+        run: |
+          set -o pipefail
+          bun --bun ./node_modules/vite/bin/vite.js build 2>&1 | tee /tmp/canvas-web-build.log
+
+      - name: Report web build failures
+        if: failure()
+        run: |
+          if [[ -f /tmp/canvas-web-build.log ]]; then
+            tail -n 300 /tmp/canvas-web-build.log | sed 's/^/::error::/'
+          fi
 
       - name: Install media test tools
         run: |
