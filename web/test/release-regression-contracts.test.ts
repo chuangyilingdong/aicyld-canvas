@@ -6,6 +6,10 @@ function source(path: string) {
 }
 
 describe("release regression source contracts", () => {
+    test("keeps global styles independent of removed production packages", () => {
+        expect(source("styles/globals.css")).not.toContain('@import "shadcn/tailwind.css"');
+    });
+
     test("keeps video model-first selection and automatic mode routing", () => {
         const picker = source("components/model-picker.tsx");
         const selection = source("lib/model-selection.ts");
