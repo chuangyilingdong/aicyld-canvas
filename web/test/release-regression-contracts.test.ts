@@ -30,6 +30,15 @@ describe("release regression source contracts", () => {
 
     test("keeps model names free of channel subtitles", () => {
         expect(source("pages/settings/model-default-grid.tsx")).not.toContain("model-default-select-channel");
+        const picker = source("components/model-picker.tsx");
+        expect(picker).not.toContain("<ModelProviderMenu");
+        expect(picker).not.toContain("默认供应商");
+    });
+
+    test("keeps media preview images fully contained in the available stage", () => {
+        const viewer = source("components/canvas/canvas-node-media-viewer.tsx");
+        expect(viewer).toContain('data-testid="canvas-media-stage"');
+        expect(viewer).toContain('className="absolute inset-0 block h-full w-full object-contain"');
     });
 
     test("keeps quote reference counts in the task contract", () => {

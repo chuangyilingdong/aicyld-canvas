@@ -258,22 +258,26 @@ export function CanvasNodeMediaViewer({
             </header>
             <div className="flex min-h-0 flex-1">
                 <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-                    <div className={`grid min-h-0 flex-1 gap-3 overflow-hidden ${compareVersions && compareVersion ? "grid-cols-2 p-4" : "place-items-center p-4"}`}>
+                    <div data-testid="canvas-media-stage" className={`grid min-h-0 flex-1 gap-3 overflow-hidden ${compareVersions && compareVersion ? "grid-cols-2 p-4" : "place-items-center p-4"}`}>
                         {isVideo ? (
-                            <VideoPlayer
-                                src={source}
-                                mimeType={node.metadata?.mimeType}
-                                title={node.title || "视频预览"}
-                                hasAudio={typeof node.metadata?.hasAudio === "boolean" ? node.metadata.hasAudio : undefined}
-                                className="max-h-full max-w-full bg-black"
-                            />
+                            <div className="grid h-full w-full min-h-0 min-w-0 place-items-center overflow-hidden">
+                                <VideoPlayer
+                                    src={source}
+                                    mimeType={node.metadata?.mimeType}
+                                    title={node.title || "视频预览"}
+                                    hasAudio={typeof node.metadata?.hasAudio === "boolean" ? node.metadata.hasAudio : undefined}
+                                    className="max-h-full max-w-full bg-black"
+                                />
+                            </div>
                         ) : compareVersions && compareVersion ? (
                             <>
                                 <VersionStage version={activeVersion} alt={node.title || "图片预览"} label="A" />
                                 <VersionStage version={compareVersion} alt={node.title || "对比图片"} label="B" />
                             </>
                         ) : activeVersion.source ? (
-                            <img src={activeVersion.source} alt={node.title || "图片预览"} className="max-h-full max-w-full object-contain" draggable={false} />
+                            <div className="relative h-full w-full min-h-0 min-w-0 overflow-hidden">
+                                <img src={activeVersion.source} alt={node.title || "图片预览"} className="absolute inset-0 block h-full w-full object-contain" draggable={false} />
+                            </div>
                         ) : (
                             <span role="status" className="text-xs" style={{ color: theme.node.muted }}>正在读取历史版本…</span>
                         )}
@@ -360,8 +364,8 @@ export function CanvasNodeMediaViewer({
 
 function VersionStage({ version, alt, label }: { version: CanvasMediaVersion; alt: string; label: string }) {
     return (
-        <figure className="relative grid min-h-0 place-items-center overflow-hidden">
-            {version.source ? <img src={version.source} alt={alt} className="max-h-full max-w-full object-contain" draggable={false} /> : <span role="status">正在读取版本…</span>}
+        <figure className="relative grid h-full w-full min-h-0 min-w-0 place-items-center overflow-hidden">
+            {version.source ? <img src={version.source} alt={alt} className="absolute inset-0 block h-full w-full object-contain" draggable={false} /> : <span role="status">正在读取版本…</span>}
             <figcaption className="absolute left-3 top-3 rounded bg-black/65 px-2 py-1 text-xs text-white">{label} · {version.label}</figcaption>
         </figure>
     );

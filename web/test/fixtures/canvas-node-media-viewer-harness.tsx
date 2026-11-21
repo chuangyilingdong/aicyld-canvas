@@ -11,10 +11,10 @@ useConfigStore.setState({ config: defaultConfig, isAiConfigReady: true });
 
 const image =
     "data:image/svg+xml;charset=utf-8," +
-    encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="#456"/></svg>');
+    encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="816" height="1456"><rect width="816" height="1456" fill="#456"/></svg>');
 const previousImage =
     "data:image/svg+xml;charset=utf-8," +
-    encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="#654"/></svg>');
+    encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="816" height="1456"><rect width="816" height="1456" fill="#654"/></svg>');
 
 const node: CanvasNodeData = {
     id: "viewer-node",
@@ -25,16 +25,16 @@ const node: CanvasNodeData = {
     position: { x: 0, y: 0 },
     metadata: {
         prompt: "统一的图片预览提示词",
-        naturalWidth: 320,
-        naturalHeight: 180,
+        naturalWidth: 816,
+        naturalHeight: 1456,
         size: "16:9",
         mimeType: "image/svg+xml",
         imageHistory: [{
             id: "previous",
             content: previousImage,
             prompt: "历史版本提示词",
-            naturalWidth: 320,
-            naturalHeight: 180,
+            naturalWidth: 816,
+            naturalHeight: 1456,
             size: "16:9",
             mimeType: "image/svg+xml",
         }],

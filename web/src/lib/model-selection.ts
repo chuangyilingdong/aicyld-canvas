@@ -34,12 +34,21 @@ export type ModelReferenceLimits = {
     maxAudios: number;
 };
 
+function displayGroupKey(config: AiConfig, channelId: string, label: string) {
+    const channel = config.channels.find((item) => item.id === channelId);
+    // Public system families must appear once even when the server exposes split
+    // upstream SKUs through more than one internal channel. User-created channels
+    // remain isolated because identical names may point at different credentials.
+    const owner = channel?.scope === "system" ? "system" : channelId;
+    return `${owner}\u0000${label.toLocaleLowerCase()}`;
+}
+
 export function groupModelsByDisplayName(config: AiConfig, models: string[]): DisplayModelGroup[] {
     const groups = new Map<string, DisplayModelGroup>();
     models.forEach((model) => {
         const channel = resolveModelChannel(config, model);
         const label = configuredModelDisplayName(config, model);
-        const key = `${channel.id}\u0000${label.toLocaleLowerCase()}`;
+        const key = displayGroupKey(config, channel.id, label);
         const current = groups.get(key);
         if (current) current.models.push(model);
         else groups.set(key, { key, label, models: [model] });
@@ -80,7 +89,7 @@ export function groupImageModelsByFamily(config: AiConfig, models: string[]): Di
     models.forEach((model) => {
         const channel = resolveModelChannel(config, model);
         const label = imageModelFamilyLabel(config, model);
-        const key = `${channel.id}\u0000${label.toLocaleLowerCase()}`;
+        const key = displayGroupKey(config, channel.id, label);
         const current = groups.get(key);
         if (current) current.models.push(model);
         else groups.set(key, { key, label, models: [model] });
@@ -116,7 +125,7 @@ export function groupVideoModelsByFamily(config: AiConfig, models: string[]): Di
     models.forEach((model) => {
         const channel = resolveModelChannel(config, model);
         const label = videoModelFamilyLabel(config, model);
-        const key = `${channel.id}\u0000${label.toLocaleLowerCase()}`;
+        const key = displayGroupKey(config, channel.id, label);
         const current = groups.get(key);
         if (current) current.models.push(model);
         else groups.set(key, { key, label, models: [model] });

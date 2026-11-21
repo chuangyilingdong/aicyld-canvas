@@ -57,6 +57,15 @@ test("image and video share the media viewer shell, information sidebar and node
         const sidebar = viewer.getByRole("complementary", { name: "生成信息面板" });
         await sidebar.waitFor();
         expect(await sidebar.innerText()).toContain("统一的图片预览提示词");
+        const stageBox = await viewer.getByTestId("canvas-media-stage").boundingBox();
+        const imageBox = await viewer.getByAltText("统一预览图片").boundingBox();
+        expect(stageBox).not.toBeNull();
+        expect(imageBox).not.toBeNull();
+        expect(imageBox!.x).toBeGreaterThanOrEqual(stageBox!.x - 1);
+        expect(imageBox!.y).toBeGreaterThanOrEqual(stageBox!.y - 1);
+        expect(imageBox!.x + imageBox!.width).toBeLessThanOrEqual(stageBox!.x + stageBox!.width + 1);
+        expect(imageBox!.y + imageBox!.height).toBeLessThanOrEqual(stageBox!.y + stageBox!.height + 1);
+        expect(await viewer.getByAltText("统一预览图片").evaluate((element) => getComputedStyle(element).objectFit)).toBe("contain");
 
         await viewer.getByRole("button", { name: "版本 1", exact: true }).click();
         await sidebar.getByText("历史版本提示词", { exact: true }).waitFor();

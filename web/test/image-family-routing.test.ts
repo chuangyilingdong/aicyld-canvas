@@ -47,6 +47,19 @@ describe("image model family routing", () => {
         expect(imageModelFamilyLabel(config, i2i)).toBe("Lib Image 2.6 Pro · Sunburst");
     });
 
+    test("merges the same public system family exposed through multiple internal channels", () => {
+        const duplicated = {
+            ...config,
+            channels: [
+                config.channels[0],
+                { ...config.channels[0], id: "managed-secondary" },
+            ],
+        } as AiConfig;
+        const groups = groupImageModelsByFamily(duplicated, selectableModelsByCapability(duplicated, "image"));
+        expect(groups).toHaveLength(1);
+        expect(groups[0]?.models).toHaveLength(4);
+    });
+
     test("routes by connected reference count", () => {
         expect(resolveCompatibleModel(config, t2i, { capability: "image", input: input(0) })).toBe(t2i);
         expect(resolveCompatibleModel(config, t2i, { capability: "image", input: input(1) })).toBe(i2i);

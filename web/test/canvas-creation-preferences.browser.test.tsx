@@ -53,7 +53,7 @@ for (const mode of ["image", "video"]) {
     }, 30000);
 }
 
-test("canvas model picker groups providers and remembers the selected provider", async () => {
+test("canvas model picker is a flat unique list without internal supplier groups", async () => {
     const page = await browser.newPage();
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
@@ -61,18 +61,16 @@ test("canvas model picker groups providers and remembers the selected provider",
     try {
         await page.goto(`${server.url}?mode=image`);
         await page.getByRole("button", { name: "image-a", exact: true }).click();
-        const picker = page.getByRole("dialog", { name: "选择图片模型" });
+        const picker = page.getByRole("listbox", { name: "选择模型" });
         await picker.waitFor();
-        await picker.getByRole("button", { name: /默认供应商/ }).click();
-        await page.getByRole("menu", { name: "供应商" }).getByRole("menuitemradio", { name: "Second" }).click();
+        expect(await picker.getByRole("button", { name: /默认供应商/ }).count()).toBe(0);
+        expect(await picker.getByText("RunningHub 高级模型", { exact: true }).count()).toBe(0);
+        expect(await picker.getByRole("menu", { name: "供应商" }).count()).toBe(0);
+        expect(await picker.getByRole("option").allTextContents()).toEqual(["image-a", "image-b", "image-c"]);
         await picker.getByRole("option", { name: "image-c", exact: true }).click();
 
         const current = JSON.parse((await page.getByTestId("current-config").textContent())!);
         expect(current.model).toBe("fixture-second::image-c");
-
-        await page.getByRole("button", { name: "image-c", exact: true }).click();
-        const reopened = page.getByRole("dialog", { name: "选择图片模型" });
-        await reopened.getByRole("button", { name: /默认供应商.*Second/ }).waitFor({ state: "visible" });
         expect(errors).toEqual([]);
     } finally {
         await page.close();

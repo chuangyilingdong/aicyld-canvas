@@ -7,7 +7,7 @@ import { compatibleModelInGroup, configuredModelDisplayName, groupImageModelsByF
 import { cn } from "@/lib/utils";
 import { modelDisplayName, modelIcon, modelOptionName, resolveModelChannel, selectableModelsByCapability, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
 import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
-import { ModelProviderMenu, modelMenuSurface } from "@/components/model-provider-menu";
+import { modelMenuSurface } from "@/components/model-provider-menu";
 import { ModelLogo } from "@/components/model-logo";
 import { portraitPriceLines, seedancePortraitLabel, seedancePortraitModel } from "@/lib/seedance-portrait";
 
@@ -44,7 +44,6 @@ export function ModelPicker({
     // 双保险：即使 store merge 写出非法 theme，这里也兜底到 dark，避免 "reading 'node'" 崩溃
     const rawTheme = useActiveTheme();
     const theme = (canvasThemes[rawTheme as keyof typeof canvasThemes] ?? canvasThemes.dark) as CanvasTheme;
-    const providerMenu = variant === "canvas" && Boolean(capability);
     const [open, setOpen] = useState(false);
     const [previewedModel, setPreviewedModel] = useState("");
     const [triggerWidth, setTriggerWidth] = useState<number | null>(null);
@@ -56,24 +55,6 @@ export function ModelPicker({
         // 模型选择面向用户，只展示模型本身。渠道名属于服务端路由信息，
         // 不能作为分组标题出现在创作界面。
         return models.length ? [{ key: "all-models", label: "", models }] : [];
-    }, [config, options]);
-    const providerGroups = useMemo(() => {
-        const groups = config.channels
-            .map((channel) => ({
-                key: channel.id,
-                label: channel.name || "未命名渠道",
-                models: groupModelsByDisplayName(
-                    config,
-                    options.filter((model) => resolveModelChannel(config, model).id === channel.id),
-                ),
-            }))
-            .filter((group) => group.models.length);
-        if (groups.length || !options.length) return groups;
-        return [{
-            key: "current",
-            label: "当前渠道",
-            models: groupModelsByDisplayName(config, options),
-        }];
     }, [config, options]);
     const storedCurrent = value?.trim() || "";
     // 参数档位会在选中模型后由调用方归一到其能力配置，不能因为旧模型留下的参数而禁止切换。
@@ -201,23 +182,7 @@ export function ModelPicker({
             </button>
         );
     };
-    const content = providerMenu && capability ? (
-        <div
-            ref={menuRef}
-            data-canvas-no-zoom
-            onKeyDown={handleMenuKeyDown}
-            onMouseDown={(event) => event.stopPropagation()}
-            onPointerDown={(event) => event.stopPropagation()}
-        >
-            {providerGroups.length ? (
-                <ModelProviderMenu groups={providerGroups} current={current} capability={capability} theme={theme} renderOption={renderModelOption} />
-            ) : (
-                <div className="canvas-model-picker-empty provider-model-empty" style={{ color: theme.node.muted }}>
-                    {emptyModelLabel(config, capability)}
-                </div>
-            )}
-        </div>
-    ) : (
+    const content = (
         <div
             ref={menuRef}
             data-canvas-no-zoom
@@ -262,12 +227,9 @@ export function ModelPicker({
                 placement="bottomLeft"
                 arrow={false}
                 content={content}
-                fresh={providerMenu}
-                destroyOnHidden={providerMenu}
-                styles={providerMenu ? { container: modelMenuSurface(theme) } : undefined}
-                classNames={providerMenu ? {
-                    root: cn("canvas-model-picker-popover", popoverClassName),
-                } : {
+                destroyOnHidden
+                styles={{ container: modelMenuSurface(theme) }}
+                classNames={{
                     root: cn("canvas-model-picker-popover", "creation-model-picker-popover", popoverClassName),
                     container: cn("canvas-composer-popover-surface", "creation-model-picker-surface"),
                     content: "canvas-composer-popover-content",
@@ -277,7 +239,7 @@ export function ModelPicker({
                     ref={triggerRef}
                     type="button"
                     className={cn("canvas-composer-model-picker", fullWidth ? "w-full" : "min-w-36 max-w-full", className)}
-                    aria-haspopup={providerMenu && providerGroups.length ? "dialog" : "listbox"}
+                    aria-haspopup="listbox"
                     aria-expanded={open}
                     aria-label={triggerLabel}
                     title={current ? pickerModelOptionLabel(config, current, showConfiguredModelName) : placeholder}
