@@ -401,8 +401,18 @@ sqliteIntegrationTest("missing archive entry and persist failure do not create a
                 }],
             }),
         }]);
-        await expect(openCanvasArchive(missing)).rejects.toThrow("missing.mp4");
-        await expect(restoreCanvasArchive(missing)).rejects.toThrow("missing.mp4");
+        const opened = await openCanvasArchive(missing);
+        expect(opened.missingFiles).toEqual([{ owner: "损坏画布", reference: "projects/broken/files/missing.mp4" }]);
+        const partial = await restoreCanvasArchive(missing);
+        expect(partial.count).toBe(1);
+        expect(partial.skippedFiles).toEqual([{ owner: "损坏画布", reference: "projects/broken/files/missing.mp4" }]);
+        const imported = await http.get<{ project: { id: string; nodes: Array<{ metadata?: { storageKey?: string; content?: string } }> } }>(
+            `/canvas-projects/${encodeURIComponent(partial.projectIds[0])}`,
+        );
+        expect(imported.project.nodes[0].metadata?.storageKey).toBeUndefined();
+        expect(imported.project.nodes[0].metadata?.content).toBe("");
+        await http.delete(`/canvas-projects/${encodeURIComponent(partial.projectIds[0])}`);
+        resetStores();
         expect(await listProjects()).toEqual([]);
         expect(useCanvasStore.getState().projects).toEqual([]);
 

@@ -146,6 +146,7 @@ export async function runCanvasGenerationTaskToConsumer(
                     taskFailureDiagnostics: undefined,
                     taskOutcome: undefined,
                     taskProviderRequestId: undefined,
+                    taskProviderCancelStatus: undefined,
                     taskCreatedAt: undefined,
                     taskUpdatedAt: undefined,
                     taskStartedAt: undefined,
@@ -257,6 +258,7 @@ export function generationTaskMetadata(task: GenerationTask): CanvasNodeMetadata
         taskErrorCode: task.errorCode,
         taskFailureDiagnostics: task.failureDiagnostics,
         taskProviderRequestId: task.providerRequestId,
+        taskProviderCancelStatus: task.providerCancelStatus,
         taskOfficialStatus: task.officialStatus,
         taskReceiptRecorded: task.receiptRecorded,
         taskCreatedAt: task.createdAt || task.created_at,
@@ -296,6 +298,7 @@ export function resetGenerationTaskMetadata(metadata: CanvasNodeMetadata | undef
     delete next.taskErrorCode;
     delete next.taskFailureDiagnostics;
     delete next.taskProviderRequestId;
+    delete next.taskProviderCancelStatus;
     delete next.taskOfficialStatus;
     delete next.taskReceiptRecorded;
     delete next.taskCreatedAt;

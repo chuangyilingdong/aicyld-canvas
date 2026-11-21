@@ -3,6 +3,7 @@ package eagle
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -94,6 +95,9 @@ func TestOriginalPathSkipsThumbnailAndMetadataWhenStemMissing(t *testing.T) {
 }
 
 func TestPathJailCanonicalizesLibrarySymlinkAndRejectsEscapingSymlinks(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows test accounts may not hold the privilege required to create symlinks")
+	}
 	realRoot := t.TempDir()
 	itemID := "item-link"
 	itemDir := filepath.Join(realRoot, "images", itemID+".info")

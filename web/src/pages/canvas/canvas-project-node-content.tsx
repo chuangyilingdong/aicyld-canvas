@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import { App } from "antd";
+import { useStore } from "zustand";
 import { CanvasConfigNodePanel } from "@/components/canvas/canvas-config-node-panel";
 import { CanvasCharacterReferenceNodeContent } from "@/components/canvas/canvas-character-reference-node";
 import { CanvasScriptNodeContent } from "@/components/canvas/canvas-script-node";
@@ -69,6 +70,7 @@ export function CanvasProjectNodeContent({ node: contentNode, projectId, readOnl
     onOpenStory: openStoryInput, onNodeMouseDown: handleNodeMouseDown,
 }: Props) {
     const { message } = App.useApp();
+    const selectedCanvasNodeIds = useStore(pageUi, (state) => state.selectedNodeIds);
     const { nodesRef, connectionsRef, connections } = document;
     const { setStylePickerOpen, setScriptEditorNodeId } = dialogs;
     const { configInputsById, mentionReferencesByNodeId } = renderModel;
@@ -179,6 +181,7 @@ export function CanvasProjectNodeContent({ node: contentNode, projectId, readOnl
                 }}
                 onConnectStart={(event, rowId, handleType) => handleConnectStart(event, contentNode.id, handleType, rowId === "context" ? "storyboard:context" : `row:${rowId}`)}
                 onScrollTopChange={(scrollTop) => setScriptScrollTopById((current) => (current[contentNode.id] === scrollTop ? current : { ...current, [contentNode.id]: scrollTop }))}
+                selectedCanvasNodeIds={selectedCanvasNodeIds}
             />
         );
     }

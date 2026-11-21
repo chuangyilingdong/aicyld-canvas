@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -153,6 +154,9 @@ func TestRendererRejectsEmptyPlan(t *testing.T) {
 }
 
 func TestRendererRejectsNonMediaFakeOutput(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Native FFmpeg failure fixture requires a POSIX shell")
+	}
 	src := requireTinyAVSource(t)
 	plan := shortVideoPlan()
 	renderer := &Renderer{FFmpeg: writeFakeFFmpeg(t, `out=""; for arg in "$@"; do out=$arg; done; printf 'not-a-media-file' > "$out"; exit 0`), Sources: fileSources{"src": src}}
@@ -166,6 +170,9 @@ func TestRendererRejectsNonMediaFakeOutput(t *testing.T) {
 }
 
 func TestRendererKeepsBoundedFFmpegLogOnFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Native FFmpeg failure fixture requires a POSIX shell")
+	}
 	src := requireTinyAVSource(t)
 	plan := shortVideoPlan()
 	renderer := &Renderer{FFmpeg: writeFakeFFmpeg(t, `

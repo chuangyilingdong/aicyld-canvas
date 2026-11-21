@@ -3,6 +3,7 @@ import { nanoid } from "nanoid";
 import { sameCanvasDocument } from "@/lib/canvas/canvas-content";
 import { localForageStorageForScope } from "@/lib/localforage-storage";
 import { getActiveUserScope } from "@/lib/user-scope";
+import type { CanvasDocumentPatchPayload } from "@/services/api/operations";
 import { recordCanvasDocumentBase, type CanvasProject } from "@/stores/canvas/use-canvas-store";
 import type { CanvasNodeData } from "@/types/canvas";
 
@@ -22,7 +23,15 @@ export type CanvasNodeCommitPayload = {
     nodes: CanvasNodeData[];
 };
 
-export type CanvasCommitPayload = CanvasDocumentCommitPayload | CanvasNodeCommitPayload;
+export type CanvasPatchCommitPayload = {
+    kind: "patch";
+    canvasId: string;
+    expectedRevision: number;
+    patch: CanvasDocumentPatchPayload;
+    document: CanvasProject;
+};
+
+export type CanvasCommitPayload = CanvasDocumentCommitPayload | CanvasNodeCommitPayload | CanvasPatchCommitPayload;
 
 export type CanvasInFlightCommit = {
     operationId: string;
@@ -137,6 +146,25 @@ function parseInFlight(value: unknown, canvasId: string): CanvasInFlightCommit |
                 canvasId,
                 expectedRevision: payloadExpected,
                 nodes: payload.nodes as unknown as CanvasNodeData[],
+            },
+        };
+    }
+    if (payload.kind === "patch") {
+        if (!isPlainObject(payload.patch) || !isPlainObject(payload.document)) {
+            throw new CanvasJournalError("画布提交日记增量 payload 无效");
+        }
+        return {
+            operationId,
+            expectedRevision,
+            submitted: isPlainObject(value.submitted)
+                ? value.submitted as unknown as CanvasProject
+                : payload.document as unknown as CanvasProject,
+            payload: {
+                kind: "patch",
+                canvasId,
+                expectedRevision: payloadExpected,
+                patch: payload.patch as unknown as CanvasDocumentPatchPayload,
+                document: payload.document as unknown as CanvasProject,
             },
         };
     }

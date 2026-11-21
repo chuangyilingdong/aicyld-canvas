@@ -1,6 +1,13 @@
 import { describe, expect, it } from "bun:test";
 
-import { buildStoryboardAssetCatalog } from "@/lib/canvas/canvas-storyboard-assets";
+import {
+    applyAssetsToStoryboardRows,
+    buildStoryboardAssetCatalog,
+    collectSelectedBindableAssetNodes,
+    mergeStoryboardAssetBindings,
+    storyboardAssetNodeBadge,
+    storyboardAssetRoleForNode,
+} from "@/lib/canvas/canvas-storyboard-assets";
 import { reconcileStoryboardTargetConnections, storyboardComposerContent, storyboardRowReferenceNodeIds } from "@/lib/canvas/canvas-storyboard-materializer";
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData, type StoryboardRow } from "@/types/canvas";
 
@@ -59,6 +66,28 @@ describe("storyboard asset catalog", () => {
             ["audio", "audio"],
             ["character", "character"],
         ]);
+    });
+
+    it("normalizes selectable canvas assets and supports multi-row binding without duplicates", () => {
+        const character = node("character", CanvasNodeType.Text, { workflowKind: "character", characterAssetId: "character-asset" });
+        const scene = node("scene", CanvasNodeType.Image, { content: "data:image/png;base64,x", assetCategory: "environment" });
+        const audio = node("audio", CanvasNodeType.Audio, { content: "data:audio/wav;base64,x" });
+        const selected = collectSelectedBindableAssetNodes([character, scene, audio], new Set(["character", "audio"]));
+        expect(selected.map((asset) => asset.id)).toEqual(["character", "audio"]);
+        expect(selected.map(storyboardAssetRoleForNode)).toEqual(["character", "audio"]);
+        expect(selected.map(storyboardAssetNodeBadge)).toEqual(["角色", "音频"]);
+
+        const merged = mergeStoryboardAssetBindings([{ nodeId: "scene", role: "prop", priority: 80 }], selected);
+        expect(merged).toEqual([
+            { nodeId: "scene", role: "prop", priority: 80 },
+            { nodeId: "character", role: "character", priority: 100 },
+            { nodeId: "audio", role: "audio", priority: 70 },
+        ]);
+
+        const applied = applyAssetsToStoryboardRows([row, { ...row, id: "row-2", shotNumber: 2, assetBindings: [] }], ["row-1", "row-2"], [character, audio]);
+        expect(applied.updatedShotNumbers).toEqual([1, 2]);
+        expect(applied.rows[0].assetBindings.map((item) => item.nodeId)).toEqual(["prop", "character", "audio"]);
+        expect(applied.rows[1].assetBindings.map((item) => item.nodeId)).toEqual(["character", "audio"]);
     });
 });
 

@@ -18,7 +18,7 @@ import { buildVideoOperationPrompt } from "@/lib/prompts";
 import { backendProviderConfig, logicalModelIDForConfig } from "@/services/api/generation-task";
 
 import { createGenerationTask, formatTaskLog, listGenerationTasks, listTaskLogs, queryGenerationTask, recoverTask, retryGenerationTask, type CreateTaskInput, type GenerationTask, type TaskLog } from "@/services/api/task-center";
-import { canRecoverTaskOutcome, isRegenerateConfirm, isTaskRegenerateBlocked, readTaskOutcome, taskOutcomeCopy } from "@/lib/task-outcome";
+import { canRecoverTaskOutcome, isTaskRegenerateBlocked, readTaskOutcome, taskOutcomeCopy, taskRequiresRegenerateConfirmation } from "@/lib/task-outcome";
 import { syncGenerationTaskToCanvasStore } from "@/lib/canvas/canvas-generation-task-sync";
 import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { resolveModelRequestConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
@@ -334,7 +334,7 @@ export default function TasksPage() {
         }
         const currentTask = tasksRef.current.find((task) => task.id === id);
         if (currentTask && isTaskRegenerateBlocked(currentTask)) {
-            message.warning(taskOutcomeCopy(readTaskOutcome(currentTask)).message);
+            message.warning(taskOutcomeCopy(readTaskOutcome(currentTask), undefined, { providerCancelStatus: currentTask.providerCancelStatus }).message);
             return;
         }
         setActingId(id);
@@ -344,11 +344,11 @@ export default function TasksPage() {
             const detail = await queryGenerationTask(id);
             const detailOutcome = readTaskOutcome(detail);
             if (isTaskRegenerateBlocked(detail)) {
-                message.warning(taskOutcomeCopy(detailOutcome).message);
+                message.warning(taskOutcomeCopy(detailOutcome, undefined, { providerCancelStatus: detail.providerCancelStatus }).message);
                 return;
             }
-            if (isRegenerateConfirm(detailOutcome)) {
-                const copy = taskOutcomeCopy(detailOutcome);
+            if (taskRequiresRegenerateConfirmation({ providerCancelStatus: detail.providerCancelStatus, outcome: detailOutcome }, detailOutcome)) {
+                const copy = taskOutcomeCopy(detailOutcome, undefined, { providerCancelStatus: detail.providerCancelStatus });
                 const confirmed = await new Promise<boolean>((resolve) => {
                     modal.confirm({
                         title: copy.confirmTitle || "确认重新生成？",
@@ -362,6 +362,10 @@ export default function TasksPage() {
                     });
                 });
                 if (!confirmed) return;
+                if (detail.providerCancelStatus === "requested" || detail.providerCancelStatus === "uncertain") {
+                    message.warning("上游取消状态尚未确认，请核对后再重新生成");
+                    return;
+                }
             }
             const portraitError = portraitTaskRetryError(detail.inputJson, detail.model);
             if (portraitError) throw new Error(portraitError);

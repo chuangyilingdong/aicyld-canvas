@@ -26,7 +26,7 @@ import { isDepthCaptureResultNode } from "@/lib/canvas/canvas-depth-capture";
 import { buildPortraitTexturePrompt } from "@/lib/canvas/canvas-portrait-texture";
 import { resolveCanvasStyleExecution } from "@/lib/canvas/canvas-style-execution";
 import { generationFailureMetadata } from "@/lib/generation-error";
-import { isRegenerateAllowed, isRegenerateBlocked, isRegenerateConfirm, readNodeTaskOutcome, taskOutcomeCopy } from "@/lib/task-outcome";
+import { isRegenerateAllowed, isRegenerateBlocked, nodeRequiresRegenerateConfirmation, readNodeTaskOutcome, taskOutcomeCopy } from "@/lib/task-outcome";
 import { modelCapabilityConfigFor } from "@/lib/model-capabilities";
 import { navigateToSettings } from "@/lib/settings-navigation";
 import type { Skill } from "@/services/api/skills";
@@ -95,10 +95,16 @@ export function useCanvasGenerationRetry({
             }
             let storedVideoFallbackError: unknown;
             let confirmedStoredVideoRetry = false;
-            if (retryMode === "video" && node.metadata?.taskId && node.metadata.status === "error" && shouldReuseStoredVideoTask(readNodeTaskOutcome(node.metadata))) {
+            if (
+                retryMode === "video" &&
+                node.metadata?.taskId &&
+                node.metadata.status === "error" &&
+                !nodeRequiresRegenerateConfirmation(node.metadata) &&
+                shouldReuseStoredVideoTask(readNodeTaskOutcome(node.metadata))
+            ) {
                 const outcome = readNodeTaskOutcome(node.metadata);
                 if (isRegenerateBlocked(outcome)) {
-                    message.warning(node.metadata?.errorDetails || taskOutcomeCopy(outcome).message);
+                    message.warning(node.metadata?.errorDetails || taskOutcomeCopy(outcome, undefined, { providerCancelStatus: node.metadata?.taskProviderCancelStatus }).message);
                     return;
                 }
                 const taskId = node.metadata.taskId;
@@ -109,8 +115,8 @@ export function useCanvasGenerationRetry({
                 setRunningNodeId(node.id);
                 let taskUpdated = false;
                 try {
-                    if (isRegenerateConfirm(outcome) && modal?.confirm) {
-                        const copy = taskOutcomeCopy(outcome);
+                    if (nodeRequiresRegenerateConfirmation(node.metadata, outcome) && modal?.confirm) {
+                        const copy = taskOutcomeCopy(outcome, undefined, { providerCancelStatus: node.metadata?.taskProviderCancelStatus });
                         const confirmed = await confirmCanvasGeneration(
                             (callbacks) =>
                                 modal.confirm({
@@ -316,11 +322,12 @@ export function useCanvasGenerationRetry({
                 submittedInput = input;
                 const outcome = readNodeTaskOutcome(node.metadata);
                 if (isRegenerateBlocked(outcome)) {
-                    message.warning(node.metadata?.errorDetails || taskOutcomeCopy(outcome).message);
+                    message.warning(node.metadata?.errorDetails || taskOutcomeCopy(outcome, undefined, { providerCancelStatus: node.metadata?.taskProviderCancelStatus }).message);
                     return;
                 }
-                if (!confirmedStoredVideoRetry && isRegenerateConfirm(outcome) && modal?.confirm) {
-                    const copy = taskOutcomeCopy(outcome);
+                const requiresFreshSubmission = nodeRequiresRegenerateConfirmation(node.metadata, outcome);
+                if (!confirmedStoredVideoRetry && requiresFreshSubmission && modal?.confirm) {
+                    const copy = taskOutcomeCopy(outcome, undefined, { providerCancelStatus: node.metadata?.taskProviderCancelStatus });
                     const confirmed = await confirmCanvasGeneration(
                         (callbacks) =>
                             modal.confirm({
@@ -336,7 +343,7 @@ export function useCanvasGenerationRetry({
                     if (!confirmed) return;
                 }
                 // Edited input after a non-retryable failure is a new submission, not replay of the old retry operation.
-                const retryContext = !storedVideoFallbackError && node.metadata?.taskId && isRegenerateAllowed(outcome)
+                const retryContext = !requiresFreshSubmission && !storedVideoFallbackError && node.metadata?.taskId && isRegenerateAllowed(outcome)
                     ? await createGenerationRetryContext(node.metadata.taskId, node.metadata.attemptGroupId)
                     : node.metadata?.taskClientOperationId && !node.metadata?.taskId
                       ? { clientOperationId: node.metadata.taskClientOperationId }

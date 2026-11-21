@@ -911,21 +911,23 @@ const EXPECTED: Array<{ name: string } & CanvasNodeFailureView> = [
         "name": "cancelled",
         "outcome": {
             "phase": "failed",
-            "regenerate": "allowed",
-            "reason": "not_charged"
+            "regenerate": "confirm",
+            "reason": "task_failed"
         },
         "copy": {
-            "badge": "生成失败",
-            "reason": "上次请求未扣费，可以直接重新生成",
-            "action": "可以直接重新生成",
-            "message": "上次请求未扣费，可以直接重新生成。"
+            "badge": "生成未完成",
+            "reason": "这个渠道无法确认上次是否已扣费，重新生成可能会再扣一次",
+            "action": "确认后可重新生成",
+            "message": "这个渠道无法确认上次是否已扣费，重新生成可能会再扣一次。确认后可重新生成。",
+            "confirmTitle": "确认重新生成？",
+            "confirmContent": "这个渠道无法确认上次是否已扣费，重新生成可能会再扣一次。"
         },
         "explanation": {
             "category": "cancelled",
             "summary": "任务已取消",
             "reason": "任务已取消",
-            "action": "可按原输入重新提交",
-            "message": "任务已取消。可按原输入重新提交。",
+            "action": "请核对原任务的结果与扣费状态",
+            "message": "任务已取消。请核对原任务的结果与扣费状态。",
             "errorCode": "cancelled",
             "retryable": false,
             "uncertain": false,
@@ -935,7 +937,7 @@ const EXPECTED: Array<{ name: string } & CanvasNodeFailureView> = [
         },
         "retryBlocked": false,
         "regenerateBlocked": false,
-        "regenerateConfirm": false,
+        "regenerateConfirm": true,
         "canReload": false,
         "needsRecovery": true,
         "recoveryRoute": "single",

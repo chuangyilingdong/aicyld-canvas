@@ -94,6 +94,7 @@ export function CanvasScriptNodeContent({
     onComposerHeightChange,
     onConnectStart,
     onScrollTopChange,
+    selectedCanvasNodeIds,
     workspaceMode = "professional",
 }: {
     node: CanvasNodeData;
@@ -124,6 +125,7 @@ export function CanvasScriptNodeContent({
     onComposerHeightChange: (height: number) => void;
     onConnectStart: (event: ReactPointerEvent, rowId: string, handleType: "source" | "target") => void;
     onScrollTopChange: (scrollTop: number) => void;
+    selectedCanvasNodeIds?: Iterable<string>;
     workspaceMode?: CanvasWorkspaceMode;
 }) {
     const theme = canvasThemes[useActiveTheme()];
@@ -385,7 +387,12 @@ export function CanvasScriptNodeContent({
                             <CompactInput value={row[contentColumn]} placeholder={contentColumn === "videoMotionPrompt" ? "描述视频运动、镜头和动作" : contentColumn === "imageGenerationPrompt" ? "描述首帧画面" : "描述这一镜发生的事"} onChange={(value) => onUpdateRow(row.id, { [contentColumn]: value })} borderColor={theme.node.stroke} />
                             <CompactInput value={row.dialogue} placeholder="台词或旁白" onChange={(value) => onUpdateRow(row.id, { dialogue: value })} borderColor={theme.node.stroke} />
                             <div className="flex h-full min-w-0 items-center px-3">
-                                <StoryboardAssetsCell bindings={row.assetBindings || []} nodes={nodes} />
+                                <StoryboardAssetsCell
+                                    bindings={row.assetBindings || []}
+                                    nodes={nodes}
+                                    selectedCanvasNodeIds={selectedCanvasNodeIds}
+                                    onChange={(assetBindings) => onUpdateRow(row.id, { assetBindings })}
+                                />
                             </div>
                         </div>
                     ))
@@ -653,6 +660,7 @@ function batchItemTone(item?: CanvasGenerationBatchItem): CanvasNodeStatus | und
 export function CanvasScriptEditor({
     node,
     nodes,
+    selectedCanvasNodeIds,
     open,
     onClose,
     onUpdateRows,
@@ -663,6 +671,7 @@ export function CanvasScriptEditor({
 }: {
     node: CanvasNodeData | null;
     nodes: CanvasNodeData[];
+    selectedCanvasNodeIds?: Iterable<string>;
     open: boolean;
     onClose: () => void;
     onUpdateRows: (rows: StoryboardRow[]) => void;
@@ -726,7 +735,12 @@ export function CanvasScriptEditor({
                 ) : option.value === "durationSeconds" ? (
                     <InputNumber className="w-full" min={1} max={60} value={row.durationSeconds} suffix="s" onChange={(value) => updateRow(row.id, { durationSeconds: Number(value) || 1 })} />
                 ) : option.value === "assets" ? (
-                    <StoryboardAssetsCell bindings={row.assetBindings || []} nodes={nodes} />
+                    <StoryboardAssetsCell
+                        bindings={row.assetBindings || []}
+                        nodes={nodes}
+                        selectedCanvasNodeIds={selectedCanvasNodeIds}
+                        onChange={(assetBindings) => updateRow(row.id, { assetBindings })}
+                    />
                 ) : option.value === "shotSize" ? (
                     <Select
                         className="w-full"

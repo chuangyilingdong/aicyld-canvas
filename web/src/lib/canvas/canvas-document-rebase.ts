@@ -111,6 +111,7 @@ const GENERATION_BIND_METADATA_KEYS = [
     "taskDurationMs",
     "taskErrorCode",
     "taskProviderRequestId",
+    "taskProviderCancelStatus",
     "taskOfficialStatus",
     "taskReceiptRecorded",
     "taskUpdatedAt",
@@ -245,6 +246,7 @@ const IN_FLIGHT_POLL_TELEMETRY_KEYS = [
     "taskDurationMs",
     "taskStartedAt",
     "taskProviderRequestId",
+    "taskProviderCancelStatus",
     "taskOfficialStatus",
     "taskReceiptRecorded",
 ] as const;

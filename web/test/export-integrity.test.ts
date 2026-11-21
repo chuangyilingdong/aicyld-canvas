@@ -327,7 +327,7 @@ test("empty workspace ZIP opens with no media writes", async () => {
     expect(restored.size).toBe(0);
 });
 
-test("missing media and corrupt canvas ZIP fail before writing restored files", async () => {
+test("missing media is reported without writing restored files while corrupt canvas ZIP still fails", async () => {
     restored.clear();
     const missing = await createZip([{
         name: "projects.json",
@@ -338,7 +338,8 @@ test("missing media and corrupt canvas ZIP fail before writing restored files", 
             projects: [{ project: { id: "broken", title: "损坏画布", nodes: [] }, files: [{ storageKey: "video:missing", path: "projects/broken/files/missing.mp4", mimeType: "video/mp4", bytes: 3 }] }],
         }),
     }]);
-    await expect(openCanvasArchive(new File([missing], "missing.zip"))).rejects.toThrow("missing.mp4");
+    const opened = await openCanvasArchive(new File([missing], "missing.zip"));
+    expect(opened.missingFiles).toEqual([{ owner: "损坏画布", reference: "projects/broken/files/missing.mp4" }]);
     expect(restored.size).toBe(0);
 
     const corrupt = await createZip([{ name: "projects.json", data: "{not-json" }]);

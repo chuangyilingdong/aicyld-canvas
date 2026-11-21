@@ -30,6 +30,9 @@ func TestAgentModelCatalogBeefAPIVideoContractAndAudioPayload(t *testing.T) {
 			if tc.configured {
 				config := modelcatalog.DefaultModelCapabilityConfigForModel("newapi", "kling-video-v3")
 				config.Video.GenerateAudio.Default = tc.audioDefault
+				config.Video.Duration.Min = 2
+				config.Video.Duration.Max = 12
+				config.Video.References.MaxImages = 7
 				profile["capabilityConfig"] = config
 			}
 			if tc.sourced {
@@ -67,7 +70,7 @@ func TestAgentModelCatalogBeefAPIVideoContractAndAudioPayload(t *testing.T) {
 				t.Fatalf("audio choice changed: %#v", video)
 			}
 			if tc.sourced || tc.name == "custom endpoint" {
-				if video.GenerateAudio.Supported || video.Duration.Min != 1 || video.References.MaxImages != 9 {
+				if video.GenerateAudio.Supported || video.Duration.Min != 2 || video.Duration.Max != 12 || video.References.MaxImages != 7 {
 					t.Fatalf("overwrote independent contract: %#v", video)
 				}
 				return

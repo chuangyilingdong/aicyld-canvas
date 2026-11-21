@@ -83,8 +83,15 @@ export function canvasTaskFailureMetadata(task: GenerationTask, metadata?: Canva
     const taskOutcome = task.status === "succeeded" && !resultLost
         ? ("taskOutcome" in failure && failure.taskOutcome ? failure.taskOutcome : { phase: "retrievable" as const, regenerate: "blocked" as const, reason: "delivery_pending" })
         : (task.outcome ?? ("taskOutcome" in failure ? failure.taskOutcome : undefined) ?? backendOutcome);
-    const lostResultCopy = resultLost ? { errorDetails: taskOutcomeCopy(backendOutcome).message, generationErrorCode: undefined } : {};
-    return { ...failure, ...lostResultCopy, ...(taskOutcome ? { taskOutcome } : {}), taskFailureDiagnostics: diagnostics, taskProviderRequestId: task.providerRequestId };
+    const lostResultCopy = resultLost ? { errorDetails: taskOutcomeCopy(backendOutcome, undefined, { providerCancelStatus: task.providerCancelStatus }).message, generationErrorCode: undefined } : {};
+    return {
+        ...failure,
+        ...lostResultCopy,
+        ...(taskOutcome ? { taskOutcome } : {}),
+        taskFailureDiagnostics: diagnostics,
+        taskProviderRequestId: task.providerRequestId,
+        taskProviderCancelStatus: task.providerCancelStatus,
+    };
 }
 
 export function canvasImagePendingResultMessage(node: CanvasNodeData | undefined, nodes: CanvasNodeData[]) {

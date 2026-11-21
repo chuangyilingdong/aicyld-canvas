@@ -20,11 +20,13 @@ export type TaskOutcomeCopy = {
 
 export type TaskOutcomeSource = {
     outcome?: TaskOutcome | null;
+    type?: string;
     status?: string;
     stage?: string;
     errorCode?: string;
     error?: string;
     providerRequestId?: string;
+    providerCancelStatus?: string;
     outputs?: Array<{
         materializedAssetId?: string;
         materializationErrorCode?: string;
@@ -34,10 +36,14 @@ export type TaskOutcomeSource = {
 export type CanvasNodeOutcomeMetadata = {
     taskOutcome?: TaskOutcome | null;
     taskId?: string;
+    taskType?: string;
     taskClientOperationId?: string;
     generationSubmissionState?: string;
     taskStatus?: string;
     taskStage?: string;
+    taskProviderRequestId?: string;
+    providerRequestId?: string;
+    taskProviderCancelStatus?: string;
     status?: string;
     content?: string;
     storageKey?: string;
@@ -108,6 +114,60 @@ function defaultReasonForPhase(phase: TaskOutcomePhase): string {
     }
 }
 
+export function cancelledResultUnconfirmedTaskOutcome(): TaskOutcome {
+    return { phase: "failed", regenerate: "confirm", reason: "cancelled_result_unconfirmed" };
+}
+
+type LegacyTerminalOutcomeInput = {
+    status: string;
+    stage: string;
+    errorCode: string;
+    providerRequestId: string;
+    taskType: string;
+};
+
+function readLegacyTerminalOutcome({ status, stage, errorCode, providerRequestId, taskType }: LegacyTerminalOutcomeInput): TaskOutcome {
+    const isDepthCapture = taskType === "depth_capture";
+    if (errorCode === "result_target_unavailable") {
+        return { phase: "failed", regenerate: "blocked", reason: "result_target_unavailable" };
+    }
+    if (stage === "submission_unknown") {
+        if (isDepthCapture && !providerRequestId) {
+            return { phase: "failed", regenerate: "allowed", reason: "task_failed" };
+        }
+        return status === "cancelled" ? cancelledResultUnconfirmedTaskOutcome() : { phase: "retrievable", regenerate: "blocked", reason: "submission_unknown" };
+    }
+    if (stage === "delivery_paused" || stage === "delivery_timed_out" || LEGACY_RETRIEVABLE_ERROR_CODES.has(errorCode)) {
+        if (isDepthCapture && !providerRequestId && (status === "cancelled" || errorCode === "submission_uncertain")) {
+            return { phase: "failed", regenerate: "allowed", reason: "task_failed" };
+        }
+        return status === "cancelled"
+            ? cancelledResultUnconfirmedTaskOutcome()
+            : { phase: "retrievable", regenerate: "blocked", reason: "delivery_pending" };
+    }
+    if (LEGACY_INPUT_REJECTED_ERROR_CODES.has(errorCode)) {
+        return { phase: "failed", regenerate: "confirm", reason: "input_rejected" };
+    }
+    if (providerRequestId) {
+        if (status === "cancelled") {
+            return cancelledResultUnconfirmedTaskOutcome();
+        }
+        if (status === "failed" || status === "") {
+            return { phase: "retrievable", regenerate: "blocked", reason: "provider_result_pending" };
+        }
+    }
+    if (errorCode === "request_not_sent" || stage === "request_not_sent") {
+        return { phase: "failed", regenerate: "allowed", reason: "not_charged" };
+    }
+    if (isDepthCapture) {
+        return { phase: "failed", regenerate: "allowed", reason: "task_failed" };
+    }
+    if (status === "failed" || status === "cancelled" || status === "text_replay") {
+        return { phase: "failed", regenerate: "confirm", reason: "task_failed" };
+    }
+    return { phase: "failed", regenerate: "allowed", reason: "task_failed" };
+}
+
 /**
  * 读取任务的 `outcome`。
  * 一旦 `outcome` 存在，完全以 `outcome` 为准，绝不参考 `status`、`stage`、`errorCode` 或错误文案。
@@ -121,9 +181,11 @@ export function readTaskOutcome(source?: TaskOutcome | TaskOutcomeSource | null)
     const embedded = normalizeTaskOutcome(record.outcome);
     if (embedded) return embedded;
 
+    const taskType = typeof record.type === "string" ? record.type.trim() : "";
     const status = typeof record.status === "string" ? record.status.trim() : "";
     const stage = typeof record.stage === "string" ? record.stage.trim() : "";
     const errorCode = typeof record.errorCode === "string" ? record.errorCode.trim() : "";
+    const providerRequestId = typeof record.providerRequestId === "string" ? record.providerRequestId.trim() : "";
 
     if (status === "queued" || status === "running") {
         if (stage === "正在取回生成结果") {
@@ -141,26 +203,13 @@ export function readTaskOutcome(source?: TaskOutcome | TaskOutcomeSource | null)
         return { phase: "ready", regenerate: "allowed", reason: "result_ready" };
     }
     if (status === "failed" || status === "cancelled" || errorCode || record.error) {
-        if (errorCode === "result_target_unavailable") {
-            return { phase: "failed", regenerate: "blocked", reason: "result_target_unavailable" };
-        }
-        if (stage === "submission_unknown") {
-            return { phase: "retrievable", regenerate: "blocked", reason: "submission_unknown" };
-        }
-        if (stage === "delivery_paused" || stage === "delivery_timed_out" || LEGACY_RETRIEVABLE_ERROR_CODES.has(errorCode)) {
-            return { phase: "retrievable", regenerate: "blocked", reason: "delivery_pending" };
-        }
-        if (LEGACY_INPUT_REJECTED_ERROR_CODES.has(errorCode)) {
-            return { phase: "failed", regenerate: "confirm", reason: "input_rejected" };
-        }
-        // 与后端 ComputeOutcome 一致：已有上游任务号的失败任务先免费查询原任务。
-        if (status === "failed" && typeof record.providerRequestId === "string" && record.providerRequestId.trim()) {
-            return { phase: "retrievable", regenerate: "blocked", reason: "provider_result_pending" };
-        }
-        if (errorCode === "request_not_sent" || status === "cancelled") {
-            return { phase: "failed", regenerate: "allowed", reason: "not_charged" };
-        }
-        return { phase: "failed", regenerate: "allowed", reason: "task_failed" };
+        return readLegacyTerminalOutcome({
+            status: status || "failed",
+            stage,
+            errorCode,
+            providerRequestId,
+            taskType,
+        });
     }
     return undefined;
 }
@@ -175,35 +224,49 @@ export function readNodeTaskOutcome(metadata?: CanvasNodeOutcomeMetadata | null)
     const explicit = normalizeTaskOutcome(metadata.taskOutcome);
     if (explicit) return explicit;
 
-    if (metadata.generationSubmissionState === "unknown" || metadata.taskStage === "submission_unknown") {
-        return { phase: "retrievable", regenerate: "blocked", reason: "submission_unknown" };
+    const taskType = typeof metadata.taskType === "string" ? metadata.taskType.trim() : "";
+    const taskStatus = typeof metadata.taskStatus === "string" ? metadata.taskStatus.trim() : "";
+    const taskStage = typeof metadata.taskStage === "string" ? metadata.taskStage.trim() : "";
+    const errorCode = typeof metadata.generationErrorCode === "string" ? metadata.generationErrorCode.trim() : "";
+    const providerRequestId =
+        (typeof metadata.taskProviderRequestId === "string" && metadata.taskProviderRequestId.trim()) ||
+        (typeof metadata.providerRequestId === "string" && metadata.providerRequestId.trim()) ||
+        "";
+
+    if (metadata.generationSubmissionState === "unknown" || taskStage === "submission_unknown") {
+        if (taskType === "depth_capture" && !providerRequestId) {
+            return { phase: "failed", regenerate: "allowed", reason: "task_failed" };
+        }
+        return taskStatus === "cancelled" ? cancelledResultUnconfirmedTaskOutcome() : { phase: "retrievable", regenerate: "blocked", reason: "submission_unknown" };
     }
     if (metadata.status === "success" && Boolean(metadata.content || metadata.storageKey)) {
         return { phase: "ready", regenerate: "allowed", reason: "result_ready" };
     }
-    if (metadata.status === "loading" || metadata.taskStatus === "queued" || metadata.taskStatus === "running") {
-        if (metadata.taskStatus === "succeeded" || metadata.taskStage === "正在取回生成结果") {
+    if (taskStatus === "failed" || taskStatus === "cancelled" || taskStatus === "text_replay") {
+        return readLegacyTerminalOutcome({
+            status: taskStatus,
+            stage: taskStage,
+            errorCode,
+            providerRequestId,
+            taskType,
+        });
+    }
+    if (metadata.status === "loading" || taskStatus === "queued" || taskStatus === "running") {
+        if (taskStatus === "succeeded" || taskStage === "正在取回生成结果") {
             return { phase: "fetching", regenerate: "blocked", reason: "result_fetching" };
         }
         return { phase: "running", regenerate: "blocked", reason: "task_running" };
     }
-    const errorCode = typeof metadata.generationErrorCode === "string" ? metadata.generationErrorCode.trim() : "";
-    if (metadata.status === "error" || metadata.taskStatus === "failed" || metadata.taskStatus === "cancelled" || errorCode || metadata.errorDetails) {
-        if (errorCode === "result_target_unavailable") {
-            return { phase: "failed", regenerate: "blocked", reason: "result_target_unavailable" };
-        }
-        if (LEGACY_RETRIEVABLE_ERROR_CODES.has(errorCode)) {
-            return { phase: "retrievable", regenerate: "blocked", reason: "delivery_pending" };
-        }
-        if (LEGACY_INPUT_REJECTED_ERROR_CODES.has(errorCode)) {
-            return { phase: "failed", regenerate: "confirm", reason: "input_rejected" };
-        }
-        if (errorCode === "request_not_sent" || metadata.taskStatus === "cancelled") {
-            return { phase: "failed", regenerate: "allowed", reason: "not_charged" };
-        }
-        return { phase: "failed", regenerate: "allowed", reason: "task_failed" };
+    if (metadata.status === "error" || errorCode || metadata.errorDetails) {
+        return readLegacyTerminalOutcome({
+            status: taskStatus,
+            stage: taskStage,
+            errorCode,
+            providerRequestId,
+            taskType,
+        });
     }
-    if (metadata.taskStatus === "succeeded") {
+    if (taskStatus === "succeeded") {
         return { phase: "fetching", regenerate: "blocked", reason: "result_fetching" };
     }
     return undefined;
@@ -265,7 +328,34 @@ export function isNodeRegenerateBlocked(metadata?: CanvasNodeOutcomeMetadata | n
 }
 
 export function isNodeRegenerateConfirm(metadata?: CanvasNodeOutcomeMetadata | null): boolean {
-    return isRegenerateConfirm(readNodeTaskOutcome(metadata));
+    return nodeRequiresRegenerateConfirmation(metadata);
+}
+
+export type FreshSubmissionSource = {
+    providerCancelStatus?: string;
+    outcome?: TaskOutcome | null;
+};
+
+/**
+ * 重新生成必须显式确认的条件。取消请求尚未确认时，旧任务仍可能继续执行或扣费。
+ */
+export function taskRequiresRegenerateConfirmation(
+    source: Pick<FreshSubmissionSource, "providerCancelStatus" | "outcome">,
+    outcome: TaskOutcome | null | undefined = normalizeTaskOutcome(source.outcome),
+): boolean {
+    if (isRegenerateBlocked(outcome)) return false;
+    if (isRegenerateConfirm(outcome)) return true;
+    return source.providerCancelStatus === "requested" || source.providerCancelStatus === "uncertain";
+}
+
+export function nodeRequiresRegenerateConfirmation(
+    metadata?: CanvasNodeOutcomeMetadata | null,
+    outcome: TaskOutcome | null | undefined = readNodeTaskOutcome(metadata),
+): boolean {
+    return taskRequiresRegenerateConfirmation(
+        { providerCancelStatus: metadata?.taskProviderCancelStatus, outcome },
+        outcome,
+    );
 }
 
 function extractNodeMetadata(target?: { metadata?: CanvasNodeOutcomeMetadata | null } | CanvasNodeOutcomeMetadata | null): CanvasNodeOutcomeMetadata | undefined {
@@ -284,6 +374,7 @@ export function canReloadCanvasNodeResource(target?: { metadata?: CanvasNodeOutc
     const metadata = extractNodeMetadata(target);
     if (!metadata || metadata.batchRootId) return false;
     if (!metadata.taskId) return false;
+    if (metadata.taskStatus === "cancelled") return false;
     const outcome = readNodeTaskOutcome(metadata);
     if (!outcome) return false;
     if (normalizeTaskOutcome(metadata.taskOutcome)) {
@@ -335,7 +426,11 @@ export function formatReconcileDeadlineCopy(reconcileDeadline?: string, nowMs = 
  * 根据 `TaskOutcome` 生成面向用户的中文状态、提示与确认弹窗文案。
  * 严格遵守不泄露上游平台内部名（如 BeefAPI）、渠道 ID 或内部字段名。
  */
-export function taskOutcomeCopy(outcome?: TaskOutcome | null, nowMs = Date.now()): TaskOutcomeCopy {
+export type TaskOutcomeCopyOptions = {
+    providerCancelStatus?: string;
+};
+
+export function taskOutcomeCopy(outcome?: TaskOutcome | null, nowMs = Date.now(), options?: TaskOutcomeCopyOptions): TaskOutcomeCopy {
     if (!outcome) {
         return {
             badge: "生成失败",
@@ -428,6 +523,54 @@ export function taskOutcomeCopy(outcome?: TaskOutcome | null, nowMs = Date.now()
                 };
             }
             if (outcome.regenerate === "confirm") {
+                if (outcome.reason === "cancelled_result_unconfirmed") {
+                    if (options?.providerCancelStatus === "confirmed") {
+                        const reason = "上游已确认取消，请核对渠道后台确认是否已扣费";
+                        const action = "核对扣费后可重新生成";
+                        return {
+                            badge: "已取消",
+                            reason,
+                            action,
+                            message: `${reason}。${action}。`,
+                            confirmTitle: "确认重新生成？",
+                            confirmContent: "上游已确认取消本次任务，但仍无法确认渠道是否已扣费，重新生成可能会再扣一次。",
+                        };
+                    }
+                    if (options?.providerCancelStatus === "requested") {
+                        const reason = "已请求上游取消，正在等待确认";
+                        const action = "旧任务可能仍在执行，确认后再决定是否重新生成";
+                        return {
+                            badge: "取消待确认",
+                            reason,
+                            action,
+                            message: `${reason}。${action}。`,
+                            confirmTitle: "上游取消仍在确认中，确认重新生成？",
+                            confirmContent: "已向上游发送取消请求，但尚未收到确认，旧任务可能仍在执行或扣费。重新生成可能会再扣一次。",
+                        };
+                    }
+                    if (options?.providerCancelStatus === "uncertain") {
+                        const reason = "上游无法确认取消，状态待确认";
+                        const action = "请先核对原请求状态，确认后可重新生成";
+                        return {
+                            badge: "取消待确认",
+                            reason,
+                            action,
+                            message: `${reason}。${action}。`,
+                            confirmTitle: "上游未能确认取消，确认重新生成？",
+                            confirmContent: "上游无法确认取消本次任务，旧任务可能仍在执行或已扣费。重新生成可能会再扣一次。",
+                        };
+                    }
+                    const reason = "任务已取消，无法确认上游是否已生成或扣费";
+                    const action = "可先到渠道后台核对原请求状态，确认后可重新生成";
+                    return {
+                        badge: "结果待确认",
+                        reason,
+                        action,
+                        message: `${reason}。${action}。`,
+                        confirmTitle: "确认重新生成？",
+                        confirmContent: "上次任务在提交后取消，无法确认渠道是否已执行或扣费，重新生成可能会再扣一次。",
+                    };
+                }
                 if (outcome.reason === "charged_result_unrecoverable") {
                     const reason = "上次已扣费，但结果拿不回，重新生成会再扣一次";
                     const action = "确认后将创建新任务重新生成";

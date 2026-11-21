@@ -4,6 +4,7 @@ import {
     canRegenerateTaskOutcome,
     canReloadCanvasNodeResource,
     canvasNodeHasPendingOutcomeResult,
+    cancelledResultUnconfirmedTaskOutcome,
     formatReconcileDeadlineCopy,
     isNodeRegenerateBlocked,
     isNodeRegenerateConfirm,
@@ -17,15 +18,39 @@ import {
     isTaskOutcomeWorking,
     isTaskRegenerateBlocked,
     normalizeTaskOutcome,
+    nodeRequiresRegenerateConfirmation,
     readNodeTaskOutcome,
     readTaskOutcome,
     taskOutcomeCopy,
+    taskRequiresRegenerateConfirmation,
     type TaskOutcome,
     type TaskOutcomePhase,
     type TaskOutcomeRegenerate,
 } from "@/lib/task-outcome";
 
 describe("task-outcome", () => {
+    it("stops cancelled tasks from polling forever and requires paid-regeneration confirmation", () => {
+        const expected = { phase: "failed" as const, regenerate: "confirm" as const, reason: "cancelled_result_unconfirmed" };
+        expect(cancelledResultUnconfirmedTaskOutcome()).toEqual(expected);
+        expect(readTaskOutcome({ type: "canvas_video", status: "cancelled", providerRequestId: "req-1" })).toEqual(expected);
+        expect(readNodeTaskOutcome({ taskType: "canvas_video", taskStatus: "cancelled", taskProviderRequestId: "req-1" })).toEqual(expected);
+        expect(readTaskOutcome({ type: "canvas_video", status: "cancelled", stage: "submission_unknown" })).toEqual(expected);
+        expect(readNodeTaskOutcome({ taskType: "canvas_video", taskStatus: "cancelled", generationSubmissionState: "unknown" })).toEqual(expected);
+        expect(readTaskOutcome({ status: "cancelled" })).toEqual({ phase: "failed", regenerate: "confirm", reason: "task_failed" });
+        expect(readNodeTaskOutcome({ taskStatus: "cancelled" })).toEqual({ phase: "failed", regenerate: "confirm", reason: "task_failed" });
+        expect(readTaskOutcome({ status: "cancelled", errorCode: "request_not_sent" })).toEqual({ phase: "failed", regenerate: "allowed", reason: "not_charged" });
+
+        expect(taskRequiresRegenerateConfirmation({ providerCancelStatus: "requested", outcome: { phase: "failed", regenerate: "allowed", reason: "task_failed" } })).toBe(true);
+        expect(taskRequiresRegenerateConfirmation({ providerCancelStatus: "uncertain", outcome: { phase: "failed", regenerate: "allowed", reason: "task_failed" } })).toBe(true);
+        expect(taskRequiresRegenerateConfirmation({ providerCancelStatus: "confirmed", outcome: { phase: "failed", regenerate: "allowed", reason: "task_failed" } })).toBe(false);
+        expect(nodeRequiresRegenerateConfirmation({ taskStatus: "cancelled", taskProviderRequestId: "req-1" })).toBe(true);
+
+        const requested = taskOutcomeCopy(expected, undefined, { providerCancelStatus: "requested" });
+        expect(requested.badge).toBe("取消待确认");
+        expect(requested.confirmContent).toContain("可能会再扣一次");
+        expect(requested.message).not.toContain("正在自动取回");
+    });
+
     it("recognizes all 5 phase values and 3 regenerate values", () => {
         const phases: TaskOutcomePhase[] = ["running", "fetching", "ready", "retrievable", "failed"];
         const regenerates: TaskOutcomeRegenerate[] = ["allowed", "confirm", "blocked"];

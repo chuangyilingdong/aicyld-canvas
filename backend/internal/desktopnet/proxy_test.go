@@ -11,6 +11,9 @@ import (
 )
 
 func TestHTTPSChildProxyPreservesRedirectBypassAndExplicitDirect(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows environment names are case-insensitive and cannot represent conflicting proxy aliases")
+	}
 	t.Setenv("HTTPS_PROXY", "http://127.0.0.1:7890")
 	t.Setenv("https_proxy", "http://127.0.0.1:9999")
 	t.Setenv("NO_PROXY", "*.internal,cdn.example.com,10.0.0.0/8")

@@ -1,11 +1,14 @@
 {
-  "appLines": 11130,
+  "appLines": 11138,
   "largeFiles": {
-    "backend/internal/handler/project.go": 1029,
+    "backend/internal/handler/project.go": 1025,
+    "backend/internal/platformchannels/store.go": 1054,
+    "backend/internal/protocol/builtin.go": 1546,
     "backend/internal/protocol/manifest.go": 1653,
     "backend/internal/provider/workflow/mapping.go": 1049,
-    "backend/internal/repository/project_mutate.go": 1336,
-    "backend/internal/repository/repository.go": 2332,
+    "backend/internal/repository/project_mutate.go": 1303,
+    "backend/internal/repository/repository.go": 2328,
+    "web/src/components/canvas/canvas-node-prompt-panel.tsx": 1050,
     "web/src/components/canvas/canvas-timeline-dialog.tsx": 1010,
     "web/src/components/canvas/director/canvas-director-workbench.tsx": 2230,
     "web/src/components/canvas/director/director-viewport.tsx": 2102,
@@ -13,16 +16,16 @@
     "web/src/lib/canvas/canvas-drawing-storage.ts": 1027,
     "web/src/lib/canvas/libtv-original-layout.ts": 1026,
     "web/src/pages/assets/index.tsx": 2090,
-    "web/src/pages/canvas/project.tsx": 2055,
+    "web/src/pages/canvas/project.tsx": 2067,
     "web/src/pages/canvas/use-canvas-upload.ts": 1094,
     "web/src/pages/create/index.tsx": 1243,
-    "web/src/pages/projects/detail/workflow-production-workbench.tsx": 1209,
-    "web/src/services/local-workspace-repository.ts": 1212,
-    "web/src/stores/use-config-store.ts": 1219,
-    "web/src/styles/globals.css": 21598,
+    "web/src/pages/projects/detail/workflow-production-workbench.tsx": 1188,
+    "web/src/services/local-workspace-repository.ts": 1253,
+    "web/src/stores/use-config-store.ts": 1223,
+    "web/src/styles/globals.css": 21542,
     "web/src/styles/workspace-product.css": 1542
   },
-  "modelLiterals": 605,
+  "modelLiterals": 656,
   "handlersUsingAppService": 8,
-  "sourceTextTests": 144
+  "sourceTextTests": 148
 }

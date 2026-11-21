@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { chromium, type Browser } from "playwright";
+import { applyMockCanvasDocumentPatch } from "./helpers/mock-canvas-document-patch";
 
 // Renders the real useCanvasProjectLifecycle through the shared restart harness
 // and proves a deletion reaches the backend right after the page is hidden,
@@ -26,14 +27,20 @@ beforeAll(async () => {
         if (path === "/harness.js") return new Response(script, { headers: { "Content-Type": "application/javascript" } });
         if (path === "/api/canvas-projects/c1") return json({ project: backend });
         if (path === "/api/canvas-projects/c2") return json({ project: secondBackend });
-        if (path === "/api/ops/canvas.document.commit") {
+        if (path === "/api/ops/canvas.document.commit" || path === "/api/ops/canvas.document.patch") {
             const body = await request.json();
             const current = body.params.canvasId === "c2" ? secondBackend : backend;
-            if (body.params.expectedRevision !== current.revision) return Response.json({ code: 409, data: null, msg: "Revision conflict", reason: "canvas_revision_conflict" }, { status: 409 });
-            commits.push({ at: Date.now(), canvasId: body.params.canvasId, nodes: body.params.document.nodes, connections: body.params.document.connections });
-            const saved = { ...body.params.document, revision: current.revision + 1 };
+            const expectedRevision = body.params.expectedRevision ?? body.params.baseRevision;
+            if (expectedRevision !== current.revision) return Response.json({ code: 409, data: null, msg: "Revision conflict", reason: "canvas_revision_conflict" }, { status: 409 });
+            const document = path.endsWith("/canvas.document.patch")
+                ? applyMockCanvasDocumentPatch(current, body.params)
+                : body.params.document;
+            const saved = { ...document, revision: current.revision + 1 };
+            body.params.expectedRevision = expectedRevision;
+            body.params.document = saved;
+            commits.push({ at: Date.now(), canvasId: body.params.canvasId, nodes: saved.nodes, connections: saved.connections });
             if (body.params.canvasId === "c2") secondBackend = saved; else backend = saved;
-            return json({ revision: saved.revision, result: { canvasId: saved.id, revision: saved.revision, title: saved.title, updatedAt: saved.updatedAt } });
+            return json({ revision: saved.revision, result: { canvasId: saved.id, revision: saved.revision, title: saved.title, updatedAt: saved.updatedAt, document: saved } });
         }
         if (path.startsWith("/api/")) return json([]);
         return new Response('<div id="root"></div><script type="module" src="/harness.js"></script>', { headers: { "Content-Type": "text/html" } });

@@ -14,46 +14,86 @@ type AssetMediaPreviewProps = {
 
 export function AssetMediaPreview({ asset, alt, className = "", fallback = null, hoverPlayDelayMs }: AssetMediaPreviewProps) {
     const hoverTimerRef = useRef<number | null>(null);
+    const videoRef = useRef<HTMLVideoElement>(null);
     const [mediaFailed, setMediaFailed] = useState(false);
+    const [hoverActive, setHoverActive] = useState(false);
     const videoStorageKey = asset?.kind === "video" ? asset.data.storageKey : undefined;
     const videoFallbackUrl = asset?.kind === "video" ? asset.data.url : "";
-    const playback = useResourceVideoPlayback(videoStorageKey || "", videoFallbackUrl || "", asset?.kind === "video");
+    const videoPoster = asset?.kind === "video" && asset.coverUrl && asset.coverUrl !== asset.data.url ? asset.coverUrl : "";
+    const loadVideo = asset?.kind === "video" && (!videoPoster || hoverActive || hoverPlayDelayMs === undefined);
+    const playback = useResourceVideoPlayback(videoStorageKey || "", videoFallbackUrl || "", loadVideo);
     const resolvedVideoUrl = playback.url;
-    useEffect(() => { setMediaFailed(false); }, [asset?.id]);
+    useEffect(() => {
+        setMediaFailed(false);
+        setHoverActive(false);
+    }, [asset?.id]);
     useEffect(() => () => { if (hoverTimerRef.current !== null) window.clearTimeout(hoverTimerRef.current); }, []);
+    useEffect(() => {
+        if (!hoverActive || hoverPlayDelayMs === undefined || !resolvedVideoUrl) return;
+        hoverTimerRef.current = window.setTimeout(() => {
+            void videoRef.current?.play().catch(() => undefined);
+        }, hoverPlayDelayMs);
+        return () => {
+            if (hoverTimerRef.current !== null) {
+                window.clearTimeout(hoverTimerRef.current);
+                hoverTimerRef.current = null;
+            }
+        };
+    }, [hoverActive, hoverPlayDelayMs, resolvedVideoUrl]);
     if (!asset) return fallback;
-    if (mediaFailed || playback.error) return fallback;
+    if (!videoPoster && (mediaFailed || playback.error)) return fallback;
 
     if (asset.kind === "video" && asset.data.url) {
-        if (!resolvedVideoUrl) return fallback;
         const clearHoverTimer = () => {
             if (hoverTimerRef.current !== null) {
                 window.clearTimeout(hoverTimerRef.current);
                 hoverTimerRef.current = null;
             }
         };
-        const poster = asset.coverUrl && asset.coverUrl !== asset.data.url ? asset.coverUrl : undefined;
+        const poster = videoPoster || undefined;
+        if (poster && hoverPlayDelayMs !== undefined && (!hoverActive || !resolvedVideoUrl)) {
+            return (
+                <CachedResourceImage
+                    src={poster}
+                    alt={alt}
+                    loading="lazy"
+                    decoding="async"
+                    className={className}
+                    fallback={fallback}
+                    onMouseEnter={hoverPlayDelayMs === undefined ? undefined : () => setHoverActive(true)}
+                    onMouseLeave={hoverPlayDelayMs === undefined ? undefined : () => {
+                        setHoverActive(false);
+                        clearHoverTimer();
+                    }}
+                />
+            );
+        }
+        if (!resolvedVideoUrl) return fallback;
         return (
             <video
+                ref={videoRef}
                 src={resolvedVideoUrl}
                 poster={poster}
                 aria-label={alt}
                 muted
                 playsInline
-                preload="auto"
+                preload={poster ? "metadata" : "auto"}
                 className={className}
-                onError={() => { if (!playback.requestCompatible()) setMediaFailed(true); }}
-                onMouseEnter={(event) => {
+                onError={() => {
+                    if (!playback.requestCompatible()) {
+                        setMediaFailed(true);
+                        setHoverActive(false);
+                    }
+                }}
+                onMouseEnter={() => {
                     if (hoverPlayDelayMs === undefined) return;
-                    const video = event.currentTarget;
+                    setHoverActive(true);
                     clearHoverTimer();
-                    hoverTimerRef.current = window.setTimeout(() => {
-                        void video.play().catch(() => undefined);
-                    }, hoverPlayDelayMs);
                 }}
                 onMouseLeave={(event) => {
                     if (hoverPlayDelayMs === undefined) return;
                     clearHoverTimer();
+                    setHoverActive(false);
                     event.currentTarget.pause();
                     event.currentTarget.currentTime = 0;
                 }}

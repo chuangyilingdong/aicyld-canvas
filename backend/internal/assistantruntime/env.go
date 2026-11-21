@@ -2,6 +2,7 @@ package assistantruntime
 
 import (
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -107,7 +108,8 @@ func setEnvValue(env []string, key, value string) []string {
 	prefix := key + "="
 	kept := make([]string, 0, len(env)+1)
 	for _, entry := range env {
-		if strings.HasPrefix(entry, prefix) {
+		entryKey, _, _ := strings.Cut(entry, "=")
+		if strings.HasPrefix(entry, prefix) || (runtime.GOOS == "windows" && strings.EqualFold(entryKey, key)) {
 			continue
 		}
 		kept = append(kept, entry)
@@ -119,8 +121,12 @@ func envValue(env []string, key string) string {
 	prefix := key + "="
 	got := ""
 	for _, entry := range env {
-		if strings.HasPrefix(entry, prefix) {
+		entryKey, value, _ := strings.Cut(entry, "=")
+		if strings.HasPrefix(entry, prefix) || (runtime.GOOS == "windows" && strings.EqualFold(entryKey, key)) {
 			got = strings.TrimPrefix(entry, prefix)
+			if runtime.GOOS == "windows" {
+				got = value
+			}
 		}
 	}
 	return got
@@ -129,7 +135,8 @@ func envValue(env []string, key string) string {
 func envHasKey(env []string, key string) bool {
 	prefix := key + "="
 	for _, entry := range env {
-		if strings.HasPrefix(entry, prefix) {
+		entryKey, _, _ := strings.Cut(entry, "=")
+		if strings.HasPrefix(entry, prefix) || (runtime.GOOS == "windows" && strings.EqualFold(entryKey, key)) {
 			return true
 		}
 	}

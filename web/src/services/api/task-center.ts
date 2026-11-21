@@ -6,6 +6,7 @@ import { getDiagnosticTraceId, recordDiagnosticEvent } from "@/services/diagnost
 import { publishGenerationDeliveryProgress } from "@/stores/use-generation-delivery-progress";
 import { beginTaskReferenceObservation, publishTaskReferenceProgress } from "@/services/task-reference-progress";
 import { normalizeTaskOutcome, taskOutcomeCopy, type TaskOutcome } from "@/lib/task-outcome";
+import { triggerSoundForCompletedTask } from "@/lib/task-completion-sound";
 
 export type { BackendEnvelope } from "@/services/api/request";
 
@@ -447,6 +448,7 @@ export async function waitForGenerationTask(id: string, options?: WaitForGenerat
             }
             const settled = settleGenerationTaskWait(task);
             if (settled.kind === "ready") {
+                notifyNewlyCompletedGenerationTask(settled.task, options?.initialTask);
                 return settled.task;
             }
             if (settled.kind === "failed") {
@@ -494,7 +496,10 @@ async function waitForGenerationTaskTextEvents(id: string, options: WaitForGener
         options.onTaskUpdate?.(lastTask);
     }
     const initialSettled = settleTerminalTextEventTask(lastTask);
-    if (initialSettled) return initialSettled;
+    if (initialSettled) {
+        notifyNewlyCompletedGenerationTask(initialSettled, options.initialTask);
+        return initialSettled;
+    }
     while (Date.now() - startedAt < timeoutMs) {
         if (options.signal?.aborted) throw new DOMException("Aborted", "AbortError");
         let terminalReceived = false;
@@ -567,7 +572,10 @@ async function waitForGenerationTaskTextEvents(id: string, options: WaitForGener
                 const completed = await queryGenerationTask(id, { signal: options.signal });
                 options.onTaskUpdate?.(completed);
                 const settled = settleTerminalTextEventTask(completed);
-                if (settled) return settled;
+                if (settled) {
+                    notifyNewlyCompletedGenerationTask(settled, options.initialTask);
+                    return settled;
+                }
             }
             lastStreamError = new Error("任务文本流连接提前结束");
         } catch (error) {
@@ -577,7 +585,10 @@ async function waitForGenerationTaskTextEvents(id: string, options: WaitForGener
                 const latest = await queryGenerationTask(id, { signal: options.signal });
                 options.onTaskUpdate?.(latest);
                 const settled = settleTerminalTextEventTask(latest);
-                if (settled) return settled;
+                if (settled) {
+                    notifyNewlyCompletedGenerationTask(settled, options.initialTask);
+                    return settled;
+                }
             } catch (queryError) {
                 if (options.signal?.aborted) throw new DOMException("Aborted", "AbortError");
                 if (queryError instanceof TaskTextStreamFatalError) throw queryError;
@@ -666,6 +677,13 @@ function settleTerminalTextEventTask(task: GenerationTask): GenerationTask | und
         );
     }
     return undefined;
+}
+
+function notifyNewlyCompletedGenerationTask(task: GenerationTask, initialTask?: GenerationTask) {
+    if (initialTask?.status === "succeeded" && initialTask.resultState !== "PENDING_MATERIALIZATION" && initialTask.resultState !== "MATERIALIZING") {
+        return;
+    }
+    triggerSoundForCompletedTask(task.id);
 }
 
 function explicitObservationTimeoutMs(timeoutMs?: number) {

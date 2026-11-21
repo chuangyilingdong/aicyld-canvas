@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { applyMockCanvasDocumentPatch } from "./helpers/mock-canvas-document-patch";
 
 const stored = new Map<string, string>();
 const server = { document: null as Record<string, unknown> | null, revision: 0, posts: [] as Array<{ expectedRevision?: number }> };
@@ -32,11 +33,11 @@ mock.module("@/services/api/request", () => ({
             server.document = { ...body.project, revision: server.revision };
             return { project: { id: String(body.project.id), revision: server.revision, updatedAt: "2026-01-01T00:00:00.000Z" } };
         },
-        post: async (_path: string, body: { opId?: string; params?: { canvasId?: string; expectedRevision?: number; document?: Record<string, unknown> } }) => {
+        post: async (path: string, body: { opId?: string; params?: { canvasId?: string; expectedRevision?: number; baseRevision?: number; document?: Record<string, unknown> } }) => {
             server.revision += 1;
-            server.posts.push({ expectedRevision: body.params?.expectedRevision });
-            server.document = { ...body.params?.document, revision: server.revision };
-            return { op: "canvas.document.commit", opId: body.opId, replayed: false, caller: "manual", revision: server.revision, result: { canvasId: "c1", revision: server.revision, updatedAt: "2026-01-01T00:00:00.000Z" } };
+            server.posts.push({ expectedRevision: body.params?.expectedRevision ?? body.params?.baseRevision });
+            server.document = { ...(path.endsWith("/canvas.document.patch") ? applyMockCanvasDocumentPatch(server.document ?? {}, body.params ?? {}) : body.params?.document), revision: server.revision };
+            return { op: "canvas.document.commit", opId: body.opId, replayed: false, caller: "manual", revision: server.revision, result: { canvasId: "c1", revision: server.revision, updatedAt: "2026-01-01T00:00:00.000Z", document: server.document } };
         },
     },
 }));

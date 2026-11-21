@@ -11,6 +11,7 @@ import { audioMetadata, videoMetadata } from "@/lib/canvas/canvas-generation-tas
 import { createCanvasNode } from "@/lib/canvas/canvas-project-domain";
 import { fitNodeSize, VIDEO_NODE_MAX_SIZE } from "@/lib/canvas/canvas-node-size";
 import { mediaResultMetadata } from "@/lib/canvas/canvas-node-semantics";
+import { extractVideoAudioToCanvasNode } from "@/lib/canvas/extract-video-audio";
 import { attachOwnedDepthCaptureResult, recoverOwnedDepthCaptureNode, recoverOwnedDepthCaptureNodes } from "@/lib/canvas/canvas-depth-recover";
 import { depthCaptureTaskMetadata, depthCaptureWaitFailureMetadata } from "@/lib/canvas/canvas-depth-capture";
 import { captureVideoFrames, resolveVideoFramePresetTimeMs } from "@/lib/canvas/canvas-video-frame";
@@ -64,6 +65,7 @@ export function useCanvasVideoTools({
     const [extractingVideoFramesNodeId, setExtractingVideoFramesNodeId] = useState<string | null>(null);
     const [mergeVideoProgress, setMergeVideoProgress] = useState<MergeVideoProgress | null>(null);
     const [segmentRunningMode, setSegmentRunningMode] = useState<"audio" | null>(null);
+    const [extractingAudioNodeId, setExtractingAudioNodeId] = useState<string | null>(null);
     const segmentRunningRef = useRef(false);
     const [inlineTrimNodeId, setInlineTrimNodeId] = useState<string | null>(null);
     const [inlineTrimRunning, setInlineTrimRunning] = useState(false);
@@ -84,6 +86,7 @@ export function useCanvasVideoTools({
         setExtractingVideoFramesNodeId(null);
         setMergeVideoProgress(null);
         setSegmentRunningMode(null);
+        setExtractingAudioNodeId(null);
         setInlineTrimRunning(false);
         setVideoCropNodeId(null);
         setFrameDialogNodeId(null);
@@ -586,6 +589,66 @@ export function useCanvasVideoTools({
         });
     }, [beginMediaOperation, pageUi, projectId, message, runExtractVideoAudio, setSegmentRunningMode]);
 
+    const extractPureAudioNodeFromVideo = useCallback(async (node: CanvasNodeData) => {
+        const operation = beginMediaOperation();
+        if (!operation.isCurrent() || segmentRunningRef.current) return;
+        if (!node.metadata?.content && !node.metadata?.storageKey) {
+            message.warning("视频节点为空，无法提取音频");
+            return;
+        }
+        let createdNodeId = "";
+        let createdConnectionId = "";
+        segmentRunningRef.current = true;
+        setSegmentRunningMode("audio");
+        setExtractingAudioNodeId(node.id);
+        pageUi.getState().setHoveredNodeId(null);
+        pageUi.getState().setToolbarNodeId(null);
+        const progress = startUploadStatus("提取音频为节点", "解码视频音轨并保存 WAV", 3);
+        try {
+            const result = await operation.wait(extractVideoAudioToCanvasNode(node, nodesRef.current));
+            if (!operation.isCurrent()) return;
+            createdNodeId = result.audioNode.id;
+            createdConnectionId = result.connection.id;
+            const updatedCurrent = result.durationMs > 0 && !node.metadata?.durationMs
+                ? nodesRef.current.map((item) => item.id === node.id ? { ...item, metadata: { ...item.metadata, durationMs: result.durationMs } } : item)
+                : nodesRef.current;
+            const nextNodes = [...updatedCurrent, result.audioNode];
+            const nextConnections = [...connectionsRef.current, result.connection];
+            nodesRef.current = nextNodes;
+            connectionsRef.current = nextConnections;
+            setNodes(nextNodes);
+            setConnections(nextConnections);
+            const selection = new Set([result.audioNode.id]);
+            selectedNodeIdsRef.current = selection;
+            pageUi.getState().setSelectedNodeIds(selection);
+            pageUi.getState().setSelectedConnectionId(null);
+            progress.update("写入画布音频节点", 2);
+            const saved = await operation.wait(persistMediaNodes([result.audioNode], [result.connection]));
+            if (!saved.get(result.audioNode.id)) throw new Error("音频节点尚未确认保存，请稍后重试");
+            progress.done("已提取独立音频节点");
+            message.success("已提取纯音频节点，引用声音时不会带入原视频画面");
+        } catch (error) {
+            if (!operation.isCurrent()) return;
+            if (createdNodeId) {
+                const nextNodes = nodesRef.current.filter((item) => item.id !== createdNodeId);
+                const nextConnections = connectionsRef.current.filter((item) => item.id !== createdConnectionId);
+                nodesRef.current = nextNodes;
+                connectionsRef.current = nextConnections;
+                setNodes((current) => current.filter((item) => item.id !== createdNodeId));
+                setConnections((current) => current.filter((item) => item.id !== createdConnectionId));
+            }
+            const detail = error instanceof Error ? error.message : "音频提取失败";
+            progress.fail(detail);
+            modal.error({ title: "音频提取未完成", content: detail, okText: "知道了" });
+        } finally {
+            if (operation.isCurrent()) {
+                segmentRunningRef.current = false;
+                setSegmentRunningMode(null);
+                setExtractingAudioNodeId(null);
+            }
+        }
+    }, [beginMediaOperation, connectionsRef, message, modal, nodesRef, pageUi, persistMediaNodes, selectedNodeIdsRef, setConnections, setNodes, startUploadStatus]);
+
     const mergeVideosByIds = useCallback(async (videoNodeIds: string[]) => {
         const operation = beginMediaOperation();
         if (!operation.isCurrent()) return;
@@ -651,7 +714,7 @@ export function useCanvasVideoTools({
 
     return {
         clearDeletedVideoNodes, videoCropNodeId, setVideoCropNodeId, cropVideoNode, depthCaptureNode, retryDepthCaptureNode,
-        recoverDepthCaptureNodes, closeFrameDialog, extractAudioFromVideo, extractVideoFrameAt, extractVideoFrames,
+        recoverDepthCaptureNodes, closeFrameDialog, extractAudioFromVideo, extractPureAudioNodeFromVideo, extractingAudioNodeId, extractVideoFrameAt, extractVideoFrames,
         extractingVideoFramesNodeId, frameDialogNodeId, setFrameDialogNodeId, mergeSelectedVideos, mergeVideosByIds,
         mergeVideoProgress, segmentRunningMode, inlineTrimNodeId, inlineTrimRunning, setInlineTrimNodeId,
         openInlineVideoTrim, openVideoCrop, closeInlineVideoTrim, confirmInlineVideoTrim,

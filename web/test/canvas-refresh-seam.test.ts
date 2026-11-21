@@ -28,6 +28,38 @@ class ApiError extends Error {
     }
 }
 
+type MockPatchParams = {
+    document?: Record<string, unknown>;
+    baseRevision?: number;
+    upsertNodes?: Array<{ id: string }>;
+    deleteNodeIds?: string[];
+    upsertConnections?: Array<{ id: string; fromNodeId?: string; toNodeId?: string }>;
+    deleteConnectionIds?: string[];
+    upsertChatSessions?: Array<{ id: string }>;
+    deleteChatSessionIds?: string[];
+    fields?: Record<string, unknown>;
+};
+
+function applyMockPatch(current: Record<string, unknown> | null, params: MockPatchParams) {
+    const document = structuredClone(current ?? { nodes: [], connections: [], chatSessions: [] });
+    const deleteNodes = new Set(params.deleteNodeIds ?? []);
+    const deleteConnections = new Set(params.deleteConnectionIds ?? []);
+    const deleteChats = new Set(params.deleteChatSessionIds ?? []);
+    const nodes = new Map((params.upsertNodes ?? []).map((item) => [item.id, item]));
+    const connections = new Map((params.upsertConnections ?? []).map((item) => [item.id, item]));
+    const chats = new Map((params.upsertChatSessions ?? []).map((item) => [item.id, item]));
+    document.nodes = ((document.nodes as Array<{ id: string }> | undefined) ?? []).filter((item) => !deleteNodes.has(item.id)).map((item) => nodes.get(item.id) ?? item);
+    for (const item of params.upsertNodes ?? []) if (!(document.nodes as Array<{ id: string }>).some((node) => node.id === item.id)) (document.nodes as Array<{ id: string }>).push(item);
+    document.connections = ((document.connections as Array<{ id: string; fromNodeId?: string; toNodeId?: string }> | undefined) ?? [])
+        .filter((item) => !deleteConnections.has(item.id) && !deleteNodes.has(item.fromNodeId ?? "") && !deleteNodes.has(item.toNodeId ?? ""))
+        .map((item) => connections.get(item.id) ?? item);
+    for (const item of params.upsertConnections ?? []) if (!(document.connections as Array<{ id: string }>).some((edge) => edge.id === item.id)) (document.connections as Array<{ id: string }>).push(item);
+    document.chatSessions = ((document.chatSessions as Array<{ id: string }> | undefined) ?? []).filter((item) => !deleteChats.has(item.id)).map((item) => chats.get(item.id) ?? item);
+    for (const item of params.upsertChatSessions ?? []) if (!(document.chatSessions as Array<{ id: string }>).some((chat) => chat.id === item.id)) (document.chatSessions as Array<{ id: string }>).push(item);
+    Object.assign(document, params.fields ?? {});
+    return document;
+}
+
 mock.module("@/lib/localforage-storage", () => ({
     localForageStorageForScope: () => ({
         getItem: async (name: string) => stored.get(name) ?? null,
@@ -67,24 +99,26 @@ mock.module("@/services/api/request", () => ({
             server.document = { ...body.project, revision: server.revision };
             return { project: { id, revision: server.revision, updatedAt: "2026-01-01T00:00:00.000Z" } };
         },
-        post: async (path: string, body: { opId?: string; params?: { canvasId?: string; expectedRevision?: number; document?: Record<string, unknown> } }) => {
+        post: async (path: string, body: { opId?: string; params?: MockPatchParams & { canvasId?: string; expectedRevision?: number } }) => {
             if (server.rejectNextWrite) {
                 const status = server.rejectNextWrite.status;
                 server.rejectNextWrite = null;
                 throw new ApiError("画布已被其他入口修改", { status, reason: "stale_revision" });
             }
             server.revision += 1;
-            const document = body.params?.document ?? {};
+            const document = path.endsWith("/canvas.document.patch")
+                ? applyMockPatch(server.document, body.params ?? {})
+                : body.params?.document ?? {};
             const id = String(body.params?.canvasId || document.id || "c1");
-            server.posts.push({ path, opId: body.opId, expectedRevision: body.params?.expectedRevision });
+            server.posts.push({ path, opId: body.opId, expectedRevision: body.params?.expectedRevision ?? body.params?.baseRevision });
             server.document = { ...document, id, revision: server.revision };
             return {
-                op: "canvas.document.commit",
+                op: path.endsWith("/canvas.document.patch") ? "canvas.document.patch" : "canvas.document.commit",
                 opId: body.opId,
                 replayed: false,
                 caller: "manual",
                 revision: server.revision,
-                result: { canvasId: id, revision: server.revision, updatedAt: "2026-01-01T00:00:00.000Z" },
+                result: { canvasId: id, revision: server.revision, updatedAt: "2026-01-01T00:00:00.000Z", document: server.document },
             };
         },
     },
@@ -216,7 +250,7 @@ describe("画布刷新接缝（服务端基线）", () => {
         await refreshLocalCanvasProjectIfChanged("c1");
         useCanvasStore.getState().updateProject("c1", { title: "手工再改" });
         await syncLocalCanvasProjectToBackend("c1");
-        expect(server.posts).toEqual([expect.objectContaining({ path: "/ops/canvas.document.commit", expectedRevision: 2 })]);
+        expect(server.posts).toEqual([expect.objectContaining({ path: "/ops/canvas.document.patch", expectedRevision: 2 })]);
         expect(useCanvasStore.getState().projects[0].title).toBe("手工再改");
         expect(hasUnconfirmedCanvasEdits("c1")).toBe(false);
     });

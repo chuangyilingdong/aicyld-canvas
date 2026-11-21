@@ -11512,12 +11512,12 @@ html:not(.dark) .creation-studio-control:hover,
     @supports (font: -apple-system-body) {
         /* Screen-sized titles counter-scale during zoom. Keep their repaint
            separate from media; otherwise each title dirties a shared surface
-           containing the full image. Use this only for windows of up to 80
+           containing the full image. Use this only for windows of up to 32
            mounted nodes. Overlap also promotes unmarked siblings, so partial
            promotion in a larger world can exceed WebKit's RemoteLayerTree IPC
            limit. Larger windows keep normal rendering and all their nodes. */
-        [data-canvas-world-raster-layer]:not(:has(> .node-element:nth-of-type(81))) > .node-element > .canvas-node-external-header,
-        [data-canvas-world-raster-layer]:not(:has(> .node-element:nth-of-type(81))) > .node-element > .canvas-node-shell {
+        [data-canvas-world-raster-layer]:not(:has(> .node-element:nth-of-type(33))) > .node-element:not([data-reduce-media-effects="true"]) > .canvas-node-external-header,
+        [data-canvas-world-raster-layer]:not(:has(> .node-element:nth-of-type(33))) > .node-element:not([data-reduce-media-effects="true"]) > .canvas-node-shell {
             will-change: transform;
         }
     }
@@ -11534,7 +11534,8 @@ html:not(.dark) .creation-studio-control:hover,
 
     /* 节点内的徽章和按钮也用了毛玻璃。WebKit 每帧都要对底下的图片重新取样模糊，
        平移、缩放时先关掉，手势结束后恢复。 */
-    [data-canvas-viewport-interacting="true"] [data-canvas-world-layer] :where(*, *::before, *::after) {
+    :is([data-canvas-viewport-interacting="true"], [data-canvas-node-dragging="true"]) [data-canvas-world-layer] :where(*, *::before, *::after),
+    [data-canvas-world-layer] [data-reduce-media-effects="true"] :where(*, *::before, *::after) {
         -webkit-backdrop-filter: none !important;
         backdrop-filter: none !important;
     }

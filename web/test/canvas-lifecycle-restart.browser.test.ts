@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { chromium, type Browser } from "playwright";
 import { canvasAppearanceForTheme } from "../src/lib/canvas/canvas-appearance";
+import { applyMockCanvasDocumentPatch } from "./helpers/mock-canvas-document-patch";
 
 let browser: Browser;
 let server: ReturnType<typeof Bun.serve>;
@@ -39,12 +40,18 @@ beforeAll(async () => {
         }
         if (path === "/api/tasks/synthetic-image-task") return json({ id: "synthetic-image-task", type: "canvas_image", status: "failed", error: "Synthetic terminal task; no model called", attempts: 1, createdAt: "2026-10-18", updatedAt: "2026-10-18" });
         if (path === "/api/canvas-projects/c1") { await gate; return json({ project: backend }); }
-        if (path === "/api/ops/canvas.document.commit") {
+        if (path === "/api/ops/canvas.document.commit" || path === "/api/ops/canvas.document.patch") {
             const body = await request.json();
-            if (body.params.expectedRevision !== backend.revision) return Response.json({ code: 409, data: null, msg: "Revision conflict", reason: "canvas_revision_conflict" }, { status: 409 });
+            const expectedRevision = body.params.expectedRevision ?? body.params.baseRevision;
+            if (expectedRevision !== backend.revision) return Response.json({ code: 409, data: null, msg: "Revision conflict", reason: "canvas_revision_conflict" }, { status: 409 });
+            const document = path.endsWith("/canvas.document.patch")
+                ? applyMockCanvasDocumentPatch(backend, body.params)
+                : body.params.document;
+            backend = { ...document, revision: backend.revision + 1 };
+            body.params.document = backend;
+            body.params.expectedRevision = expectedRevision;
             commits.push(body);
-            backend = { ...body.params.document, revision: backend.revision + 1 };
-            return json({ revision: backend.revision, result: { canvasId: "c1", revision: backend.revision, title: backend.title, updatedAt: backend.updatedAt } });
+            return json({ revision: backend.revision, result: { canvasId: "c1", revision: backend.revision, title: backend.title, updatedAt: backend.updatedAt, document: backend } });
         }
         if (path === "/api/ops/canvas.nodes.patch") {
             const body = await request.json();

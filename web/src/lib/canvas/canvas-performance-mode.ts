@@ -36,11 +36,12 @@ export function shouldReduceCanvasMediaEffects(mode: CanvasMediaPerformanceMode,
     if (mode === "performance") return true;
     if (mode === "quality") return false;
     const mediaCount = nodes.filter((node) => node.type === CanvasNodeType.Image || node.type === CanvasNodeType.Video || node.type === CanvasNodeType.Audio).length;
+    const videoCount = nodes.filter((node) => node.type === CanvasNodeType.Video).length;
     const runtime = capacity ?? (typeof navigator === "undefined" ? undefined : {
         hardwareConcurrency: navigator.hardwareConcurrency,
         deviceMemory: (navigator as Navigator & { deviceMemory?: number }).deviceMemory,
     });
-    return constrainedCanvasRuntime(runtime) || nodes.length >= 80 || mediaCount >= 32;
+    return constrainedCanvasRuntime(runtime) || nodes.length >= 48 || mediaCount >= 20 || videoCount >= 6;
 }
 
 export function canvasNodeRenderPadding(reduceMediaEffects: boolean, previouslyRendered: boolean) {

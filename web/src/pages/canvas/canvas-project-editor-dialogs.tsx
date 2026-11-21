@@ -64,6 +64,7 @@ export type CanvasProjectEditorDialogsProps = {
     director: ReturnType<typeof useCanvasDirector>;
     viewport: ViewportTransform;
     viewportSize: { width: number; height: number };
+    selectedCanvasNodeIds?: Iterable<string>;
     onFocusNode: (nodeId: string) => void;
     onSearchFocusNode: (nodeId: string) => void;
     imports: {
@@ -104,7 +105,7 @@ export type CanvasProjectEditorDialogsProps = {
 
 export function CanvasProjectEditorDialogs({
     projectId, readOnly = false, theme, config, document, dialogs, renderModel, generation,
-    nodeEditor, mediaTools, styles, director, viewport, viewportSize, onFocusNode, onSearchFocusNode,
+    nodeEditor, mediaTools, styles, director, viewport, viewportSize, selectedCanvasNodeIds, onFocusNode, onSearchFocusNode,
     imports, timeline, directorOnboardingScope, onDeleteNodes, onAddDirectorImage,
     onFlush, onClearCanvas, onSetPrimaryVersion, assets,
 }: CanvasProjectEditorDialogsProps) {
@@ -238,6 +239,7 @@ export function CanvasProjectEditorDialogs({
             <CanvasScriptEditor
                 node={activeScriptNode}
                 nodes={nodes}
+                selectedCanvasNodeIds={selectedCanvasNodeIds}
                 open={Boolean(activeScriptNode)}
                 onClose={() => dialogs.setScriptEditorNodeId(null)}
                 onUpdateRows={rows => { if (activeScriptNode) generation.replaceScriptRows(activeScriptNode.id, rows); }}

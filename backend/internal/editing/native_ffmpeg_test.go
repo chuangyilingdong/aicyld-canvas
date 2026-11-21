@@ -8,12 +8,16 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 )
 
 func TestSubtitleFontFailureWithSuccessfulExit(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Native FFmpeg failure fixture requires a POSIX shell")
+	}
 	for _, message := range []string{
 		"can't find selected font provider", "fontselect: failed to find any fallback with glyph 0x4E2D",
 		"couldn't find font family", "missing glyph 0x4E2D", "no fonts found",
@@ -455,6 +459,9 @@ func TestRendererRenderProbesActualOutput(t *testing.T) {
 }
 
 func TestRendererRejectsVideoOnlyFakeOutput(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Native FFmpeg failure fixture requires a POSIX shell")
+	}
 	ffmpeg, err := exec.LookPath("ffmpeg")
 	if err != nil {
 		t.Skip("ffmpeg required")
@@ -474,6 +481,9 @@ exit 0`, ffmpeg)
 }
 
 func TestRendererRejectsDurationMismatchFakeOutput(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Native FFmpeg failure fixture requires a POSIX shell")
+	}
 	ffmpeg, err := exec.LookPath("ffmpeg")
 	if err != nil {
 		t.Skip("ffmpeg required")

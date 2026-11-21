@@ -55,6 +55,14 @@ func TestComputeOutcome(t *testing.T) {
 		{"计费不明", failed, "", OutcomeFacts{}, want("failed", "confirm", "task_failed")},
 		{"接受证据覆盖旧未发出阶段", with(func(t *model.Task) { t.Stage = "request_not_sent"; t.RecoveryOutcome = &noResult }), "", OutcomeFacts{DispatchState: "accepted", ImageResponseAccepted: true}, want("failed", "confirm", "no_result")},
 		{"视频沿用原任务查询", with(func(t *model.Task) { t.Type = "canvas_video"; t.ProviderRequestID = "original" }), "", OutcomeFacts{}, want("retrievable", "blocked", "provider_result_pending")},
+		{"取消后不继续自动轮询且要求确认", with(func(t *model.Task) {
+			t.Type = "canvas_video"
+			t.Status = model.TaskStatusCancelled
+			t.ProviderRequestID = "original"
+		}), "", OutcomeFacts{}, want("failed", "confirm", "cancelled_result_unconfirmed")},
+		{"取消前已有图片提交回执要求核对扣费", with(func(t *model.Task) {
+			t.Status = model.TaskStatusCancelled
+		}), "", OutcomeFacts{DispatchState: "accepted"}, want("failed", "confirm", "cancelled_result_unconfirmed")},
 		{"视频确认上游失败", with(func(t *model.Task) {
 			t.Type = "canvas_video"
 			t.ProviderRequestID = "original"
@@ -111,6 +119,13 @@ func TestComputeOutcome(t *testing.T) {
 			t.RecoveryOutcome = &unrecoverable
 			t.BeefUsageState = &u
 		}), "", OutcomeFacts{}, want("failed", "confirm", "charged_result_unrecoverable")},
+		{"已取消且上游显示已使用时不再自动取回", with(func(t *model.Task) {
+			u := "completed"
+			t.Type = "canvas_video"
+			t.Status = model.TaskStatusCancelled
+			t.ProviderRequestID = "vid-cancelled-completed"
+			t.BeefUsageState = &u
+		}), "", OutcomeFacts{}, want("failed", "confirm", "charged_result_unrecoverable")},
 		{"BeefAPI图片已退款允许直接重生成", with(func(t *model.Task) {
 			b := "refunded"
 			t.ImageJobID = "img-job-1"
@@ -126,6 +141,12 @@ func TestComputeOutcome(t *testing.T) {
 			b := "settled"
 			t.ImageJobID = "img-job-2"
 			t.RecoveryOutcome = &noResult
+			t.BeefBillingState = &b
+		}), "", OutcomeFacts{DispatchState: "accepted"}, want("failed", "confirm", "charged_result_unrecoverable")},
+		{"已取消且图片渠道已结算时要求确认", with(func(t *model.Task) {
+			b := "settled"
+			t.Status = model.TaskStatusCancelled
+			t.ImageJobID = "img-job-cancelled"
 			t.BeefBillingState = &b
 		}), "", OutcomeFacts{DispatchState: "accepted"}, want("failed", "confirm", "charged_result_unrecoverable")},
 		{"BeefAPI图片待结算空串阻塞重生成并透传截止时间", with(func(t *model.Task) {

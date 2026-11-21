@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -23,8 +24,8 @@ func TestProviderConfigIsAtomicPrivateAndPreservesRedactedSecrets(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := info.Mode().Perm(); got != 0o600 {
-		t.Fatalf("provider config mode = %o, want 600", got)
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
+		t.Fatalf("provider config mode = %o, want 600", info.Mode().Perm())
 	}
 
 	redacted, err := store.ReadRedactedModelConfig()

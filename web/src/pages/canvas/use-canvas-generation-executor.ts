@@ -40,7 +40,7 @@ import { executeImageGeneration } from "./canvas-image-generation-executor";
 import { executeAudioGeneration, executeVideoGeneration } from "./canvas-media-generation-executors";
 import { executeTextGeneration } from "./canvas-text-generation-executor";
 import { canvasGenerationFailureMetadata, canvasImagePendingResultMessage } from "./canvas-generation-failure";
-import { canvasNodeHasPendingOutcomeResult, isNodeRegenerateBlocked, isNodeRegenerateConfirm, readNodeTaskOutcome, taskOutcomeCopy } from "@/lib/task-outcome";
+import { canvasNodeHasPendingOutcomeResult, isNodeRegenerateBlocked, nodeRequiresRegenerateConfirmation, readNodeTaskOutcome, taskOutcomeCopy } from "@/lib/task-outcome";
 import { createReferenceLinkResolver } from "@/components/generation-reference-links";
 import { confirmCanvasGeneration, waitForCanvasPreparation } from "./canvas-generation-preflight";
 import { confirmCanvasBillingQuote } from "@/components/canvas/canvas-billing-confirmation";
@@ -374,8 +374,10 @@ export function useCanvasGenerationExecutor({
                                 return;
                             }
                         }
-                        if (isNodeRegenerateConfirm(sourceNode?.metadata) && modal?.confirm) {
-                            const copy = taskOutcomeCopy(readNodeTaskOutcome(sourceNode?.metadata));
+                        if (nodeRequiresRegenerateConfirmation(sourceNode?.metadata) && modal?.confirm) {
+                            const copy = taskOutcomeCopy(readNodeTaskOutcome(sourceNode?.metadata), undefined, {
+                                providerCancelStatus: sourceNode?.metadata?.taskProviderCancelStatus,
+                            });
                             stage = "duplicate_confirmation";
                             diagnostic("generation_confirmation_waiting");
                             const confirmed = await confirmCanvasGeneration(

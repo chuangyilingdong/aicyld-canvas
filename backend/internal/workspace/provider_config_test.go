@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -588,6 +589,9 @@ func TestProviderConfigRejectsNullIncomingWithoutReplacingSecrets(t *testing.T) 
 }
 
 func TestProviderConfigSymlinkAliasSharesLock(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows test accounts may not hold the privilege required to create symlinks")
+	}
 	base := t.TempDir()
 	real := filepath.Join(base, "real")
 	if err := os.Mkdir(real, 0o700); err != nil {
@@ -622,6 +626,9 @@ func TestProviderConfigSymlinkAliasSharesLock(t *testing.T) {
 }
 
 func TestProviderConfigSymlinkLoopFailsSafely(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows test accounts may not hold the privilege required to create symlinks")
+	}
 	dir := t.TempDir()
 	left := filepath.Join(dir, "left")
 	right := filepath.Join(dir, "right")

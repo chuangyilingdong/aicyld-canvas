@@ -20,6 +20,41 @@ class ApiError extends Error {
 
 type Doc = Record<string, unknown> & { revision: number; nodes: Array<{ id: string }>; title: string };
 
+type MockPatchParams = {
+    document?: Record<string, unknown>;
+    nodes?: Array<{ id: string }>;
+    upsertNodes?: Array<{ id: string }>;
+    deleteNodeIds?: string[];
+    upsertConnections?: Array<{ id: string; fromNodeId?: string; toNodeId?: string }>;
+    deleteConnectionIds?: string[];
+    upsertChatSessions?: Array<{ id: string }>;
+    deleteChatSessionIds?: string[];
+    fields?: Record<string, unknown>;
+};
+
+function applyMockPatch(current: Doc | null, params: MockPatchParams) {
+    const document = structuredClone(current ?? { revision: 0, title: "画布", nodes: [], connections: [], chatSessions: [] }) as Doc & {
+        connections?: Array<{ id: string; fromNodeId?: string; toNodeId?: string }>;
+        chatSessions?: Array<{ id: string }>;
+    };
+    const deletedNodes = new Set(params.deleteNodeIds ?? []);
+    const deletedConnections = new Set(params.deleteConnectionIds ?? []);
+    const deletedChats = new Set(params.deleteChatSessionIds ?? []);
+    const upsertNodes = new Map((params.upsertNodes ?? []).map((item) => [item.id, item]));
+    const upsertConnections = new Map((params.upsertConnections ?? []).map((item) => [item.id, item]));
+    const upsertChats = new Map((params.upsertChatSessions ?? []).map((item) => [item.id, item]));
+    document.nodes = document.nodes.filter((item) => !deletedNodes.has(item.id)).map((item) => upsertNodes.get(item.id) ?? item);
+    for (const item of params.upsertNodes ?? []) if (!document.nodes.some((node) => node.id === item.id)) document.nodes.push(item);
+    document.connections = (document.connections ?? [])
+        .filter((item) => !deletedConnections.has(item.id) && !deletedNodes.has(item.fromNodeId ?? "") && !deletedNodes.has(item.toNodeId ?? ""))
+        .map((item) => upsertConnections.get(item.id) ?? item);
+    for (const item of params.upsertConnections ?? []) if (!document.connections.some((edge) => edge.id === item.id)) document.connections.push(item);
+    document.chatSessions = (document.chatSessions ?? []).filter((item) => !deletedChats.has(item.id)).map((item) => upsertChats.get(item.id) ?? item);
+    for (const item of params.upsertChatSessions ?? []) if (!document.chatSessions.some((session) => session.id === item.id)) document.chatSessions.push(item);
+    Object.assign(document, params.fields ?? {});
+    return document;
+}
+
 /**
  * A server with real compare-and-set: a commit must name the current revision
  * unless its opId already has a receipt (idempotent replay).
@@ -71,7 +106,7 @@ mock.module("@/services/api/request", () => ({
             server.document = { ...structuredClone(body.project), revision: server.revision } as Doc;
             return { project: { id: String(body.project.id), revision: server.revision, updatedAt: "2026-01-01T00:00:00.000Z" } };
         },
-        post: async (path: string, body: { opId: string; params: { canvasId: string; expectedRevision: number; document?: Record<string, unknown>; nodes?: Array<{ id: string }> } }) => {
+        post: async (path: string, body: { opId: string; params: MockPatchParams & { canvasId: string; expectedRevision?: number; baseRevision?: number } }) => {
             server.commitStarted += 1;
             server.beforeCommit.shift()?.();
             if (server.commitHold) await server.commitHold;
@@ -87,17 +122,19 @@ mock.module("@/services/api/request", () => ({
                 replayed,
                 caller: "manual",
                 revision,
-                result: { canvasId: "c1", revision, updatedAt: "2026-01-01T00:00:00.000Z" },
+                result: { canvasId: "c1", revision, updatedAt: "2026-01-01T00:00:00.000Z", document: server.document },
             });
             if (receipt !== undefined) return reply(receipt, true);
-            const expectedRevision = body.params.expectedRevision;
+            const expectedRevision = body.params.expectedRevision ?? body.params.baseRevision ?? 0;
             if (expectedRevision !== server.revision) {
                 server.attempts.push({ opId: body.opId, expectedRevision, accepted: false });
                 throw new ApiError("画布已被其他入口修改", { status: 409, reason: "stale_revision" });
             }
             server.revision += 1;
             const current = server.document as Doc | null;
-            const document = path.endsWith("/canvas.nodes.patch")
+            const document = path.endsWith("/canvas.document.patch")
+                ? applyMockPatch(server.document, body.params)
+                : path.endsWith("/canvas.nodes.patch")
                 ? {
                     ...(current ?? { title: "画布", nodes: [], connections: [], chatSessions: [] }),
                     nodes: (current?.nodes ?? []).map((node) => body.params.nodes?.find((changed) => changed.id === node.id) ?? node),

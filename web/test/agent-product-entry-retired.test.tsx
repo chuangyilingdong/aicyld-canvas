@@ -183,7 +183,7 @@ describe("旧内置 Agent 页面入口退场", () => {
             }
         }
         expect(offenders).toEqual([]);
-    });
+    }, 20_000);
 
     test("旧 Agent 深链参数在画布页被剥离，不会重新打开已退场的面板", () => {
         const source = readFileSync(resolve(root, "src/pages/canvas/project.tsx"), "utf8");

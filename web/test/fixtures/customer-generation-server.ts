@@ -1,4 +1,5 @@
 import { customerGenerationProject, type CustomerGenerationScenario } from "./customer-generation-scenarios";
+import { applyMockCanvasDocumentPatch } from "../helpers/mock-canvas-document-patch";
 
 const contexts = new Map<string, { project: ReturnType<typeof customerGenerationProject>; posts: any[]; downloads: string[]; lookups: string[]; task?: any; holdCharacter?: boolean; delayReceipt?: boolean; sameOriginHang?: boolean; release: () => void; gate: Promise<void> }>();
 const json = (data: unknown) => Response.json({ code: 0, data, msg: "ok" });
@@ -42,10 +43,13 @@ export async function startCustomerScenarioServer(options: { port?: number } = {
         if (url.pathname === "/_scenario/state") return json({ project: state.project, posts: state.posts, downloads: state.downloads, lookups: state.lookups });
         if (url.pathname === "/_scenario/release") { state.release(); return json({ released: true }); }
         if (url.pathname === "/") { state.holdCharacter = url.searchParams.has("hold-character"); state.delayReceipt = url.searchParams.has("lose-receipt"); state.sameOriginHang = url.searchParams.has("same-origin-hang"); }
-        if (url.pathname === "/api/ops/canvas.document.commit") {
+        if (url.pathname === "/api/ops/canvas.document.commit" || url.pathname === "/api/ops/canvas.document.patch") {
             const body = await request.json();
-            state.project = { ...body.params.document, revision: state.project.revision + 1 };
-            return json({ revision: state.project.revision, result: { canvasId: state.project.id, revision: state.project.revision, title: state.project.title, updatedAt: state.project.updatedAt } });
+            const document = url.pathname.endsWith(".patch")
+                ? applyMockCanvasDocumentPatch(state.project, body.params)
+                : body.params.document;
+            state.project = { ...document, revision: state.project.revision + 1 } as typeof state.project;
+            return json({ revision: state.project.revision, result: { canvasId: state.project.id, revision: state.project.revision, title: state.project.title, updatedAt: state.project.updatedAt, document: state.project } });
         }
         if (url.pathname === "/api/ops/canvas.nodes.patch") {
             const body = await request.json();

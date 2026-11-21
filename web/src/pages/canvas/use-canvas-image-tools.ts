@@ -22,7 +22,7 @@ import { buildGenerationConfig, buildImageGenerationMetadata, nodeReferenceImage
 import { fitNodeSize } from "@/lib/canvas/canvas-node-size";
 import { compositeEmotionImage, emotionGenerationSize, emotionProviderMask, normalizeEmotionPromptForProvider, resolveEmotionEditPlan } from "@/lib/canvas/canvas-emotion";
 import { DEFAULT_PORTRAIT_TEXTURE_SETTINGS } from "@/lib/canvas/canvas-portrait-texture";
-import { IMAGE_PROMPT_REVERSE, VIDEO_PROMPT_REVERSE } from "@/lib/prompts";
+import { getEffectiveReversePrompt } from "@/lib/reverse-prompt-preference";
 import { createPortraitTextureNode } from "@/lib/canvas/canvas-image-source";
 import { mediaResultMetadata } from "@/lib/canvas/canvas-node-semantics";
 import { generationErrorMessage } from "@/lib/generation-error";
@@ -141,7 +141,7 @@ export function useCanvasImageTools({
             message.warning(isVideo ? "视频节点为空，无法反推提示词" : "图片节点为空，无法反推提示词");
             return;
         }
-        const reverseInstruction = isVideo ? VIDEO_PROMPT_REVERSE : IMAGE_PROMPT_REVERSE;
+        const reverseInstruction = getEffectiveReversePrompt(isVideo ? "video" : "image");
         const referenceKind = isVideo ? "video" : "image";
         const model = resolveTextMediaModel(effectiveConfig, referenceKind);
         if (!model) {

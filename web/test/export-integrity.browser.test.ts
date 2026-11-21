@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { build } from "vite";
+import { applyMockCanvasDocumentPatch } from "./helpers/mock-canvas-document-patch";
 
 let server: ReturnType<typeof Bun.serve>;
 let browser: Browser;
@@ -183,7 +184,7 @@ test("automatic canvas creation failure leaves the opening screen and shows a re
         url.search = "?new=1";
         await page.goto(url.toString());
         await page.getByText("测试保存失败", { exact: true }).waitFor({ timeout: 5000 }).catch(async () => { throw new Error(JSON.stringify({ text: await page.locator("body").innerText(), requests, pageErrors, consoleErrors, messages: await page.evaluate(() => (window as any).creationMessages) })); });
-        expect(requests.some((entry) => entry.includes("/api/ops/canvas.document.commit") || (entry.startsWith("PUT ") && entry.includes("/api/canvas-projects/")))).toBe(true);
+        expect(requests.some((entry) => entry.includes("/api/ops/canvas.document.commit") || entry.includes("/api/ops/canvas.document.patch") || (entry.startsWith("PUT ") && entry.includes("/api/canvas-projects/")))).toBe(true);
         expect(await page.getByText("正在打开画布...", { exact: true }).count()).toBe(0);
         expect(await page.getByRole("button", { name: "开始创作", exact: true }).count()).toBe(1);
         expect(await page.getByTestId("canvas-route").textContent()).toBe("/canvas?mode=new");
@@ -204,13 +205,15 @@ test("automatic canvas creation failure leaves the opening screen and shows a re
             await saveGate;
             await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ code: 0, data: { project: { ...project, revision: 1 } } }) });
         });
-        await page.route("**/api/ops/canvas.document.commit", async (route) => {
+        await page.route("**/api/ops/canvas.document.{commit,patch}", async (route) => {
             const body = route.request().postDataJSON();
-            const project = body.params.document;
+            const project = route.request().url().includes("/canvas.document.patch")
+                ? applyMockCanvasDocumentPatch({ id: "saved-test", revision: 0, nodes: [], connections: [], chatSessions: [] }, body.params)
+                : body.params.document;
             savedId = body.params.canvasId || project.id;
             startedSave();
             await saveGate;
-            await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ code: 0, data: { op: "canvas.document.commit", opId: body.opId, replayed: false, caller: "manual", revision: 1, result: { canvasId: savedId, revision: 1, title: project.title, updatedAt: project.updatedAt } } }) });
+            await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ code: 0, data: { op: "canvas.document.commit", opId: body.opId, replayed: false, caller: "manual", revision: 1, result: { canvasId: savedId, revision: 1, title: project.title, updatedAt: project.updatedAt, document: { ...project, id: savedId, revision: 1 } } } }) });
         });
         await page.getByRole("button", { name: "开始创作", exact: true }).click();
         await saveStarted;

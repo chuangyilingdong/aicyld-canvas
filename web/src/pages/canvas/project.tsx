@@ -1003,6 +1003,7 @@ function InfiniteCanvasPage() {
     const { updateNodeFromContent, updateMediaNodeFromContent, updateNodeMetadataFromContent } = document;
     const canvasNodeActions = useMemo<CanvasNodeActionContextValue>(
         () => ({
+            pageUi,
             upload: replaceCanvasNodeMedia,
             download: downloadNodeImage,
             duplicate: duplicateNodeFromContent,
@@ -1015,7 +1016,7 @@ function InfiniteCanvasPage() {
             startUpscaleBatch,
             recoverUpscaleResult: recoverAIUpscale,
         }),
-        [addPanoramaCaptureNode, deleteNodeFromContent, downloadNodeImage, duplicateNodeFromContent, openArtCritique, replaceCanvasNodeMedia, updateMediaNodeFromContent, updateNodeFromContent, updateNodeMetadataFromContent, startUpscaleBatch, recoverAIUpscale],
+        [addPanoramaCaptureNode, deleteNodeFromContent, downloadNodeImage, duplicateNodeFromContent, openArtCritique, pageUi, replaceCanvasNodeMedia, updateMediaNodeFromContent, updateNodeFromContent, updateNodeMetadataFromContent, startUpscaleBatch, recoverAIUpscale],
     );
     const styles = useCanvasStyleWorkflow({
         pageUi,
@@ -1958,6 +1959,12 @@ function InfiniteCanvasPage() {
                             onPackSelectionToFolder={packSelectedIntoFolder}
                             onCopySelection={copySelectedNodes}
                             onDeleteSelection={() => deleteNodes(selectedNodeIds)}
+                             onBindStoryboardRows={(scriptNodeId, updater) => generation.updateScriptRows(scriptNodeId, updater)}
+                             extractingAudio={mediaTools.segmentRunningMode === "audio"}
+                             extractingAudioNode={Boolean(mediaTools.extractingAudioNodeId)}
+                             trimmingVideo={mediaTools.inlineTrimRunning}
+                             onExtractAudioFromVideo={(node) => void mediaTools.extractAudioFromVideo(node)}
+                             onExtractAudioNode={(node) => void mediaTools.extractPureAudioNodeFromVideo(node)}
                         />
 
                         {uploadModalOpen ? (
@@ -1974,6 +1981,7 @@ function InfiniteCanvasPage() {
                             generation={generation} nodeEditor={nodeEditor} mediaTools={mediaTools}
                             styles={styles} director={director}
                             viewport={viewport} viewportSize={size}
+                             selectedCanvasNodeIds={selectedNodeIds}
                             onFocusNode={focusCanvasNode}
                             onSearchFocusNode={(nodeId) => {
                                 const target = nodeById.get(nodeId);

@@ -211,7 +211,7 @@ function memoryHost(overrides: Partial<CanvasArchiveRestoreHost> = {}) {
     return { host, folders, projects, media, drawings, deleted, deletedResources, binds, idempotencyKeys };
 }
 
-test("preflight rejects missing media, invalid project, version, duplicate IDs, and data/blob keys before writes", async () => {
+test("missing media degrades gracefully while preflight rejects invalid project, version, duplicate IDs, and data/blob keys before writes", async () => {
     const writes: string[] = [];
     const host = memoryHost({
         createFolder: (name) => {
@@ -231,7 +231,13 @@ test("preflight rejects missing media, invalid project, version, duplicate IDs, 
             }],
         }),
     }]);
-    await expect(restoreCanvasArchive(missing, host)).rejects.toThrow("missing.mp4");
+    const missingState = memoryHost();
+    const partial = await restoreCanvasArchive(missing, missingState.host);
+    expect(partial.count).toBe(1);
+    expect(partial.skippedFiles).toEqual([{ owner: "损坏画布", reference: "projects/broken/files/missing.mp4" }]);
+    expect(missingState.projects).toHaveLength(1);
+    expect(missingState.projects[0].nodes[0].metadata?.storageKey).toBeUndefined();
+    expect(missingState.projects[0].nodes[0].metadata?.content).toBe("");
     expect(writes).toEqual([]);
 
     const invalidProject = await createZip([{
@@ -517,7 +523,7 @@ test("drawing receipt must contain the saved snapshot", async () => {
     expect(state.projects).toEqual([]);
 });
 
-test("folder covers require archive bytes before any writes and restore under the new folder ID", async () => {
+test("missing folder cover degrades gracefully while present cover restores under the new folder ID", async () => {
     const data = archiveData({ folders: [{ id: "folder-old", name: "剧集", coverPath: "folders/old/cover.jpg", coverMimeType: "image/jpeg" }] });
     const archive = await openCanvasArchive(await validZip());
     archive.data = data as typeof archive.data;
@@ -525,11 +531,14 @@ test("folder covers require archive bytes before any writes and restore under th
     const state = memoryHost({ restoreFolderCover: async (id, blob) => {
         restored = { id, bytes: [...new Uint8Array(await blob.arrayBuffer())], mime: blob.type };
     } });
-    await expect(restoreCanvasArchive(archive, state.host)).rejects.toThrow("压缩包缺少文件夹封面");
-    expect(state.folders).toEqual([]);
+    const partial = await restoreCanvasArchive(archive, state.host);
+    expect(partial.skippedFiles).toEqual([{ owner: "剧集", reference: "folders/old/cover.jpg" }]);
+    expect(state.folders).toEqual([{ id: "folder-1", name: "剧集" }]);
+    expect(restored).toBeUndefined();
     archive.files.set("folders/old/cover.jpg", new Blob([new Uint8Array([7, 8, 9])]));
-    await restoreCanvasArchive(archive, state.host);
-    expect(restored).toEqual({ id: "folder-1", bytes: [7, 8, 9], mime: "image/jpeg" });
+    const full = await restoreCanvasArchive(archive, state.host);
+    expect(full.skippedFiles).toBeUndefined();
+    expect(restored).toEqual({ id: "folder-2", bytes: [7, 8, 9], mime: "image/jpeg" });
 });
 
 test("native canonical restore reports local saving rather than cloud synchronization", async () => {

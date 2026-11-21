@@ -29,6 +29,7 @@ const AUTOSAVE_VOLATILE_METADATA_KEYS = new Set([
     "taskCompletedAt",
     "taskDurationMs",
     "taskProviderRequestId",
+    "taskProviderCancelStatus",
     "taskOfficialStatus",
     "taskReceiptRecorded",
     "generationSubmissionState",

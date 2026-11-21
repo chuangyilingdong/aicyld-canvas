@@ -189,6 +189,25 @@ export type CanvasSkillSnapshot = {
     tags: string[];
 };
 
+/** Imported canvases may carry version history written by another workspace. */
+export type CanvasImageHistoryItem = {
+    id: string;
+    taskId?: string;
+    outputIndex?: number;
+    storageKey?: string;
+    content?: string;
+    assetId?: string;
+    naturalWidth?: number;
+    naturalHeight?: number;
+    bytes?: number;
+    mimeType?: string;
+    model?: string;
+    size?: string;
+    quality?: string;
+    prompt?: string;
+    createdAt?: string;
+};
+
 export type CanvasNodeMetadata = {
     /** Deterministic canvas processing recipe, without runtime state or credentials. */
     workflowOperation?: { id: string; version: number; config: Record<string, string | number | boolean>; inputs: Array<{ nodeId: string; port: string; order?: number }> };
@@ -312,6 +331,9 @@ export type CanvasNodeMetadata = {
     batchUsesReferenceImages?: boolean;
     primaryImageId?: string;
     imageBatchExpanded?: boolean;
+    imageHistory?: CanvasImageHistoryItem[];
+    imageHistoryRemovedIds?: string[];
+    imageHistoryResetAt?: string;
     storageKey?: string;
     mimeType?: string;
     bytes?: number;
@@ -390,6 +412,7 @@ export type CanvasNodeMetadata = {
     generationProviderCode?: string;
     taskFailureDiagnostics?: import("@/lib/generation-error").GenerationFailureDiagnostics;
     taskProviderRequestId?: string;
+    taskProviderCancelStatus?: "requested" | "confirmed" | "uncertain";
     taskOfficialStatus?: "pending" | "processing" | "completed" | "failed" | "cancelled";
     taskReceiptRecorded?: boolean;
     taskCreatedAt?: string;

@@ -1,6 +1,7 @@
 import { acceptCanvasExternalRevisionCandidate, applyExternalCanvasRevision, canvasDocumentBase, canvasDurableSnapshot, canvasExternalRevisionConflict, clearCanvasDocumentBase, clearCanvasExternalRevisionConflict, flushCanvasStorePersistence, recordCanvasDocumentBase, useCanvasStore, type CanvasProject } from "@/stores/canvas/use-canvas-store";
 import { useCanvasHistoryStore } from "@/stores/canvas/use-canvas-history-store";
 import { ApiError, http } from "@/services/api/request";
+import type { CanvasDocumentPatchResult } from "@/services/api/operations";
 import { beginCanvasHydration,finishCanvasHydration } from "./canvas-hydration-health";
 import { restoreCanvasHistory } from "@/services/api/workspace-data";
 import { notifyCanvasRefresh } from "@/services/local-workspace-sync";
@@ -665,14 +666,37 @@ async function sendCanvasDocumentCommit(
     const startedAt = performance.now();
     try {
         const result = await sendCanvasCommitPayload(operationId, payload);
+        const patchResult = payload.kind === "patch" ? result.result as CanvasDocumentPatchResult | undefined : undefined;
+        const serverDocument = patchResult?.document;
+        const acceptedDocument = serverDocument
+            ? normalizeCanvasProjectGraph({
+                ...(serverDocument as unknown as CanvasProject),
+                id,
+                revision: result.revision ?? result.result?.revision ?? submitted.revision,
+            })
+            : submitted;
         const saved: CanvasSaveSummary = {
             id,
-            title: result.result?.title ?? submitted.title,
-            createdAt: submitted.createdAt,
-            updatedAt: result.result?.updatedAt ?? submitted.updatedAt,
-            revision: result.revision || result.result?.revision,
+            title: result.result?.title ?? acceptedDocument.title,
+            createdAt: acceptedDocument.createdAt,
+            updatedAt: result.result?.updatedAt ?? acceptedDocument.updatedAt,
+            revision: result.revision ?? result.result?.revision,
         };
-        await applyAcceptedCanvasSave(id, submitted, saved, operationId);
+        await applyAcceptedCanvasSave(id, acceptedDocument, saved, operationId);
+        if (serverDocument && (patchResult?.serverAdvanced || patchResult?.mediaPreserved)) {
+            const liveNow = openLocalCanvasProject(id);
+            const aligned = alignLiveAfterConfirmedRemote({
+                id,
+                scope,
+                remote: acceptedDocument,
+                base: payload.kind === "nodes" ? null : payload.document,
+                hadLive: Boolean(liveNow),
+                onApplied: notifyCanvasRefresh,
+            });
+            if (aligned && liveNow && !sameCanvasDocument(aligned, acceptedDocument)) {
+                scheduleLocalCanvasBackendSync(id);
+            }
+        }
         recordDiagnosticEvent({
             level: "info",
             category: "runtime",

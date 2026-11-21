@@ -31,7 +31,7 @@ const server = {
     revision: 1,
     document: null as Record<string, unknown> | null,
     commits: [] as Array<{ opId: string; expectedRevision: number; title: string; nodeIds?: string[] }>,
-    receipts: new Map<string, { revision: number; title: string }>(),
+    receipts: new Map<string, { revision: number; title: string; document: Record<string, unknown> }>(),
     failNext: null as { status?: number; retryable?: boolean; reason?: string; transport?: boolean } | null,
     hold: null as Promise<void> | null,
     holdDispatch: null as Promise<void> | null,
@@ -44,6 +44,50 @@ const server = {
     /** Opt-in compare-and-set: a commit without a receipt must name the current revision. */
     enforceRevision: false,
 };
+
+type MockPatchParams = {
+    document?: Record<string, unknown>;
+    nodes?: Array<{ id: string }>;
+    upsertNodes?: Array<{ id: string }>;
+    deleteNodeIds?: string[];
+    upsertConnections?: Array<{ id: string }>;
+    deleteConnectionIds?: string[];
+    upsertChatSessions?: Array<{ id: string }>;
+    deleteChatSessionIds?: string[];
+    fields?: Record<string, unknown>;
+};
+
+function applyMockPatch(current: Record<string, unknown> | null, params: MockPatchParams) {
+    const document = structuredClone(current ?? { title: "画布", nodes: [], connections: [], chatSessions: [] });
+    const deletedNodes = new Set(params.deleteNodeIds ?? []);
+    const deletedConnections = new Set(params.deleteConnectionIds ?? []);
+    const deletedChats = new Set(params.deleteChatSessionIds ?? []);
+    const upsertNodes = new Map((params.upsertNodes ?? []).map((item) => [item.id, item]));
+    const upsertConnections = new Map((params.upsertConnections ?? []).map((item) => [item.id, item]));
+    const upsertChats = new Map((params.upsertChatSessions ?? []).map((item) => [item.id, item]));
+    document.nodes = ((document.nodes as Array<{ id: string }> | undefined) ?? [])
+        .filter((item) => !deletedNodes.has(item.id))
+        .map((item) => upsertNodes.get(item.id) ?? item);
+    for (const item of params.upsertNodes ?? []) {
+        if (!deletedNodes.has(item.id) && !(document.nodes as Array<{ id: string }>).some((node) => node.id === item.id)) {
+            (document.nodes as Array<{ id: string }>).push(item);
+        }
+    }
+    document.connections = ((document.connections as Array<{ id: string; fromNodeId?: string; toNodeId?: string }> | undefined) ?? [])
+        .filter((item) => !deletedConnections.has(item.id) && !deletedNodes.has(item.fromNodeId ?? "") && !deletedNodes.has(item.toNodeId ?? ""))
+        .map((item) => upsertConnections.get(item.id) ?? item);
+    for (const item of params.upsertConnections ?? []) {
+        if (!(document.connections as Array<{ id: string }>).some((edge) => edge.id === item.id)) (document.connections as Array<{ id: string }>).push(item);
+    }
+    document.chatSessions = ((document.chatSessions as Array<{ id: string }> | undefined) ?? [])
+        .filter((item) => !deletedChats.has(item.id))
+        .map((item) => upsertChats.get(item.id) ?? item);
+    for (const item of params.upsertChatSessions ?? []) {
+        if (!(document.chatSessions as Array<{ id: string }>).some((session) => session.id === item.id)) (document.chatSessions as Array<{ id: string }>).push(item);
+    }
+    Object.assign(document, params.fields ?? {});
+    return document;
+}
 
 mock.module("@/lib/localforage-storage", () => ({
     localForageStorageForScope: (scope?: string) => ({
@@ -99,7 +143,7 @@ mock.module("@/services/api/request", () => ({
             if (server.missingCreateReceipt) return {};
             return { project: { id: "c1", revision: 1 } };
         },
-        post: async (path: string, body: { opId: string; params: { expectedRevision: number; document?: { title: string; nodes?: Array<{ id: string }> }; nodes?: Array<{ id: string }> } }) => {
+        post: async (path: string, body: { opId: string; params: MockPatchParams & { expectedRevision?: number; baseRevision?: number } }) => {
             if (server.holdDispatch) {
                 server.dispatchWaiting = true;
                 await server.holdDispatch;
@@ -126,28 +170,35 @@ mock.module("@/services/api/request", () => ({
                     replayed: true,
                     caller: "manual",
                     revision: existing.revision,
-                    result: { canvasId: "c1", revision: existing.revision, updatedAt: "2026-01-01T00:00:00.000Z" },
+                    result: { canvasId: "c1", revision: existing.revision, updatedAt: "2026-01-01T00:00:00.000Z", document: existing.document },
                 };
             }
-            if (server.enforceRevision && body.params.expectedRevision !== server.revision) {
+            const expectedRevision = body.params.expectedRevision ?? body.params.baseRevision ?? 0;
+            if (server.enforceRevision && expectedRevision !== server.revision) {
                 throw new ApiError("画布已被其他入口修改", { status: 409, reason: "stale_revision" });
             }
             server.revision += 1;
             const current = server.document as { title?: string; nodes?: Array<{ id: string }>; connections?: unknown[] } | null;
-            const document = path.endsWith("/canvas.nodes.patch")
+            const document = path.endsWith("/canvas.document.patch")
+                ? applyMockPatch(server.document, body.params)
+                : path.endsWith("/canvas.nodes.patch")
                 ? {
                     ...(current ?? {}),
                     nodes: (current?.nodes?.length ? current.nodes : body.params.nodes ?? []).map((node) => body.params.nodes?.find((changed) => changed.id === node.id) ?? node),
                 }
-                : body.params.document as { title: string; nodes?: Array<{ id: string }> };
+                : body.params.document as Record<string, unknown>;
             server.commits.push({
                 opId: body.opId,
-                expectedRevision: body.params.expectedRevision,
+                expectedRevision,
                 title: String(document.title ?? current?.title ?? ""),
-                nodeIds: (document.nodes ?? []).map((node) => node.id),
+                nodeIds: ((document.nodes as Array<{ id: string }> | undefined) ?? []).map((node) => node.id),
             });
-            server.receipts.set(body.opId, { revision: server.revision, title: String(document.title ?? current?.title ?? "") });
             server.document = { ...document, id: "c1", revision: server.revision };
+            server.receipts.set(body.opId, {
+                revision: server.revision,
+                title: String(document.title ?? current?.title ?? ""),
+                document: structuredClone(server.document),
+            });
             if (server.abortAfterCommit) {
                 server.abortAfterCommit = false;
                 throw new DOMException("The operation was aborted", "AbortError");
@@ -158,7 +209,7 @@ mock.module("@/services/api/request", () => ({
                 replayed: false,
                 caller: "manual",
                 revision: server.revision,
-                result: { canvasId: "c1", revision: server.revision, updatedAt: "2026-01-01T00:00:00.000Z" },
+                result: { canvasId: "c1", revision: server.revision, updatedAt: "2026-01-01T00:00:00.000Z", document: server.document },
             };
         },
         delete: async (path: string) => {
@@ -753,6 +804,7 @@ describe("画布文档提交日记", () => {
         await expect(syncLocalCanvasProjectToBackend("c1")).rejects.toBeInstanceOf(DOMException);
         const firstId = (await loadCanvasOperationJournal("c1")).inFlight?.operationId;
         expect(firstId).toBeTruthy();
+        expect((Array.from(server.receipts.values())[0]?.document as { title?: string } | undefined)?.title).toBe("第一次");
 
         useCanvasStore.getState().updateProject("c1", { title: "后来的编辑" });
         server.revision = 5;
@@ -1451,7 +1503,7 @@ describe("画布文档提交日记", () => {
         expect(live.nodes.find((item) => item.id === "n-gen")?.metadata?.storageKey).toBe("res-gen");
         expect((await loadCanvasOperationJournal("c1")).pendingProjection).toBeNull();
         expect(server.commits).toEqual([
-            expect.objectContaining({ expectedRevision: 4, title: "基线", nodeIds: expect.arrayContaining(["n1", "n-gen"]) }),
+            expect.objectContaining({ expectedRevision: 4, title: "基线", nodeIds: ["n1"] }),
         ]);
         expect(server.commits[0]?.nodeIds).not.toContain("n2");
     });

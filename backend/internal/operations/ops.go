@@ -79,6 +79,9 @@ func RegisterDefaultOps(r *Registry) {
 	r.Register(Op{ReplaySafe: true, ID: "canvas.document.commit", Summary: "按 revision 提交整份画布文档", Scope: ScopeCanvas,
 		Params:  json.RawMessage(`{"type":"object","properties":{"canvasId":{"type":"string"},"expectedRevision":{"type":"integer"},"document":{"type":"object"}},"required":["canvasId","expectedRevision","document"]}`),
 		Handler: opCanvasDocumentCommit})
+	r.Register(Op{ExternalOnly: true, ReplaySafe: true, ID: "canvas.document.patch", Summary: "按节点/连线增量提交画布改动并在服务端原子合并", Scope: ScopeCanvas,
+		Params:  json.RawMessage(`{"type":"object","properties":{"canvasId":{"type":"string"},"baseRevision":{"type":"integer"},"upsertNodes":{"type":"array","items":{"type":"object"}},"deleteNodeIds":{"type":"array","items":{"type":"string"}},"upsertConnections":{"type":"array","items":{"type":"object"}},"deleteConnectionIds":{"type":"array","items":{"type":"string"}},"upsertChatSessions":{"type":"array","items":{"type":"object"}},"deleteChatSessionIds":{"type":"array","items":{"type":"string"}},"fields":{"type":"object"},"expectedNodes":{"type":"object"},"expectedConnections":{"type":"object"},"expectedChatSessions":{"type":"object"},"expectedFields":{"type":"object"},"forceHistorySnapshot":{"type":"boolean"}},"required":["canvasId","baseRevision"]}`),
+		Handler: opCanvasDocumentPatch})
 	// 付费生成只提议不执行：这里校验目标并给出用户要确认的模型，真正的生成由界面在用户确认后发起。
 	r.Register(Op{AssistantProposal: true, AssistantCanvas: true, ID: "canvas.generation.propose", Summary: "登记付费生成单提议（不直接扣费）", ReadOnly: true, Scope: ScopeCanvas,
 		Params:  json.RawMessage(`{"type":"object","properties":{"canvasId":{"type":"string"},"nodeIds":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":8},"kind":{"type":"string","enum":["image","video","audio"]},"productionNodeIds":{"type":"array","items":{"type":"string"},"maxItems":24,"description":"本批生成的节点（每批≤24，超出分批提案）；nodeIds 只列已就绪首批"},"note":{"type":"string"}},"required":["canvasId","nodeIds","kind"]}`),
@@ -695,6 +698,74 @@ func opCanvasDocumentCommit(ctx *Context, params json.RawMessage) (any, error) {
 		"title":     summary.Title,
 		"updatedAt": summary.UpdatedAt,
 	}, nil
+}
+
+type canvasDocumentPatchDomain interface {
+	PatchUserCanvasDocument(userID string, canvasID string, patch canvas.DocumentPatch) (canvas.DocumentPatchResult, error)
+}
+
+func opCanvasDocumentPatch(ctx *Context, params json.RawMessage) (any, error) {
+	var args struct {
+		CanvasID             string                    `json:"canvasId"`
+		BaseRevision         *int64                    `json:"baseRevision"`
+		UpsertNodes          []map[string]any          `json:"upsertNodes"`
+		DeleteNodeIDs        []string                  `json:"deleteNodeIds"`
+		UpsertConnections    []map[string]any          `json:"upsertConnections"`
+		DeleteConnectionIDs  []string                  `json:"deleteConnectionIds"`
+		UpsertChatSessions   []map[string]any          `json:"upsertChatSessions"`
+		DeleteChatSessionIDs []string                  `json:"deleteChatSessionIds"`
+		Fields               map[string]any            `json:"fields"`
+		ExpectedNodes        map[string]map[string]any `json:"expectedNodes"`
+		ExpectedConnections  map[string]map[string]any `json:"expectedConnections"`
+		ExpectedChatSessions map[string]map[string]any `json:"expectedChatSessions"`
+		ExpectedFields       map[string]any            `json:"expectedFields"`
+		ForceHistorySnapshot bool                      `json:"forceHistorySnapshot"`
+	}
+	if err := decodeParams(params, &args); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(args.CanvasID) == "" || args.BaseRevision == nil || *args.BaseRevision < 0 {
+		return nil, InvalidArg("invalid_params", "canvasId 和有效 baseRevision 必填")
+	}
+	patcher, ok := ctx.Domain.(canvasDocumentPatchDomain)
+	if !ok {
+		return nil, newError(CodeInternal, "op_domain_unavailable", "画布增量保存不可用", nil)
+	}
+	result, err := patcher.PatchUserCanvasDocument(ctx.UserID, args.CanvasID, canvas.DocumentPatch{
+		BaseRevision:         *args.BaseRevision,
+		UpsertNodes:          args.UpsertNodes,
+		DeleteNodeIDs:        args.DeleteNodeIDs,
+		UpsertConnections:    args.UpsertConnections,
+		DeleteConnectionIDs:  args.DeleteConnectionIDs,
+		UpsertChatSessions:   args.UpsertChatSessions,
+		DeleteChatSessionIDs: args.DeleteChatSessionIDs,
+		Fields:               args.Fields,
+		ExpectedNodes:        args.ExpectedNodes,
+		ExpectedConnections:  args.ExpectedConnections,
+		ExpectedChatSessions: args.ExpectedChatSessions,
+		ExpectedFields:       args.ExpectedFields,
+		ForceHistorySnapshot: args.ForceHistorySnapshot,
+	})
+	if err != nil {
+		return nil, mapDomainError(err)
+	}
+	out := map[string]any{
+		"canvasId":           args.CanvasID,
+		"revision":           result.Summary.Revision,
+		"title":              result.Summary.Title,
+		"updatedAt":          result.Summary.UpdatedAt,
+		"serverAdvanced":     result.ServerAdvanced,
+		"mediaPreserved":     result.MediaPreserved,
+		"snapshotCaptured":   result.SnapshotCaptured,
+		"mergedFromRevision": result.MergedFromRevision,
+	}
+	if len(result.Document) > 0 {
+		var document any
+		if json.Unmarshal(result.Document, &document) == nil {
+			out["document"] = document
+		}
+	}
+	return out, nil
 }
 
 func opCanvasNodesPatch(ctx *Context, params json.RawMessage) (any, error) {

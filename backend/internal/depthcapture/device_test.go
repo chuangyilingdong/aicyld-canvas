@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -45,6 +46,9 @@ func TestWindowsWorkerUsesUTF8ForChineseProgress(t *testing.T) {
 }
 
 func TestWorkerCheckpointDownloadUsesResolvedDesktopProxy(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows environment names are case-insensitive and cannot represent conflicting proxy aliases")
+	}
 	t.Setenv("HTTPS_PROXY", "http://127.0.0.1:7890")
 	t.Setenv("https_proxy", "http://127.0.0.1:9999")
 	t.Setenv("NO_PROXY", "")

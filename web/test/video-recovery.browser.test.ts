@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
 import type { BunPlugin } from "bun";
 import { existsSync } from "node:fs";
 import { chromium, type Browser, type Page } from "playwright";
+import { applyMockCanvasDocumentPatch } from "./helpers/mock-canvas-document-patch";
 
 let browser: Browser;
 let page: Page;
@@ -44,10 +45,14 @@ beforeAll(async () => {
                 }
                 return Response.json({ code: 0, data: { project: canonicalCanvas } });
             }
-            if (path === "/api/ops/canvas.document.commit") {
+            if (path === "/api/ops/canvas.document.commit" || path === "/api/ops/canvas.document.patch") {
                 const body = await request.json();
-                canonicalCanvas = { ...body.params.document, revision: (canonicalCanvas?.revision ?? 0) + 1 };
-                return Response.json({ code: 0, data: { op: "canvas.document.commit", opId: body.opId, result: { id: "canvas-a", revision: canonicalCanvas.revision }, revision: canonicalCanvas.revision } });
+                const current = canonicalCanvas ?? { id: "canvas-a", revision: 0, nodes: [], connections: [], chatSessions: [] };
+                const document = path.endsWith("/canvas.document.patch")
+                    ? applyMockCanvasDocumentPatch(current, body.params)
+                    : body.params.document;
+                canonicalCanvas = { ...document, revision: (current.revision ?? 0) + 1 };
+                return Response.json({ code: 0, data: { op: path.includes(".patch") ? "canvas.document.patch" : "canvas.document.commit", opId: body.opId, result: { id: "canvas-a", revision: canonicalCanvas.revision, document: canonicalCanvas }, revision: canonicalCanvas.revision } });
             }
             if (path === "/api/ops/canvas.task.bind") {
                 const body = await request.json();

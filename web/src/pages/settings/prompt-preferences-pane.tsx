@@ -10,6 +10,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { PromptCodeEditor } from "@/components/prompt/prompt-code-editor";
 import {
+    getDefaultReversePrompt,
+    getEffectiveReversePrompt,
+    hasCustomReversePrompt,
+    onReversePromptPreferenceChange,
+    resetCustomReversePrompt,
+    setCustomReversePrompt,
+} from "@/lib/reverse-prompt-preference";
+import {
     listUserPromptPreferences,
     resetUserPromptCustomization,
     updateUserPromptCustomization,
@@ -34,10 +42,27 @@ export function PromptPreferencesPane() {
     const [rewriteContent, setRewriteContent] = useState("");
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
+    const [savedImageReverse, setSavedImageReverse] = useState(() => getEffectiveReversePrompt("image"));
+    const [savedVideoReverse, setSavedVideoReverse] = useState(() => getEffectiveReversePrompt("video"));
+    const [imageReverseDraft, setImageReverseDraft] = useState(() => getEffectiveReversePrompt("image"));
+    const [videoReverseDraft, setVideoReverseDraft] = useState(() => getEffectiveReversePrompt("video"));
+    const [hasCustomImageReverse, setHasCustomImageReverse] = useState(() => hasCustomReversePrompt("image"));
+    const [hasCustomVideoReverse, setHasCustomVideoReverse] = useState(() => hasCustomReversePrompt("video"));
     const pendingWrites = useRef(0);
     const dirtyRef = useRef(false);
     const [loadError, setLoadError] = useState("");
     const requestIdRef = useRef(0);
+
+    useEffect(() => onReversePromptPreferenceChange(() => {
+        const nextImage = getEffectiveReversePrompt("image");
+        const nextVideo = getEffectiveReversePrompt("video");
+        setSavedImageReverse(nextImage);
+        setSavedVideoReverse(nextVideo);
+        setImageReverseDraft(nextImage);
+        setVideoReverseDraft(nextVideo);
+        setHasCustomImageReverse(hasCustomReversePrompt("image"));
+        setHasCustomVideoReverse(hasCustomReversePrompt("video"));
+    }), []);
 
     const reload = async (preferredOperation?: string) => {
         const reqId = ++requestIdRef.current;
@@ -68,7 +93,9 @@ export function PromptPreferencesPane() {
     const savedRewriteContent = savedMode === "rewrite" ? selected?.customization?.content || "" : selected?.template?.content || "";
     const activeContent = mode === "append" ? appendContent : mode === "rewrite" ? rewriteContent : "";
     const savedActiveContent = savedMode === "append" ? savedAppendContent : savedMode === "rewrite" ? savedRewriteContent : "";
-    const dirty = mode !== savedMode || activeContent !== savedActiveContent;
+    const templateDirty = mode !== savedMode || activeContent !== savedActiveContent;
+    const reverseDirty = imageReverseDraft.trim() !== savedImageReverse.trim() || videoReverseDraft.trim() !== savedVideoReverse.trim();
+    const dirty = templateDirty || reverseDirty;
     dirtyRef.current = dirty;
 
     useEffect(() => registerDesktopUpdatePreparation(() => {
@@ -108,6 +135,35 @@ export function PromptPreferencesPane() {
             okButtonProps: { danger: true },
             onOk: () => setSelectedOperation(operation),
         });
+    };
+
+    const saveReversePrompts = () => {
+        if (!imageReverseDraft.trim() || !videoReverseDraft.trim()) {
+            message.warning("请填写图片反推指令与视频反推指令内容");
+            return;
+        }
+        const nextImage = setCustomReversePrompt("image", imageReverseDraft);
+        const nextVideo = setCustomReversePrompt("video", videoReverseDraft);
+        setSavedImageReverse(nextImage);
+        setSavedVideoReverse(nextVideo);
+        setImageReverseDraft(nextImage);
+        setVideoReverseDraft(nextVideo);
+        setHasCustomImageReverse(hasCustomReversePrompt("image"));
+        setHasCustomVideoReverse(hasCustomReversePrompt("video"));
+        message.success("默认反推指令已保存");
+    };
+
+    const resetReversePrompts = () => {
+        resetCustomReversePrompt();
+        const defaultImage = getDefaultReversePrompt("image");
+        const defaultVideo = getDefaultReversePrompt("video");
+        setSavedImageReverse(defaultImage);
+        setSavedVideoReverse(defaultVideo);
+        setImageReverseDraft(defaultImage);
+        setVideoReverseDraft(defaultVideo);
+        setHasCustomImageReverse(false);
+        setHasCustomVideoReverse(false);
+        message.success("已恢复默认反推指令");
     };
 
     const save = async () => {
@@ -169,9 +225,41 @@ export function PromptPreferencesPane() {
     const templateContent = selected.template?.content || "当前没有启用的平台模板";
     const previewCreative = mode === "inherit" ? templateContent : mode === "append" ? `${templateContent}\n\n【用户个性化创作要求】\n${appendContent}` : rewriteContent;
     const outputLabel = selected.definition.outputType === "json" ? selected.definition.schemaKey || "JSON" : "文本";
+    const hasAnyCustomReverse = hasCustomImageReverse || hasCustomVideoReverse;
 
     return (
-        <div className="flex min-h-full flex-col">
+        <div className="flex min-h-full flex-col gap-6">
+            <section className="settings-section space-y-4" aria-label="默认反推指令">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <h2 className="text-base font-medium">默认反推指令</h2>
+                            {reverseDirty ? <StatusBadge variant="filled" tone="warning" label="未保存" /> : null}
+                        </div>
+                        <p className="mt-1 text-xs leading-5 text-foreground/60">在画布对图片或视频执行反推提示词时，自动填入下方的默认任务说明。</p>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap gap-2">
+                        <Button icon={<RotateCcw className="size-4" />} disabled={!hasAnyCustomReverse && !reverseDirty} onClick={resetReversePrompts}>恢复默认指令</Button>
+                        <Button type="primary" icon={<Save className="size-4" />} disabled={!reverseDirty} onClick={saveReversePrompts}>保存反推指令</Button>
+                    </div>
+                </div>
+                <div className="grid gap-4 lg:grid-cols-2">
+                    <div className="min-w-0 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                            <label htmlFor="reverse-prompt-image-input" className="text-xs font-medium text-foreground/80">图片反推指令</label>
+                            {hasCustomImageReverse ? <StatusBadge variant="filled" tone="neutral" label="已自定义" /> : null}
+                        </div>
+                        <Input.TextArea id="reverse-prompt-image-input" aria-label="图片反推指令" rows={6} maxLength={4000} value={imageReverseDraft} placeholder={getDefaultReversePrompt("image")} onChange={(event) => setImageReverseDraft(event.target.value)} />
+                    </div>
+                    <div className="min-w-0 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                            <label htmlFor="reverse-prompt-video-input" className="text-xs font-medium text-foreground/80">视频反推指令</label>
+                            {hasCustomVideoReverse ? <StatusBadge variant="filled" tone="neutral" label="已自定义" /> : null}
+                        </div>
+                        <Input.TextArea id="reverse-prompt-video-input" aria-label="视频反推指令" rows={6} maxLength={4000} value={videoReverseDraft} placeholder={getDefaultReversePrompt("video")} onChange={(event) => setVideoReverseDraft(event.target.value)} />
+                    </div>
+                </div>
+            </section>
             <header className="shrink-0 pb-4">
                 <div className="flex flex-wrap items-end justify-between gap-4">
                     <div className="min-w-0 flex-1">
@@ -188,9 +276,9 @@ export function PromptPreferencesPane() {
                         />
                     </div>
                     <div className="flex shrink-0 flex-wrap gap-2">
-                        <Button icon={<Undo2 className="size-4" />} disabled={!dirty || saving} onClick={() => restoreDraft()}>撤销修改</Button>
+                        <Button icon={<Undo2 className="size-4" />} disabled={!templateDirty || saving} onClick={() => restoreDraft()}>撤销修改</Button>
                         <Button icon={<RotateCcw className="size-4" />} disabled={!selected.customization || saving} onClick={reset}>恢复平台</Button>
-                        <Button type="primary" icon={<Save className="size-4" />} loading={saving} disabled={!dirty} onClick={() => void save()}>保存更改</Button>
+                        <Button type="primary" icon={<Save className="size-4" />} loading={saving} disabled={!templateDirty} onClick={() => void save()}>保存更改</Button>
                     </div>
                 </div>
 
@@ -200,7 +288,7 @@ export function PromptPreferencesPane() {
                             <h2 className="text-base font-semibold">{selected.definition.label}</h2>
                             <StatusBadge variant="filled" tone="neutral" label={`平台 v${selected.template?.version || "--"}`} />
                             <StatusBadge variant="filled" tone="neutral" label={outputLabel} />
-                            {dirty ? <StatusBadge variant="filled" tone="warning" label="未保存" /> : null}
+                            {templateDirty ? <StatusBadge variant="filled" tone="warning" label="未保存" /> : null}
                         </div>
                         <p className="mt-1 text-xs leading-5 text-foreground/55">{selected.definition.description}</p>
                     </div>

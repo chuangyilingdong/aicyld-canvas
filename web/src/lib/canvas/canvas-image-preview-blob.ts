@@ -7,9 +7,10 @@ export function canvasImagePreviewSize(width: number, height: number, scale: num
 
 /** Disposable display pixels; never replace the original resource. */
 export async function createCanvasImagePreviewBlob(original: Blob, maxSize: number): Promise<Blob> {
-    if (!/^image\/(jpeg|png)$/i.test(original.type)) return original;
+    const normalizedMime = original.type.toLowerCase();
+    if (normalizedMime !== "image/jpeg" && normalizedMime !== "image/png") return original;
     // APNG keeps its animation. acTL precedes the first image-data chunk.
-    if (original.type === "image/png") {
+    if (normalizedMime === "image/png") {
         const header = new Uint8Array(await original.slice(0, 65536).arrayBuffer());
         if (header[24] === 16) return original;
         const view = new DataView(header.buffer);
@@ -21,6 +22,7 @@ export async function createCanvasImagePreviewBlob(original: Blob, maxSize: numb
         }
     }
     const image = new Image();
+    image.decoding = "async";
     const source = URL.createObjectURL(original);
     const canvas = document.createElement("canvas");
     try {
@@ -32,6 +34,7 @@ export async function createCanvasImagePreviewBlob(original: Blob, maxSize: numb
             image.onerror = () => reject(new Error("图片预览解码失败"));
             image.src = source;
         });
+        await image.decode?.().catch(() => undefined);
         const ratio = Math.min(1, maxSize / Math.max(image.naturalWidth, image.naturalHeight));
         if (ratio === 1) return original;
         canvas.width = Math.max(1, Math.round(image.naturalWidth * ratio));
@@ -39,7 +42,11 @@ export async function createCanvasImagePreviewBlob(original: Blob, maxSize: numb
         context.imageSmoothingEnabled = true;
         context.imageSmoothingQuality = "high";
         context.drawImage(image, 0, 0, canvas.width, canvas.height);
-        return await new Promise<Blob>((resolve, reject) => canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("图片预览编码失败")), "image/png"));
+        return await new Promise<Blob>((resolve, reject) => canvas.toBlob(
+            (blob) => blob ? resolve(blob) : reject(new Error("图片预览编码失败")),
+            normalizedMime,
+            normalizedMime === "image/jpeg" ? 0.9 : undefined,
+        ));
     } finally {
         image.onload = image.onerror = null;
         image.src = "";

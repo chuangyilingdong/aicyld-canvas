@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -33,6 +34,9 @@ func TestEngineDisabledKeepsCurrentVersion(t *testing.T) {
 }
 
 func TestCheckDownloadInstallHappyPath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Darwin update fixtures require POSIX executable replacement semantics")
+	}
 	pub, priv, err := GenerateTestKey()
 	if err != nil {
 		t.Fatal(err)

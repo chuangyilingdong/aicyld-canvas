@@ -11,6 +11,7 @@ const VOLATILE_NODE_METADATA_KEYS = new Set([
     "taskCompletedAt",
     "taskDurationMs",
     "taskProviderRequestId",
+    "taskProviderCancelStatus",
     "taskOfficialStatus",
     "taskReceiptRecorded",
     "generationSubmissionState",
@@ -19,6 +20,27 @@ const VOLATILE_NODE_METADATA_KEYS = new Set([
 // the node. Task progress writes update them even when no user-visible content
 // changed, so they must follow the same rule as runtime task metadata.
 const VOLATILE_NODE_KEYS = new Set(["createdAt", "updatedAt"]);
+
+const OPEN_RECOVERY_PLACEHOLDER_ERROR = "正在从任务中心恢复生成状态...";
+
+/**
+ * Strip editor-only open/bookkeeping decorations so content hashes, document
+ * equality and incremental patches agree on what counts as a real edit.
+ */
+export function stripCanvasNodeBookkeeping<T>(node: T): T {
+    if (!node || typeof node !== "object") return node;
+    const record = node as Record<string, unknown>;
+    const hasTimestamps = "createdAt" in record || "updatedAt" in record;
+    const rawMeta = record.metadata as Record<string, unknown> | undefined;
+    const hasOpenPlaceholder = Boolean(rawMeta && rawMeta.status === "loading" && rawMeta.errorDetails === OPEN_RECOVERY_PLACEHOLDER_ERROR);
+    if (!hasTimestamps && !hasOpenPlaceholder) return node;
+    const { createdAt: _createdAt, updatedAt: _updatedAt, ...rest } = record;
+    if (hasOpenPlaceholder && rawMeta) {
+        const { errorDetails: _placeholder, ...cleanMeta } = rawMeta;
+        return { ...rest, metadata: cleanMeta } as T;
+    }
+    return rest as T;
+}
 
 export function canvasContentSnapshot(project: CanvasProject) {
     const { viewport: _viewport, updatedAt: _updatedAt, revision: _revision, remoteContentHash: _hash, ...content } = project;

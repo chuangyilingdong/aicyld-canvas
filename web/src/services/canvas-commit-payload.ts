@@ -1,6 +1,6 @@
-import { commitCanvasDocument, patchCanvasNodes, type CanvasDocumentCommitResult, type WorkspaceOperationResult } from "@/services/api/operations";
+import { commitCanvasDocument, patchCanvasDocument, patchCanvasNodes, type CanvasDocumentCommitResult, type CanvasDocumentPatchResult, type WorkspaceOperationResult } from "@/services/api/operations";
 import type { CanvasCommitPayload } from "@/services/canvas-operation-journal";
-import { buildCanvasNodeCommitPatch } from "@/lib/canvas/canvas-node-commit-patch";
+import { buildCanvasDocumentPatch } from "@/lib/canvas/canvas-document-patch";
 import type { CanvasProject } from "@/stores/canvas/use-canvas-store";
 
 export function prepareCanvasCommitPayload(
@@ -9,24 +9,36 @@ export function prepareCanvasCommitPayload(
     confirmed: CanvasProject | null,
     settled: CanvasProject,
 ): CanvasCommitPayload {
-    const changedNodes = buildCanvasNodeCommitPatch(confirmed, settled);
-    if (!changedNodes) {
-        return {
-            kind: "document",
-            canvasId,
-            expectedRevision,
-            document: structuredClone(settled),
-        };
+    if (confirmed) {
+        const patch = buildCanvasDocumentPatch(confirmed, settled);
+        if (patch) {
+            return {
+                kind: "patch",
+                canvasId,
+                expectedRevision,
+                patch: structuredClone(patch),
+                document: structuredClone(settled),
+            };
+        }
     }
     return {
-        kind: "nodes",
+        kind: "document",
         canvasId,
         expectedRevision,
-        nodes: structuredClone(changedNodes),
+        document: structuredClone(settled),
     };
 }
 
-export function sendCanvasCommitPayload(operationId: string, payload: CanvasCommitPayload): Promise<WorkspaceOperationResult<CanvasDocumentCommitResult>> {
+export function sendCanvasCommitPayload(
+    operationId: string,
+    payload: CanvasCommitPayload,
+): Promise<WorkspaceOperationResult<CanvasDocumentCommitResult | CanvasDocumentPatchResult>> {
+    if (payload.kind === "patch") {
+        return patchCanvasDocument({
+            operationId,
+            ...payload.patch,
+        });
+    }
     return payload.kind === "nodes"
         ? patchCanvasNodes({
             operationId,

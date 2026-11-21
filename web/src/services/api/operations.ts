@@ -20,6 +20,31 @@ export type CanvasDocumentCommitResult = {
     updatedAt?: string;
 };
 
+export type CanvasDocumentPatchPayload = {
+    canvasId: string;
+    baseRevision: number;
+    upsertNodes?: unknown[];
+    deleteNodeIds?: string[];
+    upsertConnections?: unknown[];
+    deleteConnectionIds?: string[];
+    upsertChatSessions?: unknown[];
+    deleteChatSessionIds?: string[];
+    fields?: Record<string, unknown>;
+    expectedNodes?: Record<string, unknown>;
+    expectedConnections?: Record<string, unknown>;
+    expectedChatSessions?: Record<string, unknown>;
+    expectedFields?: Record<string, unknown>;
+    forceHistorySnapshot?: boolean;
+};
+
+export type CanvasDocumentPatchResult = CanvasDocumentCommitResult & {
+    serverAdvanced?: boolean;
+    mediaPreserved?: boolean;
+    snapshotCaptured?: boolean;
+    mergedFromRevision?: number;
+    document?: Record<string, unknown>;
+};
+
 export async function executeWorkspaceOperation<T>(
     op: string,
     body: { opId?: string; params: unknown },
@@ -61,6 +86,28 @@ export async function patchCanvasNodes(input: {
             canvasId: input.canvasId,
             expectedRevision: input.expectedRevision,
             nodes: input.nodes,
+        },
+    });
+}
+
+export async function patchCanvasDocument(input: CanvasDocumentPatchPayload & { operationId: string }) {
+    return executeWorkspaceOperation<CanvasDocumentPatchResult>("canvas.document.patch", {
+        opId: input.operationId,
+        params: {
+            canvasId: input.canvasId,
+            baseRevision: input.baseRevision,
+            ...(input.upsertNodes?.length ? { upsertNodes: input.upsertNodes } : {}),
+            ...(input.deleteNodeIds?.length ? { deleteNodeIds: input.deleteNodeIds } : {}),
+            ...(input.upsertConnections?.length ? { upsertConnections: input.upsertConnections } : {}),
+            ...(input.deleteConnectionIds?.length ? { deleteConnectionIds: input.deleteConnectionIds } : {}),
+            ...(input.upsertChatSessions?.length ? { upsertChatSessions: input.upsertChatSessions } : {}),
+            ...(input.deleteChatSessionIds?.length ? { deleteChatSessionIds: input.deleteChatSessionIds } : {}),
+            ...(input.fields && Object.keys(input.fields).length ? { fields: input.fields } : {}),
+            ...(input.expectedNodes && Object.keys(input.expectedNodes).length ? { expectedNodes: input.expectedNodes } : {}),
+            ...(input.expectedConnections && Object.keys(input.expectedConnections).length ? { expectedConnections: input.expectedConnections } : {}),
+            ...(input.expectedChatSessions && Object.keys(input.expectedChatSessions).length ? { expectedChatSessions: input.expectedChatSessions } : {}),
+            ...(input.expectedFields && Object.keys(input.expectedFields).length ? { expectedFields: input.expectedFields } : {}),
+            ...(input.forceHistorySnapshot ? { forceHistorySnapshot: true } : {}),
         },
     });
 }
