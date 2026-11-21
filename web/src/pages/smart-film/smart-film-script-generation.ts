@@ -1,11 +1,11 @@
 import { parseGeneratedSmartFilmScripts, smartFilmScriptPrompt, type GeneratedSmartFilmScript, type SmartFilmScriptReference } from "@/lib/canvas/smart-film-scripts";
-import { modelCapabilityConfigFor } from "@/lib/model-capabilities";
 import { buildBackendGenerationTaskQuoteInput, runBackendGenerationTask } from "@/services/api/generation-task";
 import type { SmartFilmSkillSnapshot } from "@/services/api/smart-film-batches";
 import { quoteGenerationTask, type GenerationBillingQuote } from "@/services/api/task-billing";
 import { smartFilmSkillMetadata, smartFilmSkillStagePrompt } from "@/services/smart-film-skill";
 import type { AiConfig } from "@/stores/use-config-store";
 import type { ReferenceImage } from "@/types/image";
+import { smartFilmScriptReferenceLimit } from "./smart-film-reference-limits";
 
 export type SmartFilmScriptGenerationInput = {
     idea: string;
@@ -24,8 +24,7 @@ export type SmartFilmScriptGenerationInput = {
 
 function scriptGenerationPlan(input: SmartFilmScriptGenerationInput) {
     const count = input.regenerateIndex ? 1 : input.count;
-    const maxImages = modelCapabilityConfigFor(input.config, input.config.model).text?.references?.maxImages;
-    const referenceImages = Number.isFinite(maxImages) && Number(maxImages) > 0 ? (input.referenceImages || []).slice(0, Math.max(0, Math.trunc(Number(maxImages)))) : input.referenceImages || [];
+    const referenceImages = (input.referenceImages || []).slice(0, smartFilmScriptReferenceLimit(input.config, input.config.model));
     const references = input.references.map((reference) => ({
         ...reference,
         imageIndex: reference.imageIndex && reference.imageIndex <= referenceImages.length ? reference.imageIndex : undefined,

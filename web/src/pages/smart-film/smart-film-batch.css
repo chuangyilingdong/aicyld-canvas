@@ -204,6 +204,10 @@
     font-size: 11px;
 }
 
+.smart-film-product-hint.is-error {
+    color: var(--ant-color-error);
+}
+
 .smart-film-skill-select-row {
     display: flex;
     align-items: center;

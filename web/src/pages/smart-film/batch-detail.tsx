@@ -419,7 +419,7 @@ export default function SmartFilmBatchDetailPage() {
             return await new Promise<boolean>((resolve) => {
                 modal.confirm({
                     title: `生成 ${input.regenerateIndex ? 1 : input.count} 条剧本？`,
-                    content: `本次会创建一个文本任务，预计扣除 ${quote.points} 积分${typeof quote.balance === "number" ? `，当前余额 ${quote.balance} 积分` : ""}。`,
+                    content: `本次会创建一个文本任务，预计先扣除 ${quote.points} 积分${typeof quote.balance === "number" ? `，当前余额 ${quote.balance} 积分` : ""}。此金额按提示词估算输入 Token，并按最多 4,096 输出 Token 预留；完成后会按实际 Token 差额退还或补扣。`,
                     okText: "确认生成",
                     cancelText: "取消",
                     onOk: () => resolve(true),

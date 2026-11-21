@@ -25,12 +25,12 @@ import { createSmartFilmSkillSnapshot, smartFilmSkillStagePrompt } from "@/servi
 import { useAssetStore, type ImageAsset } from "@/stores/use-asset-store";
 import { logicalModelIDForConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { generateSmartFilmScripts } from "./smart-film-script-generation";
+import { SMART_FILM_PLATFORM_REFERENCE_LIMIT, smartFilmScriptReferenceLimit } from "./smart-film-reference-limits";
 import { smartFilmScriptReferenceBundle } from "./smart-film-script-references";
 
 import "./smart-film.css";
 import "./smart-film-batch.css";
 
-const MAX_BATCH_PRODUCT_IMAGES = 12;
 type BatchReferenceRole = Exclude<SmartFilmReferenceRole, "other">;
 const REFERENCE_ROLE_OPTIONS: Array<{ value: BatchReferenceRole; label: string; category: AssetCategory }> = [
     { value: "product", label: "产品", category: "prop" },
@@ -92,6 +92,8 @@ export default function SmartFilmBatchNewPage() {
     const resolvedTextModel = textModel || effectiveConfig.textModel;
     const resolvedImageModel = imageModel || effectiveConfig.imageModel;
     const selectedVideoModel = videoModel || effectiveConfig.videoModel;
+    const referenceLimit = useMemo(() => smartFilmScriptReferenceLimit(effectiveConfig, resolvedTextModel), [effectiveConfig, resolvedTextModel]);
+    const referenceLimitText = referenceLimit > 0 ? `当前文本模型最多接收 ${referenceLimit} 张参考图` : "当前文本模型仅接收参考图名称，不接收图片视觉输入";
     const videoProfile = useMemo(() => modelCapabilityConfigFor(effectiveConfig, selectedVideoModel).video || defaultModelCapabilityConfig(undefined, selectedVideoModel).video!, [effectiveConfig, selectedVideoModel]);
     const resolvedVideoResolution = normalizeVideoValue(videoProfile, { resolution: videoResolution || effectiveConfig.vquality || videoProfile.defaultResolution }).resolution;
     useEffect(() => {
@@ -256,19 +258,19 @@ export default function SmartFilmBatchNewPage() {
 
     const addProductImages = async (role: BatchReferenceRole, files: File[]) => {
         if (!files.length) return;
-        const remaining = MAX_BATCH_PRODUCT_IMAGES - productAssetIds.length;
+        const remaining = referenceLimit - productAssetIds.length;
         if (remaining <= 0) {
-            message.warning(`参考图最多 ${MAX_BATCH_PRODUCT_IMAGES} 张`);
+            message.warning(referenceLimit > 0 ? `当前文本模型最多接收 ${referenceLimit} 张参考图` : "当前文本模型不支持图片视觉输入");
             return;
         }
         const accepted = files.slice(0, remaining);
-        if (accepted.length < files.length) message.warning(`参考图最多 ${MAX_BATCH_PRODUCT_IMAGES} 张，已忽略超出部分`);
+        if (accepted.length < files.length) message.warning(`${referenceLimitText}，已忽略超出部分`);
         setUploadingRole(role);
         try {
             const category = REFERENCE_ROLE_OPTIONS.find((option) => option.value === role)?.category || "prop";
             const result = await uploadWorkspaceAssetFiles(accepted, "", { category });
             if (result.addedAssetIds.length) {
-                setProductAssetIds((current) => [...new Set([...current, ...result.addedAssetIds])].slice(0, MAX_BATCH_PRODUCT_IMAGES));
+                setProductAssetIds((current) => [...new Set([...current, ...result.addedAssetIds])].slice(0, referenceLimit));
                 setReferenceRoles((current) => ({ ...current, ...Object.fromEntries(result.addedAssetIds.map((id) => [id, role])) }));
             }
             if (result.failed) message.warning(`${result.failed} 张参考图上传失败`);
@@ -288,7 +290,7 @@ export default function SmartFilmBatchNewPage() {
         if (skillSnapshotError) return message.warning(skillSnapshotError);
         if (!sourceText) return message.warning("请先填写视频想法");
         if (resolvedScriptCount < 1 || resolvedScriptCount > 10) return message.warning("剧本数量需要在 1–10 条之间");
-        if (productAssetIds.length > MAX_BATCH_PRODUCT_IMAGES) return message.warning(`参考图最多 ${MAX_BATCH_PRODUCT_IMAGES} 张`);
+        if (productAssetIds.length > referenceLimit) return message.warning(referenceLimit > 0 ? `当前文本模型最多接收 ${referenceLimit} 张参考图，请移除超出的图片` : "当前文本模型不支持图片视觉输入，请移除参考图或更换文本模型");
         const inputAssetNames = buildInputAssetNames();
         if (productAssets.some((asset) => !inputAssetNames[asset.id])) return message.warning("请为每张参考图填写可用于剧情和提示词的资产名称");
         if (!resolvedTextModel || !resolvedImageModel || !selectedVideoModel) return message.warning("请先选择文本、图片和视频模型");
@@ -473,7 +475,9 @@ export default function SmartFilmBatchNewPage() {
                             );
                         })}
                     </div>
-                    <small className="smart-film-product-hint">参考图合计最多 {MAX_BATCH_PRODUCT_IMAGES} 张。所有参考图都需要填写剧情中的语义名称；同一产品的多张图请填写同一个名称，例如都写“机甲狂鲨”。名称会用于资产提取、分镜和 @ 引用。</small>
+                    <small className={`smart-film-product-hint${productAssetIds.length > referenceLimit ? " is-error" : ""}`}>
+                        {referenceLimitText}（平台上限 {SMART_FILM_PLATFORM_REFERENCE_LIMIT} 张）。所有参考图都需要填写剧情中的语义名称；同一产品的多张图请填写同一个名称，例如都写“机甲狂鲨”。名称会用于资产提取、分镜和 @ 引用。
+                    </small>
                     <div className="smart-film-skill-select-row">
                         <div>
                             <strong>制作技能</strong>
@@ -594,7 +598,10 @@ export default function SmartFilmBatchNewPage() {
                         <div className={`smart-film-batch-quote${costInsufficient || skillSnapshotError ? " is-error" : ""}`} aria-live="polite">
                             <span>{costSummaryText}</span>
                             {costPreview?.items?.length ? (
-                                <small>{costPreview.items.map((item) => `${item.label} × ${item.count} = ${item.points} 积分`).join("；")}</small>
+                                <>
+                                    <small>{costPreview.items.map((item) => `${item.label} × ${item.count} = ${item.points} 积分`).join("；")}</small>
+                                    <small>报价按提示词估算输入 Token，并按最多 4,096 输出 Token 预留；任务完成后按实际 Token 差额退还或补扣。</small>
+                                </>
                             ) : (
                                 <small>这里仅核算剧本生成；资产、分镜、图片和视频会在剧本确认并按制作规格另行核算。</small>
                             )}
@@ -646,12 +653,12 @@ export default function SmartFilmBatchNewPage() {
                 confirmLabel={(count) => `使用已选${count ? ` ${count} 张` : "图片"}`}
                 emptyTitle="素材库还没有可用图片"
                 emptyDescription="先上传参考图，或返回素材库整理图片后重试。"
-                footerNote={`参考图最多 ${MAX_BATCH_PRODUCT_IMAGES} 张，只会使用当前账号拥有的图片。`}
+                footerNote={`${referenceLimitText}（平台上限 ${SMART_FILM_PLATFORM_REFERENCE_LIMIT} 张），只会使用当前账号拥有的图片。`}
                 onClose={() => setAssetPickerOpen(false)}
                 onConfirm={async (ids) => {
-                    if (ids.length > MAX_BATCH_PRODUCT_IMAGES) throw new Error(`参考图最多 ${MAX_BATCH_PRODUCT_IMAGES} 张`);
+                    if (ids.length > referenceLimit) throw new Error(referenceLimit > 0 ? `当前文本模型最多接收 ${referenceLimit} 张参考图` : "当前文本模型不支持图片视觉输入");
                     const otherRoleIds = productAssetIds.filter((id) => referenceRoles[id] !== pickerRole);
-                    const nextIds = [...new Set([...otherRoleIds, ...ids])].slice(0, MAX_BATCH_PRODUCT_IMAGES);
+                    const nextIds = [...new Set([...otherRoleIds, ...ids])].slice(0, referenceLimit);
                     setProductAssetIds(nextIds);
                     setReferenceRoles((current) => {
                         const selected = new Set(ids);

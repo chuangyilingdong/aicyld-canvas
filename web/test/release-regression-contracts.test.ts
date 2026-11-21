@@ -5,6 +5,10 @@ function source(path: string) {
     return readFileSync(new URL(`../src/${path}`, import.meta.url), "utf8");
 }
 
+function scriptSource(path: string) {
+    return readFileSync(new URL(`../scripts/${path}`, import.meta.url), "utf8");
+}
+
 describe("release regression source contracts", () => {
     test("keeps global styles independent of removed production packages", () => {
         expect(source("styles/globals.css")).not.toContain('@import "shadcn/tailwind.css"');
@@ -98,12 +102,15 @@ describe("release regression source contracts", () => {
         const createPage = source("pages/smart-film/batch-new.tsx");
         const detailPage = source("pages/smart-film/batch-detail.tsx");
         const scriptGeneration = source("pages/smart-film/smart-film-script-generation.ts");
+        const referenceLimits = source("pages/smart-film/smart-film-reference-limits.ts");
         expect(picker).toContain("placeholderData: (previousData) => previousData");
         expect(picker).toContain("if (!remoteEnabled || !remoteQuery.data) return;");
         expect(createPage).toContain("previewSmartFilmBatchCost(request)");
         expect(createPage).toContain("budgetPoints: smartFilmBatchBudgetPoints(quote)");
         expect(createPage).toContain("smart-film-batch-quote");
         expect(createPage).toContain("referenceImages: scriptBundle.referenceImages");
+        expect(createPage).toContain("smartFilmScriptReferenceLimit");
+        expect(createPage).toContain("按实际 Token 差额退还或补扣");
         expect(createPage).toContain("本次未创建剧本项目");
         expect(detailPage).toContain("previewSmartFilmBatchProductionConfig(batch.id");
         expect(detailPage).toContain("budgetPoints");
@@ -114,6 +121,8 @@ describe("release regression source contracts", () => {
         expect(scriptGeneration).toContain("referenceImages: plan.referenceImages");
         expect(scriptGeneration).toContain("quoteGenerationTask(");
         expect(scriptGeneration).toContain("buildBackendGenerationTaskQuoteInput({");
+        expect(scriptGeneration).toContain("smartFilmScriptReferenceLimit(input.config, input.config.model)");
+        expect(referenceLimits).toContain("SMART_FILM_PLATFORM_REFERENCE_LIMIT = 12");
     });
 
     test("keeps the unified timeline shell inside one bounded editor surface", () => {
@@ -121,5 +130,16 @@ describe("release regression source contracts", () => {
         expect(timeline).toContain('height: "min(820px, calc(100dvh - 24px))"');
         expect(timeline).toContain('body: { minHeight: 0, flex: "1 1 0px"');
         expect(timeline).toContain("timeline-editor-body flex min-h-0 flex-1 flex-col overflow-hidden");
+    });
+
+    test("keeps the paid smart-film E2E guarded and end-to-end", () => {
+        const paidE2E = scriptSource("smart-film-script-paid-e2e.ts");
+        expect(paidE2E).toContain('process.env.AICYLD_E2E_PAID !== "1"');
+        expect(paidE2E).toContain('process.env.AICYLD_E2E_ALLOW_PRODUCTION !== "1"');
+        expect(paidE2E).toContain("/api/smart-film-batches/cost-preview");
+        expect(paidE2E).toContain("/api/tasks/quote");
+        expect(paidE2E).toContain('api.post(`${baseURL}/api/tasks`');
+        expect(paidE2E).toContain("settledBillingStatus");
+        expect(paidE2E).toContain("parseGeneratedSmartFilmScripts");
     });
 });
