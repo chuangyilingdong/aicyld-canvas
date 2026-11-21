@@ -3,8 +3,6 @@ import test from "node:test";
 
 import type { ModelCapabilityConfig } from "@/lib/model-capabilities";
 import type { CreationAttachment } from "./creation-assets";
-// Node 原生 TypeScript 测试运行器要求保留扩展名，项目编译器不允许该写法。
-// @ts-expect-error -- Node 原生 TypeScript 测试运行器需要保留扩展名。
 import { creationReferenceHasRoom, creationReferenceKindMessage, creationReferenceLimit, creationReferenceLimitsFor, creationReferenceLimitsLabel, fitCreationAttachmentsToLimits, reconcileCreationAttachmentLimit, referenceOverflowKind, type CreationReferenceLimits } from "./creation-references.ts";
 
 const seedanceLimits: CreationReferenceLimits = { image: 9, video: 3, audio: 3 };

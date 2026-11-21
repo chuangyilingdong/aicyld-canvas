@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-// @ts-expect-error -- Node 原生 TypeScript 测试运行器需要保留扩展名。
 import { parseAssetRecord } from "./asset-record.ts";
 
 test("缺失图片数据的历史素材会被拒绝，而不是补齐可渲染字段", () => {

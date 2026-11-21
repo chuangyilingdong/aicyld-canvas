@@ -20,6 +20,7 @@ import { flushCanvasStorePersistence, useCanvasStore } from "@/stores/canvas/use
 import { useCanvasUiStore } from "@/stores/canvas/use-canvas-ui-store";
 import { canvasExportProgressLabel, exportCanvasProjectsByIds, type CanvasExportProgress } from "@/lib/canvas/canvas-export";
 import { restoreCanvasArchive } from "@/lib/canvas/canvas-archive-restore";
+import { summarizeMissingExportFiles } from "@/lib/export-integrity";
 import { createCanvasLibraryFolder, deleteCanvasLibraryFolder, hydrateCanvasLibraryFolders, persistCanvasFolderCover, renameCanvasLibraryFolder } from "@/lib/canvas/canvas-folder-storage";
 import { isWailsNativeShell } from "@/services/desktop-media-save";
 import { loadCanvasProjectForEditing, saveRemoteUserDataNow } from "@/services/local-workspace-sync";
@@ -363,7 +364,35 @@ export default function CanvasPage() {
             });
             hideLoading();
             if (result.skippedFiles?.length) {
-                message.warning(`已导入 ${result.count} 个画布，跳过 ${result.skippedFiles.length} 项缺失内容`);
+                const groups = summarizeMissingExportFiles(result.skippedFiles);
+                const samples = result.skippedFiles.slice(0, 8);
+                modal.warning({
+                    title: "导入完成，但部分内容缺失",
+                    width: 640,
+                    content: (
+                        <div className="space-y-3">
+                            <p>{`已导入 ${result.count} 个画布，${result.skippedFiles.length} 项缺失内容已跳过。`}</p>
+                            <div className="flex flex-wrap gap-2">
+                                {groups.map((group) => (
+                                    <span key={group.kind} className="rounded-md border border-border px-2 py-1 text-xs">
+                                        {group.label}：{group.count}
+                                    </span>
+                                ))}
+                            </div>
+                            <div className="max-h-56 space-y-1 overflow-auto rounded-md border border-border p-2 text-xs">
+                                {samples.map((file) => (
+                                    <div key={`${file.owner}:${file.reference}`} className="break-all">
+                                        <strong>{file.owner}</strong>
+                                        <span className="ml-1 text-foreground/55">{file.reference}</span>
+                                    </div>
+                                ))}
+                                {result.skippedFiles.length > samples.length ? (
+                                    <div className="text-foreground/55">{`另有 ${result.skippedFiles.length - samples.length} 项未逐条列出。`}</div>
+                                ) : null}
+                            </div>
+                        </div>
+                    ),
+                });
             } else {
                 message.success(result.storage === "backend"
                     ? `已导入 ${result.count} 个画布`

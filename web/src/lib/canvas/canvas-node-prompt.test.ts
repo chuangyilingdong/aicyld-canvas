@@ -2,13 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import "./node-registry/definitions/index.ts";
-// @ts-expect-error -- Node 原生 TypeScript 测试运行器需要保留扩展名。
 import { canvasNodeHasCommittedContent, writeCanvasNodePrompt } from "./canvas-node-prompt.ts";
-// @ts-expect-error -- Node 原生 TypeScript 测试运行器需要保留扩展名。
 import { createStoryboardRow } from "./canvas-project-domain.ts";
-// @ts-expect-error -- Node 原生 TypeScript 测试运行器需要保留扩展名。
 import { syncBoundStoryboardNodesForRows } from "./canvas-storyboard-materializer.ts";
-// @ts-expect-error -- Node 原生 TypeScript 测试运行器需要保留扩展名。
 import { CanvasNodeType, type CanvasNodeData, type StoryboardRow } from "../../types/canvas.ts";
 
 function node(type: CanvasNodeData["type"], metadata: CanvasNodeData["metadata"] = {}): CanvasNodeData {

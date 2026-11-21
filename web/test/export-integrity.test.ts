@@ -39,7 +39,7 @@ mock.module("@/services/workspace-mode", () => ({
 const { exportCanvasProjects, exportCanvasProjectsByIds, openCanvasArchive } = await import("@/lib/canvas/canvas-export");
 const { exportAssets, readAssetPackage } = await import("@/pages/assets/asset-transfer");
 const { createZip, readZip } = await import("@/lib/zip");
-const { archiveFileExtension, ExportIntegrityError } = await import("@/lib/export-integrity");
+const { archiveFileExtension, ExportIntegrityError, missingExportFileKind, summarizeMissingExportFiles } = await import("@/lib/export-integrity");
 const { reportOwnedMediaSave } = await import("@/services/desktop-media-save");
 const { http } = await import("@/services/api/request");
 const originalWindow = globalThis.window;
@@ -79,6 +79,27 @@ afterEach(async () => {
         globalThis.window = originalWindow;
         installLocalForageStoreFactoryForTests();
     }
+});
+
+test("missing archive files are reported by media kind and owner", () => {
+    const files = [
+        { owner: "产品片", reference: "projects/a/files/resource-image.png" },
+        { owner: "产品片", reference: "projects/a/files/resource-video.mp4" },
+        { owner: "配音", reference: "projects/a/files/resource-audio.wav" },
+        { owner: "画板", reference: "projects/a/drawings/board.excalidraw" },
+        { owner: "模型", reference: "projects/a/files/model.glb" },
+        { owner: "附件", reference: "projects/a/files/readme.bin" },
+    ];
+
+    expect(files.map(missingExportFileKind)).toEqual(["image", "video", "audio", "drawing", "model", "other"]);
+    expect(summarizeMissingExportFiles(files)).toEqual([
+        { kind: "image", label: "图片与封面", count: 1 },
+        { kind: "video", label: "视频", count: 1 },
+        { kind: "audio", label: "音频", count: 1 },
+        { kind: "drawing", label: "画板", count: 1 },
+        { kind: "model", label: "3D 模型", count: 1 },
+        { kind: "other", label: "其他文件", count: 1 },
+    ]);
 });
 
 function project(keys: string[]): CanvasProject {

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"time"
 
 	"infinite-canvas/backend/internal/assets"
 	"infinite-canvas/backend/internal/mediatools"
@@ -31,6 +32,8 @@ type Service struct {
 	slots          chan struct{}
 	posterSlots    chan struct{}
 	cacheMu        sync.Mutex
+	posterPruneMu  sync.Mutex
+	lastPosterPrune time.Time
 }
 
 func New(deps Deps) *Service {

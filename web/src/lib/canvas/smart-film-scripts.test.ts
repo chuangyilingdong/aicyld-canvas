@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-// @ts-expect-error -- Node's native TypeScript runner requires the extension.
 import { parseGeneratedSmartFilmScripts } from "./smart-film-scripts.ts";
 
 test("parses independent scripts from a JSON object", () => {

@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-// Node 原生 TypeScript 测试运行器要求保留扩展名，项目编译器不允许该写法。
-// @ts-expect-error -- Node 原生 TypeScript 测试运行器需要保留扩展名。
 import { creationAssetKey, isSameCreationAsset } from "./creation-assets.ts";
 
 test("同一任务的同一结果只能匹配同一个素材", () => {

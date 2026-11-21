@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -25,6 +26,9 @@ const (
 	minPosterWidth       = 64
 	maxPosterWidth       = 1280
 	posterCommandTimeout = 15 * time.Second
+	posterCacheRetention = 30 * 24 * time.Hour
+	posterCacheMaxBytes  = int64(256 << 20)
+	posterPruneInterval  = 6 * time.Hour
 )
 
 var ErrPosterUnavailable = errors.New("video poster unavailable")
@@ -62,6 +66,7 @@ func (s *Service) Poster(userID, resourceID string, width int) ([]byte, error) {
 		return nil, err
 	}
 	if cached, err := os.ReadFile(path); err == nil && len(cached) > 0 {
+		s.schedulePosterPrune()
 		return cached, nil
 	}
 	src, err := s.posterSourcePath(resource)
@@ -79,6 +84,7 @@ func (s *Service) Poster(userID, resourceID string, width int) ([]byte, error) {
 		return nil, fmt.Errorf("%w: runtime is stopping", ErrPosterUnavailable)
 	}
 	if cached, err := os.ReadFile(path); err == nil && len(cached) > 0 {
+		s.schedulePosterPrune()
 		return cached, nil
 	}
 	if err := ensureDir(filepath.Dir(path)); err != nil {
@@ -106,7 +112,98 @@ func (s *Service) Poster(userID, resourceID string, width int) ([]byte, error) {
 	if err := os.Rename(tempPath, path); err != nil {
 		return nil, err
 	}
-	return os.ReadFile(path)
+	data, err := os.ReadFile(path)
+	if err == nil {
+		s.schedulePosterPrune()
+	}
+	return data, err
+}
+
+func (s *Service) schedulePosterPrune() {
+	if s == nil || s.runner == nil {
+		return
+	}
+	now := time.Now()
+	s.posterPruneMu.Lock()
+	if !s.lastPosterPrune.IsZero() && now.Sub(s.lastPosterPrune) < posterPruneInterval {
+		s.posterPruneMu.Unlock()
+		return
+	}
+	s.lastPosterPrune = now
+	s.posterPruneMu.Unlock()
+	accepted := s.runner.Go(func(ctx context.Context) {
+		s.cacheMu.Lock()
+		defer s.cacheMu.Unlock()
+		_, _ = s.prunePosterCache(s.runContext(ctx), now.Add(-posterCacheRetention), posterCacheMaxBytes)
+	})
+	if !accepted {
+		s.posterPruneMu.Lock()
+		if s.lastPosterPrune.Equal(now) {
+			s.lastPosterPrune = time.Time{}
+		}
+		s.posterPruneMu.Unlock()
+	}
+}
+
+func (s *Service) prunePosterCache(ctx context.Context, cutoff time.Time, maxBytes int64) (int, error) {
+	if s == nil || strings.TrimSpace(s.dataDir) == "" {
+		return 0, nil
+	}
+	root := s.posterRoot()
+	type entry struct {
+		path    string
+		size    int64
+		modTime time.Time
+	}
+	entries := make([]entry, 0)
+	var total int64
+	err := filepath.WalkDir(root, func(path string, item os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			if errors.Is(walkErr, os.ErrNotExist) {
+				return nil
+			}
+			return walkErr
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if item.IsDir() || !item.Type().IsRegular() {
+			return nil
+		}
+		info, err := item.Info()
+		if err != nil {
+			return err
+		}
+		entries = append(entries, entry{path: path, size: info.Size(), modTime: info.ModTime()})
+		total += info.Size()
+		return nil
+	})
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].modTime.Before(entries[j].modTime)
+	})
+	removed := 0
+	for _, item := range entries {
+		if err := ctx.Err(); err != nil {
+			return removed, err
+		}
+		expired := !cutoff.IsZero() && item.modTime.Before(cutoff)
+		overLimit := maxBytes > 0 && total > maxBytes
+		if !expired && !overLimit {
+			continue
+		}
+		if err := os.Remove(item.path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return removed, err
+		}
+		total -= item.size
+		removed++
+	}
+	return removed, nil
 }
 
 func (s *Service) posterSourcePath(resource *model.Resource) (string, error) {

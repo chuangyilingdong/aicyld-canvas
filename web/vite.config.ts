@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin } from "vite";
 
-import { resolveHeavyMediaEnabled } from "./media-build-mode";
+import { resolveHeavyMediaEnabled } from "./media-build-mode.ts";
 import { distributionNotices } from "../scripts/distribution-notices.mjs";
 
 const webDir = dirname(fileURLToPath(import.meta.url));

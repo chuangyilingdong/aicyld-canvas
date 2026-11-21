@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"infinite-canvas/backend/internal/model"
 )
@@ -77,6 +78,71 @@ func TestPosterRejectsMissingSourceAndNonVideo(t *testing.T) {
 	for _, id := range []string{"missing", "image"} {
 		if _, err := service.Poster("owner", id, 480); !errors.Is(err, ErrPosterUnavailable) {
 			t.Fatalf("%s poster error = %v", id, err)
+		}
+	}
+}
+
+func TestPosterCachePrunesExpiredAndOverLimitFiles(t *testing.T) {
+	root := t.TempDir()
+	service := New(Deps{DataDir: root})
+	cacheDir := filepath.Join(root, PosterDirName, "workspace")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	writePoster := func(name, value string, modTime time.Time) string {
+		path := filepath.Join(cacheDir, name)
+		if err := os.WriteFile(path, []byte(value), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(path, modTime, modTime); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+
+	expired := writePoster("expired.jpg", "expired", now.Add(-40*24*time.Hour))
+	recent := writePoster("recent.jpg", "recent", now.Add(-time.Hour))
+	removed, err := service.prunePosterCache(context.Background(), now.Add(-30*24*time.Hour), 0)
+	if err != nil || removed != 1 {
+		t.Fatalf("expired prune removed=%d err=%v", removed, err)
+	}
+	if _, err := os.Stat(expired); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expired poster still exists: %v", err)
+	}
+	if _, err := os.Stat(recent); err != nil {
+		t.Fatalf("recent poster removed: %v", err)
+	}
+
+	sizeRoot := t.TempDir()
+	sizeService := New(Deps{DataDir: sizeRoot})
+	sizeDir := filepath.Join(sizeRoot, PosterDirName, "workspace")
+	if err := os.MkdirAll(sizeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeSizedPoster := func(name string, modTime time.Time) string {
+		path := filepath.Join(sizeDir, name)
+		if err := os.WriteFile(path, []byte("0123456789"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(path, modTime, modTime); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	oldest := writeSizedPoster("oldest.jpg", now.Add(-3*time.Hour))
+	middle := writeSizedPoster("middle.jpg", now.Add(-2*time.Hour))
+	newest := writeSizedPoster("newest.jpg", now.Add(-time.Hour))
+	removed, err = sizeService.prunePosterCache(context.Background(), time.Time{}, 20)
+	if err != nil || removed != 1 {
+		t.Fatalf("size prune removed=%d err=%v", removed, err)
+	}
+	if _, err := os.Stat(oldest); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("oldest poster still exists: %v", err)
+	}
+	for _, path := range []string{middle, newest} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("newer poster removed: %v", err)
 		}
 	}
 }
