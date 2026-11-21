@@ -17,7 +17,7 @@ import { CanvasCharacterReferenceModal } from "@/components/canvas/canvas-charac
 import type { uploadImage } from "@/services/image-storage";
 import { CanvasGenerationHistoryPicker } from "@/components/canvas/canvas-generation-history-picker";
 import { CanvasFolderBrowserModal } from "@/components/canvas/canvas-folder-browser-modal";
-import { CanvasNodeInfoModal } from "@/components/canvas/canvas-node-toolbar";
+import { CanvasNodeInfoModal } from "@/components/canvas/canvas-node-info-modal";
 import { CanvasNodeSearchModal } from "@/components/canvas/canvas-node-search-modal";
 import { CanvasPanoramaConfigModal, type PanoramaGenerateConfig } from "@/components/canvas/canvas-panorama-config-modal";
 import { CanvasProjectAssetModal } from "@/components/canvas/canvas-project-asset-modal";
