@@ -885,6 +885,38 @@
     line-height: 1.7;
 }
 
+.smart-film-script-generation-error {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    margin-bottom: 12px;
+    padding: 12px 14px;
+    border: 1px solid color-mix(in srgb, var(--destructive) 38%, transparent);
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--destructive) 8%, var(--background));
+    color: color-mix(in srgb, var(--destructive) 88%, var(--foreground));
+}
+
+.smart-film-script-generation-error div {
+    display: grid;
+    gap: 3px;
+}
+
+.smart-film-script-generation-error strong {
+    font-size: 13px;
+}
+
+.smart-film-script-generation-error span,
+.smart-film-script-generation-quote {
+    color: color-mix(in srgb, var(--foreground) 62%, transparent);
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+.smart-film-script-generation-quote {
+    font-weight: 500;
+}
+
 @media (max-width: 900px) {
     .smart-film-batch-number-grid,
     .smart-film-batch-model-grid,

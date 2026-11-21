@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { App, Button, Checkbox, Input, InputNumber, Select, Tag, Tooltip } from "antd";
-import { ArrowLeft, CheckCircle2, Clapperboard, Columns3, Edit3, LoaderCircle, Play, RefreshCcw, Sparkles, Trash2 } from "lucide-react";
+import { ArrowLeft, CheckCircle2, CircleAlert, Clapperboard, Columns3, Edit3, LoaderCircle, Play, RefreshCcw, Sparkles, Trash2 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router";
 
@@ -28,14 +28,15 @@ import {
     type SmartFilmScriptStatus,
 } from "@/services/api/smart-film-batches";
 import { updateProjectUnit } from "@/services/api/projects";
-import { useAssetStore } from "@/stores/use-asset-store";
+import { useAssetStore, type ImageAsset } from "@/stores/use-asset-store";
 import { useEffectiveConfig } from "@/stores/use-config-store";
 import { useSkillRuntimeCatalog } from "@/components/skills/skill-runtime-picker";
 import { createSmartFilmSkillSnapshot } from "@/services/smart-film-skill";
-import { generateSmartFilmScripts } from "./smart-film-script-generation";
+import { generateSmartFilmScripts, quoteSmartFilmScripts, type SmartFilmScriptGenerationInput } from "./smart-film-script-generation";
 import { smartFilmRecoveryMessage, smartFilmRecoveryStage, type SmartFilmRecoveryMode } from "./smart-film-recovery";
 import { canCompareSmartFilmScripts } from "./smart-film-script-comparison";
 import { SmartFilmScriptComparisonDialog } from "./smart-film-script-comparison-dialog";
+import { smartFilmScriptReferenceBundle } from "./smart-film-script-references";
 
 import "./smart-film.css";
 import "./smart-film-batch.css";
@@ -66,6 +67,7 @@ export default function SmartFilmBatchDetailPage() {
     const queryClient = useQueryClient();
     const effectiveConfig = useEffectiveConfig();
     const assets = useAssetStore((state) => state.assets);
+    const assetsHydrated = useAssetStore((state) => state.hydrated);
     const { skills: installedSkills, loading: skillsLoading } = useSkillRuntimeCatalog();
     const [selected, setSelected] = useState<Set<string>>(new Set());
     const [comparisonOpen, setComparisonOpen] = useState(false);
@@ -80,6 +82,7 @@ export default function SmartFilmBatchDetailPage() {
     const [shotCountDraft, setShotCountDraft] = useState<number | null>(6);
     const [shotDurationsDraft, setShotDurationsDraft] = useState<number[]>([]);
     const [targetDurationDraft, setTargetDurationDraft] = useState<number | null>(30);
+    const [scriptGenerationError, setScriptGenerationError] = useState("");
     const productionHydratedBatchRef = useRef("");
     const productionSaveRevisionRef = useRef(0);
     const productionSavePayloadRef = useRef<{
@@ -115,11 +118,21 @@ export default function SmartFilmBatchDetailPage() {
     const productionMaxClipSeconds = smartFilmMaxClipSeconds(productionVideoProfile);
     const productionMaxTargetSeconds = productionMaxClipSeconds;
     const normalizedDraftShotCount = normalizeSmartFilmShotCount(shotCountDraft);
-    const productionConfigValid = productionModeDraft === "fixed" ? shotDurationsDraft.length === normalizedDraftShotCount && shotDurationsDraft.every((duration) => duration > 0 && duration <= productionMaxClipSeconds) : productionModeDraft === "smart" ? Number(targetDurationDraft) >= 1 && Number(targetDurationDraft) <= productionMaxTargetSeconds : false;
+    const productionConfigValid =
+        productionModeDraft === "fixed"
+            ? shotDurationsDraft.length === normalizedDraftShotCount && shotDurationsDraft.every((duration) => duration > 0 && duration <= productionMaxClipSeconds)
+            : productionModeDraft === "smart"
+              ? Number(targetDurationDraft) >= 1 && Number(targetDurationDraft) <= productionMaxTargetSeconds
+              : false;
     const productionDraftMatchesSaved = useMemo(() => {
         if (!batch) return false;
         const savedDurations = batch.config.shotDurationsSeconds?.length ? batch.config.shotDurationsSeconds : Array.from({ length: batch.config.shotCount || 0 }, () => batch.config.shotDurationSeconds || 0);
-        return productionModeDraft === batch.config.productionMode && (productionModeDraft === "fixed" ? normalizedDraftShotCount === (batch.config.shotCount || 0) && JSON.stringify(shotDurationsDraft) === JSON.stringify(savedDurations) : Math.round(Number(targetDurationDraft) || 0) === (batch.config.targetDurationSeconds || 0));
+        return (
+            productionModeDraft === batch.config.productionMode &&
+            (productionModeDraft === "fixed"
+                ? normalizedDraftShotCount === (batch.config.shotCount || 0) && JSON.stringify(shotDurationsDraft) === JSON.stringify(savedDurations)
+                : Math.round(Number(targetDurationDraft) || 0) === (batch.config.targetDurationSeconds || 0))
+        );
     }, [batch, normalizedDraftShotCount, productionModeDraft, shotDurationsDraft, targetDurationDraft]);
     const batchSpec = useMemo(() => {
         if (!batch) return "";
@@ -135,15 +148,55 @@ export default function SmartFilmBatchDetailPage() {
         const styleTitle = parseStyleProfile(batch.config.styleProfileJson)?.title || resolveCanvasStylePreset(batch.config.stylePresetId || "")?.title || (batch.config.stylePresetId ? "自定义画风" : "未设置画风");
         return `画幅 ${batch.config.aspectRatio} · ${durationCopy} · ${styleTitle}`;
     }, [batch]);
-    const productionCostLabel = !batch?.scripts.length ? "待生成" : !batch.config.productionMode ? "待定规格" : batchCostQuery.isFetching ? "核算中" : batchCostQuery.isError ? "待核对" : batchCostQuery.data?.enabled ? `${batchCostQuery.data.totalPoints} 积分` : "未启用";
-    const scriptReferences = useMemo(
+    const productionCostLabel = !batch?.scripts.length
+        ? "待生成"
+        : !batch.config.productionMode
+          ? "待定规格"
+          : batchCostQuery.isFetching
+            ? "核算中"
+            : batchCostQuery.isError
+              ? "待核对"
+              : batchCostQuery.data?.enabled
+                ? `${batchCostQuery.data.totalPoints} 积分`
+                : "未启用";
+    const scriptReferenceAssets = useMemo(
         () =>
-            (batch?.inputAssetIds || []).map((id, index) => ({
-                title: batch?.config.inputAssetNames?.[id] || assets.find((item) => item.id === id && item.kind === "image")?.title || `参考图 ${index + 1}`,
-                role: batch?.config.inputAssetRoles?.[id] || "other",
-            })),
-        [assets, batch?.inputAssetIds, batch?.config.inputAssetNames, batch?.config.inputAssetRoles],
+            (batch?.inputAssetIds || []).flatMap((id) => {
+                const asset = assets.find((item) => item.id === id && item.kind === "image");
+                return asset ? [asset as ImageAsset] : [];
+            }),
+        [assets, batch?.inputAssetIds],
     );
+    const missingScriptReferenceCount = Math.max(0, (batch?.inputAssetIds.length || 0) - scriptReferenceAssets.length);
+    const scriptReferenceBundle = useMemo(
+        () => smartFilmScriptReferenceBundle(scriptReferenceAssets, batch?.config.inputAssetNames || {}, batch?.config.inputAssetRoles || {}),
+        [batch?.config.inputAssetNames, batch?.config.inputAssetRoles, scriptReferenceAssets],
+    );
+    const scriptGenerationInput = useMemo<SmartFilmScriptGenerationInput | null>(
+        () =>
+            batch
+                ? {
+                      idea: batch.sourceText,
+                      references: scriptReferenceBundle.references,
+                      referenceImages: scriptReferenceBundle.referenceImages,
+                      count: Math.max(1, batch.config.scriptCount || 3),
+                      shotCount: batch.config.shotCount || undefined,
+                      shotDurationSeconds: batch.config.shotDurationSeconds || undefined,
+                      config: modelConfig(batch, effectiveConfig),
+                      batchId: batch.id,
+                      existingTitles: batch.scripts.map((script) => script.title),
+                      skillSnapshot: batch.config.skillSnapshot,
+                  }
+                : null,
+        [batch, effectiveConfig, scriptReferenceBundle],
+    );
+    const scriptQuoteQuery = useQuery({
+        queryKey: ["smart-film-script-quote", batchId, batch?.revision, batch?.config.defaultTextModel, scriptReferenceBundle.references.map((reference) => `${reference.imageIndex || 0}:${reference.role}:${reference.title}`).join("|")],
+        queryFn: () => quoteSmartFilmScripts(scriptGenerationInput!),
+        enabled: Boolean(batch && !batch.scripts.length && scriptGenerationInput && assetsHydrated && !missingScriptReferenceCount),
+        retry: false,
+        staleTime: 30_000,
+    });
     const draftScripts = batch?.scripts.filter((script) => !script.projectId) || [];
     const projectScripts = batch?.scripts.filter((script) => Boolean(script.projectId)) || [];
     const productionLocked = projectScripts.length > 0;
@@ -174,6 +227,22 @@ export default function SmartFilmBatchDetailPage() {
             const run = runsByScript.get(script.id);
             return Boolean(script.projectId && !script.unitId) || script.status === "needs_attention" || script.status === "failed" || run?.status === "needs_attention" || run?.status === "failed";
         }) || [];
+    const scriptQuoteError = scriptQuoteQuery.isError && scriptQuoteQuery.error instanceof Error ? scriptQuoteQuery.error.message : scriptQuoteQuery.isError ? "无法核算剧本生成积分" : "";
+    const visibleScriptGenerationError =
+        scriptGenerationError ||
+        (!batch?.scripts.length ? scriptQuoteError : "") ||
+        (assetsHydrated && missingScriptReferenceCount ? `有 ${missingScriptReferenceCount} 张参考素材不在当前素材库，请恢复素材后再生成剧本。` : "");
+    const scriptGenerationQuoteText = !batch?.scripts.length
+        ? assetsHydrated && missingScriptReferenceCount
+            ? "参考素材未就绪，暂不能生成"
+            : !assetsHydrated || scriptQuoteQuery.isFetching
+              ? "正在核对本次剧本生成积分…"
+              : scriptQuoteQuery.data?.enabled
+                ? `本次生成 ${batch?.config.scriptCount || 1} 条剧本约 ${scriptQuoteQuery.data.points} 积分${typeof scriptQuoteQuery.data.balance === "number" ? ` · 当前余额 ${scriptQuoteQuery.data.balance} 积分` : ""}`
+                : scriptQuoteQuery.isSuccess
+                  ? "当前渠道未启用积分计费"
+                  : "等待积分报价"
+        : "";
 
     useEffect(() => {
         if (!batch) return;
@@ -337,21 +406,39 @@ export default function SmartFilmBatchDetailPage() {
         return () => window.clearTimeout(timer);
     }, [batch?.id, batch?.revision, message, productionConfigValid, productionDraftMatchesSaved, productionLocked, productionSavePayloadSignature, productionSaveRetry, refresh, updateBatch]);
 
-    const generateMissingScripts = async () => {
-        if (!batch || busy) return;
-        setBusy("正在生成剧本候选…");
+    const approveScriptGeneration = async (input: SmartFilmScriptGenerationInput): Promise<boolean> => {
         try {
-            const generated = await generateSmartFilmScripts({
-                idea: batch.sourceText,
-                references: scriptReferences,
-                count: Math.max(1, batch.config.scriptCount || 3),
-                shotCount: batch.config.shotCount || undefined,
-                shotDurationSeconds: batch.config.shotDurationSeconds || undefined,
-                config: modelConfig(batch, effectiveConfig),
-                batchId: batch.id,
-                existingTitles: batch.scripts.map((script) => script.title),
-                skillSnapshot: batch.config.skillSnapshot,
+            const quote = await quoteSmartFilmScripts(input);
+            if (!quote.enabled) return true;
+            if (typeof quote.balance === "number" && quote.balance < quote.points) {
+                throw new Error(`积分不足：本次需要 ${quote.points} 积分，当前余额 ${quote.balance} 积分`);
+            }
+            return await new Promise<boolean>((resolve) => {
+                modal.confirm({
+                    title: `生成 ${input.regenerateIndex ? 1 : input.count} 条剧本？`,
+                    content: `本次会创建一个文本任务，预计扣除 ${quote.points} 积分${typeof quote.balance === "number" ? `，当前余额 ${quote.balance} 积分` : ""}。`,
+                    okText: "确认生成",
+                    cancelText: "取消",
+                    onOk: () => resolve(true),
+                    onCancel: () => resolve(false),
+                });
             });
+        } catch (error) {
+            const reason = error instanceof Error ? error.message : "剧本生成报价失败";
+            setScriptGenerationError(reason);
+            message.error(reason);
+            return false;
+        }
+    };
+
+    const generateMissingScripts = async () => {
+        if (!batch || !scriptGenerationInput || busy) return;
+        setScriptGenerationError("");
+        setBusy("正在核算剧本生成积分…");
+        try {
+            if (!(await approveScriptGeneration(scriptGenerationInput))) return;
+            setBusy("正在生成剧本候选…");
+            const generated = await generateSmartFilmScripts(scriptGenerationInput);
             const result = await saveSmartFilmBatchScripts(
                 batch.id,
                 generated.scripts.map((script) => ({
@@ -364,29 +451,28 @@ export default function SmartFilmBatchDetailPage() {
             updateBatch(result.batch);
             message.success(`已生成 ${generated.scripts.length} 条独立剧本`);
         } catch (error) {
-            message.error(error instanceof Error ? error.message : "剧本生成失败");
+            const reason = error instanceof Error ? error.message : "剧本生成失败";
+            setScriptGenerationError(reason);
+            message.error(reason);
         } finally {
             setBusy("");
         }
     };
 
     const regenerateScript = async (script: SmartFilmScript) => {
-        if (!batch || busy || script.projectId) return;
-        setBusy(`正在重新生成「${script.title}」…`);
+        if (!batch || !scriptGenerationInput || busy || script.projectId) return;
+        const input: SmartFilmScriptGenerationInput = {
+            ...scriptGenerationInput,
+            count: 1,
+            existingTitles: batch.scripts.filter((item) => item.id !== script.id).map((item) => item.title),
+            regenerateIndex: batch.scripts.findIndex((item) => item.id === script.id) + 1,
+        };
+        setScriptGenerationError("");
+        setBusy("正在核算剧本生成积分…");
         try {
-            const index = batch.scripts.findIndex((item) => item.id === script.id) + 1;
-            const generated = await generateSmartFilmScripts({
-                idea: batch.sourceText,
-                references: scriptReferences,
-                count: 1,
-                shotCount: batch.config.shotCount || undefined,
-                shotDurationSeconds: batch.config.shotDurationSeconds || undefined,
-                config: modelConfig(batch, effectiveConfig),
-                batchId: batch.id,
-                existingTitles: batch.scripts.filter((item) => item.id !== script.id).map((item) => item.title),
-                regenerateIndex: index,
-                skillSnapshot: batch.config.skillSnapshot,
-            });
+            if (!(await approveScriptGeneration(input))) return;
+            setBusy(`正在重新生成「${script.title}」…`);
+            const generated = await generateSmartFilmScripts(input);
             const next = generated.scripts[0];
             if (!next) throw new Error("模型没有返回有效剧本");
             const result = await updateSmartFilmBatchScript(batch.id, script.id, {
@@ -400,7 +486,9 @@ export default function SmartFilmBatchDetailPage() {
             updateBatch(result.batch);
             message.success("剧本已重新生成");
         } catch (error) {
-            message.error(error instanceof Error ? error.message : "重新生成失败");
+            const reason = error instanceof Error ? error.message : "重新生成失败";
+            setScriptGenerationError(reason);
+            message.error(reason);
             await refresh();
         } finally {
             setBusy("");
@@ -738,7 +826,18 @@ export default function SmartFilmBatchDetailPage() {
                             {productionLocked ? (
                                 <div className="smart-film-skill-locked-copy">{currentSkillSnapshot ? `${currentSkillSnapshot.name}${currentSkillSnapshot.version ? ` · ${currentSkillSnapshot.version}` : ""}` : "平台默认技能规则"}</div>
                             ) : (
-                                <Select allowClear showSearch value={skillDraftId || undefined} loading={skillsLoading} disabled={Boolean(busy) || productionSaving || skillSaving} optionFilterProp="label" placeholder="选择本次项目唯一技能" options={skillOptions} onChange={(value) => setSkillDraftId(value || "")} aria-label="更换本次项目唯一技能" />
+                                <Select
+                                    allowClear
+                                    showSearch
+                                    value={skillDraftId || undefined}
+                                    loading={skillsLoading}
+                                    disabled={Boolean(busy) || productionSaving || skillSaving}
+                                    optionFilterProp="label"
+                                    placeholder="选择本次项目唯一技能"
+                                    options={skillOptions}
+                                    onChange={(value) => setSkillDraftId(value || "")}
+                                    aria-label="更换本次项目唯一技能"
+                                />
                             )}
                         </label>
                         <div className="smart-film-skill-edit-actions">
@@ -752,7 +851,9 @@ export default function SmartFilmBatchDetailPage() {
                             </Button>
                         </div>
                     </div>
-                    <p className="smart-film-skill-edit-note">{productionLocked ? "已有项目进入制作，技能和版本已锁定。" : batch.scripts.length ? "更换技能不会自动重写已有剧本；建议更换后重新生成剧本，再创建项目。" : "选择并应用后，后续剧本、资产、分镜和视频都会使用这一个 Skill。"}</p>
+                    <p className="smart-film-skill-edit-note">
+                        {productionLocked ? "已有项目进入制作，技能和版本已锁定。" : batch.scripts.length ? "更换技能不会自动重写已有剧本；建议更换后重新生成剧本，再创建项目。" : "选择并应用后，后续剧本、资产、分镜和视频都会使用这一个 Skill。"}
+                    </p>
                 </section>
 
                 {batch.scripts.length ? (
@@ -794,7 +895,12 @@ export default function SmartFilmBatchDetailPage() {
                                     {shotDurationsDraft.map((duration, index) => (
                                         <label key={index}>
                                             <span>镜头 {index + 1}</span>
-                                            <Select value={duration} disabled={productionLocked || Boolean(busy)} options={productionDurationOptions.map((value) => ({ value, label: `${value} 秒` }))} onChange={(value) => setShotDurationsDraft((current) => current.map((item, itemIndex) => (itemIndex === index ? value : item)))} />
+                                            <Select
+                                                value={duration}
+                                                disabled={productionLocked || Boolean(busy)}
+                                                options={productionDurationOptions.map((value) => ({ value, label: `${value} 秒` }))}
+                                                onChange={(value) => setShotDurationsDraft((current) => current.map((item, itemIndex) => (itemIndex === index ? value : item)))}
+                                            />
                                         </label>
                                     ))}
                                 </div>
@@ -811,14 +917,28 @@ export default function SmartFilmBatchDetailPage() {
                         ) : null}
                         <div className="smart-film-production-config-foot">
                             <span>视频模型：{batch.config.defaultVideoModel || effectiveConfig.videoModel || "未配置"}</span>
-                            <span>{productionLocked ? "项目已经开始制作，制作规格不可再修改。" : productionSaving ? "正在自动保存…" : productionConfigValid && productionDraftMatchesSaved ? "已自动保存" : productionConfigValid ? "等待同步…" : "选择后自动保存"}</span>
+                            <span>
+                                {productionLocked
+                                    ? "项目已经开始制作，制作规格不可再修改。"
+                                    : productionSaving
+                                      ? "正在自动保存…"
+                                      : productionConfigValid && productionDraftMatchesSaved
+                                        ? "已自动保存"
+                                        : productionConfigValid
+                                          ? "等待同步…"
+                                          : "选择后自动保存"}
+                            </span>
                         </div>
                     </section>
                 ) : null}
 
                 <div className="smart-film-batch-toolbar">
                     <div className="flex items-center gap-2">
-                        <Checkbox checked={Boolean(batch.scripts.length) && selectedScripts.length === batch.scripts.length} indeterminate={selectedScripts.length > 0 && selectedScripts.length < batch.scripts.length} onChange={(event) => setSelected(event.target.checked ? new Set(batch.scripts.map((script) => script.id)) : new Set())}>
+                        <Checkbox
+                            checked={Boolean(batch.scripts.length) && selectedScripts.length === batch.scripts.length}
+                            indeterminate={selectedScripts.length > 0 && selectedScripts.length < batch.scripts.length}
+                            onChange={(event) => setSelected(event.target.checked ? new Set(batch.scripts.map((script) => script.id)) : new Set())}
+                        >
                             选择全部剧本
                         </Checkbox>
                         <span className="text-xs text-foreground/45">已选 {selectedScripts.length} 条</span>
@@ -847,6 +967,16 @@ export default function SmartFilmBatchDetailPage() {
                     </div>
                 </div>
 
+                {visibleScriptGenerationError ? (
+                    <div className="smart-film-script-generation-error" role="alert">
+                        <CircleAlert className="size-4 shrink-0" />
+                        <div>
+                            <strong>剧本没有生成成功</strong>
+                            <span>{visibleScriptGenerationError}</span>
+                        </div>
+                    </div>
+                ) : null}
+
                 {batch.scripts.length ? (
                     <div className="smart-film-script-list">
                         {batch.scripts.map((script, index) => (
@@ -873,7 +1003,9 @@ export default function SmartFilmBatchDetailPage() {
                                             </Tag>
                                         </div>
                                     ) : null}
-                                    {script.error || runsByScript.get(script.id)?.error ? <div className="smart-film-script-error">{script.error || `创建中断（${runsByScript.get(script.id)?.failedStep || "未知步骤"}）：${runsByScript.get(script.id)?.error}`}</div> : null}
+                                    {script.error || runsByScript.get(script.id)?.error ? (
+                                        <div className="smart-film-script-error">{script.error || `创建中断（${runsByScript.get(script.id)?.failedStep || "未知步骤"}）：${runsByScript.get(script.id)?.error}`}</div>
+                                    ) : null}
                                     {smartFilmRecoveryStage(runsByScript.get(script.id)?.failedStep) ? (
                                         <div className="smart-film-recovery-hint">
                                             <span>重试并优先复用：有可复用结果时直接继续，否则提交新任务。</span>
@@ -945,6 +1077,7 @@ export default function SmartFilmBatchDetailPage() {
                         <Sparkles className="size-7 text-foreground/30" />
                         <strong>这次多剧本生成还没有剧本</strong>
                         <span>上次生成成功的剧本可能尚未保存。先尝试恢复上次结果；找不到时再按同一组想法和参考图重新生成 {batch.config.scriptCount} 条独立剧本。</span>
+                        <small className="smart-film-script-generation-quote">{scriptGenerationQuoteText}</small>
                         <div className="flex flex-wrap justify-center gap-2">
                             <Button type="primary" loading={Boolean(busy)} onClick={() => void generateMissingScripts()}>
                                 重新生成剧本

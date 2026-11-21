@@ -25,6 +25,7 @@ import { createSmartFilmSkillSnapshot, smartFilmSkillStagePrompt } from "@/servi
 import { useAssetStore, type ImageAsset } from "@/stores/use-asset-store";
 import { logicalModelIDForConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { generateSmartFilmScripts } from "./smart-film-script-generation";
+import { smartFilmScriptReferenceBundle } from "./smart-film-script-references";
 
 import "./smart-film.css";
 import "./smart-film-batch.css";
@@ -154,10 +155,7 @@ export default function SmartFilmBatchNewPage() {
     const buildBatchInput = (sourceText: string, skillSnapshot = selectedSkillSnapshot): SmartFilmBatchCreateInput => {
         const resolvedScriptCount = Math.max(1, Math.min(10, Number(scriptCount) || 3));
         const inputAssetNames = buildInputAssetNames();
-        const references = productAssets.map((asset) => ({
-            title: inputAssetNames[asset.id] || asset.title,
-            role: referenceRoles[asset.id] || "prop",
-        })) satisfies SmartFilmScriptReference[];
+        const { references } = smartFilmScriptReferenceBundle(productAssets, inputAssetNames, referenceRoles);
         const scriptPrompt = smartFilmSkillStagePrompt(skillSnapshot, "script", smartFilmScriptPrompt({ idea: sourceText, references, count: resolvedScriptCount }));
         const textProvider = {
             ...backendProviderConfig({ ...effectiveConfig, model: resolvedTextModel, textModel: resolvedTextModel }, "text"),
@@ -321,7 +319,10 @@ export default function SmartFilmBatchNewPage() {
             try {
                 quote = await previewSmartFilmBatchCost(request);
             } catch (error) {
-                setSubmitError(`积分报价暂不可用，将继续创建剧本；实际提交任务时会再次核价。${error instanceof Error ? ` ${error.message}` : ""}`);
+                const reason = error instanceof Error ? error.message : "积分报价暂不可用";
+                setSubmitError(`积分核价未通过，本次未创建剧本项目。${reason}`);
+                message.error(reason);
+                return;
             }
             if (smartFilmBatchCostStatus(quote) === "insufficient") {
                 const reason = `积分不足：本次预计 ${quote?.totalPoints || 0} 积分，当前余额 ${quote?.balance || 0} 积分`;
@@ -337,12 +338,11 @@ export default function SmartFilmBatchNewPage() {
             batchId = created.batch.id;
             setGenerationProgress(10);
             setStatus(`正在生成 ${resolvedScriptCount} 条独立剧本…`);
+            const scriptBundle = smartFilmScriptReferenceBundle(productAssets, inputAssetNames, referenceRoles);
             const generated = await generateSmartFilmScripts({
                 idea: sourceText,
-                references: productAssets.map((asset) => ({
-                    title: inputAssetNames[asset.id] || asset.title,
-                    role: referenceRoles[asset.id] || "prop",
-                })) satisfies SmartFilmScriptReference[],
+                references: scriptBundle.references satisfies SmartFilmScriptReference[],
+                referenceImages: scriptBundle.referenceImages,
                 count: resolvedScriptCount,
                 config: { ...effectiveConfig, model: resolvedTextModel, textModel: resolvedTextModel, imageModel: resolvedImageModel, videoModel: selectedVideoModel },
                 batchId,

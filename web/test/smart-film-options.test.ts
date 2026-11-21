@@ -31,6 +31,23 @@ test("multi-script film prompt preserves product, character and scene reference 
     expect(prompt).toContain("开场钩子：");
     expect(prompt).not.toContain("用户提供的产品参考图：便携咖啡机、通勤女生、清晨厨房");
 });
+
+test("multi-script film prompt maps visual inputs to their reference image order", () => {
+    const prompt = smartFilmScriptPrompt({
+        idea: "锁定风暴巡洋舰外观",
+        references: [
+            { title: "风暴巡洋舰", role: "product", imageIndex: 1 },
+            { title: "舰长", role: "character", imageIndex: 2 },
+        ],
+        count: 2,
+    });
+
+    expect(prompt).toContain("产品参考：风暴巡洋舰（第 1 张图）");
+    expect(prompt).toContain("人物参考：舰长（第 2 张图）");
+    expect(prompt).toContain("已经作为视觉输入提供");
+    expect(prompt).toContain("必须先读取图片中的真实外观");
+});
+
 test("multi-script film keeps per-shot duration inside the selected video model limit", () => {
     const video = defaultModelCapabilityConfig("openai-videos").video!;
     video.duration = { selection: "enum", values: [4, 6, 8], default: 6 };

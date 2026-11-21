@@ -6,10 +6,14 @@ export type GeneratedSmartFilmScript = {
 export type SmartFilmScriptReference = {
     title: string;
     role: "product" | "scene" | "character" | "prop" | "other";
+    imageIndex?: number;
 };
 
 export function parseGeneratedSmartFilmScripts(answer: string): GeneratedSmartFilmScript[] {
-    const cleaned = answer.replace(/```json/gi, "").replace(/```/g, "").trim();
+    const cleaned = answer
+        .replace(/```json/gi, "")
+        .replace(/```/g, "")
+        .trim();
     const jsonScripts = parseJSONScripts(cleaned);
     if (jsonScripts.length) return jsonScripts;
 
@@ -52,11 +56,7 @@ function parseJSONScripts(value: string): GeneratedSmartFilmScript[] {
     for (const candidate of candidates) {
         try {
             const parsed: unknown = JSON.parse(candidate);
-            const rows = Array.isArray(parsed)
-                ? parsed
-                : parsed && typeof parsed === "object" && Array.isArray((parsed as Record<string, unknown>).scripts)
-                  ? (parsed as Record<string, unknown>).scripts as unknown[]
-                  : [];
+            const rows = Array.isArray(parsed) ? parsed : parsed && typeof parsed === "object" && Array.isArray((parsed as Record<string, unknown>).scripts) ? ((parsed as Record<string, unknown>).scripts as unknown[]) : [];
             const scripts = rows.flatMap((row): GeneratedSmartFilmScript[] => {
                 if (!row || typeof row !== "object") return [];
                 const item = row as Record<string, unknown>;
@@ -72,28 +72,16 @@ function parseJSONScripts(value: string): GeneratedSmartFilmScript[] {
     return [];
 }
 
-export function smartFilmScriptPrompt(input: {
-    idea: string;
-    references: SmartFilmScriptReference[];
-    count: number;
-    shotCount?: number;
-    shotDurationSeconds?: number;
-    existingTitles?: string[];
-    regenerateIndex?: number;
-}) {
+export function smartFilmScriptPrompt(input: { idea: string; references: SmartFilmScriptReference[]; count: number; shotCount?: number; shotDurationSeconds?: number; existingTitles?: string[]; regenerateIndex?: number }) {
     const referenceBlock = smartFilmReferenceBlock(input.references);
-    const avoid = input.existingTitles?.length
-        ? `不要重复以下已有剧本的标题和核心创意：${input.existingTitles.join("、")}。`
-        : "";
-    const target = input.regenerateIndex
-        ? `只生成第 ${input.regenerateIndex} 条替代剧本，仍然输出 1 条。`
-        : `生成 ${input.count} 条互不依赖、互不连续的独立短视频剧本。每条都会单独进入一个视频项目，不能写成前后集。`;
-    const productionHint = input.shotCount && input.shotCount > 0
-        ? `每条视频预计 ${input.shotCount} 个镜头${input.shotDurationSeconds && input.shotDurationSeconds > 0 ? `，单镜约 ${input.shotDurationSeconds} 秒` : ""}。`
-        : "分镜数量和时长将在剧本确认后设置，本轮只需要写出完整、可拆分的独立剧本。";
-    const directionRule = input.count >= 3
-        ? "当生成 3 条及以上时，必须分别使用不同的创意策略：至少覆盖痛点共鸣、场景故事、结果证明中的三种方向；每条的开场钩子、主要场景、叙事结构和结尾不能重复。"
-        : "不同剧本必须使用不同的开场钩子、主要场景、叙事结构和结尾。";
+    const avoid = input.existingTitles?.length ? `不要重复以下已有剧本的标题和核心创意：${input.existingTitles.join("、")}。` : "";
+    const target = input.regenerateIndex ? `只生成第 ${input.regenerateIndex} 条替代剧本，仍然输出 1 条。` : `生成 ${input.count} 条互不依赖、互不连续的独立短视频剧本。每条都会单独进入一个视频项目，不能写成前后集。`;
+    const productionHint =
+        input.shotCount && input.shotCount > 0
+            ? `每条视频预计 ${input.shotCount} 个镜头${input.shotDurationSeconds && input.shotDurationSeconds > 0 ? `，单镜约 ${input.shotDurationSeconds} 秒` : ""}。`
+            : "分镜数量和时长将在剧本确认后设置，本轮只需要写出完整、可拆分的独立剧本。";
+    const directionRule =
+        input.count >= 3 ? "当生成 3 条及以上时，必须分别使用不同的创意策略：至少覆盖痛点共鸣、场景故事、结果证明中的三种方向；每条的开场钩子、主要场景、叙事结构和结尾不能重复。" : "不同剧本必须使用不同的开场钩子、主要场景、叙事结构和结尾。";
     return [
         "你是短视频导演和商业内容编剧。请把用户想法拆成可直接进入资产提取、分镜和视频生成的独立剧本。",
         "",
@@ -109,7 +97,9 @@ export function smartFilmScriptPrompt(input: {
         "",
         "只返回严格 JSON，不要 Markdown，不要解释：",
         '{"scripts":[{"title":"不超过 24 字的标题","content":"创意方向：...\\n开场钩子：...\\n正文：...\\n结尾：..."}]}',
-    ].filter(Boolean).join("\n");
+    ]
+        .filter(Boolean)
+        .join("\n");
 }
 
 function smartFilmReferenceBlock(references: SmartFilmScriptReference[]) {
@@ -128,18 +118,17 @@ function smartFilmReferenceBlock(references: SmartFilmScriptReference[]) {
         const title = reference.title.trim();
         if (!title) return;
         const titles = grouped.get(reference.role) || new Set<string>();
-        titles.add(title);
+        titles.add(reference.imageIndex ? `${title}（第 ${reference.imageIndex} 张图）` : title);
         grouped.set(reference.role, titles);
     });
-    const lines = (Object.keys(labels) as SmartFilmScriptReference["role"][])
-        .flatMap((role) => grouped.has(role) ? [`${labels[role]}：${Array.from(grouped.get(role)!).join("、")}`] : []);
+    const lines = (Object.keys(labels) as SmartFilmScriptReference["role"][]).flatMap((role) => (grouped.has(role) ? [`${labels[role]}：${Array.from(grouped.get(role)!).join("、")}`] : []));
     if (!lines.length) {
         return "用户本次没有上传参考素材，请根据文字想法保持人物、场景、道具和产品描述具体、可执行。";
     }
     return [
         "用户提供的参考素材如下，请按素材类型使用，不要把所有参考图都写成产品：",
         ...lines,
-        "产品参考作为展示主体时必须保持外观一致；人物、场景和道具参考分别用于锁定角色身份、环境和关键物件，后续会用对应原图生成资产。",
+        "标有图片序号的参考图已经作为视觉输入提供。必须先读取图片中的真实外观，再写入剧本；产品参考作为展示主体时必须保持外观一致，人物、场景和道具参考分别用于锁定角色身份、环境和关键物件。",
         "凡是人物参考中提供了名称的，剧本必须原样使用该名称，不得改成“人物参考”“男主”“女主”等泛指称呼。",
     ].join("\n");
 }
