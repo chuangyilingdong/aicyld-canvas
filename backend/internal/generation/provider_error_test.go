@@ -54,6 +54,17 @@ func TestOutboundPolicyErrorsHaveActionableCopyAndDiagnostics(t *testing.T) {
 	}
 }
 
+func TestRunningHubReferenceDownloadTimeoutIsRetryable(t *testing.T) {
+	body := `{"errorCode":"1013","errorMessage":"File download timed out. Please check the image URL or try again later | 文件下载超时，请检查图片链接或稍后重试","taskId":"2124390080256024578","status":"FAILED"}`
+	failure := generation.ClassifyText(body)
+	if failure.Category != generation.CategoryProviderUnavailable || failure.Uncertain || !failure.Retryable || failure.BlocksManualRetry() || failure.BlocksAutomaticRetry() {
+		t.Fatalf("reference download timeout classification = %#v", failure)
+	}
+	if !strings.Contains(failure.Reason, "下载参考素材超时") || !strings.Contains(failure.Action, "切换图片模型") || failure.TaskID != "2124390080256024578" {
+		t.Fatalf("reference download timeout copy = %q", failure.UserMessage())
+	}
+}
+
 func TestOutboundPolicyCopyDoesNotOverrideStructuredProviderErrors(t *testing.T) {
 	for _, raw := range []string{
 		`{"error":{"code":"invalid_api_key","message":"不允许访问本机或内网地址"},"request_id":"req-auth","task_id":"job-auth"}`,

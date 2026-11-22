@@ -144,11 +144,12 @@ type Media struct {
 type WorkflowField = workflow.Field
 
 type MediaHydrationPolicy struct {
-	ManualURL   bool
-	RequireURL  bool
-	PreferURL   bool
-	PreferHTTPS bool
-	KeepLocal   bool
+	ManualURL    bool
+	RequireURL   bool
+	PreferURL    bool
+	PreferHTTPS  bool
+	KeepLocal    bool
+	ImageMaxEdge int
 }
 
 type ImageResponse struct {

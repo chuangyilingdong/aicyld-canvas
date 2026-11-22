@@ -39,10 +39,26 @@ export function SmartFilmStoryboardBoard({ detail, batch, shots, readyCount, bus
     const allReady = shots.length > 0 && readyCount === shots.length;
     const assetById = new Map(detail.assets.map((asset) => [asset.id, asset]));
     const issues: Array<{ key: string; label: string; tone: "warning" | "danger" }> = [];
+    const latestFailures = new Map<string, { task: GenerationTask; count: number }>();
     for (const task of detail.tasks || []) {
         if (task.status !== "failed" || !["storyboard", "smart_film"].includes(task.clientContext?.artifactType || "")) continue;
+        const target = `${task.clientContext?.artifactType}:${task.clientContext?.shotId || task.id}`;
+        const previous = latestFailures.get(target);
+        if (!previous) {
+            latestFailures.set(target, { task, count: 1 });
+        } else {
+            const previousAt = Date.parse(previous.task.createdAt);
+            const currentAt = Date.parse(task.createdAt);
+            latestFailures.set(target, {
+                task: Number.isFinite(currentAt) && (!Number.isFinite(previousAt) || currentAt > previousAt) ? task : previous.task,
+                count: previous.count + 1,
+            });
+        }
+    }
+    for (const { task, count } of latestFailures.values()) {
         const shotTitle = shots.find((shot) => shot.id === task.clientContext?.shotId)?.title;
-        issues.push({ key: `task:${task.id}`, label: `${shotTitle || "生成任务"}失败：${task.error || "请重新提交"}`, tone: "danger" });
+        const retryCopy = count > 1 ? `（该镜头连续失败 ${count} 次，仅显示最新一次）` : "";
+        issues.push({ key: `task:${task.id}`, label: `${shotTitle || "生成任务"}失败：${task.error || "请重新提交"}${retryCopy}`, tone: "danger" });
     }
     for (const shot of shots) {
         const artifact = currentArtifact(detail, shot.id, "storyboard");

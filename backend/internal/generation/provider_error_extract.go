@@ -271,10 +271,10 @@ func walkProviderFields(payload map[string]any, depth int) extractedFields {
 	if payload == nil || depth > maxWalkDepth {
 		return fields
 	}
-	fields.Code = firstNonEmpty(fields.Code, allowlistedString(payload["code"]))
+	fields.Code = firstNonEmpty(fields.Code, allowlistedString(payload["code"]), allowlistedString(payload["errorCode"]), allowlistedString(payload["error_code"]))
 	fields.Type = firstNonEmpty(fields.Type, allowlistedString(payload["type"]))
 	fields.Status = firstNonEmpty(fields.Status, allowlistedString(payload["status"]))
-	fields.Message = firstNonEmpty(fields.Message, allowlistedString(payload["message"]), allowlistedString(payload["msg"]), allowlistedString(payload["detail"]))
+	fields.Message = firstNonEmpty(fields.Message, allowlistedString(payload["message"]), allowlistedString(payload["msg"]), allowlistedString(payload["detail"]), allowlistedString(payload["errorMessage"]), allowlistedString(payload["error_message"]))
 	fields.Param = firstNonEmpty(fields.Param, allowlistedString(payload["param"]), allowlistedString(payload["parameter"]))
 	fields.RequestID = firstNonEmpty(fields.RequestID, allowlistedString(payload["request_id"]), allowlistedString(payload["requestId"]), allowlistedString(payload["request-id"]))
 	fields.TaskID = firstNonEmpty(fields.TaskID, allowlistedString(payload["task_id"]), allowlistedString(payload["taskId"]))

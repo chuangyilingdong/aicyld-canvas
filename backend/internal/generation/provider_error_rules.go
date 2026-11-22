@@ -478,6 +478,12 @@ func isDownloadText(value string) bool {
 	return strings.Contains(value, "视频结果下载失败") || strings.Contains(value, "下载失败") && strings.Contains(value, "结果")
 }
 
+func isReferenceDownloadTimeoutText(value string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	return strings.Contains(normalized, "file download timed out") ||
+		strings.Contains(value, "文件下载超时") && (strings.Contains(normalized, "image url") || strings.Contains(value, "图片"))
+}
+
 func isCancelledText(value string) bool {
 	return strings.Contains(value, "任务已取消") || strings.Contains(value, "请求已取消") || strings.Contains(strings.ToLower(value), "context canceled")
 }

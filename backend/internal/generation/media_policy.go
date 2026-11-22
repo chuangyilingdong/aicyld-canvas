@@ -21,7 +21,10 @@ func MediaHydrationPolicyFor(ctx context.Context, input Input) MediaHydrationPol
 	if requiresBeefAPIHTTPReferences(ctx, input.Config) {
 		return MediaHydrationPolicy{KeepLocal: true}
 	}
-	policy := MediaHydrationPolicy{PreferURL: PrefersMediaURLs(input.Config.InterfaceType, input)}
+	policy := MediaHydrationPolicy{
+		PreferURL:    PrefersMediaURLs(input.Config.InterfaceType, input),
+		ImageMaxEdge: optimizedReferenceImageMaxEdge(input.Config),
+	}
 	if model.IsVolcengineArkVideoProtocol(model.ChannelInterfaceType(input.Config.InterfaceType)) {
 		return MediaHydrationPolicy{PreferHTTPS: true}
 	}
@@ -49,6 +52,21 @@ func MediaHydrationPolicyFor(ctx context.Context, input Input) MediaHydrationPol
 		policy.PreferURL = false
 	}
 	return policy
+}
+
+// RunningHub's Seedream 5 Pro image-to-image endpoint has a shorter practical
+// download window than other image protocols. Keep original resources intact,
+// but serve a high-quality derived copy only for this endpoint.
+func optimizedReferenceImageMaxEdge(config Config) int {
+	endpoint := strings.ToLower(strings.Join([]string{
+		config.ProviderModelKey,
+		config.ChannelModelKey,
+		config.Model,
+	}, " "))
+	if strings.Contains(endpoint, "seedream-v5-pro/image-to-image") || strings.Contains(endpoint, "rh-seedream-v5-pro-i2i") {
+		return 2560
+	}
+	return 0
 }
 
 // One protocol can accept inline images while requiring URLs for video/audio.

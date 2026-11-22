@@ -1,6 +1,11 @@
 package handler
 
 import (
+	"bytes"
+	"image"
+	"image/color"
+	"image/jpeg"
+	"image/png"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -37,7 +42,17 @@ func TestSignedPublicResourceRouteServesLocalResourceAndRejectsInvalidSignature(
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload := []byte("public-resource-bytes")
+	source := image.NewRGBA(image.Rect(0, 0, 1024, 512))
+	for y := 0; y < source.Bounds().Dy(); y++ {
+		for x := 0; x < source.Bounds().Dx(); x++ {
+			source.Set(x, y, color.RGBA{R: 220, G: 40, B: 40, A: 255})
+		}
+	}
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, source); err != nil {
+		t.Fatal(err)
+	}
+	payload := encoded.Bytes()
 	resource := model.Resource{
 		ID: "public-resource", UserID: owner.ID, Kind: "image", MimeType: "image/png",
 		Provider: "local", Status: model.ResourceStatusReady, ObjectKey: "public-resource.png", Size: int64(len(payload)),
@@ -82,7 +97,28 @@ func TestSignedPublicResourceRouteServesLocalResourceAndRejectsInvalidSignature(
 	request.Header.Set("Range", "bytes=0-5")
 	response = httptest.NewRecorder()
 	router.ServeHTTP(response, request)
-	if response.Code != http.StatusPartialContent || response.Body.String() != "public" {
+	if response.Code != http.StatusPartialContent || response.Body.String() != string(payload[:6]) {
 		t.Fatalf("signed public range = %d %q", response.Code, response.Body.String())
+	}
+
+	previewURL, err := url.Parse(signed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	query = previewURL.Query()
+	query.Set("max_edge", "512")
+	query.Set("quality", "88")
+	previewURL.RawQuery = query.Encode()
+	response = httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, previewURL.String(), nil))
+	if response.Code != http.StatusOK || response.Header().Get("Content-Type") != "image/jpeg" {
+		t.Fatalf("optimized public resource = %d %q", response.Code, response.Header().Get("Content-Type"))
+	}
+	preview, err := jpeg.Decode(bytes.NewReader(response.Body.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.Bounds().Dx() != 512 || preview.Bounds().Dy() != 256 {
+		t.Fatalf("optimized public resource bounds = %v", preview.Bounds())
 	}
 }

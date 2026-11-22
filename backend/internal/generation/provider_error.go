@@ -493,6 +493,19 @@ func ClassifyText(raw string) Failure {
 		if copy, ok := referenceDurationCopy(fields.Message); ok {
 			return normalizeFailure(Failure{Category: CategoryInvalidParams, Reason: copy.Reason, Action: copy.Action, RequestID: fields.RequestID, TaskID: fields.TaskID, ProviderCode: sanitizeProviderCode(fields.Code), Structured: true, FromCode: true})
 		}
+		if isReferenceDownloadTimeoutText(fields.Message) {
+			return normalizeFailure(Failure{
+				Category:        CategoryProviderUnavailable,
+				Reason:          "上游下载参考素材超时，本次未生成结果",
+				Action:          "可以直接重试；如果连续失败，请切换图片模型",
+				ProviderCode:    sanitizeProviderCode(firstNonEmpty(fields.Code, "reference_download_timeout")),
+				ProviderMessage: sanitizeProviderText(fields.Message),
+				RequestID:       sanitizeDebugID(fields.RequestID),
+				TaskID:          sanitizeDebugID(fields.TaskID),
+				Structured:      true,
+				FromCode:        true,
+			})
+		}
 		failure.Structured = true
 		failure.ProviderCode = sanitizeProviderCode(fields.Code)
 		failure.ProviderMessage = sanitizeProviderText(fields.Message)
@@ -548,6 +561,18 @@ func ClassifyText(raw string) Failure {
 	if isMalformedText(text) {
 		failure.Category = CategoryMalformedResponse
 		return normalizeFailure(failure)
+	}
+	if isReferenceDownloadTimeoutText(text) {
+		requestID, taskID := persistedReferenceIDs(text)
+		return normalizeFailure(Failure{
+			Category:     CategoryProviderUnavailable,
+			Reason:       "上游下载参考素材超时，本次未生成结果",
+			Action:       "可以直接重试；如果连续失败，请切换图片模型",
+			ProviderCode: "reference_download_timeout",
+			RequestID:    requestID,
+			TaskID:       taskID,
+			FromCode:     true,
+		})
 	}
 	if category, ok := categoryFromProviderMessage(text); ok {
 		failure.Category = category

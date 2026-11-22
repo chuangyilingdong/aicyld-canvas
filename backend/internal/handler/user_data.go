@@ -33,6 +33,22 @@ func parsePositiveInt(value string) int {
 	return parsed
 }
 
+func serveReferencePreview(c *gin.Context, reader io.Reader, mimeType string) bool {
+	referenceEdge := normalizePublicReferenceImageEdge(parsePositiveInt(c.Query("max_edge")))
+	if referenceEdge <= 0 || strings.TrimSpace(c.GetHeader("Range")) != "" || !strings.HasPrefix(mimeType, "image/") {
+		return false
+	}
+	content, err := renderResourcePreview(reader, referenceEdge, parsePositiveInt(c.Query("quality")))
+	if err != nil {
+		failService(c, err)
+		return true
+	}
+	c.Header("Content-Type", "image/jpeg")
+	c.Header("Content-Length", strconv.Itoa(len(content)))
+	c.Data(http.StatusOK, "image/jpeg", content)
+	return true
+}
+
 // userDataUsage is the storage meter the resource page still reads from the
 // composition root. Playback preparation stays there because it reloads the
 // resource after the domain prepares it.
@@ -383,6 +399,9 @@ func registerUserDataRoutes(r *gin.RouterGroup, owners workspaceOwners, canvasDa
 			resource.MimeType = "application/octet-stream"
 		}
 		if resource.Provider == "local" {
+			if serveReferencePreview(c, stream.Body, resource.MimeType) {
+				return
+			}
 			if seeker, ok := stream.Body.(io.ReadSeeker); ok {
 				c.Header("Content-Type", resource.MimeType)
 				http.ServeContent(c.Writer, c.Request, resource.ID, resource.UpdatedAt, seeker)
@@ -431,6 +450,9 @@ func registerUserDataRoutes(r *gin.RouterGroup, owners workspaceOwners, canvasDa
 			c.Header("Accept-Ranges", stream.AcceptRanges)
 		}
 		if resource.Provider == "local" {
+			if serveReferencePreview(c, stream.Body, mimeType) {
+				return
+			}
 			if seeker, ok := stream.Body.(io.ReadSeeker); ok {
 				c.Header("Content-Type", mimeType)
 				http.ServeContent(c.Writer, c.Request, resource.ID, resource.UpdatedAt, seeker)

@@ -172,4 +172,17 @@ describe("release regression source contracts", () => {
         expect(repair).toContain("WHERE stage = 'submission_unknown'");
         expect(repair).toContain('"regenerate": "allowed"');
     });
+
+    test("keeps storyboard retry noise deduplicated and Seedream reference delivery bounded", () => {
+        const board = source("pages/projects/detail/smart-film-production-board.tsx");
+        expect(board).toContain("latestFailures");
+        expect(board).toContain("仅显示最新一次");
+        const protocol = readFileSync(new URL("../../backend/internal/generation/media_policy.go", import.meta.url), "utf8");
+        expect(protocol).toContain("seedream-v5-pro/image-to-image");
+        expect(protocol).toContain("return 2560");
+        const resourceRoute = readFileSync(new URL("../../backend/internal/handler/user_data.go", import.meta.url), "utf8");
+        expect(resourceRoute).toContain("serveReferencePreview");
+        expect(resourceRoute).toContain('r.GET("/public/resources/:id/file/:filename"');
+        expect(resourceRoute.match(/serveReferencePreview\(c, stream\.Body/g)?.length).toBeGreaterThanOrEqual(2);
+    });
 });

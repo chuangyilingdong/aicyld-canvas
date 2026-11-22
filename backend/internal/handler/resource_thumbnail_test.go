@@ -44,3 +44,31 @@ func TestNormalizeResourceThumbnailWidthBounds(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderPublicReferencePreviewUsesLongEdgeAndHighQuality(t *testing.T) {
+	source := image.NewRGBA(image.Rect(0, 0, 1600, 1200))
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, source); err != nil {
+		t.Fatal(err)
+	}
+	preview, err := renderResourcePreview(bytes.NewReader(encoded.Bytes()), 800, 88)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := jpeg.Decode(bytes.NewReader(preview))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Bounds().Dx() != 800 || decoded.Bounds().Dy() != 600 {
+		t.Fatalf("public reference preview = %v", decoded.Bounds())
+	}
+}
+
+func TestNormalizePublicReferenceImageEdgeBounds(t *testing.T) {
+	cases := map[int]int{-1: 0, 0: 0, 511: 0, 512: 512, 2560: 2560, 5000: 3072}
+	for input, want := range cases {
+		if got := normalizePublicReferenceImageEdge(input); got != want {
+			t.Fatalf("normalizePublicReferenceImageEdge(%d) = %d, want %d", input, got, want)
+		}
+	}
+}

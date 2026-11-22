@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -78,7 +80,7 @@ func HydrateOne(ctx context.Context, userID string, media *Media, policy MediaHy
 	}
 	if policy.PreferHTTPS {
 		if httpsURL, err := runtime.Resources.HTTPSPublicURL(resource, time.Now().Add(ResourceURLTTL)); err == nil {
-			media.URL = httpsURL
+			media.URL = optimizedReferenceImageURL(httpsURL, policy.ImageMaxEdge)
 			media.DataURL = ""
 			applyResourceMetadata(media, resource)
 			return nil
@@ -93,7 +95,7 @@ func HydrateOne(ctx context.Context, userID string, media *Media, policy MediaHy
 		if err != nil {
 			return fmt.Errorf("生成参考素材地址失败：%w", err)
 		}
-		media.URL = signedURL
+		media.URL = optimizedReferenceImageURL(signedURL, policy.ImageMaxEdge)
 		media.DataURL = ""
 		applyResourceMetadata(media, resource)
 		return nil
@@ -131,6 +133,21 @@ func HydrateOne(ctx context.Context, userID string, media *Media, policy MediaHy
 		media.DurationMs = resource.DurationMs
 	}
 	return nil
+}
+
+func optimizedReferenceImageURL(raw string, maxEdge int) string {
+	if maxEdge <= 0 {
+		return raw
+	}
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.Scheme == "" || parsed.Hostname() == "" {
+		return raw
+	}
+	query := parsed.Query()
+	query.Set("max_edge", strconv.Itoa(maxEdge))
+	query.Set("quality", "88")
+	parsed.RawQuery = query.Encode()
+	return parsed.String()
 }
 
 func applyResourceMetadata(media *Media, resource ResourceInfo) {
