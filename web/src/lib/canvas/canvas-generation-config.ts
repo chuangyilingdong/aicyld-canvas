@@ -31,6 +31,7 @@ export function buildCanvasGenerationRequirements(config: AiConfig, node: Canvas
         audioSpeed: node?.metadata?.audioSpeed ?? config.audioSpeed,
         audioPitch: node?.metadata?.audioPitch ?? config.audioPitch,
         audioVolume: node?.metadata?.audioVolume ?? config.audioVolume,
+        audioLyrics: node?.metadata?.audioLyrics ?? config.audioLyrics,
     };
     return resolvedCanvasGenerationRequirements(requestedConfig, node, mode, input);
 }
@@ -101,6 +102,7 @@ export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | u
             audioPitch: node?.metadata?.audioPitch ?? config.audioPitch,
             audioVolume: node?.metadata?.audioVolume ?? config.audioVolume,
             audioInstructions: node?.metadata?.audioInstructions ?? config.audioInstructions,
+            audioLyrics: node?.metadata?.audioLyrics ?? config.audioLyrics,
         }),
         count: String(node?.metadata?.count ?? (mode === "image" ? config.canvasImageCount || config.count || defaultConfig.count : config.count || defaultConfig.count)),
     };

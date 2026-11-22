@@ -46,7 +46,7 @@ export const minimaxSpeechVoiceOptions = [
     { value: "audiobook_female_2", label: "女有声书 2" },
 ];
 
-export type AudioSpeechKind = "openai" | "minimax-speech" | "minimax-music";
+export type AudioSpeechKind = "openai" | "minimax-speech" | "minimax-music" | "mureka-song";
 
 export type AudioSpeechProfile = {
     kind: AudioSpeechKind;
@@ -62,6 +62,7 @@ export type AudioSpeechProfile = {
     showPitch: boolean;
     showVolume: boolean;
     showInstructions: boolean;
+    showLyrics: boolean;
 };
 
 const OPENAI_SPEECH_VOICES = new Set(audioVoiceOptions.map((item) => item.value));
@@ -74,6 +75,7 @@ export function audioModelId(model: string) {
 
 export function audioSpeechKind(model: string): AudioSpeechKind {
     const id = audioModelId(model);
+    if (id.includes("mureka") && id.includes("song")) return "mureka-song";
     if (id.includes("minimax-speech")) return "minimax-speech";
     if (id.includes("minimax-music")) return "minimax-music";
     return "openai";
@@ -83,6 +85,11 @@ export function audioSpeechKind(model: string): AudioSpeechKind {
 export function isMusicAudioModel(model: string) {
     const id = audioModelId(model);
     return id.includes("music") || id.includes("mureka") || id.includes("bgm");
+}
+
+export function requiresAudioLyrics(model: string) {
+    const id = audioModelId(model);
+    return id.includes("mureka") && id.includes("song");
 }
 
 export function audioSpeechProfile(model = ""): AudioSpeechProfile {
@@ -102,6 +109,7 @@ export function audioSpeechProfile(model = ""): AudioSpeechProfile {
             showPitch: false,
             showVolume: false,
             showInstructions: false,
+            showLyrics: false,
         };
     }
     if (kind === "minimax-music") {
@@ -119,6 +127,25 @@ export function audioSpeechProfile(model = ""): AudioSpeechProfile {
             showPitch: false,
             showVolume: false,
             showInstructions: false,
+            showLyrics: requiresAudioLyrics(model),
+        };
+    }
+    if (kind === "mureka-song") {
+        return {
+            kind,
+            voices: [],
+            formats: audioFormatOptions.filter((item) => item.value === "mp3"),
+            defaultVoice: "",
+            defaultFormat: "mp3",
+            speedMin: 1,
+            speedMax: 1,
+            speedOptions: ["1"],
+            showVoice: false,
+            showSpeed: false,
+            showPitch: false,
+            showVolume: false,
+            showInstructions: false,
+            showLyrics: true,
         };
     }
     return {
@@ -135,6 +162,7 @@ export function audioSpeechProfile(model = ""): AudioSpeechProfile {
         showPitch: false,
         showVolume: false,
         showInstructions: true,
+        showLyrics: false,
     };
 }
 
@@ -212,6 +240,7 @@ export function resolveAudioSpeechSettings(
         audioPitch?: string;
         audioVolume?: string;
         audioInstructions?: string;
+        audioLyrics?: string;
     },
 ) {
     const profile = audioSpeechProfile(model);
@@ -222,10 +251,11 @@ export function resolveAudioSpeechSettings(
         audioPitch: profile.showPitch ? normalizeAudioPitchValue(values.audioPitch || "") : "0",
         audioVolume: profile.showVolume ? normalizeAudioVolumeValue(values.audioVolume || "") : "1",
         audioInstructions: profile.showInstructions ? String(values.audioInstructions || "") : "",
+        audioLyrics: profile.showLyrics ? String(values.audioLyrics || "").trim() : "",
     };
 }
 
-export function audioSettingsSummary(config: { model?: string; audioVoice?: string; audioFormat?: string; audioSpeed?: string; audioPitch?: string; audioVolume?: string }) {
+export function audioSettingsSummary(config: { model?: string; audioVoice?: string; audioFormat?: string; audioSpeed?: string; audioPitch?: string; audioVolume?: string; audioLyrics?: string }) {
     const model = config.model || "";
     const profile = audioSpeechProfile(model);
     const parts: string[] = [];
@@ -235,6 +265,10 @@ export function audioSettingsSummary(config: { model?: string; audioVoice?: stri
     if (profile.showSpeed) parts.push(audioSpeedLabel(config.audioSpeed || "", model));
     if (profile.showPitch) parts.push(`音调${audioPitchLabel(config.audioPitch || "")}`);
     if (profile.showVolume) parts.push(`音量${audioVolumeLabel(config.audioVolume || "")}`);
+    if (profile.showLyrics) {
+        const length = [...String(config.audioLyrics || "").trim()].length;
+        parts.push(length ? `歌词 ${length} 字` : "歌词未填写");
+    }
     return parts.join(" · ");
 }
 
@@ -245,6 +279,7 @@ export function buildAudioSpeechRequest(
         audioFormat?: string;
         audioSpeed?: string;
         audioInstructions?: string;
+        audioLyrics?: string;
     },
     prompt: string,
 ) {
@@ -258,6 +293,7 @@ export function buildAudioSpeechRequest(
     };
     if (profile.showVoice) payload.voice = settings.audioVoice;
     if (profile.showSpeed) payload.speed = Number(settings.audioSpeed);
+    if (profile.showLyrics) payload.lyrics = settings.audioLyrics;
     if (profile.kind === "minimax-music") {
         payload.metadata = { audio_setting: { sample_rate: 44100, bitrate: 256000, format: "mp3" } };
     }

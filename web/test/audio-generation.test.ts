@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 
 import { buildNodeConfig } from "@/components/canvas/canvas-node-prompt-panel";
-import { audioSettingsSummary, audioSpeechProfile, buildAudioSpeechRequest, isMusicAudioModel, normalizeAudioFormatValue, normalizeAudioSpeedValue, normalizeAudioVoiceValue, resolveAudioSpeechSettings } from "@/lib/audio-generation";
+import { audioSettingsSummary, audioSpeechProfile, buildAudioSpeechRequest, isMusicAudioModel, normalizeAudioFormatValue, normalizeAudioSpeedValue, normalizeAudioVoiceValue, requiresAudioLyrics, resolveAudioSpeechSettings } from "@/lib/audio-generation";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 import { createModelChannel, defaultConfig, type AiConfig } from "@/stores/use-config-store";
 
@@ -115,6 +115,23 @@ describe("enterprise MiniMax speech settings", () => {
             speed: 1.25,
             instructions: "温暖旁白",
         });
+    });
+
+    test("Mureka song keeps required lyrics through the audio request contract", () => {
+        expect(requiresAudioLyrics("aicyld-runninghub::rh-mureka-v9-song")).toBe(true);
+        expect(requiresAudioLyrics("mureka-v9-bgm")).toBe(false);
+        expect(audioSpeechProfile("rh-mureka-v9-song").showLyrics).toBe(true);
+        const settings = resolveAudioSpeechSettings("rh-mureka-v9-song", {
+            audioFormat: "mp3",
+            audioLyrics: "第一句歌词\n第二句歌词",
+        });
+        expect(settings.audioLyrics).toBe("第一句歌词\n第二句歌词");
+        expect(buildAudioSpeechRequest({ model: "rh-mureka-v9-song", ...settings }, "轻快流行")).toMatchObject({
+            model: "rh-mureka-v9-song",
+            response_format: "mp3",
+            lyrics: "第一句歌词\n第二句歌词",
+        });
+        expect(audioSettingsSummary({ model: "rh-mureka-v9-song", audioFormat: "mp3" })).toContain("歌词未填写");
     });
 
     test("canvas node config remaps enterprise speech defaults for the selected model", () => {

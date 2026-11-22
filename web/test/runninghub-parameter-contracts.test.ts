@@ -58,7 +58,7 @@ describe("RunningHub parameter release contracts", () => {
 
     test("does not advertise or submit RunningHub models with unavailable required inputs", () => {
         expect(backendSource("protocol/builtin.go")).toContain("Mureka 歌曲生成需要非空歌词");
-        expect(backendSource("platformchannels/capability_repair.go")).toContain(
+        expect(backendSource("platformchannels/capability_repair.go")).not.toContain(
             'endpoint == "mureka-ai/mureka-v9/generate-song"',
         );
     });

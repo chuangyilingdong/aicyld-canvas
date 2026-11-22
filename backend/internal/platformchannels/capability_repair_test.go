@@ -167,7 +167,7 @@ func TestRepairHidesProviderUnavailableKlingTTS(t *testing.T) {
 	}
 }
 
-func TestRepairHidesMurekaSongWithoutLyricsInput(t *testing.T) {
+func TestRepairAdvertisesMurekaSongWithRequiredLyricsInput(t *testing.T) {
 	repaired := repairKnownCapability(ModelProfile{
 		Model:            "rh-mureka-v9-song",
 		Capability:       "audio",
@@ -175,7 +175,7 @@ func TestRepairHidesMurekaSongWithoutLyricsInput(t *testing.T) {
 		ProviderModelKey: "mureka-ai/mureka-v9/generate-song",
 		CapabilityConfig: json.RawMessage(`{"version":1,"audio":{}}`),
 	})
-	if !repaired.Hidden {
-		t.Fatal("Mureka Song must stay hidden while the UI cannot provide required lyrics")
+	if repaired.Hidden {
+		t.Fatal("Mureka Song must be visible after the lyrics input is available")
 	}
 }

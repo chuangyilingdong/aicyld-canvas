@@ -398,6 +398,7 @@ export function buildAudioGenerationMetadata(config: AiConfig): CanvasNodeMetada
         audioPitch: config.audioPitch,
         audioVolume: config.audioVolume,
         audioInstructions: config.audioInstructions,
+        audioLyrics: config.audioLyrics,
     };
 }
 

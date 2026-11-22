@@ -11,6 +11,7 @@ import { resolveGenerationWorkflowExecution, type GenerationWorkflowExecution } 
 import { isArkPlanBaseUrl } from "@/lib/seedance-video";
 import { seedreamFamily } from "@/lib/seedream-image";
 import { portraitGenerationError, resolveVideoOperation } from "@/lib/model-selection";
+import { audioSpeechProfile } from "@/lib/audio-generation";
 import { logicalModelIDForConfig, modelOptionName, resolveModelChannel, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
@@ -517,6 +518,9 @@ function backendMediaReference<T extends ReferenceVideo | ReferenceAudio>(media:
 
 export function backendProviderConfig(config: AiConfig, mode: BackendGenerationMode = "image") {
     const requestConfig = resolveModelRequestConfig(config, config.model);
+    if (mode === "audio" && audioSpeechProfile(requestConfig.model).showLyrics && !config.audioLyrics.trim()) {
+        throw new Error("当前歌曲模型需要填写歌词后再提交");
+    }
     const workflow = resolveGenerationWorkflowExecution(config, mode);
     if (workflow) return workflowProviderConfig(config, requestConfig, workflow);
     const seedream = Boolean(seedreamFamily(requestConfig.model || config.model));
@@ -545,6 +549,7 @@ export function backendProviderConfig(config: AiConfig, mode: BackendGenerationM
         audioPitch: config.audioPitch,
         audioVolume: config.audioVolume,
         audioInstructions: config.audioInstructions,
+        audioLyrics: config.audioLyrics,
         systemPrompt: config.systemPrompt,
     };
     if (logicalModelIDForConfig(config)) return generationOptions;
@@ -598,6 +603,7 @@ function workflowProviderConfig(config: AiConfig, requestConfig: ReturnType<type
         audioPitch: config.audioPitch,
         audioVolume: config.audioVolume,
         audioInstructions: config.audioInstructions,
+        audioLyrics: config.audioLyrics,
         workflowId: workflow.workflowId,
         webappId: workflow.webappId,
         workflowJson: workflow.workflowJson,
@@ -631,7 +637,7 @@ function logicalCapabilityOptions(config: AiConfig, mode: BackendGenerationMode)
             : mode === "video"
               ? { size: config.size, videoSeconds: Number(config.videoSeconds), vquality: config.videoDraft === "true" ? "480p" : config.vquality, videoGenerateAudio: config.videoGenerateAudio === "true", videoWatermark: config.videoWatermark === "true" }
               : mode === "audio"
-                ? { audioVoice: config.audioVoice, audioFormat: config.audioFormat, audioSpeed: Number(config.audioSpeed), audioPitch: Number(config.audioPitch), audioVolume: Number(config.audioVolume) }
+                ? { audioVoice: config.audioVoice, audioFormat: config.audioFormat, audioSpeed: Number(config.audioSpeed), audioPitch: Number(config.audioPitch), audioVolume: Number(config.audioVolume), audioLyrics: config.audioLyrics }
                 : {};
     const filtered = Object.fromEntries(Object.entries(candidates).filter(([key]) => Boolean(spec?.options?.[key])));
     // 只把前台模型声明过的参数送进能力匹配。未声明的 quality 不能因为画布选了 4K 档位

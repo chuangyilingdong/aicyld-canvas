@@ -9,6 +9,10 @@ function scriptSource(path: string) {
     return readFileSync(new URL(`../scripts/${path}`, import.meta.url), "utf8");
 }
 
+function rootScriptSource(path: string) {
+    return readFileSync(new URL(`../../scripts/${path}`, import.meta.url), "utf8");
+}
+
 describe("release regression source contracts", () => {
     test("keeps global styles independent of removed production packages", () => {
         expect(source("styles/globals.css")).not.toContain('@import "shadcn/tailwind.css"');
@@ -150,5 +154,22 @@ describe("release regression source contracts", () => {
         expect(paidE2E).toContain('api.post(`${baseURL}/api/tasks`');
         expect(paidE2E).toContain("settledBillingStatus");
         expect(paidE2E).toContain("parseGeneratedSmartFilmScripts");
+    });
+
+    test("keeps the Mureka lyrics field wired from settings through the backend request", () => {
+        expect(source("components/audio-settings-panel.tsx")).toContain("歌词（必填）");
+        expect(source("lib/audio-generation.ts")).toContain("requiresAudioLyrics");
+        expect(source("lib/canvas/canvas-generation-config.ts")).toContain("audioLyrics:");
+        expect(source("services/api/generation-task.ts")).toContain("当前歌曲模型需要填写歌词后再提交");
+        expect(source("services/api/generation-task.ts")).toContain("audioLyrics: config.audioLyrics");
+    });
+
+    test("keeps historical submission repair evidence-gated and dry-run by default", () => {
+        const repair = rootScriptSource("repair-historical-submission-unknown.py");
+        expect(repair).toContain('parser.add_argument("--apply", action="store_true")');
+        expect(repair).toContain('if args.apply and not args.backup');
+        expect(repair).toContain('insufficient evidence; left unchanged');
+        expect(repair).toContain("WHERE stage = 'submission_unknown'");
+        expect(repair).toContain('"regenerate": "allowed"');
     });
 });

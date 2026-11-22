@@ -7,7 +7,7 @@ import { type CanvasTheme } from "@/lib/canvas-theme";
 import { getPlayingAudioVoiceId, previewAudioVoice, stopAudioVoicePreview } from "@/lib/voice-preview-player";
 import type { AiConfig } from "@/stores/use-config-store";
 
-type AudioSettingKey = "audioVoice" | "audioFormat" | "audioSpeed" | "audioPitch" | "audioVolume" | "audioInstructions";
+type AudioSettingKey = "audioVoice" | "audioFormat" | "audioSpeed" | "audioPitch" | "audioVolume" | "audioInstructions" | "audioLyrics";
 
 type AudioSettingsPanelProps = {
     config: AiConfig;
@@ -119,6 +119,18 @@ export function AudioSettingsPanel({ config, onConfigChange, theme, showTitle = 
                             className="thin-scrollbar h-20 w-full resize-none rounded-xl border bg-transparent px-3 py-2 text-sm leading-5 outline-none"
                             style={{ borderColor: theme.node.stroke, color: theme.node.text }}
                             onChange={(event) => onConfigChange("audioInstructions", event.target.value)}
+                            onMouseDown={(event) => event.stopPropagation()}
+                        />
+                    </SettingGroup>
+                ) : null}
+                {profile.showLyrics ? (
+                    <SettingGroup title="歌词（必填）" color={theme.node.muted}>
+                        <textarea
+                            value={config.audioLyrics || ""}
+                            placeholder="填写完整歌词，支持换行。Mureka 歌曲生成不会在上游自动补写歌词。"
+                            className="thin-scrollbar h-40 w-full resize-none rounded-xl border bg-transparent px-3 py-2 text-sm leading-6 outline-none"
+                            style={{ borderColor: theme.node.stroke, color: theme.node.text }}
+                            onChange={(event) => onConfigChange("audioLyrics", event.target.value)}
                             onMouseDown={(event) => event.stopPropagation()}
                         />
                     </SettingGroup>

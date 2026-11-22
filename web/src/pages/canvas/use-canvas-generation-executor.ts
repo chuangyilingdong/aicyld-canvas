@@ -431,6 +431,7 @@ export function useCanvasGenerationExecutor({
                                     : undefined,
                             operation: sourceNode?.metadata?.videoEditOperation,
                             audioInstructions: generationConfig.audioInstructions,
+                            audioLyrics: generationConfig.audioLyrics,
                             promptTemplateOperation: sourceNode?.metadata?.promptTemplateOperation,
                             promptTemplateVariables: sourceNode?.metadata?.promptTemplateVariables,
                             context: generationContext,
