@@ -39,4 +39,27 @@ describe("RunningHub parameter release contracts", () => {
             source.indexOf("RunningHub 提交响应缺少 taskId"),
         );
     });
+
+    test("normalizes every tiered RunningHub image family before submission", () => {
+        const source = backendSource("protocol/builtin.go");
+        expect(source).toContain("runningHubTieredImageResolution(endpoint, request.Resolution, request.Quality)");
+        expect(source).toContain('case normalized == "1k", strings.HasPrefix(normalized, "720")');
+        expect(source).toContain('strings.Contains(endpoint, "rhart-image-n-nb")');
+    });
+
+    test("classifies RunningHub business errors and explicit protocol failures", () => {
+        expect(backendSource("generation/payload_business.go")).toContain(
+            'firstPayloadValue(payload, "errorCode", "error_code")',
+        );
+        expect(backendSource("generation/router_and_catalog_http.go")).toContain(
+            "var protocolTaskErr *ProtocolTaskError",
+        );
+    });
+
+    test("does not advertise or submit RunningHub models with unavailable required inputs", () => {
+        expect(backendSource("protocol/builtin.go")).toContain("Mureka 歌曲生成需要非空歌词");
+        expect(backendSource("platformchannels/capability_repair.go")).toContain(
+            'endpoint == "mureka-ai/mureka-v9/generate-song"',
+        );
+    });
 });

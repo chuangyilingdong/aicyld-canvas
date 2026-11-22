@@ -166,3 +166,16 @@ func TestRepairHidesProviderUnavailableKlingTTS(t *testing.T) {
 		t.Fatal("Kling TTS must stay hidden while the provider returns error 1000")
 	}
 }
+
+func TestRepairHidesMurekaSongWithoutLyricsInput(t *testing.T) {
+	repaired := repairKnownCapability(ModelProfile{
+		Model:            "rh-mureka-v9-song",
+		Capability:       "audio",
+		Protocol:         "runninghub-standard-audio",
+		ProviderModelKey: "mureka-ai/mureka-v9/generate-song",
+		CapabilityConfig: json.RawMessage(`{"version":1,"audio":{}}`),
+	})
+	if !repaired.Hidden {
+		t.Fatal("Mureka Song must stay hidden while the UI cannot provide required lyrics")
+	}
+}

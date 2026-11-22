@@ -18,13 +18,10 @@ func FailureDetails(payload map[string]any) (string, string) {
 	message := ""
 	for _, candidate := range candidates {
 		if code == "" {
-			code = normalizedUpstreamErrorCode(candidate["code"])
+			code = normalizedUpstreamErrorCode(firstPayloadValue(candidate, "code", "errorCode", "error_code"))
 		}
 		if message == "" {
-			message = strings.TrimSpace(stringMapField(candidate, "message"))
-			if message == "" {
-				message = strings.TrimSpace(stringMapField(candidate, "msg"))
-			}
+			message = firstPayloadString(candidate, "message", "msg", "errorMessage", "error_message")
 		}
 	}
 	return code, truncateRunes(message, 500)
@@ -55,11 +52,34 @@ func PayloadBusinessFailure(payload map[string]any) (string, string, bool) {
 		code, message := FailureDetails(payload)
 		return code, message, true
 	}
+	errorCode := firstPayloadValue(payload, "errorCode", "error_code")
+	if businessCodeFailed(errorCode) {
+		message := firstPayloadString(payload, "errorMessage", "error_message", "message", "msg")
+		return normalizedUpstreamErrorCode(errorCode), message, true
+	}
 	if !businessCodeFailed(payload["code"]) {
 		return "", "", false
 	}
 	code, message := FailureDetails(payload)
 	return code, message, true
+}
+
+func firstPayloadValue(payload map[string]any, keys ...string) any {
+	for _, key := range keys {
+		if value, ok := payload[key]; ok && value != nil {
+			return value
+		}
+	}
+	return nil
+}
+
+func firstPayloadString(payload map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if message := strings.TrimSpace(stringMapField(payload, key)); message != "" {
+			return message
+		}
+	}
+	return ""
 }
 
 func businessCodeFailed(value any) bool {

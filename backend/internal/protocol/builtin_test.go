@@ -665,6 +665,40 @@ func TestRunningHubSeedreamImageNormalizesInheritedVideoResolution(t *testing.T)
 	}
 }
 
+func TestRunningHubTieredImagesNormalizeLegacyResolution(t *testing.T) {
+	adapter, _ := Builtins().Get("runninghub-standard-image")
+	cases := []struct {
+		name       string
+		model      string
+		resolution string
+		quality    string
+		want       string
+	}{
+		{name: "gpt 2.5 inherited video default", model: "rhart-image-g-2.5-official-token/sunburst/text-to-image", resolution: "720", want: "1k"},
+		{name: "gpt 2.5 preserves explicit 4k", model: "rhart-image-g-2.5-official-token/flare/text-to-image", resolution: "4k", want: "4k"},
+		{name: "nano banana uses selected quality tier", model: "rhart-image-n-nb21-official/text-to-image", resolution: "720", quality: "2k", want: "2k"},
+		{name: "nano banana normalizes inherited video default", model: "rhart-image-n-nb21-official/text-to-image", resolution: "720p", quality: "auto", want: "1k"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			spec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
+				Capability:  CapabilityImage,
+				Model:       tc.model,
+				Prompt:      "test",
+				AspectRatio: "1:1",
+				Resolution:  tc.resolution,
+				Quality:     tc.quality,
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := object(spec.Body)["resolution"]; got != tc.want {
+				t.Fatalf("resolution = %#v, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestRunningHubLayerUsesResolutionTierWithoutAspectRatio(t *testing.T) {
 	adapter, _ := Builtins().Get("runninghub-standard-image")
 	spec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
@@ -821,6 +855,30 @@ func TestRunningHubSpeechSpeedUsesNumericValues(t *testing.T) {
 	}
 	if speed, ok := object(klingSpec.Body)["voiceSpeed"].(float64); !ok || speed != 1.1 {
 		t.Fatalf("voiceSpeed = %#v", object(klingSpec.Body)["voiceSpeed"])
+	}
+}
+
+func TestRunningHubMurekaSongRequiresLyricsBeforeSubmission(t *testing.T) {
+	adapter, _ := Builtins().Get("runninghub-standard-audio")
+	_, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
+		Capability: CapabilityAudio,
+		Model:      "mureka-ai/mureka-v9/generate-song",
+		Prompt:     "写一首轻快的歌",
+	}})
+	if err == nil || !strings.Contains(err.Error(), "歌词") {
+		t.Fatalf("missing lyrics error = %v", err)
+	}
+	spec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
+		Capability: CapabilityAudio,
+		Model:      "mureka-ai/mureka-v9/generate-song",
+		Prompt:     "轻快流行",
+		Extra:      map[string]any{"audioLyrics": "第一句歌词\n第二句歌词"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := object(spec.Body)["lyrics"]; got != "第一句歌词\n第二句歌词" {
+		t.Fatalf("lyrics = %#v", got)
 	}
 }
 

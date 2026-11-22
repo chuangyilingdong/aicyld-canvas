@@ -153,6 +153,14 @@ func RouteFailureInfo(err error) modelcatalog.FailureInfo {
 	if errors.As(err, &unknown) {
 		return info
 	}
+	var protocolTaskErr *ProtocolTaskError
+	if errors.As(err, &protocolTaskErr) && protocolTaskErr != nil {
+		if strings.TrimSpace(protocolTaskErr.TaskID) == "" {
+			info.ExplicitRejection = true
+		} else {
+			info.TerminalProviderFailure = true
+		}
+	}
 	if isImageRecoveryError(err) {
 		info.ImageRecovery = true
 	}

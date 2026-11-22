@@ -534,7 +534,7 @@ func runningHubStandardImageFields(body map[string]any, endpoint string, request
 	}
 	if strings.Contains(endpoint, "rhart-image-g-2.5-") || strings.Contains(endpoint, "rhart-image-n-nb") {
 		copyIf(body, "aspectRatio", request.AspectRatio)
-		copyIf(body, "resolution", defaultValue(request.Resolution, "2k"))
+		body["resolution"] = runningHubTieredImageResolution(endpoint, request.Resolution, request.Quality)
 	} else if strings.Contains(endpoint, "rhart-image-g-2.6-") {
 		if isExplicitImageSize(request.AspectRatio) {
 			body["size"] = request.AspectRatio
@@ -615,6 +615,35 @@ func runningHubSeedreamImageResolution(endpoint, value string) string {
 		return "2k"
 	}
 	return "1k"
+}
+
+// GPT Image 2.5 and Nano Banana accept 1k/2k/4k rather than the canvas-wide
+// historical video default of 720. Nano Banana exposes the tier through its
+// quality selector, so prefer that explicit choice before the shared default.
+func runningHubTieredImageResolution(endpoint, resolution, quality string) string {
+	if strings.Contains(endpoint, "rhart-image-n-nb") {
+		if tier := runningHubImageResolutionTier(quality); tier != "" {
+			return tier
+		}
+	}
+	if tier := runningHubImageResolutionTier(resolution); tier != "" {
+		return tier
+	}
+	return "2k"
+}
+
+func runningHubImageResolutionTier(value string) string {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	switch {
+	case normalized == "1k", strings.HasPrefix(normalized, "720"), strings.HasPrefix(normalized, "1024"):
+		return "1k"
+	case normalized == "2k", strings.HasPrefix(normalized, "1080"), strings.HasPrefix(normalized, "1440"):
+		return "2k"
+	case normalized == "4k", strings.HasPrefix(normalized, "2160"):
+		return "4k"
+	default:
+		return ""
+	}
 }
 
 func runningHubLayerImageResolution(values ...string) string {
@@ -801,6 +830,10 @@ func validateRunningHubStandardPayload(endpoint string, body map[string]any) err
 	case strings.Contains(endpoint, "video-upscaler"), strings.Contains(endpoint, "rh-upscale"):
 		if !runningHubPayloadString(body, "videoUrl") && runningHubPayloadEmpty(body["2##file"]) {
 			return fmt.Errorf("RunningHub 视频超分缺少 videoUrl")
+		}
+	case strings.Contains(endpoint, "mureka-v9/generate-song"):
+		if !runningHubPayloadString(body, "lyrics") {
+			return fmt.Errorf("Mureka 歌曲生成需要非空歌词")
 		}
 	}
 	return nil

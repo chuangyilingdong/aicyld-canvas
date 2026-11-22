@@ -66,6 +66,13 @@ func repairKnownCapability(profile ModelProfile) ModelProfile {
 		profile.Hidden = true
 		changed = true
 	}
+	if endpoint == "mureka-ai/mureka-v9/generate-song" && !profile.Hidden {
+		// The provider requires non-empty lyrics, while the current audio
+		// capability UI has no lyrics field. Keep API access available but do
+		// not advertise a workflow that can only fail validation.
+		profile.Hidden = true
+		changed = true
+	}
 
 	switch profile.Capability {
 	case "image":
