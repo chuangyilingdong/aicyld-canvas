@@ -54,9 +54,9 @@ func MediaHydrationPolicyFor(ctx context.Context, input Input) MediaHydrationPol
 	return policy
 }
 
-// RunningHub's Seedream 5 Pro image-to-image endpoint has a shorter practical
-// download window than other image protocols. Keep original resources intact,
-// but serve a high-quality derived copy only for this endpoint.
+// Some RunningHub endpoints have a shorter practical download window than
+// other image protocols. Keep original resources intact, but serve a
+// high-quality derived copy only for those endpoints.
 func optimizedReferenceImageMaxEdge(config Config) int {
 	endpoint := strings.ToLower(strings.Join([]string{
 		config.ProviderModelKey,
@@ -65,6 +65,9 @@ func optimizedReferenceImageMaxEdge(config Config) int {
 	}, " "))
 	if strings.Contains(endpoint, "seedream-v5-pro/image-to-image") || strings.Contains(endpoint, "rh-seedream-v5-pro-i2i") {
 		return 2560
+	}
+	if strings.Contains(endpoint, "rhart-video/sparkvideo-2.0-fast/multimodal-video") || strings.Contains(endpoint, "rh-seedance-2.0-fast-multi") {
+		return 2048
 	}
 	return 0
 }

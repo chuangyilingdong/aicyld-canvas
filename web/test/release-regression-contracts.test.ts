@@ -180,6 +180,11 @@ describe("release regression source contracts", () => {
         const protocol = readFileSync(new URL("../../backend/internal/generation/media_policy.go", import.meta.url), "utf8");
         expect(protocol).toContain("seedream-v5-pro/image-to-image");
         expect(protocol).toContain("return 2560");
+        expect(protocol).toContain("rhart-video/sparkvideo-2.0-fast/multimodal-video");
+        expect(protocol).toContain("return 2048");
+        const media = readFileSync(new URL("../../backend/internal/generation/media.go", import.meta.url), "utf8");
+        expect(media).toContain("referenceMediaURL(httpsURL, resource, media, policy.ImageMaxEdge)");
+        expect(media).toContain("referenceMediaURL(signedURL, resource, media, policy.ImageMaxEdge)");
         const resourceRoute = readFileSync(new URL("../../backend/internal/handler/user_data.go", import.meta.url), "utf8");
         expect(resourceRoute).toContain("serveReferencePreview");
         expect(resourceRoute).toContain('r.GET("/public/resources/:id/file/:filename"');

@@ -65,6 +65,17 @@ func TestRunningHubReferenceDownloadTimeoutIsRetryable(t *testing.T) {
 	}
 }
 
+func TestRunningHubExternalURLDownloadTimeoutVariantIsRetryable(t *testing.T) {
+	body := `{"errorMessage":"Timeout occurred while downloading file from external URL. Try again later.","taskId":"2124717074860625922","status":"FAILED"}`
+	failure := generation.ClassifyText(body)
+	if failure.Category != generation.CategoryProviderUnavailable || failure.Uncertain || !failure.Retryable || failure.BlocksManualRetry() || failure.BlocksAutomaticRetry() {
+		t.Fatalf("external URL download timeout classification = %#v", failure)
+	}
+	if !strings.Contains(failure.Reason, "下载参考素材超时") || failure.TaskID != "2124717074860625922" {
+		t.Fatalf("external URL download timeout copy = %q", failure.UserMessage())
+	}
+}
+
 func TestOutboundPolicyCopyDoesNotOverrideStructuredProviderErrors(t *testing.T) {
 	for _, raw := range []string{
 		`{"error":{"code":"invalid_api_key","message":"不允许访问本机或内网地址"},"request_id":"req-auth","task_id":"job-auth"}`,

@@ -481,6 +481,7 @@ func isDownloadText(value string) bool {
 func isReferenceDownloadTimeoutText(value string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(value))
 	return strings.Contains(normalized, "file download timed out") ||
+		strings.Contains(normalized, "timeout occurred while downloading file from external url") ||
 		strings.Contains(value, "文件下载超时") && (strings.Contains(normalized, "image url") || strings.Contains(value, "图片"))
 }
 

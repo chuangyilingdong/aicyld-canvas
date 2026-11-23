@@ -80,7 +80,7 @@ func HydrateOne(ctx context.Context, userID string, media *Media, policy MediaHy
 	}
 	if policy.PreferHTTPS {
 		if httpsURL, err := runtime.Resources.HTTPSPublicURL(resource, time.Now().Add(ResourceURLTTL)); err == nil {
-			media.URL = optimizedReferenceImageURL(httpsURL, policy.ImageMaxEdge)
+			media.URL = referenceMediaURL(httpsURL, resource, media, policy.ImageMaxEdge)
 			media.DataURL = ""
 			applyResourceMetadata(media, resource)
 			return nil
@@ -95,7 +95,7 @@ func HydrateOne(ctx context.Context, userID string, media *Media, policy MediaHy
 		if err != nil {
 			return fmt.Errorf("生成参考素材地址失败：%w", err)
 		}
-		media.URL = optimizedReferenceImageURL(signedURL, policy.ImageMaxEdge)
+		media.URL = referenceMediaURL(signedURL, resource, media, policy.ImageMaxEdge)
 		media.DataURL = ""
 		applyResourceMetadata(media, resource)
 		return nil
@@ -133,6 +133,13 @@ func HydrateOne(ctx context.Context, userID string, media *Media, policy MediaHy
 		media.DurationMs = resource.DurationMs
 	}
 	return nil
+}
+
+func referenceMediaURL(raw string, resource ResourceInfo, media *Media, maxEdge int) string {
+	if !resource.LooksLikeImage(media) {
+		return raw
+	}
+	return optimizedReferenceImageURL(raw, maxEdge)
 }
 
 func optimizedReferenceImageURL(raw string, maxEdge int) string {
