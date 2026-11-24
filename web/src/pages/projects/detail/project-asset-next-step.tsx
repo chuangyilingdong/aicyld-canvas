@@ -3,7 +3,7 @@ import { ArrowRight, LoaderCircle, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router";
 
-import { getProjectSmartFilmRun, startSmartFilmProductionStage } from "@/services/api/smart-film-batches";
+import { getProjectSmartFilmRun, getSmartFilmBatch, startSmartFilmProductionStage } from "@/services/api/smart-film-batches";
 
 export function ProjectAssetNextStep({
     projectId,
@@ -46,7 +46,7 @@ export function ProjectAssetNextStep({
             ? "无需生成资产图或逐项确认。点击下一步会自动开始生成分镜脚本，未生成视觉参考的资产会作为文字设定使用。"
             : ready
               ? hasAssets
-                  ? "下一步：进入分镜制作，检查并修改分镜提示词，确认后再生成分镜图。"
+                  ? "下一步将生成镜头脚本，智能成片会进入整片视频页面。"
                   : "可以不生成资产直接进入分镜。未生成资产图的角色、场景和道具会作为文字设定使用。"
               : "上传或引用产品、人物、场景和道具；也可以在资产库中忽略不需要的识别项。";
     const continueToStoryboard = async () => {
@@ -54,13 +54,15 @@ export function ProjectAssetNextStep({
         setStartError("");
         setStarting(true);
         try {
+            let smartMode = false;
             if (batchId) {
-                const { run } = await getProjectSmartFilmRun(projectId);
+                const [{ run }, { batch }] = await Promise.all([getProjectSmartFilmRun(projectId), getSmartFilmBatch(batchId)]);
+                smartMode = batch.config.productionMode === "smart";
                 if (!run.storyboardTaskId && (run.storyboardStatus === "waiting" || run.storyboardStatus === "pending")) {
                     await startSmartFilmProductionStage(batchId, run.id, "storyboard");
                 }
             }
-            navigate(nextHref);
+            navigate(smartMode && unitId ? `/projects/${projectId}/workflow/${unitId}/video` : nextHref);
         } catch (error) {
             setStartError(error instanceof Error ? error.message : "分镜生成启动失败，请重试");
         } finally {
@@ -81,7 +83,7 @@ export function ProjectAssetNextStep({
             <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
                 {ready ? (
                     <Button type="primary" loading={starting} icon={starting ? undefined : <ArrowRight className="size-3.5" />} onClick={() => void continueToStoryboard()}>
-                        {starting ? "正在启动分镜…" : "下一步：分镜制作"}
+                        {starting ? "正在启动分镜…" : "下一步：生成镜头脚本"}
                     </Button>
                 ) : null}
                 {analysisFailed && batchId ? <Button onClick={() => navigate(`/smart-film/batches/${batchId}`)}>返回批次重试</Button> : null}

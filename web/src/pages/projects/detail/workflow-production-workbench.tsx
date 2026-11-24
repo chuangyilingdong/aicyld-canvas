@@ -77,6 +77,7 @@ import {
     downloadArtifact,
     formatTaskElapsed,
     generationConfigForShot,
+    latestShotTask,
     type ShotEditorValues,
     revisionInput,
     runningStageTasks,
@@ -118,7 +119,7 @@ export default function WorkflowProductionWorkbench(props: WorkflowProductionWor
     const activeShotIdRef = useRef(selectedShot?.id || "");
     activeShotIdRef.current = selectedShot?.id || "";
     const shots = useMemo(() => (detail.shots || []).filter((item) => item.unitId === unitId).slice().sort((left, right) => left.position - right.position), [detail.shots, unitId]);
-    const { smartWholeFilm, smartFilmConfigurationPending, smartFilmConfigurationError, retrySmartFilmConfiguration, smartFilmGenerating, smartFilmError, smartFilmTask, smartFilmRecoveryError, latestSmartWholeFilm, staleSmartWholeFilm, smartFilmEditPrompt, readyStoryboardCount, smartFilmBatch, generateSmartWholeFilm } = useSmartFilmWholeFilm(detail, projectId, unitId, shots, activeStage);
+    const { smartWholeFilm, smartFilmConfigurationPending, smartFilmConfigurationError, retrySmartFilmConfiguration, smartFilmGenerating, smartFilmError, smartFilmTask, smartFilmRecoveryError, latestSmartWholeFilm, staleSmartWholeFilm, smartFilmEditPrompt, readyStoryboardCount, smartFilmPromptPlan, smartFilmBatch, generateSmartWholeFilm } = useSmartFilmWholeFilm(detail, projectId, unitId, shots, activeStage);
     const shotIndex = selectedShot ? shots.findIndex((item) => item.id === selectedShot.id) : -1;
     const revision = currentRevision(detail, selectedShot);
     const artifactType = artifactTypeForStage(activeStage);
@@ -794,12 +795,13 @@ export default function WorkflowProductionWorkbench(props: WorkflowProductionWor
         const candidateShots = requestedShotIds.size ? shots.filter((shot) => requestedShotIds.has(shot.id)) : shots;
         const runningTasks = runningStageTasks(detail, candidateShots, artifactType);
         const runningShotIds = new Set(runningTasks.flatMap((task) => task.clientContext?.shotId ? [task.clientContext.shotId] : []));
-        const targets = options?.force
+        const targets = (options?.force
             ? candidateShots.filter((shot) => {
                 const artifact = currentArtifact(detail, shot.id, artifactType);
                 return !runningShotIds.has(shot.id) && artifact?.status !== "pending" && artifact?.status !== "running";
             })
-            : candidateShots.filter((shot) => shotNeedsGeneration(detail, shot, artifactType));
+            : candidateShots.filter((shot) => shotNeedsGeneration(detail, shot, artifactType)))
+            .filter((shot) => !(smartWholeFilm && activeStage === "storyboard" && latestShotTask(detail, shot.id, artifactType)?.status === "succeeded" && !currentArtifact(detail, shot.id, artifactType)?.resourceId));
         if (!targets.length) {
             if (options?.automatic) {
                 try {
@@ -819,7 +821,7 @@ export default function WorkflowProductionWorkbench(props: WorkflowProductionWor
                 }
                 return;
             }
-            message.info(options?.singleShot ? `当前镜头${stageCopy.label}已生成或正在生成` : `所有${stageCopy.label}都已生成或正在生成`);
+            message.info(smartWholeFilm && activeStage === "storyboard" ? "分镜图已生成、正在处理或等待取回，请在任务记录中查看详情" : options?.singleShot ? `当前镜头${stageCopy.label}已生成或正在生成` : `所有${stageCopy.label}都已生成或正在生成`);
             return;
         }
         if (activeStage === "video") {
@@ -991,6 +993,7 @@ export default function WorkflowProductionWorkbench(props: WorkflowProductionWor
             configurationPending={smartFilmConfigurationPending}
             configurationError={smartFilmConfigurationError}
             readyStoryboardCount={readyStoryboardCount}
+            promptPlan={smartFilmPromptPlan}
             busy={Boolean(batchProgress) || submittingShotIds.size > 0}
             submittingShotIds={submittingShotIds}
             targetSeconds={Number(smartFilmBatch?.config.targetDurationSeconds || 0)}
@@ -1010,7 +1013,7 @@ export default function WorkflowProductionWorkbench(props: WorkflowProductionWor
             onGenerateAll={() => void generateAllArtifacts()}
             onGenerateShot={(shot, imagePrompt) => void generateSmartFilmStoryboardShot(shot, imagePrompt)}
             onGenerateWholeFilm={() => void generateSmartWholeFilm(
-                (input) => confirmCanvasGenerationTaskQuote(modal, input, { title: "确认生成整片视频", description: `将使用 ${shots.length} 张已就绪分镜图生成 1 条完整视频；本步骤不会生成分镜图。` }),
+                (input) => confirmCanvasGenerationTaskQuote(modal, input, { title: "确认生成整片视频", description: `将使用 ${smartFilmPromptPlan.plan?.referenceImages.length || 0} 张参考图生成 1 条完整视频。` }),
                 message.error,
             )}
             onDownload={() => latestSmartWholeFilm?.resourceId && window.open(resourceFileUrl(latestSmartWholeFilm.resourceId), "_blank", "noopener,noreferrer")}

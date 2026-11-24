@@ -45,7 +45,7 @@ func buildProjectStatus(project model.Project, metrics repository.ProjectOvervie
 	}
 	status.DeliveryReady = activeTasks == 0 && metrics.PendingCandidateCount == 0 && metrics.StaleArtifactCount == 0 &&
 		((productionMode == SmartFilmProductionModeSmart && metrics.ShotCount > 0 &&
-			metrics.ReadyStoryboardCount == metrics.ShotCount && metrics.ReadySmartFilmCount > 0) ||
+			metrics.ReadySmartFilmCount > 0) ||
 			(productionMode != SmartFilmProductionModeSmart &&
 				((metrics.ShotCount > 0 && metrics.ReadyVideoCount == metrics.ShotCount) || metrics.TimelineRenderSucceededCount > 0)))
 	if project.Status == model.ProjectStatusArchived {

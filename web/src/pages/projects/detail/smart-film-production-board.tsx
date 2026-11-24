@@ -16,6 +16,7 @@ import { controlSmartFilmProductionRun } from "@/services/api/smart-film-batches
 import { promptAssetDisplayTitle, promptAssetIds, promptWithoutAssetMentions } from "./smart-film-storyboard-prompt";
 import { autoMentionShotAssetReferences, buildShotAssetReferenceContext, ensureShotAssetMentionPrompt } from "./workflow-shot-references";
 import { ArtifactStatus, currentArtifact, currentRevision, formatDuration } from "./workflow-shared";
+import { storyboardImageTaskState } from "./smart-film-storyboard-status";
 
 type PromptSaveStatus = "draft" | "confirmed";
 
@@ -36,6 +37,16 @@ export function SmartFilmStoryboardBoard({ detail, batch, shots, readyCount, bus
     const [editingPromptShotId, setEditingPromptShotId] = useState<string>();
     const [promptDraft, setPromptDraft] = useState("");
     const [savingPromptShotId, setSavingPromptShotId] = useState<string>();
+    const [syncClock, setSyncClock] = useState(() => Date.now());
+    const hasPendingSync = shots.some((shot) => {
+        const artifact = currentArtifact(detail, shot.id, "storyboard");
+        return storyboardImageTaskState(latestStoryboardTask(detail.tasks || [], shot.id), Boolean(artifact?.resourceId && artifact.status === "ready"), syncClock) === "syncing";
+    });
+    useEffect(() => {
+        if (!hasPendingSync) return;
+        const timer = window.setInterval(() => setSyncClock(Date.now()), 3_000);
+        return () => window.clearInterval(timer);
+    }, [hasPendingSync]);
     const allReady = shots.length > 0 && readyCount === shots.length;
     const assetById = new Map(detail.assets.map((asset) => [asset.id, asset]));
     const issues: Array<{ key: string; label: string; tone: "warning" | "danger" }> = [];
@@ -103,11 +114,11 @@ export function SmartFilmStoryboardBoard({ detail, batch, shots, readyCount, bus
                         <strong className="text-sm">生成分镜图</strong>
                         <span className="text-xs text-foreground/42">分镜图就绪 {readyCount}/{shots.length}</span>
                     </div>
-                    <p className="mt-1 text-xs leading-5 text-foreground/48">分镜提示词可直接编辑，修改后点击生成会自动保存并提交。全部分镜图生成后即可进入整片视频。</p>
+                    <p className="mt-1 text-xs leading-5 text-foreground/48">分镜提示词可直接编辑，修改后点击生成会自动保存并提交。可生成需要的分镜图，已有分镜图会加入整片参考。</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                     <Button icon={<Sparkles className="size-4" />} loading={busy} disabled={allReady} onClick={onGenerateAll}>{allReady ? "全部分镜图已生成" : "生成缺失分镜图"}</Button>
-                    <Button type="primary" icon={<ArrowRight className="size-4" />} disabled={!allReady || busy} onClick={onNext}>下一步：整片视频</Button>
+                    <Button type="primary" icon={<ArrowRight className="size-4" />} disabled={busy} onClick={onNext}>下一步：整片视频</Button>
                 </div>
             </header>
 
@@ -129,7 +140,10 @@ export function SmartFilmStoryboardBoard({ detail, batch, shots, readyCount, bus
                     const savingPrompt = savingPromptShotId === shot.id;
                     const imagePrompt = revision?.imagePrompt || "";
                     const task = latestStoryboardTask(detail.tasks || [], shot.id);
-                    const taskRunning = task?.status === "queued" || task?.status === "running" || (task?.status === "succeeded" && !ready);
+                    const taskState = storyboardImageTaskState(task, ready, syncClock);
+                    const deliveryFailed = taskState === "delivery-failed";
+                    const deliveryLate = taskState === "sync-delayed";
+                    const taskRunning = taskState === "generating" || taskState === "syncing";
                     const references = promptAssetIds(imagePrompt).flatMap((assetId) => assetById.get(assetId) || []).slice(0, 8);
                     const generatePrompt = editingPrompt ? promptDraft : undefined;
                     const generateImage = () => {
@@ -190,8 +204,8 @@ export function SmartFilmStoryboardBoard({ detail, batch, shots, readyCount, bus
                             </div>
 
                             <div className="flex flex-col items-stretch justify-between gap-2 lg:items-end">
-                                <ArtifactStatus artifact={artifact} taskStatus={submitting ? "queued" : task?.status} />
-                                <Button type="primary" icon={<Sparkles className="size-3.5" />} loading={submitting || taskRunning} disabled={busy || taskRunning} onClick={generateImage}>{taskRunning ? task?.status === "succeeded" ? "正在取回图片…" : "生成中…" : ready ? "重新生成分镜图" : "生成分镜图"}</Button>
+                                {!ready && (deliveryFailed || deliveryLate) ? <div className="text-xs text-amber-400">{deliveryFailed ? "图片取回失败" : "图片尚未同步"}，<Link to="/tasks" className="underline">查看任务记录</Link></div> : <ArtifactStatus artifact={artifact} taskStatus={submitting ? "queued" : task?.status} />}
+                                <Button type="primary" icon={<Sparkles className="size-3.5" />} loading={submitting || taskRunning} disabled={busy || taskRunning || (!ready && (deliveryFailed || deliveryLate))} onClick={generateImage}>{taskRunning ? task?.status === "succeeded" ? "正在取回图片…" : "生成中…" : ready ? "重新生成分镜图" : "生成分镜图"}</Button>
                                 {artifact?.resourceId ? <Button type="text" size="small" icon={<ImageIcon className="size-3.5" />} onClick={() => setPreviewArtifact(artifact)}>查看图片</Button> : null}
                             </div>
                         </article>
@@ -303,9 +317,11 @@ export function resolveStoryboardWaitState(task?: GenerationTask, run?: SmartFil
     return "waiting";
 }
 
-export function SmartFilmVideoBoard({ detail, shots, readyCount, targetSeconds, generating, generationError, generationTask, recoveryError, latestResourceId, staleWholeFilm, editPrompt, onBack, onSaveShotPrompt, onGenerate, onDownload }: {
+export function SmartFilmVideoBoard({ detail, batch, shots, promptPlan, readyCount, targetSeconds, generating, generationError, generationTask, recoveryError, latestResourceId, staleWholeFilm, editPrompt, onBack, onSaveShotPrompt, onGenerate, onDownload }: {
     detail: ProjectDetail;
+    batch?: SmartFilmBatch;
     shots: ProjectShot[];
+    promptPlan: ReturnType<typeof import("./use-smart-film-whole-film").useSmartFilmWholeFilm>["smartFilmPromptPlan"];
     readyCount: number;
     targetSeconds: number;
     generating: boolean;
@@ -321,8 +337,6 @@ export function SmartFilmVideoBoard({ detail, shots, readyCount, targetSeconds, 
     onDownload: () => void;
 }) {
     const copyText = useCopyText();
-    const allReady = shots.length > 0 && readyCount === shots.length;
-    const staleCount = shots.filter((shot) => currentArtifact(detail, shot.id, "storyboard")?.status === "stale").length;
     const taskActive = generating || generationTask?.status === "queued" || generationTask?.status === "running";
     const [taskClock, setTaskClock] = useState(() => Date.now());
     useEffect(() => {
@@ -336,19 +350,22 @@ export function SmartFilmVideoBoard({ detail, shots, readyCount, targetSeconds, 
     const taskStartedAt = Date.parse(generationTask?.startedAt || generationTask?.createdAt || "");
     const taskElapsed = taskActive && Number.isFinite(taskStartedAt) ? formatDuration(Math.max(0, taskClock - taskStartedAt)) : "";
     const taskPreviewUrl = generationTask?.previewPosterUrl || (generationTask?.previewKind === "image" ? generationTask.previewUrl : "");
-    const canGenerate = allReady && !taskActive;
+    const canGenerate = shots.length > 0 && !taskActive && Boolean(promptPlan.plan) && !promptPlan.plan?.missingInputAssets.length;
+
+    if (!shots.length) return <StoryboardPreparingState detail={detail} batch={batch} />;
 
     return (
         <section className="h-full min-h-0 overflow-y-auto px-4 py-4 thin-scrollbar">
             <header className="mb-4 flex flex-col gap-3 rounded-xl border border-border/70 bg-surface px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
                 <div>
                     <div className="flex flex-wrap items-center gap-2">
-                        <span className="rounded-full bg-foreground/[.06] px-2 py-0.5 text-[var(--fs-tiny)] font-medium text-foreground/55">步骤 2 / 2</span>
+
                         <strong className="text-sm">生成整片视频</strong>
                         <span className="text-xs text-foreground/42">分镜图可用 {readyCount}/{shots.length} · 目标 {formatDuration(targetSeconds * 1000)}</span>
                     </div>
-                    <p className="mt-1 text-xs leading-5 text-foreground/48">下面的逐镜说明只用于组装一份整片提示词；本次提交 1 个视频任务，并引用图片1至图片{shots.length}，不要求每张图对应固定硬切点。</p>
-                    {!allReady ? <p className="mt-1 text-[var(--fs-tiny)] text-amber-500">{staleCount ? `有 ${staleCount} 张分镜图已过期，请回到分镜步骤重新生成。` : "仍有分镜图未生成，暂时不能生成整片视频。"}</p> : null}
+                    <p className="mt-1 text-xs leading-5 text-foreground/48">生成一条完整视频，已就绪的分镜图与产品、人物资产图将作为参考。逐镜说明会组装为整片提示词。</p>
+                    {promptPlan.error ? <p className="mt-1 text-[var(--fs-tiny)] text-rose-500">{promptPlan.error}</p> : null}
+                    {promptPlan.plan?.missingInputAssets.length ? <p className="mt-1 text-[var(--fs-tiny)] text-rose-500">无法读取产品或人物参考图：{promptPlan.plan.missingInputAssets.join("、")}</p> : null}
                     {staleWholeFilm && !latestResourceId ? <p className="mt-1 text-[var(--fs-tiny)] text-amber-500">上一版整片视频已因分镜变化而过期，请重新生成后再交付。</p> : null}
                     {generationError ? <p className="mt-1 text-[var(--fs-tiny)] text-rose-500">{generationError}</p> : null}
                     {recoveryError ? <p className="mt-1 text-[var(--fs-tiny)] text-rose-500">产物恢复失败：{recoveryError}</p> : null}
@@ -356,9 +373,20 @@ export function SmartFilmVideoBoard({ detail, shots, readyCount, targetSeconds, 
                 <div className="flex flex-wrap items-center gap-2">
                     <Button icon={<ArrowLeft className="size-4" />} onClick={onBack}>返回分镜图</Button>
                     <Button icon={<Download className="size-4" />} disabled={!latestResourceId} onClick={onDownload}>下载整片视频</Button>
-                    <Button type="primary" title={!allReady ? "需要所有分镜图可用" : taskActive ? taskStage : undefined} icon={taskActive ? <LoaderCircle className="size-4 animate-spin" /> : <Video className="size-4" />} loading={taskActive} disabled={!canGenerate} onClick={onGenerate}>{taskActive ? taskProgress ? `整片生成中 ${taskProgress}%` : "整片生成中…" : latestResourceId ? "重新生成整片视频" : "生成整片视频"}</Button>
+                    <Button type="primary" title={taskActive ? taskStage : undefined} icon={taskActive ? <LoaderCircle className="size-4 animate-spin" /> : <Video className="size-4" />} loading={taskActive} disabled={!canGenerate} onClick={onGenerate}>{taskActive ? taskProgress ? `整片生成中 ${taskProgress}%` : "整片生成中…" : latestResourceId ? "重新生成整片视频" : "生成整片视频"}</Button>
                 </div>
             </header>
+
+            {promptPlan.plan ? <details className="mb-4 rounded-xl border border-border/70 bg-surface p-4" open>
+                <summary className="cursor-pointer text-sm font-medium">整片提示词与参考图 · {promptPlan.plan.referenceImages.length} 张</summary>
+                <div className="mt-3 flex flex-wrap gap-2">
+                    {promptPlan.plan.referenceImages.map((image, index) => <div key={image.id} className="w-28 text-xs text-foreground/60">
+                        {image.url ? <img src={image.url} alt={`参考图${index + 1}`} className="aspect-square w-full rounded-lg object-contain" /> : null}
+                        <span>参考图{index + 1} · {image.name}</span>
+                    </div>)}
+                </div>
+                <pre className="thin-scrollbar mt-3 max-h-80 overflow-auto whitespace-pre-wrap text-xs leading-6 text-foreground/70">{promptPlan.plan.prompt}</pre>
+            </details> : null}
 
             {latestResourceId && editPrompt ? (
                 <section className="mb-4 rounded-xl border border-emerald-500/25 bg-emerald-500/[.045] p-4">
@@ -409,7 +437,7 @@ export function SmartFilmVideoBoard({ detail, shots, readyCount, targetSeconds, 
                             <p className="mt-4 text-xs font-medium text-foreground/70">{taskStage}{taskElapsed ? ` · 已运行 ${taskElapsed}` : ""}</p>
                             <Progress className="mt-3 w-full" percent={taskProgress || 5} showInfo={false} status="active" />
                             <p className="mt-2 text-[var(--fs-tiny)] text-foreground/35">{generationTask?.referenceProgress ? "正在准备参考素材，完成后自动进入视频生成" : "视频生成需要一些时间，完成后会显示在这里"}</p>
-                        </div> : generationTask?.status === "failed" ? <div className="max-w-sm text-center text-rose-400"><Film className="mx-auto size-9" /><p className="mt-3 text-xs font-medium">整片视频生成失败</p><p className="mt-2 text-[var(--fs-tiny)] leading-5 text-foreground/45">{generationTask.error || "请调整参数后重试"}</p></div> : <div className="text-center text-foreground/38"><Film className="mx-auto size-10" /><p className="mt-2 text-xs">{staleWholeFilm ? "上一版整片视频已过期" : "还没有生成整片视频"}</p><p className="mt-1 text-[var(--fs-tiny)] text-foreground/30">{staleWholeFilm ? "重新生成整片后再交付" : allReady ? "分镜图已全部就绪，可以开始生成" : "等待分镜图全部生成"}</p></div>}
+                        </div> : generationTask?.status === "failed" ? <div className="max-w-sm text-center text-rose-400"><Film className="mx-auto size-9" /><p className="mt-3 text-xs font-medium">整片视频生成失败</p><p className="mt-2 text-[var(--fs-tiny)] leading-5 text-foreground/45">{generationTask.error || "请调整参数后重试"}</p></div> : <div className="text-center text-foreground/38"><Film className="mx-auto size-10" /><p className="mt-2 text-xs">{staleWholeFilm ? "上一版整片视频已过期" : "还没有生成整片视频"}</p><p className="mt-1 text-[var(--fs-tiny)] text-foreground/30">{staleWholeFilm ? "重新生成整片后再交付" : "镜头脚本就绪后可以开始生成"}</p></div>}
                     </div>
                 </div>
             </div>
@@ -483,7 +511,7 @@ function SmartFilmVideoShotRow({ detail, shot, index, artifact, revision, target
                 <div className="flex flex-wrap items-center gap-2">
                     <strong className="text-sm">镜头 {String(index + 1).padStart(2, "0")} · {shot.title || "未命名"}</strong>
                     <span className="text-[var(--fs-tiny)] text-foreground/42">计划 {formatDuration(shot.durationMs)} / 全片 {targetSeconds} 秒</span>
-                    <span className={`rounded px-1.5 py-0.5 text-[var(--fs-micro)] ${dirty ? "bg-amber-500/10 text-amber-500" : ready ? "bg-emerald-500/10 text-emerald-500" : "bg-amber-500/10 text-amber-500"}`}>{dirty ? "有修改" : ready ? "提示词已保存" : "分镜图未就绪"}</span>
+                    <span className={`rounded px-1.5 py-0.5 text-[var(--fs-micro)] ${dirty ? "bg-amber-500/10 text-amber-500" : ready ? "bg-emerald-500/10 text-emerald-500" : "bg-amber-500/10 text-amber-500"}`}>{dirty ? "有修改" : "提示词已保存"}</span>
                 </div>
 
                 <div className="mt-2 flex items-center justify-between gap-2">

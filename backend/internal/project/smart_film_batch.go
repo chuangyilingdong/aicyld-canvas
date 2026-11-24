@@ -443,9 +443,22 @@ func (s *Service) EnsureSmartFilmVideoTaskAllowed(userID, projectID string, inpu
 		if err != nil {
 			return err
 		}
-		// Whole-film prompt edits create normal shot revisions, but they do not
-		// change the approved storyboard image. The whole-film task therefore
-		// depends on ready storyboards, not the per-shot prompt confirmation state.
+		if strings.TrimSpace(project.BatchID) != "" {
+			batch, err := s.repo.SmartFilmBatchForUser(userID, project.BatchID)
+			if err != nil {
+				return err
+			}
+			config, err := smartFilmBatchConfig(batch)
+			if err != nil {
+				return err
+			}
+			if config.ProductionMode == SmartFilmProductionModeSmart {
+				if len(shots) == 0 {
+					return kernel.BadAuthRequest("当前章节还没有可生成视频的镜头")
+				}
+				return nil
+			}
+		}
 		return s.ensureSmartFilmStoryboardsReady(projectID, shots)
 	}
 	shotID, _ := metadata["shotId"].(string)

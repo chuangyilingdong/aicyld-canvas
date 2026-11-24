@@ -8,7 +8,8 @@ import (
 )
 
 func (s *Service) ProjectUnitWorkspace(userID string, projectID string, unitID string) (UnitWorkspace, error) {
-	if _, err := s.Owned(userID, projectID); err != nil {
+	project, err := s.Owned(userID, projectID)
+	if err != nil {
 		return UnitWorkspace{}, err
 	}
 	unit, err := s.repo.ProjectUnit(projectID, unitID)
@@ -47,6 +48,41 @@ func (s *Service) ProjectUnitWorkspace(userID string, projectID string, unitID s
 		assets, err := s.repo.ProjectUnitAssets(userID, projectID, unitID)
 		if err != nil {
 			return err
+		}
+		if project.BatchID != "" {
+			batch, batchErr := s.repo.SmartFilmBatchForUser(userID, project.BatchID)
+			if batchErr != nil {
+				return batchErr
+			}
+			config, configErr := smartFilmBatchConfig(batch)
+			if configErr != nil {
+				return configErr
+			}
+			if config.ProductionMode == SmartFilmProductionModeSmart {
+				ids, idsErr := smartFilmInputAssetIDs(batch)
+				if idsErr != nil {
+					return idsErr
+				}
+				wanted := make(map[string]bool, len(ids))
+				for _, id := range ids {
+					wanted[id] = true
+				}
+				for _, asset := range assets {
+					delete(wanted, asset.ID)
+				}
+				if len(wanted) > 0 {
+					linked, linkedErr := s.repo.ProjectAssets(userID, projectID)
+					if linkedErr != nil {
+						return linkedErr
+					}
+					for _, asset := range linked {
+						if wanted[asset.ID] {
+							assets = append(assets, asset)
+							delete(wanted, asset.ID)
+						}
+					}
+				}
+			}
 		}
 		result.Assets = make([]AssetSummary, len(assets))
 		var summaries errgroup.Group

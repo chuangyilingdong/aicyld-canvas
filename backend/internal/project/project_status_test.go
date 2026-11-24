@@ -29,7 +29,7 @@ func TestBuildProjectStatusUsesSmartFilmDelivery(t *testing.T) {
 		UnitCount:            1,
 		CompletedUnitCount:   1,
 		ShotCount:            3,
-		ReadyStoryboardCount: 3,
+		ReadyStoryboardCount: 0,
 		ReadySmartFilmCount:  1,
 	}
 	status := buildProjectStatus(project, metrics, 0, SmartFilmProductionModeSmart)

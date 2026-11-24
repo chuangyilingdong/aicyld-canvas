@@ -20,7 +20,7 @@ export default function ProjectOverviewView({ detail, overview }: ProjectDetailV
         { id: "storyboard", icon: Clapperboard, label: "分镜脚本与画面", description: "拆分镜头并确认构图、对白和时长", metric: `${metrics.shotCount} 镜 · ${metrics.readyStoryboardCount} 张图`, href: workflowHref("storyboard"), state: stageStates.storyboard },
         ...(!smartWholeFilm ? [{ id: "previz", icon: PlaySquare, label: "动作预演", description: "检查表演节拍、运镜和连续性", metric: `${metrics.readyPrevizCount}/${metrics.shotCount || 0} 镜`, href: workflowHref("previz"), state: stageStates.previz }] : []),
         smartWholeFilm
-            ? { id: "video", icon: Film, label: "整片视频", description: "使用全部分镜图生成一条完整视频", metric: metrics.readySmartFilmCount ? "整片已生成" : `分镜图 ${metrics.readyStoryboardCount}/${metrics.shotCount || 0}`, href: workflowHref("video"), state: stageStates.video }
+            ? { id: "video", icon: Film, label: "整片视频", description: "使用资产图和可用分镜图生成一条完整视频", metric: metrics.readySmartFilmCount ? "整片已生成" : `分镜图 ${metrics.readyStoryboardCount}/${metrics.shotCount || 0}`, href: workflowHref("video"), state: stageStates.video }
             : { id: "video", icon: Film, label: "镜头视频", description: "逐镜生成、筛选版本并锁定成片", metric: `${metrics.readyVideoCount}/${metrics.shotCount || 0} 镜`, href: workflowHref("video"), state: stageStates.video },
         { id: "delivery", icon: PackageCheck, label: "交付与打包", description: smartWholeFilm ? "确认整片视频与最新分镜一致" : "检查缺失镜头并整理最终产物", metric: deliveryReady ? "可以交付" : smartWholeFilm ? metrics.readySmartFilmCount ? "整片待确认" : "等待整片视频" : metrics.shotCount ? `还差 ${Math.max(0, metrics.shotCount - metrics.readyVideoCount)} 镜` : "等待视频产物", href: workflowHref("delivery"), state: stageStates.delivery },
     ];

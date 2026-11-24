@@ -237,6 +237,33 @@ describe("smart film whole-film prompt", () => {
         expect(plan.prompt).not.toContain("平台任务提示词已按模型上限压缩");
     });
 
+    test("includes unbound product and character inputs without requiring storyboard images", () => {
+        const shot = { id: "s1", title: "展示", durationMs: 5000, description: "展示产品", currentRevisionId: "r1" } as ProjectShot;
+        const product = { id: "product", title: "产品", mediaType: "image", category: "prop", storageKey: "resource:product-image" } as ProjectAsset;
+        const character = { id: "person", title: "人物", mediaType: "image", category: "character", storageKey: "resource:person-image" } as ProjectAsset;
+        const detail = { assets: [product, character], shotReferences: [], shotRevisions: [] } as unknown as ProjectDetail;
+        const options = { inputAssetRoles: { product: "product", person: "character" }, inputAssetNames: { product: "机甲鲨", person: "少女" } };
+        const plan = buildSmartFilmWholeFilmPrompt(detail, [{ shot }], 5, options);
+        expect(plan.referenceImages.map((image) => image.storageKey)).toEqual(["resource:product-image", "resource:person-image"]);
+        expect(plan.prompt).toContain("参考图1：项目绑定的产品/道具外观设定（机甲鲨）");
+        expect(plan.prompt).toContain("参考图2：项目绑定的人物身份与造型外观设定（少女）");
+        expect(plan.prompt).toContain("产品必须在符合剧情的镜头中清晰可见");
+        expect(plan.missingInputAssets).toEqual([]);
+        const missing = buildSmartFilmWholeFilmPrompt({ ...detail, assets: [character] }, [{ shot }], 5, options);
+        expect(missing.missingInputAssets).toEqual(["机甲鲨"]);
+    });
+
+    test("numbers partial storyboards after input assets and maps them to their original shots", () => {
+        const first = { id: "s1", title: "一", durationMs: 5000 } as ProjectShot;
+        const second = { id: "s2", title: "二", durationMs: 5000 } as ProjectShot;
+        const asset = { id: "product", title: "产品", mediaType: "image", category: "prop", storageKey: "resource:product-image" } as ProjectAsset;
+        const detail = { assets: [asset], shotReferences: [], shotRevisions: [] } as unknown as ProjectDetail;
+        const artifact = { resourceId: "storyboard-2", status: "ready" } as ShotArtifact;
+        const plan = buildSmartFilmWholeFilmPrompt(detail, [{ shot: first }, { shot: second, artifact }], 10, { inputAssetRoles: { product: "product" } });
+        expect(plan.referenceImages.map((image) => image.storageKey)).toEqual(["resource:product-image", "resource:storyboard-2"]);
+        expect(plan.prompt).toContain("参考图2对应镜头2");
+    });
+
     test("supports a dynamic reference count above eight", () => {
         const entries = Array.from({ length: 12 }, (_, index) => {
             const shot = {

@@ -1808,6 +1808,77 @@ func TestSmartFilmWholeVideoTaskRequiresReadyStoryboardsWithoutPromptConfirmatio
 	}
 }
 
+func TestSmartFilmWorkspaceInputAssets(t *testing.T) {
+	svc, db := newTestService(t, &recordingWorkflows{})
+	project, err := svc.CreateProject("user-1", CreateProjectRequest{Name: "资产引用", Type: "smart-film"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	batch := model.SmartFilmBatch{ID: "asset-batch", UserID: "user-1", ConfigJSON: `{"productionMode":"smart","targetDurationSeconds":10}`, InputAssetIDsJSON: `["product","person","unlinked"]`}
+	if err := db.Create(&batch).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&model.Project{}).Where("id = ?", project.ID).Update("batch_id", batch.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	unit, err := svc.CreateProjectUnit("user-1", project.ID, CreateProjectUnitRequest{Title: "整片", SourceText: "剧本"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"product", "person", "unlinked"} {
+		asset := model.Asset{ID: id, UserID: "user-1", Title: id, PayloadJSON: `{"data":{"mediaType":"image","storageKey":"resource:image"}}`}
+		if err := db.Create(&asset).Error; err != nil {
+			t.Fatal(err)
+		}
+		if id != "unlinked" {
+			if err := db.Create(&model.ProjectAssetLink{ID: "link-" + id, ProjectID: project.ID, AssetID: id}).Error; err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	workspace, err := svc.ProjectUnitWorkspace("user-1", project.ID, unit.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, asset := range workspace.Assets {
+		seen[asset.ID] = true
+	}
+	if !seen["product"] || !seen["person"] || seen["unlinked"] {
+		t.Fatalf("unexpected workspace assets: %+v", seen)
+	}
+}
+
+func TestSmartFilmWholeVideoAllowsMissingStoryboardsForSmartBatch(t *testing.T) {
+	svc, db := newTestService(t, &recordingWorkflows{})
+	project, err := svc.CreateProject("user-1", CreateProjectRequest{Name: "智能整片", Type: "smart-film"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	batch := model.SmartFilmBatch{ID: "smart-batch", UserID: "user-1", ConfigJSON: `{"productionMode":"smart","targetDurationSeconds":10}`}
+	if err := db.Create(&batch).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&model.Project{}).Where("id = ?", project.ID).Update("batch_id", batch.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	unit, err := svc.CreateProjectUnit("user-1", project.ID, CreateProjectUnitRequest{Title: "整片", SourceText: "剧本"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := map[string]any{"mode": "video", "metadata": map[string]any{"source": "smart-film-whole-video", "artifactType": "smart_film", "unitId": unit.ID}}
+	if err := svc.EnsureSmartFilmVideoTaskAllowed("user-1", project.ID, input); err == nil {
+		t.Fatal("whole film without shots was allowed")
+	}
+	_, err = svc.CreateProjectShot("user-1", project.ID, CreateProjectShotRequest{UnitID: unit.ID, Title: "镜头", DurationMs: 5000, Revision: ShotRevisionInput{PlotDescription: "画面", DurationMs: 5000}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.EnsureSmartFilmVideoTaskAllowed("user-1", project.ID, input); err != nil {
+		t.Fatalf("smart film without storyboard was rejected: %v", err)
+	}
+}
+
 func TestSmartFilmScriptSourceChangeInvalidatesConfirmedShots(t *testing.T) {
 	svc, db := newTestService(t, &recordingWorkflows{})
 	project, err := svc.CreateProject("user-1", CreateProjectRequest{Name: "剧本变更", Type: "smart-film"})

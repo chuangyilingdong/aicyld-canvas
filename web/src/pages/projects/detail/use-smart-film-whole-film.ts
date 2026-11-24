@@ -83,6 +83,23 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
         }).length,
         [detail, shots],
     );
+    const smartFilmPromptPlan = useMemo(() => {
+        if (!shots.length) return { plan: undefined, error: "" };
+        const model = detail.project.defaultVideoModel || effectiveConfig.videoModel;
+        const profile = modelCapabilityConfigFor(effectiveConfig, model).video;
+        try {
+            const plan = buildSmartFilmWholeFilmPrompt(
+                detail,
+                shots.map((shot) => ({ shot, artifact: currentArtifact(detail, shot.id, "storyboard") })),
+                Number(smartFilmBatchQuery.data?.config.targetDurationSeconds || 0),
+                { maxChars: profile?.references.promptMaxChars || 4_000, skillSnapshot: smartFilmBatchQuery.data?.config.skillSnapshot,
+                    inputAssetRoles: smartFilmBatchQuery.data?.config.inputAssetRoles, inputAssetNames: smartFilmBatchQuery.data?.config.inputAssetNames },
+            );
+            return { plan, error: "" };
+        } catch (error) {
+            return { plan: undefined, error: error instanceof Error ? error.message : "整片提示词生成失败" };
+        }
+    }, [detail, shots, effectiveConfig, smartFilmBatchQuery.data]);
     const latestSmartFilmTask = useMemo(() => {
         const merged = new Map<string, GenerationTask>();
         for (const task of [...(detail.tasks || []), ...(projectTasksQuery.data || [])]) {
@@ -135,12 +152,9 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
             setSmartFilmError(message);
             notifyError(message);
         };
-        const storyboardArtifacts = shots.flatMap((shot) => {
-            const artifact = currentArtifact(detail, shot.id, "storyboard");
-            return artifact?.resourceId && artifact.status === "ready" ? [{ shot, artifact }] : [];
-        });
-        if (storyboardArtifacts.length !== shots.length || !storyboardArtifacts.length) {
-            fail("请先生成全部镜头，并确保每一个镜头都有可用的分镜图");
+        const storyboardArtifacts = shots.map((shot) => ({ shot, artifact: currentArtifact(detail, shot.id, "storyboard") }));
+        if (!storyboardArtifacts.length) {
+            fail("请先等待分镜脚本生成完成");
             return;
         }
         const model = detail.project.defaultVideoModel || effectiveConfig.videoModel;
@@ -155,19 +169,19 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
             fail("智能整片缺少目标总时长，请返回批次设置制作规格");
             return;
         }
-        const promptLimit = profile?.references.promptMaxChars || 4_000;
         const skillSnapshot = smartFilmBatchQuery.data?.config.skillSnapshot;
-        const promptPlan = buildSmartFilmWholeFilmPrompt(
-            detail,
-            storyboardArtifacts,
-            targetSeconds,
-            { maxChars: promptLimit, skillSnapshot },
-        );
+        const promptPlan = smartFilmPromptPlan.plan;
+        if (!promptPlan) {
+            fail(smartFilmPromptPlan.error || "整片提示词尚未准备好");
+            return;
+        }
+        if (promptPlan.missingInputAssets.length) {
+            fail(`以下产品或人物参考图无法读取：${promptPlan.missingInputAssets.join("、")}，请检查项目资产后重试`);
+            return;
+        }
         const prompt = promptPlan.prompt;
         if (promptPlan.referenceImages.length > maxImages) {
-            fail(maxImages < storyboardArtifacts.length
-                ? `当前视频模型最多支持 ${maxImages} 张参考图，本片有 ${storyboardArtifacts.length} 张分镜图，请更换支持更多参考图的模型`
-                : `当前视频模型最多支持 ${maxImages} 张参考图，本片需要 ${promptPlan.referenceImages.length} 张，请更换支持更多参考图的模型`);
+            fail(`当前视频模型最多支持 ${maxImages} 张参考图，本片需要 ${promptPlan.referenceImages.length} 张，请更换支持更多参考图的模型`);
             return;
         }
         const maxTargetSeconds = profile?.duration.max || targetSeconds;
@@ -233,5 +247,5 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
         }
     };
 
-    return { smartWholeFilm, smartFilmConfigurationPending, smartFilmConfigurationError, retrySmartFilmConfiguration: () => smartFilmBatchQuery.refetch(), smartFilmGenerating, smartFilmError, smartFilmTask: smartFilmTask || latestSmartFilmTask, smartFilmRecoveryError, latestSmartWholeFilm, staleSmartWholeFilm, smartFilmEditPrompt, readyStoryboardCount, smartFilmBatch: smartFilmBatchQuery.data, generateSmartWholeFilm };
+    return { smartWholeFilm, smartFilmConfigurationPending, smartFilmConfigurationError, retrySmartFilmConfiguration: () => smartFilmBatchQuery.refetch(), smartFilmGenerating, smartFilmError, smartFilmTask: smartFilmTask || latestSmartFilmTask, smartFilmRecoveryError, latestSmartWholeFilm, staleSmartWholeFilm, smartFilmEditPrompt, readyStoryboardCount, smartFilmPromptPlan, smartFilmBatch: smartFilmBatchQuery.data, generateSmartWholeFilm };
 }

@@ -64,14 +64,14 @@ export default function ProjectDetailPage() {
         refetchIntervalInBackground: false,
         staleTime: 1_000,
     });
-    const terminalTaskIdsRef = useRef<Set<string> | null>(null);
+    const terminalTaskIdsRef = useRef<string>("");
     useEffect(() => {
         const tasks = projectTasksQuery.data;
         if (!tasks) return;
-        const terminal = new Set(tasks.filter((task) => task.status === "succeeded" || task.status === "failed" || task.status === "cancelled").map((task) => task.id));
+        const terminal = JSON.stringify(tasks.filter((task) => task.status === "succeeded" || task.status === "failed" || task.status === "cancelled").map((task) => [task.id, task.status, task.resultState, task.outputs]));
         const previous = terminalTaskIdsRef.current;
         terminalTaskIdsRef.current = terminal;
-        const changed = !previous || Array.from(terminal).some((id) => !previous.has(id));
+        const changed = terminal !== previous;
         if (!changed) return;
         const refreshArtifacts = () => {
             void queryClient.invalidateQueries({ queryKey: ["project", projectId, "unit-workspace", activeUnitId] });
@@ -81,6 +81,22 @@ export default function ProjectDetailPage() {
         const retryTimer = window.setTimeout(refreshArtifacts, 2_000);
         return () => window.clearTimeout(retryTimer);
     }, [activeUnitId, projectId, projectTasksQuery.data, queryClient]);
+    useEffect(() => {
+        const tasks = projectTasksQuery.data || [];
+        const pending = tasks.some((task) => {
+            if (task.status !== "succeeded" || task.clientContext?.artifactType !== "storyboard" || !task.clientContext.shotId) return false;
+            if (task.resultState === "FAILED_RETRYABLE" || task.resultState === "FAILED_PERMANENT") return false;
+            const finishedAt = Date.parse(task.completedAt || task.updatedAt || task.createdAt);
+            if (!Number.isFinite(finishedAt) || Date.now() - finishedAt > 60_000) return false;
+            return !workspaceQuery.data?.shotArtifacts?.some((artifact) => artifact.shotId === task.clientContext?.shotId && artifact.type === "storyboard" && artifact.resourceId && artifact.status === "ready");
+        });
+        if (!pending) return;
+        const timer = window.setInterval(() => {
+            void queryClient.invalidateQueries({ queryKey: ["project", projectId, "unit-workspace", activeUnitId] });
+        }, 3_000);
+        const stopTimer = window.setTimeout(() => window.clearInterval(timer), 60_000);
+        return () => { window.clearInterval(timer); window.clearTimeout(stopTimer); };
+    }, [activeUnitId, projectId, projectTasksQuery.data, queryClient, workspaceQuery.data]);
     const project = coreQuery.data?.project;
     const projectStatus = coreQuery.data?.status;
     const workspace = workspaceQuery.data;

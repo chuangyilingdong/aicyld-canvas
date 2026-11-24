@@ -299,7 +299,7 @@ export function compileShotAssetReferencePrompt(references: ShotPromptAssetRefer
     return ["【资产参考】", "", ...lines].join("\n");
 }
 
-function projectAssetReferenceImage(asset: ProjectAsset, reference?: ShotAssetReference): ReferenceImage | undefined {
+export function projectAssetReferenceImage(asset: ProjectAsset, reference?: ShotAssetReference): ReferenceImage | undefined {
     const boundRepresentations = reference?.referencedVersion?.representations || [];
     const representation = preferredVisualRepresentation(boundRepresentations)
         || (asset.character ? preferredVisualRepresentation(asset.character.representations) : undefined);

@@ -950,8 +950,8 @@ export default function SmartFilmBatchDetailPage() {
                                                 ) : null
                                             ) : null}
                                             {script.status === "storyboard_ready" ? (
-                                                <Button size="small" type="primary" icon={<Clapperboard className="size-3.5" />} onClick={() => navigate(`/projects/${script.projectId}/workflow/${script.unitId}/storyboard`)}>
-                                                    查看分镜
+                                                <Button size="small" type="primary" icon={<Clapperboard className="size-3.5" />} onClick={() => navigate(`/projects/${script.projectId}/workflow/${script.unitId}/${batch.config.productionMode === "smart" ? "video" : "storyboard"}`)}>
+                                                    {batch.config.productionMode === "smart" ? "查看整片视频" : "查看分镜"}
                                                 </Button>
                                             ) : null}
                                             <Button size="small" icon={<CheckCircle2 className="size-3.5" />} onClick={() => navigate(`/projects/${script.projectId}/overview`)}>

@@ -17,6 +17,7 @@ export function WorkflowSmartFilmStage({
     configurationPending,
     configurationError,
     readyStoryboardCount,
+    promptPlan,
     busy,
     submittingShotIds,
     targetSeconds,
@@ -43,6 +44,7 @@ export function WorkflowSmartFilmStage({
     configurationPending: boolean;
     configurationError?: string;
     readyStoryboardCount: number;
+    promptPlan: ReturnType<typeof import("./use-smart-film-whole-film").useSmartFilmWholeFilm>["smartFilmPromptPlan"];
     busy: boolean;
     submittingShotIds: Set<string>;
     targetSeconds: number;
@@ -90,7 +92,9 @@ export function WorkflowSmartFilmStage({
     if (activeStage === "video") {
         return <SmartFilmVideoBoard
             detail={detail}
+            batch={batch}
             shots={shots}
+            promptPlan={promptPlan}
             readyCount={readyStoryboardCount}
             targetSeconds={targetSeconds}
             generating={generating}
@@ -122,7 +126,7 @@ function SmartFilmNoPreviz({ onBack }: { onBack: () => void }) {
     return <div className="grid h-full place-items-center px-6 text-center">
         <div className="max-w-md">
             <strong className="text-sm">智能整片不使用动作预演</strong>
-            <p className="mt-2 text-xs leading-6 text-foreground/48">这个项目会直接使用全部分镜图生成整片视频。请返回分镜图步骤继续制作。</p>
+            <p className="mt-2 text-xs leading-6 text-foreground/48">这个项目会根据镜头脚本和参考素材生成整片视频。请返回制作页面继续。</p>
             <Button className="mt-4" type="primary" onClick={onBack}>返回分镜图</Button>
         </div>
     </div>;
