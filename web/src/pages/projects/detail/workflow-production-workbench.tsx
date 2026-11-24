@@ -119,7 +119,7 @@ export default function WorkflowProductionWorkbench(props: WorkflowProductionWor
     const activeShotIdRef = useRef(selectedShot?.id || "");
     activeShotIdRef.current = selectedShot?.id || "";
     const shots = useMemo(() => (detail.shots || []).filter((item) => item.unitId === unitId).slice().sort((left, right) => left.position - right.position), [detail.shots, unitId]);
-    const { smartWholeFilm, smartFilmConfigurationPending, smartFilmConfigurationError, retrySmartFilmConfiguration, smartFilmGenerating, smartFilmError, smartFilmTask, smartFilmRecoveryError, latestSmartWholeFilm, staleSmartWholeFilm, smartFilmEditPrompt, readyStoryboardCount, smartFilmPromptPlan, smartFilmBatch, generateSmartWholeFilm } = useSmartFilmWholeFilm(detail, projectId, unitId, shots, activeStage);
+    const { smartWholeFilm, smartFilmConfigurationPending, smartFilmConfigurationError, retrySmartFilmConfiguration, smartFilmGenerating, smartFilmError, smartFilmTask, smartFilmRecoveryError, latestSmartWholeFilm, staleSmartWholeFilm, smartFilmEditPrompt, readyStoryboardCount, smartFilmPromptPlan, smartFilmModel, smartFilmModelError, setSmartFilmModel, smartFilmBatch, generateSmartWholeFilm } = useSmartFilmWholeFilm(detail, projectId, unitId, shots, activeStage);
     const shotIndex = selectedShot ? shots.findIndex((item) => item.id === selectedShot.id) : -1;
     const revision = currentRevision(detail, selectedShot);
     const artifactType = artifactTypeForStage(activeStage);
@@ -994,6 +994,9 @@ export default function WorkflowProductionWorkbench(props: WorkflowProductionWor
             configurationError={smartFilmConfigurationError}
             readyStoryboardCount={readyStoryboardCount}
             promptPlan={smartFilmPromptPlan}
+            videoModel={smartFilmModel}
+            modelError={smartFilmModelError}
+            onVideoModelChange={setSmartFilmModel}
             busy={Boolean(batchProgress) || submittingShotIds.size > 0}
             submittingShotIds={submittingShotIds}
             targetSeconds={Number(smartFilmBatch?.config.targetDurationSeconds || 0)}

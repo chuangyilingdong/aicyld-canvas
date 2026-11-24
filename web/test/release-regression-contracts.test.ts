@@ -45,6 +45,15 @@ describe("release regression source contracts", () => {
         expect(viewer).toContain('className="absolute inset-0 block h-full w-full object-contain"');
     });
 
+    test("whole-film exposes model selection and submits image references in reference mode", () => {
+        const board = source("pages/projects/detail/smart-film-production-board.tsx");
+        const hook = source("pages/projects/detail/use-smart-film-whole-film.ts");
+        expect(board).toContain('<ModelPicker config={config} capability="video"');
+        expect(board).toContain("!modelError");
+        expect(hook).toContain("modelCompatibilityError");
+        expect(hook).toContain('videoEditOperation: "reference_to_video"');
+    });
+
     test("keeps quote reference counts in the task contract", () => {
         const generation = source("services/api/generation-task.ts");
         expect(generation).toContain("quoteReferenceCounts");

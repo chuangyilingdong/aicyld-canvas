@@ -3,6 +3,8 @@ import { AlertTriangle, ArrowLeft, ArrowRight, CheckCircle2, Clapperboard, Copy,
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 
+import { ModelPicker } from "@/components/model-picker";
+import { useEffectiveConfig } from "@/stores/use-config-store";
 import { CanvasResourceMentionTextarea } from "@/components/canvas/canvas-resource-mention-textarea";
 import { AppModal } from "@/components/ui/product/app-modal/app-modal";
 import { useCopyText } from "@/hooks/use-copy-text";
@@ -317,11 +319,14 @@ export function resolveStoryboardWaitState(task?: GenerationTask, run?: SmartFil
     return "waiting";
 }
 
-export function SmartFilmVideoBoard({ detail, batch, shots, promptPlan, readyCount, targetSeconds, generating, generationError, generationTask, recoveryError, latestResourceId, staleWholeFilm, editPrompt, onBack, onSaveShotPrompt, onGenerate, onDownload }: {
+export function SmartFilmVideoBoard({ detail, batch, shots, promptPlan, videoModel, modelError, onVideoModelChange, readyCount, targetSeconds, generating, generationError, generationTask, recoveryError, latestResourceId, staleWholeFilm, editPrompt, onBack, onSaveShotPrompt, onGenerate, onDownload }: {
     detail: ProjectDetail;
     batch?: SmartFilmBatch;
     shots: ProjectShot[];
     promptPlan: ReturnType<typeof import("./use-smart-film-whole-film").useSmartFilmWholeFilm>["smartFilmPromptPlan"];
+    videoModel: string;
+    modelError: string;
+    onVideoModelChange: (model: string) => void;
     readyCount: number;
     targetSeconds: number;
     generating: boolean;
@@ -337,6 +342,7 @@ export function SmartFilmVideoBoard({ detail, batch, shots, promptPlan, readyCou
     onDownload: () => void;
 }) {
     const copyText = useCopyText();
+    const config = useEffectiveConfig();
     const taskActive = generating || generationTask?.status === "queued" || generationTask?.status === "running";
     const [taskClock, setTaskClock] = useState(() => Date.now());
     useEffect(() => {
@@ -350,7 +356,7 @@ export function SmartFilmVideoBoard({ detail, batch, shots, promptPlan, readyCou
     const taskStartedAt = Date.parse(generationTask?.startedAt || generationTask?.createdAt || "");
     const taskElapsed = taskActive && Number.isFinite(taskStartedAt) ? formatDuration(Math.max(0, taskClock - taskStartedAt)) : "";
     const taskPreviewUrl = generationTask?.previewPosterUrl || (generationTask?.previewKind === "image" ? generationTask.previewUrl : "");
-    const canGenerate = shots.length > 0 && !taskActive && Boolean(promptPlan.plan) && !promptPlan.plan?.missingInputAssets.length;
+    const canGenerate = shots.length > 0 && !taskActive && Boolean(promptPlan.plan) && !promptPlan.plan?.missingInputAssets.length && !modelError;
 
     if (!shots.length) return <StoryboardPreparingState detail={detail} batch={batch} />;
 
@@ -367,10 +373,12 @@ export function SmartFilmVideoBoard({ detail, batch, shots, promptPlan, readyCou
                     {promptPlan.error ? <p className="mt-1 text-[var(--fs-tiny)] text-rose-500">{promptPlan.error}</p> : null}
                     {promptPlan.plan?.missingInputAssets.length ? <p className="mt-1 text-[var(--fs-tiny)] text-rose-500">无法读取产品或人物参考图：{promptPlan.plan.missingInputAssets.join("、")}</p> : null}
                     {staleWholeFilm && !latestResourceId ? <p className="mt-1 text-[var(--fs-tiny)] text-amber-500">上一版整片视频已因分镜变化而过期，请重新生成后再交付。</p> : null}
+                    {modelError ? <p className="mt-1 text-[var(--fs-tiny)] text-rose-500">当前视频模型{modelError}，请选择支持本片参考图和时长的模型。</p> : null}
                     {generationError ? <p className="mt-1 text-[var(--fs-tiny)] text-rose-500">{generationError}</p> : null}
                     {recoveryError ? <p className="mt-1 text-[var(--fs-tiny)] text-rose-500">产物恢复失败：{recoveryError}</p> : null}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
+                    <ModelPicker config={config} capability="video" value={videoModel} onChange={onVideoModelChange} placeholder="选择视频模型" />
                     <Button icon={<ArrowLeft className="size-4" />} onClick={onBack}>返回分镜图</Button>
                     <Button icon={<Download className="size-4" />} disabled={!latestResourceId} onClick={onDownload}>下载整片视频</Button>
                     <Button type="primary" title={taskActive ? taskStage : undefined} icon={taskActive ? <LoaderCircle className="size-4 animate-spin" /> : <Video className="size-4" />} loading={taskActive} disabled={!canGenerate} onClick={onGenerate}>{taskActive ? taskProgress ? `整片生成中 ${taskProgress}%` : "整片生成中…" : latestResourceId ? "重新生成整片视频" : "生成整片视频"}</Button>

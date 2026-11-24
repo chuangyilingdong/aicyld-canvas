@@ -5,6 +5,7 @@ import {
     displayVideoOperation,
     displayVideoOperations,
     operationForModelSelection,
+    modelCompatibilityError,
     resolveVideoOperation,
     videoModelFamilyOperations,
     videoOperationInputError,
@@ -75,6 +76,14 @@ describe("video model-first selection regression", () => {
         expect(resolveVideoOperation(input(1))).toBe("image_to_video");
         expect(resolveVideoOperation(input(2))).toBe("first_last_frame");
         expect(resolveVideoOperation(input(4))).toBe("reference_to_video");
+    });
+
+    test("validates whole-film images as references instead of first and last frames", () => {
+        const multi = encodeChannelModel("managed", "rh-minimax-h3-multi");
+        const requirements = { capability: "video" as const, input: input(2), videoOperation: "reference_to_video" };
+        expect(modelCompatibilityError(config, values.i2v, requirements)).toBeTruthy();
+        expect(modelCompatibilityError(config, multi, requirements)).toBe("");
+        expect(resolveVideoOperation(input(2), requirements.videoOperation)).toBe("reference_to_video");
     });
 
     test("keeps the user's explicit mode before media is connected", () => {

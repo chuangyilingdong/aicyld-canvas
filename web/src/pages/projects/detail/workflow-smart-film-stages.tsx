@@ -18,6 +18,9 @@ export function WorkflowSmartFilmStage({
     configurationError,
     readyStoryboardCount,
     promptPlan,
+    videoModel,
+    modelError,
+    onVideoModelChange,
     busy,
     submittingShotIds,
     targetSeconds,
@@ -45,6 +48,9 @@ export function WorkflowSmartFilmStage({
     configurationError?: string;
     readyStoryboardCount: number;
     promptPlan: ReturnType<typeof import("./use-smart-film-whole-film").useSmartFilmWholeFilm>["smartFilmPromptPlan"];
+    videoModel: string;
+    modelError: string;
+    onVideoModelChange: (model: string) => void;
     busy: boolean;
     submittingShotIds: Set<string>;
     targetSeconds: number;
@@ -95,6 +101,9 @@ export function WorkflowSmartFilmStage({
             batch={batch}
             shots={shots}
             promptPlan={promptPlan}
+            videoModel={videoModel}
+            modelError={modelError}
+            onVideoModelChange={onVideoModelChange}
             readyCount={readyStoryboardCount}
             targetSeconds={targetSeconds}
             generating={generating}

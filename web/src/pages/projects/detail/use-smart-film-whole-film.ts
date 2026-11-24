@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { modelCapabilityConfigFor, normalizeVideoValue } from "@/lib/model-capabilities";
-import { resolveModelVideoBooleanOptions } from "@/lib/model-selection";
+import { modelCompatibilityError, resolveModelVideoBooleanOptions } from "@/lib/model-selection";
 import { buildBackendGenerationTaskQuoteInput, parseBackendGenerationResult, runBackendGenerationTask } from "@/services/api/generation-task";
 import { listProjectUnitArtifacts, registerProjectUnitArtifact, type ProjectDetail, type ProjectShot } from "@/services/api/projects";
 import { ownedResourceIdFromMediaRef, resourceIdFromStorageKey } from "@/services/api/resources";
@@ -20,6 +20,8 @@ const recoveringSmartFilmTaskKeys = new Set<string>();
 export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, unitId: string, shots: ProjectShot[], activeStage: string) {
     const effectiveConfig = useEffectiveConfig();
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
+    const [selectedVideoModel, setSelectedVideoModel] = useState("");
+    const smartFilmModel = selectedVideoModel || detail.project.defaultVideoModel || effectiveConfig.videoModel;
     const [smartFilmGenerating, setSmartFilmGenerating] = useState(false);
     const [smartFilmTask, setSmartFilmTask] = useState<GenerationTask | null>(null);
     const [smartFilmRecoveryError, setSmartFilmRecoveryError] = useState("");
@@ -85,8 +87,7 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
     );
     const smartFilmPromptPlan = useMemo(() => {
         if (!shots.length) return { plan: undefined, error: "" };
-        const model = detail.project.defaultVideoModel || effectiveConfig.videoModel;
-        const profile = modelCapabilityConfigFor(effectiveConfig, model).video;
+        const profile = modelCapabilityConfigFor(effectiveConfig, smartFilmModel).video;
         try {
             const plan = buildSmartFilmWholeFilmPrompt(
                 detail,
@@ -99,7 +100,14 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
         } catch (error) {
             return { plan: undefined, error: error instanceof Error ? error.message : "整片提示词生成失败" };
         }
-    }, [detail, shots, effectiveConfig, smartFilmBatchQuery.data]);
+    }, [detail, shots, effectiveConfig, smartFilmBatchQuery.data, smartFilmModel]);
+    const referenceCount = smartFilmPromptPlan.plan?.referenceImages.length || 0;
+    const smartFilmModelError = smartFilmModel && smartFilmPromptPlan.plan ? modelCompatibilityError(effectiveConfig, smartFilmModel, {
+        capability: "video",
+        input: { textCount: 0, imageCount: referenceCount, videoCount: 0, audioCount: 0, characterCount: 0 },
+        ...(referenceCount ? { videoOperation: "reference_to_video" } : {}),
+        videoSeconds: String(smartFilmBatchQuery.data?.config.targetDurationSeconds || ""),
+    }) : "";
     const latestSmartFilmTask = useMemo(() => {
         const merged = new Map<string, GenerationTask>();
         for (const task of [...(detail.tasks || []), ...(projectTasksQuery.data || [])]) {
@@ -157,7 +165,11 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
             fail("请先等待分镜脚本生成完成");
             return;
         }
-        const model = detail.project.defaultVideoModel || effectiveConfig.videoModel;
+        const model = smartFilmModel;
+        if (smartFilmModelError) {
+            fail(`当前视频模型${smartFilmModelError}，请选择支持本片参考图和时长的模型`);
+            return;
+        }
         if (!model || !isAiConfigReady(effectiveConfig, model)) {
             fail("当前项目没有可用的视频模型");
             return;
@@ -215,7 +227,7 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
                 ...videoBooleanOptions,
             },
             referenceImages: promptPlan.referenceImages,
-            metadata: { source: "smart-film-whole-video", domainProjectId: projectId, unitId, artifactType: "smart_film", ...smartFilmSkillMetadata(skillSnapshot) },
+            metadata: { source: "smart-film-whole-video", domainProjectId: projectId, unitId, artifactType: "smart_film", ...(referenceCount ? { videoEditOperation: "reference_to_video" } : {}), ...smartFilmSkillMetadata(skillSnapshot) },
             onTaskUpdate: (task) => {
                 taskId = task.id;
                 setSmartFilmTask(task);
@@ -247,5 +259,5 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
         }
     };
 
-    return { smartWholeFilm, smartFilmConfigurationPending, smartFilmConfigurationError, retrySmartFilmConfiguration: () => smartFilmBatchQuery.refetch(), smartFilmGenerating, smartFilmError, smartFilmTask: smartFilmTask || latestSmartFilmTask, smartFilmRecoveryError, latestSmartWholeFilm, staleSmartWholeFilm, smartFilmEditPrompt, readyStoryboardCount, smartFilmPromptPlan, smartFilmBatch: smartFilmBatchQuery.data, generateSmartWholeFilm };
+    return { smartWholeFilm, smartFilmConfigurationPending, smartFilmConfigurationError, retrySmartFilmConfiguration: () => smartFilmBatchQuery.refetch(), smartFilmGenerating, smartFilmError, smartFilmTask: smartFilmTask || latestSmartFilmTask, smartFilmRecoveryError, latestSmartWholeFilm, staleSmartWholeFilm, smartFilmEditPrompt, readyStoryboardCount, smartFilmPromptPlan, smartFilmModel, smartFilmModelError, setSmartFilmModel: setSelectedVideoModel, smartFilmBatch: smartFilmBatchQuery.data, generateSmartWholeFilm };
 }
