@@ -75,6 +75,7 @@ func newTestService(t *testing.T, workflows Workflows) (*Service, *gorm.DB) {
 		&model.VoiceProfile{},
 		&model.Resource{},
 		&model.Task{},
+		&model.Result{},
 		&model.Shot{},
 		&model.ShotRevision{},
 		&model.ShotArtifact{},

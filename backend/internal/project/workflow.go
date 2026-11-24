@@ -321,7 +321,14 @@ func (s *Service) RegisterTaskOutput(userID string, projectID string, stepID str
 
 func planRegisteredTaskOutput(now time.Time, taskID, outputJSON, metadata, resourceID, artifactType, shotRevisionID string, current repository.WorkflowOutputCurrent) (repository.WorkflowOutputPlan, error) {
 	if current.ExistingLink != nil {
-		return repository.WorkflowOutputPlan{}, nil
+		if current.Shot == nil || resourceID == "" || artifactType == "" || strings.TrimSpace(shotRevisionID) != current.Shot.CurrentRevisionID {
+			return repository.WorkflowOutputPlan{}, nil
+		}
+		return repository.WorkflowOutputPlan{Artifact: &model.ShotArtifact{
+			ID: kernel.NewID(), ProjectID: current.Shot.ProjectID, UnitID: current.Shot.UnitID, ShotID: current.Shot.ID,
+			RevisionID: shotRevisionID, TaskID: taskID, Type: artifactType, ResourceID: resourceID,
+			Status: "ready", Selected: true, MetadataJSON: metadata, CreatedAt: now, UpdatedAt: now,
+		}}, nil
 	}
 	if current.Step.Status == model.WorkflowStepStatusFailed {
 		return repository.WorkflowOutputPlan{}, kernel.BadAuthRequest("失败步骤不能登记成功产物")

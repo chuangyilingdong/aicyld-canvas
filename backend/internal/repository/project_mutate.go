@@ -548,7 +548,31 @@ func (r *Repository) RegisterWorkflowTaskOutputActive(userID, projectID, stepID,
 			}
 			if existingLink != nil {
 				stored = step
-				return nil
+				if plan.Artifact == nil {
+					return nil
+				}
+				var count int64
+				if err := tx.Model(&model.ShotArtifact{}).Where("shot_id = ? AND type = ? AND (task_id = ? OR selected = ?)", plan.Artifact.ShotID, plan.Artifact.Type, plan.Artifact.TaskID, true).Count(&count).Error; err != nil {
+					return err
+				}
+				if count > 0 {
+					return nil
+				}
+				if records.Representation != nil {
+					var existing model.AssetRepresentation
+					err := tx.Where("task_id = ? AND role = ?", records.Representation.TaskID, records.Representation.Role).First(&existing).Error
+					if errors.Is(err, gorm.ErrRecordNotFound) {
+						if err := tx.Create(records.Representation).Error; err != nil {
+							return err
+						}
+					} else if err != nil {
+						return err
+					}
+				}
+				if err := persistShotArtifactTx(tx, plan.Artifact); err != nil {
+					return err
+				}
+				return bumpProjectRevisionTx(tx, projectID, plan.Artifact.UpdatedAt)
 			}
 			if err := persistWorkflowTaskOutputRecordsTx(tx, records, plan.Artifact); err != nil {
 				return err
@@ -1200,6 +1224,10 @@ func persistWorkflowTaskOutputRecordsTx(tx *gorm.DB, records WorkflowTaskOutputR
 			return err
 		}
 	}
+	return persistShotArtifactTx(tx, artifact)
+}
+
+func persistShotArtifactTx(tx *gorm.DB, artifact *model.ShotArtifact) error {
 	if artifact == nil {
 		return nil
 	}

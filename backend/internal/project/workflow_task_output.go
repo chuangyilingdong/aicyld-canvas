@@ -7,6 +7,7 @@ import (
 
 	"infinite-canvas/backend/internal/assets"
 	"infinite-canvas/backend/internal/model"
+	localtask "infinite-canvas/backend/internal/task"
 )
 
 func (s *Service) RegisterTaskOutputFromTask(task model.Task, decryptedInputJSON string) error {
@@ -86,6 +87,25 @@ func (s *Service) RegisterTaskOutputFromTask(task model.Task, decryptedInputJSON
 	}
 	if strings.TrimSpace(input.ResourceID) == "" {
 		input.ResourceID, input.MediaType = CanonicalTaskOutputResource(task.ResultJSON, task.Type)
+	}
+	if strings.TrimSpace(input.ResourceID) == "" && strings.TrimSpace(input.ShotID) != "" && strings.TrimSpace(input.WorkflowStepID) != "" {
+		outputs, err := s.repo.GenerationOutputResults(task.ID)
+		if err != nil {
+			return err
+		}
+		for _, result := range outputs {
+			output, decodeErr := localtask.DecodeOutputPayload(result.Payload)
+			if decodeErr != nil {
+				return decodeErr
+			}
+			if output.OutputIndex == 0 && strings.TrimSpace(output.ResourceID) != "" && output.MaterializationErrorCode == "" {
+				input.ResourceID, input.MediaType = output.ResourceID, output.MediaType
+				break
+			}
+		}
+		if strings.TrimSpace(input.ResourceID) == "" {
+			return errors.New("任务结果尚未保存为资源，等待后续登记")
+		}
 	}
 	if strings.TrimSpace(input.MediaType) == "" && strings.TrimSpace(input.ResourceID) != "" {
 		input.MediaType = taskOutputMediaType(task.Type)

@@ -123,6 +123,57 @@ func TestRegisterTaskOutputFromTaskUsesNestedMetadataAndCanonicalResource(t *tes
 	}
 }
 
+func TestStoryboardOutputRecoveryAfterPrematureLink(t *testing.T) {
+	svc, db := newTestService(t, nil)
+	project, unit, step, shot := seedWorkflowOutputFixture(t, svc, db)
+	now := time.Now()
+	input, err := json.Marshal(map[string]any{"metadata": map[string]any{
+		"workflowStepId": step.ID, "domainProjectId": project.ID, "unitId": unit.ID,
+		"shotId": shot.ID, "shotRevisionId": shot.CurrentRevisionID, "artifactType": "storyboard", "role": "output",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := model.Task{ID: "storyboard-recovery", UserID: "user-1", ProjectID: project.ID, Type: "canvas_image", Status: model.TaskStatusSucceeded, ResultJSON: `{"images":[{"url":"https://example.invalid/image.png"}]}`, CreatedAt: now, UpdatedAt: now}
+	resource := model.Resource{ID: "storyboard-resource", UserID: "user-1", Kind: "image", Status: model.ResourceStatusReady, MimeType: "image/png", CreatedAt: now, UpdatedAt: now}
+	if err := db.Create(&task).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&resource).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.RegisterTaskOutputFromTask(task, string(input)); err == nil {
+		t.Fatal("registered output before resource materialized")
+	}
+	var count int64
+	if err := db.Model(&model.WorkflowStepTask{}).Where("task_id = ?", task.ID).Count(&count).Error; err != nil || count != 0 {
+		t.Fatalf("premature links = %d: %v", count, err)
+	}
+	if err := db.Create(&model.WorkflowStepTask{ID: "old-link", WorkflowStepID: step.ID, TaskID: task.ID, CreatedAt: now}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.ProductionTaskLink{ID: "old-production-link", TaskID: task.ID, ProjectID: project.ID, UnitID: unit.ID, ShotID: shot.ID, WorkflowStepID: step.ID, ArtifactType: "storyboard", CreatedAt: now, UpdatedAt: now}).Error; err != nil {
+		t.Fatal(err)
+	}
+	result := model.Result{ID: "stored-output", UserID: "user-1", TaskID: task.ID, Kind: "generation_output", Payload: `{"outputIndex":0,"mediaType":"image","resourceId":"storyboard-resource"}`, CreatedAt: now}
+	if err := db.Create(&result).Error; err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if err := svc.RegisterTaskOutputFromTask(task, string(input)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	assertWorkflowOutputCounts(t, db, task.ID, 1)
+	var artifact model.ShotArtifact
+	if err := db.First(&artifact, "task_id = ?", task.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if artifact.ResourceID != resource.ID || !artifact.Selected || artifact.Status != "ready" {
+		t.Fatalf("artifact = %+v", artifact)
+	}
+}
+
 func TestRegisterTaskOutputFromTaskAppliesAssetCandidatePreview(t *testing.T) {
 	svc, db := newTestService(t, nil)
 	project, err := svc.CreateProject("user-1", CreateProjectRequest{Name: "资产图自动回填"})
