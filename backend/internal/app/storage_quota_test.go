@@ -109,6 +109,7 @@ func TestUserStorageUsageCountsPersistedPayloads(t *testing.T) {
 	}
 	items := []any{
 		&model.Asset{ID: "asset-1", UserID: "user-1", PayloadJSON: "abcd"},
+		&model.Asset{ID: "asset-archived", UserID: "user-1", Status: model.AssetVersionStatusArchived, PayloadJSON: "efgh"},
 		&model.CanvasProject{ID: "canvas-1", UserID: "user-1", PayloadJSON: "xy"},
 		&model.Task{ID: "task-1", UserID: "user-1", Prompt: "p", InputJSON: "{}", ResultJSON: "{}"},
 		&model.TaskLog{ID: "log-1", UserID: "user-1", TaskID: "task-1", Message: "m", Payload: "p"},
@@ -124,8 +125,38 @@ func TestUserStorageUsageCountsPersistedPayloads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if usage.AssetCount != 1 || usage.AssetBytes != 4 || usage.CanvasCount != 1 || usage.CanvasBytes != 2 || usage.TaskCount != 1 || usage.TaskBytes != 14 || usage.APICallCount != 1 {
+	if usage.AssetCount != 1 || usage.AssetBytes != 8 || usage.CanvasCount != 1 || usage.CanvasBytes != 2 || usage.TaskCount != 1 || usage.TaskBytes != 14 || usage.APICallCount != 1 {
 		t.Fatalf("UserStorageUsage() = %#v", usage)
+	}
+}
+
+func TestUserStorageUsageExcludesArchivedAssetsFromCount(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	testutil.CloseDBOnCleanup(t, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.SystemSetting{}, &model.Asset{}, &model.CanvasProject{}, &model.Task{}, &model.TaskLog{}, &model.Result{}, &model.ApiCallLog{}, &model.TaskTextDelta{}); err != nil {
+		t.Fatal(err)
+	}
+	assets := []model.Asset{
+		{ID: "active-1", UserID: "user-1", Status: model.AssetVersionStatusConfirmed, PayloadJSON: `{"title":"active"}`},
+		{ID: "active-2", UserID: "user-1", Status: model.AssetVersionStatusConfirmed, PayloadJSON: `{"title":"active-2"}`},
+		{ID: "archived-1", UserID: "user-1", Status: model.AssetVersionStatusArchived, PayloadJSON: `{"title":"archived"}`},
+		{ID: "archived-2", UserID: "user-1", Status: model.AssetVersionStatusArchived, PayloadJSON: `{"title":"archived-2"}`},
+	}
+	if err := db.Create(&assets).Error; err != nil {
+		t.Fatal(err)
+	}
+	usage, err := repository.New(db).UserStorageUsage("user-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if usage.AssetCount != 2 {
+		t.Fatalf("active asset count = %d, want 2", usage.AssetCount)
+	}
+	if usage.AssetBytes == 0 {
+		t.Fatal("archived payload bytes must remain visible to structured storage accounting")
 	}
 }
 

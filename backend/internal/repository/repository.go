@@ -145,14 +145,14 @@ func (r *Repository) nextPrefixedID(db *gorm.DB, prefix string) (string, error) 
 func (r *Repository) UserStorageUsage(userID string) (UserStorageUsage, error) {
 	var usage UserStorageUsage
 	canvasBytes := `(SELECT COALESCE(SUM(length(CAST(COALESCE(payload_json, '') AS BLOB))), 0) FROM canvas_projects WHERE user_id = ?)`
-	args := []any{userID, userID, userID, userID}
+	args := []any{userID, model.AssetVersionStatusArchived, userID, userID, userID}
 	if r.db.Migrator().HasTable(&model.CanvasDrawing{}) {
 		canvasBytes += ` + (SELECT COALESCE(SUM(length(CAST(COALESCE(snapshot_json, '') AS BLOB))), 0) FROM canvas_drawings WHERE user_id = ? AND deleted_at IS NULL)`
 		args = append(args, userID)
 	}
 	query := fmt.Sprintf(`
 		SELECT
-			(SELECT COUNT(*) FROM assets WHERE user_id = ?) AS asset_count,
+			(SELECT COUNT(*) FROM assets WHERE user_id = ? AND status <> ?) AS asset_count,
 			(SELECT COALESCE(SUM(length(CAST(COALESCE(payload_json, '') AS BLOB))), 0) FROM assets WHERE user_id = ?) AS asset_bytes,
 			(SELECT COUNT(*) FROM canvas_projects WHERE user_id = ?) AS canvas_count,
 			%s AS canvas_bytes,

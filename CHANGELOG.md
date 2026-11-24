@@ -2,6 +2,11 @@
 
 All notable public changes to BeefTV are documented in this file.
 
+## v2.1.3-aicyld.175
+
+- 账号素材数量只统计当前活跃素材，隐藏的归档重复记录不再占用素材名额。
+- 默认媒体容量提升至 50 GB，每日上传提升至 10 GB，单个上传或生成文件提升至 200 MB，活跃素材数量上限提升至 10000。
+
 ## v2.1.3-aicyld.80
 
 - 修复 GPT Image 2.6（`zhenzhen-image-g-v2.6-lowprice`）在带参考图时被误判为不支持图片编辑、自动切换成 Seedream 5 Flash 图改图的问题。

@@ -20,7 +20,7 @@ import (
 const (
 	HTTPTimeout                      = 5 * time.Minute
 	VideoPollTimeout                 = time.Hour
-	MaxResponseBytes           int64 = 64 << 20
+	MaxResponseBytes           int64 = 200 << 20
 	VideoJSONRequestLimitBytes int64 = 64 << 20
 	ResourceURLTTL                   = 4 * time.Hour
 )

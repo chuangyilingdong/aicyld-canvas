@@ -197,7 +197,7 @@ function resourceIdFromTrustedLocalFileUrl(url: string) {
     }
 }
 
-// 超过该阈值（与后端单请求 multipart 上限 50MB 一致）的本地媒体走分片上传，避免大视频导入失败。
+// 超过该阈值的本地媒体走分片上传；单文件总上限由后端运行策略单独校验。
 const CHUNK_UPLOAD_THRESHOLD = 50 << 20;
 const CHUNK_UPLOAD_RETRIES = 2;
 const MULTIPART_UPLOAD_RETRIES = 3;
@@ -354,9 +354,9 @@ function normalizeUploadError(error: unknown): ResourceUploadError {
         // resource or gets the in-progress response again.
         const retryableConflict = status === 409 && /(?:正在上传|in progress)/i.test(error.message);
         const permanent = status !== undefined && !error.retryable && !retryableConflict;
-        // 即使误超 50MB multipart 上限（后端 http.MaxBytesError），也给出可读中文而非英文裸错。
+        // 即使请求体被 http.MaxBytesError 截断，也给出可读中文而非英文裸错。
         if (status === 400 && /body too large|MaxBytes/i.test(error.message)) {
-            return new ResourceUploadError("文件过大，请使用小于 50MB 的文件或稍后重试", { status, permanent: true, cause: error });
+            return new ResourceUploadError("文件超过当前单文件上限，请压缩后重试", { status, permanent: true, cause: error });
         }
         if (status === 413) return new ResourceUploadError("文件过大，无法上传", { status, permanent: true, cause: error });
         return new ResourceUploadError(error.message || "上传失败", { status, permanent, cause: error });

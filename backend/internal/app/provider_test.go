@@ -1472,7 +1472,7 @@ func TestDoBinaryRejectsOversizedProviderResponse(t *testing.T) {
 	defer server.Close()
 
 	_, _, err := getExternalBinary(context.Background(), server.URL)
-	if err == nil || !strings.Contains(err.Error(), "超过 64MB") {
+	if err == nil || !strings.Contains(err.Error(), "超过 200MB") {
 		t.Fatalf("getExternalBinary() error = %v", err)
 	}
 }

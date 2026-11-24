@@ -16,8 +16,9 @@ import (
 
 func TestReserveUserUploadQuotaRejectsSingleFileAtLimit(t *testing.T) {
 	svc := newResourceTestService(t)
-	_, err := svc.reserveUserUploadQuota("user-1", megabytes(defaultRuntimePolicy().Resource.ResourceUploadMB))
-	if err == nil || !strings.Contains(err.Error(), "小于 50MB") {
+	limit := defaultRuntimePolicy().Resource.ResourceUploadMB
+	_, err := svc.reserveUserUploadQuota("user-1", megabytes(limit))
+	if err == nil || !strings.Contains(err.Error(), "小于 200MB") {
 		t.Fatalf("reserveUserUploadQuota() error = %v", err)
 	}
 }
@@ -31,8 +32,8 @@ func TestReserveUserUploadQuotaRejectsDailyTotalAtLimit(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// 单文件限(50MB)未命中、今日额度已满 → 拒绝并提示每日上限。
-	if _, err := svc.reserveUserUploadQuota("user-1", chunk); err == nil || !strings.Contains(err.Error(), "小于 2GB") {
+	// 单文件限未命中、今日额度已满 → 拒绝并提示每日上限。
+	if _, err := svc.reserveUserUploadQuota("user-1", chunk); err == nil || !strings.Contains(err.Error(), "小于 10GB") {
 		t.Fatalf("reserveUserUploadQuota() error = %v", err)
 	}
 }
@@ -73,7 +74,8 @@ func TestReserveUserUploadQuotaRejectsTotalStoredFilesAtLimit(t *testing.T) {
 	if err := svc.repo.Create(&model.Resource{ID: "resource-1", UserID: "user-1", Status: model.ResourceStatusReady, Size: gigabytes(defaultRuntimePolicy().Resource.StoredFileGB) - 1}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.reserveUserUploadQuota("user-1", 1); err == nil || !strings.Contains(err.Error(), "20GB 上限") {
+	if _, err := svc.reserveUserUploadQuota("user-1", 1); err == nil || !strings.Contains(err.Error(), "50GB 上限") {
+		t.Fatalf("stored file capacity error = %v", err)
 	}
 }
 
@@ -81,7 +83,7 @@ func TestReserveGeneratedResourceQuotaAllowsUploadLimitAndRejectsGeneratedCap(t 
 	svc := newResourceTestService(t)
 	uploadLimit := megabytes(defaultRuntimePolicy().Resource.ResourceUploadMB)
 	generatedLimit := megabytes(defaultRuntimePolicy().Resource.GeneratedFileMB)
-	if _, err := svc.reserveUserUploadQuota("user-1", uploadLimit); err == nil || !strings.Contains(err.Error(), "小于 50MB") {
+	if _, err := svc.reserveUserUploadQuota("user-1", uploadLimit); err == nil || !strings.Contains(err.Error(), "小于 200MB") {
 		t.Fatalf("upload at ResourceUploadMB error = %v", err)
 	}
 	if _, err := svc.reserveGeneratedResourceQuota("user-1", uploadLimit); err != nil {
@@ -90,7 +92,7 @@ func TestReserveGeneratedResourceQuotaAllowsUploadLimitAndRejectsGeneratedCap(t 
 	if _, err := svc.reserveGeneratedResourceQuota("user-2", generatedLimit); err != nil {
 		t.Fatalf("generated at GeneratedFileMB = %v", err)
 	}
-	if _, err := svc.reserveGeneratedResourceQuota("user-3", generatedLimit+1); err == nil || !strings.Contains(err.Error(), "不能超过 64MB") {
+	if _, err := svc.reserveGeneratedResourceQuota("user-3", generatedLimit+1); err == nil || !strings.Contains(err.Error(), "不能超过 200MB") {
 		t.Fatalf("generated above GeneratedFileMB error = %v", err)
 	}
 }
@@ -99,7 +101,7 @@ func TestReserveRetryGeneratedQuotaUsesGeneratedFileLimit(t *testing.T) {
 	svc := newResourceTestService(t)
 	uploadLimit := megabytes(defaultRuntimePolicy().Resource.ResourceUploadMB)
 	generatedLimit := megabytes(defaultRuntimePolicy().Resource.GeneratedFileMB)
-	if _, err := svc.reserveRetryUploadQuota("user-1", uploadLimit); err == nil || !strings.Contains(err.Error(), "小于 50MB") {
+	if _, err := svc.reserveRetryUploadQuota("user-1", uploadLimit); err == nil || !strings.Contains(err.Error(), "小于 200MB") {
 		t.Fatalf("retry upload at ResourceUploadMB error = %v", err)
 	}
 	if _, err := svc.reserveRetryGeneratedQuota("user-1", uploadLimit); err != nil {
@@ -108,7 +110,7 @@ func TestReserveRetryGeneratedQuotaUsesGeneratedFileLimit(t *testing.T) {
 	if _, err := svc.reserveRetryGeneratedQuota("user-2", generatedLimit); err != nil {
 		t.Fatalf("retry generated at GeneratedFileMB = %v", err)
 	}
-	if _, err := svc.reserveRetryGeneratedQuota("user-3", generatedLimit+1); err == nil || !strings.Contains(err.Error(), "不能超过 64MB") {
+	if _, err := svc.reserveRetryGeneratedQuota("user-3", generatedLimit+1); err == nil || !strings.Contains(err.Error(), "不能超过 200MB") {
 		t.Fatalf("retry generated above GeneratedFileMB error = %v", err)
 	}
 }

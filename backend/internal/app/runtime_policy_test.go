@@ -138,8 +138,14 @@ func TestResumableVideoDeadlineUsesResolvedSystemChannelProtocol(t *testing.T) {
 }
 
 func TestRuntimePolicyDefaultsAndSelfUseModeValidate(t *testing.T) {
-	if err := validateRuntimePolicy(defaultRuntimePolicy()); err != nil {
+	policy := defaultRuntimePolicy()
+	if err := validateRuntimePolicy(policy); err != nil {
 		t.Fatalf("default runtime policy error = %v", err)
+	}
+	if policy.Resource.ResourceUploadMB != 200 || policy.Resource.GeneratedFileMB != 200 ||
+		policy.Resource.DailyUploadMB != 10_240 || policy.Resource.StoredFileGB != 50 ||
+		policy.Resource.AssetCount != 10_000 {
+		t.Fatalf("unexpected hosted resource limits: %#v", policy.Resource)
 	}
 	selfUse := selfUseRuntimePolicy()
 	if err := validateRuntimePolicy(selfUse); err != nil {

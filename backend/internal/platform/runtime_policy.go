@@ -97,13 +97,13 @@ type PublicRuntimeLimits struct {
 func DefaultRuntimePolicy() RuntimePolicySetting {
 	return RuntimePolicySetting{
 		Resource: RuntimeResourcePolicy{
-			ResourceUploadMB:        50,
-			GeneratedFileMB:         64,
-			DailyUploadMB:           2048,
-			StoredFileGB:            20,
+			ResourceUploadMB:        200,
+			GeneratedFileMB:         200,
+			DailyUploadMB:           10_240,
+			StoredFileGB:            50,
 			StructuredDataMB:        256,
 			TaskDataGB:              1,
-			AssetCount:              2_000,
+			AssetCount:              10_000,
 			CanvasCount:             1_000,
 			TaskCount:               20_000,
 			APICallLogCount:         100_000,
