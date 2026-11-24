@@ -37,6 +37,23 @@ func HydrateOne(ctx context.Context, userID string, media *Media, policy MediaHy
 		return nil
 	}
 	if !strings.HasPrefix(media.StorageKey, "resource:") {
+		inline := firstNonEmpty(strings.TrimSpace(media.DataURL), strings.TrimSpace(media.URL))
+		if policy.RunningHubUpload != nil && strings.HasPrefix(inline, "data:") {
+			declaredMIME, data, err := DecodeProviderDataURL(inline)
+			if err != nil {
+				return fmt.Errorf("读取参考素材失败：%w", err)
+			}
+			mimeType := NormalizedMediaMIMEType(firstNonEmpty(media.MimeType, declaredMIME), data)
+			uploadMedia := *media
+			uploadMedia.MimeType = mimeType
+			downloadURL, err := runningHubUploadReferenceURL(ctx, *policy.RunningHubUpload, uploadMedia, data, mimeType)
+			if err != nil {
+				return RequestPreparationError{Cause: RunningHubMediaPreparationError{Cause: err}}
+			}
+			media.URL, media.DataURL = downloadURL, ""
+			media.MimeType, media.Bytes = mimeType, int64(len(data))
+			return nil
+		}
 		if policy.RequireURL && (strings.HasPrefix(strings.TrimSpace(media.DataURL), "data:") || strings.HasPrefix(strings.TrimSpace(media.URL), "data:")) {
 			return errors.New("当前渠道暂不支持直接使用本地素材，请使用可访问的 HTTPS 素材链接，或选择支持本地素材的渠道")
 		}
@@ -61,6 +78,33 @@ func HydrateOne(ctx context.Context, userID string, media *Media, policy MediaHy
 		media.URL = ""
 		media.DataURL = ""
 		applyResourceMetadata(media, resource)
+		return nil
+	}
+	if policy.RunningHubUpload != nil && !resource.UsesObjectStorage() {
+		opened, body, err := runtime.Resources.Open(userID, resourceID)
+		if err != nil {
+			return fmt.Errorf("读取任务参考资源失败：%w", err)
+		}
+		defer body.Close()
+		limit, err := referenceResourceLimit(ctx, runtime)
+		if err != nil {
+			return err
+		}
+		data, err := readReferenceResource(body, limit)
+		if err != nil {
+			return err
+		}
+		mimeType := NormalizedMediaMIMEType(firstNonEmpty(media.MimeType, opened.MimeType, resource.MimeType), data)
+		uploadMedia := *media
+		uploadMedia.Type = firstNonEmpty(uploadMedia.Type, opened.Kind, resource.Kind)
+		uploadMedia.MimeType = mimeType
+		downloadURL, err := runningHubUploadReferenceURL(ctx, *policy.RunningHubUpload, uploadMedia, data, mimeType)
+		if err != nil {
+			return RequestPreparationError{Cause: RunningHubMediaPreparationError{Cause: err}}
+		}
+		media.URL, media.DataURL = downloadURL, ""
+		applyResourceMetadata(media, opened)
+		media.MimeType, media.Bytes = mimeType, int64(len(data))
 		return nil
 	}
 	if runtime.Resources.LocalMode() && policy.RequireURL && !policy.ManualURL && runtime.ReferenceStorage != nil {
@@ -108,20 +152,13 @@ func HydrateOne(ctx context.Context, userID string, media *Media, policy MediaHy
 		return fmt.Errorf("读取任务参考资源失败：%w", err)
 	}
 	defer body.Close()
-	resourceLimit := MaxResponseBytes
-	if runtime.Limits != nil {
-		limit, limitErr := runtime.Limits.ResourceUploadBytes(ctx)
-		if limitErr != nil {
-			return limitErr
-		}
-		resourceLimit = limit
-	}
-	data, err := io.ReadAll(io.LimitReader(body, resourceLimit+1))
+	resourceLimit, err := referenceResourceLimit(ctx, runtime)
 	if err != nil {
 		return err
 	}
-	if int64(len(data)) > resourceLimit {
-		return fmt.Errorf("任务参考资源超过 %s", formatStorageLimit(resourceLimit))
+	data, err := readReferenceResource(body, resourceLimit)
+	if err != nil {
+		return err
 	}
 	mimeType := NormalizedMediaMIMEType(firstNonEmpty(media.MimeType, resource.MimeType), data)
 	media.DataURL = DataURL(mimeType, data)
@@ -133,6 +170,24 @@ func HydrateOne(ctx context.Context, userID string, media *Media, policy MediaHy
 		media.DurationMs = resource.DurationMs
 	}
 	return nil
+}
+
+func referenceResourceLimit(ctx context.Context, runtime Runtime) (int64, error) {
+	if runtime.Limits == nil {
+		return MaxResponseBytes, nil
+	}
+	return runtime.Limits.ResourceUploadBytes(ctx)
+}
+
+func readReferenceResource(body io.Reader, limit int64) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(body, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > limit {
+		return nil, fmt.Errorf("任务参考资源超过 %s", formatStorageLimit(limit))
+	}
+	return data, nil
 }
 
 func referenceMediaURL(raw string, resource ResourceInfo, media *Media, maxEdge int) string {

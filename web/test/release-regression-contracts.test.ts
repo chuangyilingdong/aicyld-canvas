@@ -190,4 +190,18 @@ describe("release regression source contracts", () => {
         expect(resourceRoute).toContain('r.GET("/public/resources/:id/file/:filename"');
         expect(resourceRoute.match(/serveReferencePreview\(c, stream\.Body/g)?.length).toBeGreaterThanOrEqual(2);
     });
+
+    test("keeps RunningHub local references on the official binary upload contract", () => {
+        const upload = readFileSync(new URL("../../backend/internal/generation/runninghub_media.go", import.meta.url), "utf8");
+        const media = readFileSync(new URL("../../backend/internal/generation/media.go", import.meta.url), "utf8");
+        const policy = readFileSync(new URL("../../backend/internal/generation/media_policy.go", import.meta.url), "utf8");
+        expect(upload).toContain('runningHubMediaUploadPath = "/openapi/v2/media/upload/binary"');
+        expect(upload).toContain('DownloadURL string `json:"download_url"`');
+        expect(upload).toContain("sha256.Sum256");
+        expect(upload).toContain("runningHubMediaCacheTTL = 12 * time.Hour");
+        expect(upload).toContain('"Authorization", "Bearer "');
+        expect(media).toContain("policy.RunningHubUpload != nil && !resource.UsesObjectStorage()");
+        expect(media).toContain("runningHubUploadReferenceURL");
+        expect(policy).toContain("policy.RunningHubUpload = runningHubUploadPolicy(input.Config)");
+    });
 });

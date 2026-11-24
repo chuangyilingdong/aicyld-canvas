@@ -144,12 +144,19 @@ type Media struct {
 type WorkflowField = workflow.Field
 
 type MediaHydrationPolicy struct {
-	ManualURL    bool
-	RequireURL   bool
-	PreferURL    bool
-	PreferHTTPS  bool
-	KeepLocal    bool
-	ImageMaxEdge int
+	ManualURL        bool
+	RequireURL       bool
+	PreferURL        bool
+	PreferHTTPS      bool
+	KeepLocal        bool
+	ImageMaxEdge     int
+	RunningHubUpload *RunningHubUploadPolicy
+}
+
+type RunningHubUploadPolicy struct {
+	BaseURL string
+	APIKey  string
+	Headers []outbound.OutboundHeader
 }
 
 type ImageResponse struct {

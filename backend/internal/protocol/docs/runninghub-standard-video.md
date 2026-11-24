@@ -24,6 +24,6 @@ Seedance 与 H3 使用 `ratio`，Kling 与万相使用 `aspectRatio`。Seedance 
 - 模型注册表：<https://github.com/HM-RunningHub/ComfyUI_RH_OpenAPI/blob/main/developer-kit/model-registry.public.json>
 - API 合同：<https://github.com/HM-RunningHub/ComfyUI_RH_OpenAPI/blob/main/developer-kit/rh-api-contract.md>
 
-输入视频、音频和图片必须是 RunningHub 可访问的公网 HTTP(S) 地址，并且需要在任务完成前保持有效。模型特有字段通过 `providerOptions["runninghub-standard-video"]` 显式传入。价格和额度不在协议中猜测，使用 RunningHub 价格预估和任务响应中的实际用量核对。
+输入视频、音频和图片必须是 RunningHub 可访问的公网 HTTP(S) 地址，并且需要在任务完成前保持有效。本地/私有素材与图片协议相同：宿主读取原始字节并上传到 `POST /openapi/v2/media/upload/binary`，使用返回的 `data.download_url` 填入媒体字段；已有稳定公网对象存储链接可以直接使用。上传链接按 `SHA-256 + MIME + 站点` 缓存 12 小时，原资源不被替换。模型特有字段通过 `providerOptions["runninghub-standard-video"]` 显式传入。价格和额度不在协议中猜测，使用 RunningHub 价格预估和任务响应中的实际用量核对。
 
 {{CONTRACT}}

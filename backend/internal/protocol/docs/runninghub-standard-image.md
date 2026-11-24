@@ -16,7 +16,9 @@ RunningHub 标准图片接口采用 Bearer API Key 和异步任务模型。宿�
 
 {{PARAMETERS}}
 
-参考图片必须由宿主转换为 RunningHub 可访问的公网 HTTP(S) 地址。数据 URL、本机路径、私网地址和短时失效链接均不能直接提交。模型特有字段可以通过请求 metadata 中的 `providerOptions["runninghub-standard-image"]` 提供，适配器会在标准映射后合并这些明确配置，避免把未知字段硬编码进所有模型。
+参考图片必须由宿主转换为 RunningHub 可访问的公网 HTTP(S) 地址。本地资源、私有资源和由当前服务转发的短时 `/api/public/resources` 链接不直接提交；宿主读取原图字节后调用官方 `POST /openapi/v2/media/upload/binary`，使用 Bearer API Key 上传 `file` 字段，并以响应中的 `data.download_url` 构造 `imageUrls`。已有稳定公网对象存储外链可以继续直接使用。
+
+RunningHub 上传链接约一天有效。传输缓存键为 `SHA-256(文件字节) + MIME + RunningHub 站点`，宿主缓存 12 小时并在过期前重新上传；缓存只保存传输链接，不替换画布原资源、历史版本或用户下载文件。数据 URL、本机路径和私网地址不能直接提交。模型特有字段可以通过请求 metadata 中的 `providerOptions["runninghub-standard-image"]` 提供，适配器会在标准映射后合并这些明确配置，避免把未知字段硬编码进所有模型。
 
 ## 官方
 

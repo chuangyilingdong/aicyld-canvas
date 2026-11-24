@@ -49,6 +49,15 @@ func (e ReferenceStoragePreparationError) Error() string {
 }
 func (e ReferenceStoragePreparationError) Unwrap() error { return e.Cause }
 
+// RunningHubMediaPreparationError is provider-owned upload work that failed
+// before the standard model task was created.
+type RunningHubMediaPreparationError struct{ Cause error }
+
+func (e RunningHubMediaPreparationError) Error() string {
+	return "RunningHub 参考素材上传失败"
+}
+func (e RunningHubMediaPreparationError) Unwrap() error { return e.Cause }
+
 func (e SubmissionUnknownError) Error() string {
 	return fmt.Sprintf("提交结果尚未确认：%v", e.Cause)
 }

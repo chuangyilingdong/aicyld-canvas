@@ -349,6 +349,24 @@ func ClassifyError(err error) Failure {
 	}
 	var preparation RequestPreparationError
 	if errors.As(err, &preparation) {
+		var runningHubUpload RunningHubMediaPreparationError
+		if errors.As(preparation.Cause, &runningHubUpload) {
+			copy := referencePreparationCopies["runninghub_reference_upload_failed"]
+			failure := normalizeFailure(Failure{
+				Category:        CategoryProviderUnavailable,
+				ProviderCode:    "runninghub_reference_upload_failed",
+				ProviderMessage: DiagnosticSummary(runningHubUpload.Cause.Error()),
+				Reason:          copy.reason,
+				Action:          copy.action,
+			})
+			var upstream HTTPError
+			if errors.As(runningHubUpload.Cause, &upstream) {
+				failure.HTTPStatus = upstream.StatusCode
+				failure.RequestID = sanitizeDebugID(upstream.RequestID)
+			}
+			failure.Retryable = false
+			return failure
+		}
 		var storage ReferenceStoragePreparationError
 		if errors.As(preparation.Cause, &storage) {
 			failure := normalizeFailure(Failure{Category: CategoryProviderUnavailable, ProviderCode: "reference_media_upload_failed", Reason: "参考素材上传失败，本次尚未开始生成", Action: "请检查对象存储配置和公开读取权限后重试"})

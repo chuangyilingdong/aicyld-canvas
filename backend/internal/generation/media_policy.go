@@ -47,6 +47,9 @@ func MediaHydrationPolicyFor(ctx context.Context, input Input) MediaHydrationPol
 		policy.RequireURL = adapter.Metadata().RequiresPublicMediaURLs
 		policy.PreferURL = policy.PreferURL || policy.RequireURL
 	}
+	if isRunningHubStandardInterface(input.Config.InterfaceType) {
+		policy.RunningHubUpload = runningHubUploadPolicy(input.Config)
+	}
 	if input.Mode == "image" && input.Mask != nil && input.Config.InterfaceType != string(model.ChannelInterfaceRunningHubStandardImage) {
 		policy.RequireURL = false
 		policy.PreferURL = false

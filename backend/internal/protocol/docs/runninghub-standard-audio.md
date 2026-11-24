@@ -24,6 +24,6 @@ MiniMax Speech 2.8 HD 与 Turbo 使用 `text`、`voice_id`、`speed` 等字段�
 - 模型注册表：<https://github.com/HM-RunningHub/ComfyUI_RH_OpenAPI/blob/main/developer-kit/model-registry.public.json>
 - API 合同：<https://github.com/HM-RunningHub/ComfyUI_RH_OpenAPI/blob/main/developer-kit/rh-api-contract.md>
 
-音频生成按字符、时长或次数计费的模型需要使用对应的 RunningHub 价格规则。无法从公开结构化价格中还原单次成本的模型必须通过价格预估接口取得实际报价后再开放计费，不能把一个百万 Token 或一千字符单价直接当成本次任务单价。
+参考音频、视频或图片若位于本地/私有资源，宿主先通过 `POST /openapi/v2/media/upload/binary` 上传并以 `data.download_url` 提交；已有稳定公网对象存储链接可以直接使用。上传结果按 `SHA-256 + MIME + 站点` 缓存 12 小时，不替换原资源。音频生成按字符、时长或次数计费的模型需要使用对应的 RunningHub 价格规则。无法从公开结构化价格中还原单次成本的模型必须通过价格预估接口取得实际报价后再开放计费，不能把一个百万 Token 或一千字符单价直接当成本次任务单价。
 
 {{CONTRACT}}

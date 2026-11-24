@@ -52,6 +52,12 @@ func ValidateMediaTransport(ctx context.Context, input Input) error {
 		if !groupPolicy.RequireURL || groupPolicy.KeepLocal {
 			continue
 		}
+		if groupPolicy.RunningHubUpload != nil {
+			// RunningHub standard models receive provider-uploaded links. Local
+			// bytes are read only during hydration, after this side-effect-free
+			// admission check.
+			continue
+		}
 		for i, media := range group.items {
 			if group.kind == "video" && isBytePlusVideoInput(input) && !strings.HasPrefix(media.StorageKey, "resource:") {
 				continue // The BytePlus check also accepts asset:// identifiers.

@@ -3,9 +3,10 @@ package generation
 import "strings"
 
 var referencePreparationCopies = map[string]struct{ reason, action string }{
-	"image_reference_upload_failed": {"参考图片上传失败，本次尚未开始生成", "请稍后重试"},
-	"reference_media_upload_failed": {"参考素材上传失败，本次尚未开始生成", "请检查对象存储配置和公开读取权限后重试"},
-	"reference_preupload_failed":    {"参考素材上传失败，本次尚未开始生成", "请检查网络或稍后重试"},
+	"image_reference_upload_failed":      {"参考图片上传失败，本次尚未开始生成", "请稍后重试"},
+	"reference_media_upload_failed":      {"参考素材上传失败，本次尚未开始生成", "请检查对象存储配置和公开读取权限后重试"},
+	"reference_preupload_failed":         {"参考素材上传失败，本次尚未开始生成", "请检查网络或稍后重试"},
+	"runninghub_reference_upload_failed": {"RunningHub 参考素材上传失败，本次尚未开始生成", "请检查 RunningHub 素材上传 API Key、网络和文件格式后重试"},
 }
 
 // Only the complete application-owned copy restores pre-submission evidence.
