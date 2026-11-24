@@ -56,6 +56,14 @@ func (p *runningHubResourceFixture) HTTPSPublicURL(info ResourceInfo, expires ti
 
 func (p *runningHubResourceFixture) LocalMode() bool { return p.localMode }
 
+type runningHubReceiptRecorder struct {
+	observations atomic.Int32
+}
+
+func (r *runningHubReceiptRecorder) Observe(TransportObservation)              { r.observations.Add(1) }
+func (r *runningHubReceiptRecorder) NotifyPoll(context.Context, string, error) {}
+func (r *runningHubReceiptRecorder) SyncProgress(string, []byte)               {}
+
 func TestRunningHubLocalResourceUploadsBinaryAndCachesDownloadURL(t *testing.T) {
 	t.Setenv("CANVAS_ALLOW_PRIVATE_UPSTREAMS", "true")
 	t.Setenv("CANVAS_ALLOWED_PRIVATE_UPSTREAM_HOSTS", "127.0.0.1")
@@ -109,12 +117,13 @@ func TestRunningHubLocalResourceUploadsBinaryAndCachesDownloadURL(t *testing.T) 
 			t.Error("upload did not contain the original resource bytes")
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"code":0,"data":{"download_url":"https://download.example/reference.png","size":"`+strconv.Itoa(len(png))+`","type":"image/png"}}`)
+		_, _ = io.WriteString(w, `{"code":0,"data":{"download_url":"https://download.example/reference.png","size":"`+strconv.Itoa(len(png))+`","type":"image"}}`)
 	}))
 	t.Cleanup(server.Close)
 
 	resources := &runningHubResourceFixture{data: png, provider: "local", mimeType: "image/png", resourceKind: "image"}
-	ctx := WithRuntime(context.Background(), Runtime{Resources: resources})
+	receipts := &runningHubReceiptRecorder{}
+	ctx := WithRuntime(context.Background(), Runtime{Resources: resources, Receipts: receipts})
 	input := Input{
 		Mode:            "image",
 		Config:          Config{InterfaceType: "runninghub-standard-image", BaseURL: server.URL, APIKey: "submit-key", RunningHubUploadKey: "upload-key"},
@@ -144,8 +153,29 @@ func TestRunningHubLocalResourceUploadsBinaryAndCachesDownloadURL(t *testing.T) 
 	if uploads.Load() != 1 || resources.opens.Load() != 2 {
 		t.Fatalf("uploads=%d opens=%d, want one upload and two resource reads", uploads.Load(), resources.opens.Load())
 	}
+	if receipts.observations.Load() != 0 {
+		t.Fatalf("signed upload response entered provider call persistence: %d observations", receipts.observations.Load())
+	}
 	if runningHubMediaCacheTTL >= 24*time.Hour {
 		t.Fatalf("cache TTL must stay below the one-day RunningHub URL lifetime: %s", runningHubMediaCacheTTL)
+	}
+}
+
+func TestRunningHubMediaTypeCompatibilityAcceptsOfficialCategory(t *testing.T) {
+	for _, tc := range []struct {
+		returned string
+		uploaded string
+		want     bool
+	}{
+		{"image", "image/png", true},
+		{"image/jpeg", "image/png", true},
+		{"image", "video/mp4", false},
+		{"video/mp4", "image/png", false},
+		{"", "image/png", false},
+	} {
+		if got := runningHubMediaTypeCompatible(tc.returned, tc.uploaded); got != tc.want {
+			t.Fatalf("runningHubMediaTypeCompatible(%q, %q) = %v, want %v", tc.returned, tc.uploaded, got, tc.want)
+		}
 	}
 }
 

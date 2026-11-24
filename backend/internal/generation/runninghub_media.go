@@ -167,7 +167,10 @@ func uploadRunningHubReference(ctx context.Context, root string, policy RunningH
 	if err != nil {
 		return "", err
 	}
-	req, err := http.NewRequestWithContext(WithRequestKind(ctx, "reference_upload"), http.MethodPost, requestURL, bytes.NewReader(body.Bytes()))
+	// Upload responses contain a short-lived signed download URL. Keep the
+	// transport out of provider API-call persistence, which stores raw bodies.
+	uploadCtx := WithoutCallAccounting(WithRequestKind(ctx, "reference_upload"))
+	req, err := http.NewRequestWithContext(uploadCtx, http.MethodPost, requestURL, bytes.NewReader(body.Bytes()))
 	if err != nil {
 		return "", err
 	}
@@ -206,13 +209,24 @@ func uploadRunningHubReference(ctx context.Context, root string, policy RunningH
 		return "", errors.New("RunningHub 上传返回的文件大小与本地素材不一致")
 	}
 	returnedMIME := firstNonEmpty(response.Data.MIMETypeAlt, response.Data.MIMEType, response.Data.Type)
-	if returnedMIME != "" {
-		returnedMIME = strings.ToLower(strings.TrimSpace(strings.Split(returnedMIME, ";")[0]))
-		if returnedMIME != mimeType {
-			return "", errors.New("RunningHub 上传返回的文件类型与本地素材不一致")
-		}
+	if returnedMIME != "" && !runningHubMediaTypeCompatible(returnedMIME, mimeType) {
+		return "", errors.New("RunningHub 上传返回的文件类型与本地素材不一致")
 	}
 	return downloadURL, nil
+}
+
+func runningHubMediaTypeCompatible(returned, uploaded string) bool {
+	returned = strings.ToLower(strings.TrimSpace(strings.Split(returned, ";")[0]))
+	uploadedKind, _, ok := strings.Cut(strings.ToLower(strings.TrimSpace(uploaded)), "/")
+	if !ok || uploadedKind == "" {
+		return false
+	}
+	// The official upload response documents type as a media category
+	// ("image", "video", "audio"), not necessarily the exact MIME subtype.
+	if returned == uploadedKind {
+		return true
+	}
+	return strings.HasPrefix(returned, uploadedKind+"/")
 }
 
 func protocolRequestSpec(path string) protocol.RequestSpec {
