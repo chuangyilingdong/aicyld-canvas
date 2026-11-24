@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { modelCapabilityConfigFor, normalizeVideoValue } from "@/lib/model-capabilities";
-import { modelCompatibilityError, resolveModelVideoBooleanOptions } from "@/lib/model-selection";
+import { modelCompatibilityError, resolveCompatibleModel, resolveModelVideoBooleanOptions } from "@/lib/model-selection";
 import { buildBackendGenerationTaskQuoteInput, parseBackendGenerationResult, runBackendGenerationTask } from "@/services/api/generation-task";
 import { listProjectUnitArtifacts, registerProjectUnitArtifact, type ProjectDetail, type ProjectShot } from "@/services/api/projects";
 import { ownedResourceIdFromMediaRef, resourceIdFromStorageKey } from "@/services/api/resources";
@@ -102,12 +102,14 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
         }
     }, [detail, shots, effectiveConfig, smartFilmBatchQuery.data, smartFilmModel]);
     const referenceCount = smartFilmPromptPlan.plan?.referenceImages.length || 0;
-    const smartFilmModelError = smartFilmModel && smartFilmPromptPlan.plan ? modelCompatibilityError(effectiveConfig, smartFilmModel, {
-        capability: "video",
+    const modelRequirements = {
+        capability: "video" as const,
         input: { textCount: 0, imageCount: referenceCount, videoCount: 0, audioCount: 0, characterCount: 0 },
         ...(referenceCount ? { videoOperation: "reference_to_video" } : {}),
         videoSeconds: String(smartFilmBatchQuery.data?.config.targetDurationSeconds || ""),
-    }) : "";
+    };
+    const smartFilmModelError = smartFilmModel && smartFilmPromptPlan.plan ? modelCompatibilityError(effectiveConfig, smartFilmModel, modelRequirements) : "";
+    const setSmartFilmModel = (model: string) => setSelectedVideoModel(resolveCompatibleModel(effectiveConfig, model, modelRequirements) || model);
     const latestSmartFilmTask = useMemo(() => {
         const merged = new Map<string, GenerationTask>();
         for (const task of [...(detail.tasks || []), ...(projectTasksQuery.data || [])]) {
@@ -259,5 +261,5 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
         }
     };
 
-    return { smartWholeFilm, smartFilmConfigurationPending, smartFilmConfigurationError, retrySmartFilmConfiguration: () => smartFilmBatchQuery.refetch(), smartFilmGenerating, smartFilmError, smartFilmTask: smartFilmTask || latestSmartFilmTask, smartFilmRecoveryError, latestSmartWholeFilm, staleSmartWholeFilm, smartFilmEditPrompt, readyStoryboardCount, smartFilmPromptPlan, smartFilmModel, smartFilmModelError, setSmartFilmModel: setSelectedVideoModel, smartFilmBatch: smartFilmBatchQuery.data, generateSmartWholeFilm };
+    return { smartWholeFilm, smartFilmConfigurationPending, smartFilmConfigurationError, retrySmartFilmConfiguration: () => smartFilmBatchQuery.refetch(), smartFilmGenerating, smartFilmError, smartFilmTask: smartFilmTask || latestSmartFilmTask, smartFilmRecoveryError, latestSmartWholeFilm, staleSmartWholeFilm, smartFilmEditPrompt, readyStoryboardCount, smartFilmPromptPlan, smartFilmModel, smartFilmModelError, setSmartFilmModel, smartFilmBatch: smartFilmBatchQuery.data, generateSmartWholeFilm };
 }

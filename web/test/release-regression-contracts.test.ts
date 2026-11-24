@@ -51,6 +51,7 @@ describe("release regression source contracts", () => {
         expect(board).toContain('<ModelPicker config={config} capability="video"');
         expect(board).toContain("!modelError");
         expect(hook).toContain("modelCompatibilityError");
+        expect(hook).toContain("resolveCompatibleModel(effectiveConfig, model, modelRequirements)");
         expect(hook).toContain('videoEditOperation: "reference_to_video"');
     });
 

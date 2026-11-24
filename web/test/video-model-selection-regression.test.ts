@@ -7,6 +7,7 @@ import {
     operationForModelSelection,
     modelCompatibilityError,
     resolveVideoOperation,
+    resolveCompatibleModel,
     videoModelFamilyOperations,
     videoOperationInputError,
 } from "@/lib/model-selection";
@@ -83,6 +84,7 @@ describe("video model-first selection regression", () => {
         const requirements = { capability: "video" as const, input: input(2), videoOperation: "reference_to_video" };
         expect(modelCompatibilityError(config, values.i2v, requirements)).toBeTruthy();
         expect(modelCompatibilityError(config, multi, requirements)).toBe("");
+        expect(resolveCompatibleModel(config, values.i2v, requirements)).toBe(multi);
         expect(resolveVideoOperation(input(2), requirements.videoOperation)).toBe("reference_to_video");
     });
 
