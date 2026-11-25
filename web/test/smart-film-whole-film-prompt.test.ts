@@ -1,10 +1,69 @@
 import { describe, expect, test } from "bun:test";
 
-import { buildSmartFilmWholeFilmPrompt } from "@/pages/projects/detail/smart-film-whole-film-prompt";
+import { buildSmartFilmWholeFilmPrompt, compileSmartFilmWholeFilmPrompt } from "@/pages/projects/detail/smart-film-whole-film-prompt";
 import type { ProjectAsset, ProjectDetail, ProjectShot, ShotArtifact } from "@/services/api/projects";
-import type { SmartFilmSkillSnapshot } from "@/services/api/smart-film-batches";
 
 describe("smart film whole-film prompt", () => {
+    test("submits the editable Chinese task prompt verbatim without skill wrappers", () => {
+        const editablePrompt = "生成一段10秒视频。\n产品外观以参考图2为准。";
+        const compiled = compileSmartFilmWholeFilmPrompt(editablePrompt, 4_000);
+        expect(compiled).toBe(editablePrompt);
+        expect(compiled).not.toContain("【技能规范】");
+        expect(compiled).not.toContain("<skill-context");
+        expect(() => compileSmartFilmWholeFilmPrompt(editablePrompt, 10)).toThrow("提示词超过当前视频模型的长度上限");
+    });
+
+    test("keeps product reference numbering in each shot without English shot boilerplate", () => {
+        const shot = {
+            id: "shot-lock",
+            projectId: "project-1",
+            title: "产品特写",
+            description: "",
+            position: 0,
+            durationMs: 5_000,
+            status: "confirmed",
+            currentRevisionId: "revision-lock",
+            createdAt: "2026-11-25T00:00:00Z",
+            updatedAt: "2026-11-25T00:00:00Z",
+        } satisfies ProjectShot;
+        const product = {
+            id: "product-lock",
+            title: "暗黑沧龙",
+            mediaType: "image",
+            category: "prop",
+            storageKey: "resource:product-lock",
+        } as ProjectAsset;
+        const detail = {
+            assets: [product],
+            shotReferences: [],
+            shotRevisions: [{
+                id: "revision-lock",
+                shotId: shot.id,
+                version: 1,
+                plotDescription: "",
+                action: "",
+                dialogue: "",
+                shotSize: "",
+                cameraAngle: "",
+                cameraMovement: "",
+                durationMs: shot.durationMs,
+                imagePrompt: "",
+                videoPrompt: "Generate a 5-second cinematic shot. 机械产品在舷窗前转动。",
+                negativePrompt: "",
+                continuityNotes: "",
+                actionBeatsJson: "",
+                createdAt: "2026-11-25T00:00:00Z",
+            }],
+        } as unknown as ProjectDetail;
+        const plan = buildSmartFilmWholeFilmPrompt(detail, [{ shot }], 5, {
+            inputAssetRoles: { [product.id]: "product" },
+            inputAssetNames: { [product.id]: product.title },
+        });
+        expect(plan.taskPrompt).toContain("产品/道具“暗黑沧龙”外观以参考图1为准");
+        expect(plan.taskPrompt).toContain("生成一段5秒电影感镜头");
+        expect(plan.taskPrompt).not.toContain("Generate a 5-second cinematic shot");
+    });
+
     test("builds one compact prompt that references only the ordered storyboard images", () => {
         const shot = {
             id: "shot-1",
@@ -149,23 +208,18 @@ describe("smart film whole-film prompt", () => {
                 createdAt: "2026-11-16T00:00:00Z",
             })),
         } as ProjectDetail;
-        const skillSnapshot = {
-            skillId: "short-film-skill",
-            versionId: "short-film-skill-v1",
-            contentHash: "abc123",
-            name: "产品短片导演",
-            stages: { video: "三视图的每个角度都是同一产品的外观设定，不得复制成多个产品。" },
-        } satisfies SmartFilmSkillSnapshot;
-
-        const plan = buildSmartFilmWholeFilmPrompt(detail, [{ shot, artifact }, { shot: nextShot, artifact: nextArtifact }], 10, { skillSnapshot });
+        const plan = buildSmartFilmWholeFilmPrompt(detail, [{ shot, artifact }, { shot: nextShot, artifact: nextArtifact }], 10);
 
         expect(plan.referenceImages.map((image) => image.storageKey)).toEqual([
             "resource:product-turnaround-resource",
             "resource:storyboard-product-resource",
             "resource:storyboard-product-next-resource",
         ]);
-        expect(plan.prompt).toContain("【技能规范】");
-        expect(plan.prompt).toContain("三视图的每个角度都是同一产品");
+        expect(plan.prompt).toBe(plan.taskPrompt);
+        expect(plan.prompt).not.toContain("【技能规范】");
+        expect(plan.prompt).not.toContain("<skill-context");
+        expect(plan.prompt).not.toContain("request_user_input");
+        expect(plan.prompt).not.toContain("canvas_write");
         expect(plan.prompt).toContain("所有视角都是同一角色或产品的不同视图");
         expect(plan.prompt).toContain("参考图1：项目绑定的产品/道具外观设定");
         expect(plan.prompt).toContain("参考图2对应镜头1");

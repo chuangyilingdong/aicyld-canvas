@@ -23,6 +23,7 @@ export function WorkflowSmartFilmStage({
     onVideoModelChange,
     promptOverride,
     onPromptOverrideChange,
+    generatedPrompt,
     busy,
     submittingShotIds,
     targetSeconds,
@@ -55,6 +56,7 @@ export function WorkflowSmartFilmStage({
     onVideoModelChange: (model: string) => void;
     promptOverride: string;
     onPromptOverrideChange: (prompt: string) => void;
+    generatedPrompt: string;
     busy: boolean;
     submittingShotIds: Set<string>;
     targetSeconds: number;
@@ -110,6 +112,7 @@ export function WorkflowSmartFilmStage({
             onVideoModelChange={onVideoModelChange}
             promptOverride={promptOverride}
             onPromptOverrideChange={onPromptOverrideChange}
+            generatedPrompt={generatedPrompt}
             readyCount={readyStoryboardCount}
             targetSeconds={targetSeconds}
             generating={generating}

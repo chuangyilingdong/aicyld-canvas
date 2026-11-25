@@ -1,7 +1,5 @@
 import type { ProjectDetail, ProjectShot, ShotArtifact } from "@/services/api/projects";
 import { resourceFileUrl } from "@/services/api/resources";
-import { smartFilmSkillStagePrompt } from "@/services/smart-film-skill";
-import type { SmartFilmSkillSnapshot } from "@/services/api/smart-film-batches";
 import type { ReferenceImage } from "@/types/image";
 
 import { promptWithoutAssetMentions } from "./smart-film-storyboard-prompt";
@@ -17,7 +15,7 @@ export function buildSmartFilmWholeFilmPrompt(
     detail: ProjectDetail,
     entries: StoryboardEntry[],
     targetSeconds: number,
-    options: { maxChars?: number; skillSnapshot?: SmartFilmSkillSnapshot; inputAssetRoles?: Record<string, string>; inputAssetNames?: Record<string, string> } = {},
+    options: { maxChars?: number; inputAssetRoles?: Record<string, string>; inputAssetNames?: Record<string, string> } = {},
 ) {
     const maxChars = Math.max(1_000, Math.floor(options.maxChars || 4_000));
     const assetReferences = collectVisualAssetReferences(detail, entries, options.inputAssetRoles, options.inputAssetNames);
@@ -56,7 +54,7 @@ export function buildSmartFilmWholeFilmPrompt(
     const outro = "仅保留已写明的对白；没有对白时不新增对白或旁白。动作音效、环境声和配乐服务于画面，不得覆盖主体动作。";
     const dialogue = compactDialogue(detail, entries, Math.min(600, Math.floor(maxChars * 0.15)));
     const fixedLength = intro.length + referenceMap.length + continuityRules.length + outro.length + dialogue.length + entries.length * 24;
-    const taskBudget = options.skillSnapshot?.stages?.video ? Math.max(1_200, maxChars - 1_200) : maxChars;
+    const taskBudget = maxChars;
     const cueBudget = Math.max(20, Math.floor((taskBudget - fixedLength) / Math.max(1, entries.length)));
     const entityLocks = assetReferences
         .filter((reference) => reference.category === "prop" || reference.category === "character")
@@ -80,7 +78,7 @@ export function buildSmartFilmWholeFilmPrompt(
         dialogue ? `对白顺序：${dialogue}` : "",
         outro,
     ].filter(Boolean).join("\n");
-    const prompt = compileSmartFilmWholeFilmPrompt(taskPrompt, options.skillSnapshot, maxChars);
+    const prompt = compileSmartFilmWholeFilmPrompt(taskPrompt, maxChars);
     if (prompt.length > maxChars || !prompt.includes(taskPrompt)) {
         throw new Error("镜头和参考图过多，完整提示词超过当前视频模型的长度上限，请更换模型或减少镜头与参考图");
     }
@@ -98,9 +96,9 @@ export function buildSmartFilmWholeFilmPrompt(
     };
 }
 
-export function compileSmartFilmWholeFilmPrompt(taskPrompt: string, skillSnapshot: SmartFilmSkillSnapshot | undefined, maxChars: number) {
-    const prompt = smartFilmSkillStagePrompt(skillSnapshot, "video", taskPrompt, { maxChars });
-    if (prompt.length > maxChars || !prompt.includes(taskPrompt)) {
+export function compileSmartFilmWholeFilmPrompt(taskPrompt: string, maxChars: number) {
+    const prompt = taskPrompt.trim();
+    if (prompt.length > maxChars) {
         throw new Error("镜头和参考图过多，完整提示词超过当前视频模型的长度上限，请更换模型或减少镜头与参考图");
     }
     return prompt;

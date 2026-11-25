@@ -319,7 +319,7 @@ export function resolveStoryboardWaitState(task?: GenerationTask, run?: SmartFil
     return "waiting";
 }
 
-export function SmartFilmVideoBoard({ detail, batch, shots, promptPlan, videoModel, modelError, onVideoModelChange, promptOverride, onPromptOverrideChange, readyCount, targetSeconds, generating, generationError, generationTask, recoveryError, latestResourceId, staleWholeFilm, editPrompt, onBack, onSaveShotPrompt, onGenerate, onDownload }: {
+export function SmartFilmVideoBoard({ detail, batch, shots, promptPlan, videoModel, modelError, onVideoModelChange, promptOverride, onPromptOverrideChange, generatedPrompt, readyCount, targetSeconds, generating, generationError, generationTask, recoveryError, latestResourceId, staleWholeFilm, editPrompt, onBack, onSaveShotPrompt, onGenerate, onDownload }: {
     detail: ProjectDetail;
     batch?: SmartFilmBatch;
     shots: ProjectShot[];
@@ -329,6 +329,7 @@ export function SmartFilmVideoBoard({ detail, batch, shots, promptPlan, videoMod
     onVideoModelChange: (model: string) => void;
     promptOverride: string;
     onPromptOverrideChange: (prompt: string) => void;
+    generatedPrompt: string;
     readyCount: number;
     targetSeconds: number;
     generating: boolean;
@@ -362,7 +363,8 @@ export function SmartFilmVideoBoard({ detail, batch, shots, promptPlan, videoMod
     const taskStartedAt = Date.parse(generationTask?.startedAt || generationTask?.createdAt || "");
     const taskElapsed = taskActive && Number.isFinite(taskStartedAt) ? formatDuration(Math.max(0, taskClock - taskStartedAt)) : "";
     const taskPreviewUrl = generationTask?.previewPosterUrl || (generationTask?.previewKind === "image" ? generationTask.previewUrl : "");
-    const canGenerate = shots.length > 0 && !taskActive && Boolean(promptPlan.plan) && !promptPlan.plan?.missingInputAssets.length && !modelError;
+    const promptDraftDirty = Boolean(promptPlan.plan && promptDraft.trim() !== promptPlan.plan.taskPrompt);
+    const canGenerate = shots.length > 0 && !taskActive && !promptPlan.error && !promptDraftDirty && Boolean(promptPlan.plan) && !promptPlan.plan?.missingInputAssets.length && !modelError;
 
     if (!shots.length) return <StoryboardPreparingState detail={detail} batch={batch} />;
 
@@ -398,16 +400,17 @@ export function SmartFilmVideoBoard({ detail, batch, shots, promptPlan, videoMod
                         <p className="mt-1 text-xs leading-5 text-foreground/48">这里的内容会决定整片的叙事、镜头动作、产品出现方式和人物连续性。参考图会按下方编号传入视频模型。</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                        <Button size="small" onClick={() => setPromptDraft(promptPlan.plan?.taskPrompt || "")} disabled={promptDraft.trim() === (promptPlan.plan.taskPrompt || "")}>恢复自动生成</Button>
-                        <Button size="small" type="primary" onClick={() => onPromptOverrideChange(promptDraft.trim())} disabled={!promptDraft.trim() || promptDraft.trim() === promptPlan.plan.taskPrompt}>应用修改</Button>
+                        <Button size="small" onClick={() => { setPromptDraft(generatedPrompt); onPromptOverrideChange(""); }} disabled={!promptOverride && promptDraft.trim() === generatedPrompt}>恢复自动生成</Button>
+                        <Button size="small" type="primary" onClick={() => onPromptOverrideChange(promptDraft.trim())} disabled={!promptDraft.trim() || promptDraft.trim() === (promptPlan.plan.taskPrompt || promptOverride)}>应用修改</Button>
                     </div>
                 </div>
+                {promptDraftDirty ? <p className="mt-2 text-[var(--fs-tiny)] text-amber-500">有未应用的修改</p> : null}
                 <Input.TextArea
                     className="mt-3"
                     value={promptDraft}
                     onChange={(event) => setPromptDraft(event.target.value)}
                     autoSize={{ minRows: 12, maxRows: 28 }}
-                    maxLength={32000}
+                    maxLength={100000}
                     showCount
                     aria-label="整片视频提示词"
                 />
