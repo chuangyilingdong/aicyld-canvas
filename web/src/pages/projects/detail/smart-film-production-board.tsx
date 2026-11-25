@@ -319,7 +319,7 @@ export function resolveStoryboardWaitState(task?: GenerationTask, run?: SmartFil
     return "waiting";
 }
 
-export function SmartFilmVideoBoard({ detail, batch, shots, promptPlan, videoModel, modelError, onVideoModelChange, readyCount, targetSeconds, generating, generationError, generationTask, recoveryError, latestResourceId, staleWholeFilm, editPrompt, onBack, onSaveShotPrompt, onGenerate, onDownload }: {
+export function SmartFilmVideoBoard({ detail, batch, shots, promptPlan, videoModel, modelError, onVideoModelChange, promptOverride, onPromptOverrideChange, readyCount, targetSeconds, generating, generationError, generationTask, recoveryError, latestResourceId, staleWholeFilm, editPrompt, onBack, onSaveShotPrompt, onGenerate, onDownload }: {
     detail: ProjectDetail;
     batch?: SmartFilmBatch;
     shots: ProjectShot[];
@@ -327,6 +327,8 @@ export function SmartFilmVideoBoard({ detail, batch, shots, promptPlan, videoMod
     videoModel: string;
     modelError: string;
     onVideoModelChange: (model: string) => void;
+    promptOverride: string;
+    onPromptOverrideChange: (prompt: string) => void;
     readyCount: number;
     targetSeconds: number;
     generating: boolean;
@@ -343,6 +345,7 @@ export function SmartFilmVideoBoard({ detail, batch, shots, promptPlan, videoMod
 }) {
     const copyText = useCopyText();
     const config = useEffectiveConfig();
+    const [promptDraft, setPromptDraft] = useState("");
     const taskActive = generating || generationTask?.status === "queued" || generationTask?.status === "running";
     const [taskClock, setTaskClock] = useState(() => Date.now());
     useEffect(() => {
@@ -351,6 +354,9 @@ export function SmartFilmVideoBoard({ detail, batch, shots, promptPlan, videoMod
         const timer = window.setInterval(() => setTaskClock(Date.now()), 1_000);
         return () => window.clearInterval(timer);
     }, [taskActive, generationTask?.id]);
+    useEffect(() => {
+        setPromptDraft(promptPlan.plan?.taskPrompt || "");
+    }, [promptPlan.plan?.taskPrompt]);
     const taskProgress = Math.max(0, Math.min(100, Math.round(generationTask?.progress || 0)));
     const taskStage = generationTask?.stage || (generationTask?.status === "queued" ? "等待生成资源" : "正在生成整片视频");
     const taskStartedAt = Date.parse(generationTask?.startedAt || generationTask?.createdAt || "");
@@ -385,16 +391,34 @@ export function SmartFilmVideoBoard({ detail, batch, shots, promptPlan, videoMod
                 </div>
             </header>
 
-            {promptPlan.plan ? <details className="mb-4 rounded-xl border border-border/70 bg-surface p-4" open>
-                <summary className="cursor-pointer text-sm font-medium">整片提示词与参考图 · {promptPlan.plan.referenceImages.length} 张</summary>
+            {promptPlan.plan ? <section className="mb-4 rounded-xl border border-border/70 bg-surface p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                        <strong className="text-sm">整片视频提示词 · 可编辑</strong>
+                        <p className="mt-1 text-xs leading-5 text-foreground/48">这里的内容会决定整片的叙事、镜头动作、产品出现方式和人物连续性。参考图会按下方编号传入视频模型。</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                        <Button size="small" onClick={() => setPromptDraft(promptPlan.plan?.taskPrompt || "")} disabled={promptDraft.trim() === (promptPlan.plan.taskPrompt || "")}>恢复自动生成</Button>
+                        <Button size="small" type="primary" onClick={() => onPromptOverrideChange(promptDraft.trim())} disabled={!promptDraft.trim() || promptDraft.trim() === promptPlan.plan.taskPrompt}>应用修改</Button>
+                    </div>
+                </div>
+                <Input.TextArea
+                    className="mt-3"
+                    value={promptDraft}
+                    onChange={(event) => setPromptDraft(event.target.value)}
+                    autoSize={{ minRows: 12, maxRows: 28 }}
+                    maxLength={32000}
+                    showCount
+                    aria-label="整片视频提示词"
+                />
                 <div className="mt-3 flex flex-wrap gap-2">
                     {promptPlan.plan.referenceImages.map((image, index) => <div key={image.id} className="w-28 text-xs text-foreground/60">
                         {image.url ? <img src={image.url} alt={`参考图${index + 1}`} className="aspect-square w-full rounded-lg object-contain" /> : null}
                         <span>参考图{index + 1} · {image.name}</span>
                     </div>)}
                 </div>
-                <pre className="thin-scrollbar mt-3 max-h-80 overflow-auto whitespace-pre-wrap text-xs leading-6 text-foreground/70">{promptPlan.plan.prompt}</pre>
-            </details> : null}
+                <p className="mt-3 text-[var(--fs-tiny)] leading-5 text-foreground/38">技能规范会在提交时自动附加。产品参考图用于锁定产品外形，并在镜头提示词中保持产品清晰可见。</p>
+            </section> : null}
 
             {latestResourceId && editPrompt ? (
                 <section className="mb-4 rounded-xl border border-emerald-500/25 bg-emerald-500/[.045] p-4">

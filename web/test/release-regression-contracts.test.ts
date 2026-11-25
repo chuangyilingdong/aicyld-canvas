@@ -53,6 +53,9 @@ describe("release regression source contracts", () => {
         expect(hook).toContain("modelCompatibilityError");
         expect(hook).toContain("resolveCompatibleModel(effectiveConfig, model, modelRequirements)");
         expect(hook).toContain('videoEditOperation: "reference_to_video"');
+        expect(source("pages/projects/detail/smart-film-whole-film-prompt.ts")).toContain("taskPrompt");
+        expect(board).toContain("整片视频提示词 · 可编辑");
+        expect(board).toContain("技能规范会在提交时自动附加");
     });
 
     test("keeps quote reference counts in the task contract", () => {

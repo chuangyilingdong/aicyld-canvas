@@ -170,9 +170,11 @@ describe("smart film whole-film prompt", () => {
         expect(plan.prompt).toContain("参考图1：项目绑定的产品/道具外观设定");
         expect(plan.prompt).toContain("参考图2对应镜头1");
         expect(plan.prompt).toContain("参考图3对应镜头2");
-        expect(plan.prompt).toContain("镜头1（0–5 秒）：画面中的产品保持稳定");
-        expect(plan.prompt).toContain("镜头2（5–10 秒）：画面中的产品保持稳定");
+        expect(plan.prompt).toContain("镜头1（0–5 秒）：产品/道具“生成图片”外观以参考图1为准");
+        expect(plan.prompt).toContain("镜头2（5–10 秒）：产品/道具“生成图片”外观以参考图1为准");
         expect(plan.prompt).toContain("外观以参考图1为准");
+        expect(plan.taskPrompt).toContain("产品/道具“生成图片”外观以参考图1为准");
+        expect(plan.taskPrompt).not.toContain("【技能规范】");
         expect(plan.prompt).not.toContain("图片1=生成图片中的产品");
         expect(plan.prompt).not.toContain("@[asset:");
     });
@@ -247,6 +249,8 @@ describe("smart film whole-film prompt", () => {
         expect(plan.referenceImages.map((image) => image.storageKey)).toEqual(["resource:product-image", "resource:person-image"]);
         expect(plan.prompt).toContain("参考图1：项目绑定的产品/道具外观设定（机甲鲨）");
         expect(plan.prompt).toContain("参考图2：项目绑定的人物身份与造型外观设定（少女）");
+        expect(plan.taskPrompt).toContain("产品/道具“机甲鲨”外观以参考图1为准");
+        expect(plan.taskPrompt).toContain("人物“少女”外观以参考图2为准");
         expect(plan.prompt).toContain("产品必须在符合剧情的镜头中清晰可见");
         expect(plan.missingInputAssets).toEqual([]);
         const missing = buildSmartFilmWholeFilmPrompt({ ...detail, assets: [character] }, [{ shot }], 5, options);

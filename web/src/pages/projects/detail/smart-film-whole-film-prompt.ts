@@ -36,7 +36,7 @@ export function buildSmartFilmWholeFilmPrompt(
         ...assetReferences.map((reference, index) => ({
             ...reference.image,
             id: `smart-film-asset-${reference.assetId}`,
-            name: `主体外观参考${index + 1}`,
+            name: `${reference.category === "prop" ? "产品外观参考" : "人物外观参考"}${index + 1}`,
         })),
         ...storyboardImages,
     ];
@@ -58,13 +58,17 @@ export function buildSmartFilmWholeFilmPrompt(
     const fixedLength = intro.length + referenceMap.length + continuityRules.length + outro.length + dialogue.length + entries.length * 24;
     const taskBudget = options.skillSnapshot?.stages?.video ? Math.max(1_200, maxChars - 1_200) : maxChars;
     const cueBudget = Math.max(20, Math.floor((taskBudget - fixedLength) / Math.max(1, entries.length)));
+    const entityLocks = assetReferences
+        .filter((reference) => reference.category === "prop" || reference.category === "character")
+        .map((reference, index) => `${reference.category === "prop" ? "产品/道具" : "人物"}“${reference.title}”外观以参考图${index + 1}为准`)
+        .join("；");
     const shotPrompts = entries.map(({ shot }, index) => {
         const revision = currentRevision(detail, shot);
         const source = [
             revision?.videoPrompt || revision?.plotDescription || shot.description || shot.title,
             revision?.action || "",
         ].filter(Boolean).join("\n");
-        const cue = fitText(smartFilmShotDirection(source, assetReferenceIndexById), cueBudget);
+        const cue = fitText([entityLocks, smartFilmShotDirection(source, assetReferenceIndexById)].filter(Boolean).join("；"), cueBudget);
         const timing = timings[index];
         return `镜头${index + 1}（${formatSeconds(timing.start)}–${formatSeconds(timing.end)} 秒）：${cue}`;
     });
@@ -76,7 +80,7 @@ export function buildSmartFilmWholeFilmPrompt(
         dialogue ? `对白顺序：${dialogue}` : "",
         outro,
     ].filter(Boolean).join("\n");
-    const prompt = smartFilmSkillStagePrompt(options.skillSnapshot, "video", taskPrompt, { maxChars });
+    const prompt = compileSmartFilmWholeFilmPrompt(taskPrompt, options.skillSnapshot, maxChars);
     if (prompt.length > maxChars || !prompt.includes(taskPrompt)) {
         throw new Error("镜头和参考图过多，完整提示词超过当前视频模型的长度上限，请更换模型或减少镜头与参考图");
     }
@@ -88,9 +92,18 @@ export function buildSmartFilmWholeFilmPrompt(
     return {
         missingInputAssets,
         prompt,
+        taskPrompt,
         referenceImages,
         storyboardResourceIds: storyboardEntries.map(({ artifact }) => artifact!.resourceId!),
     };
+}
+
+export function compileSmartFilmWholeFilmPrompt(taskPrompt: string, skillSnapshot: SmartFilmSkillSnapshot | undefined, maxChars: number) {
+    const prompt = smartFilmSkillStagePrompt(skillSnapshot, "video", taskPrompt, { maxChars });
+    if (prompt.length > maxChars || !prompt.includes(taskPrompt)) {
+        throw new Error("镜头和参考图过多，完整提示词超过当前视频模型的长度上限，请更换模型或减少镜头与参考图");
+    }
+    return prompt;
 }
 
 export function smartFilmShotTimings(entries: StoryboardEntry[], targetSeconds: number) {
@@ -113,6 +126,7 @@ export function smartFilmShotDirection(value: string, assetReferenceIndexById?: 
             const referenceIndex = assetReferenceIndexById?.get(assetId.trim());
             return referenceIndex ? `外观以参考图${referenceIndex}为准` : "";
         })
+        .replace(/Generate a (\d+(?:\.\d+)?)-second cinematic shot\.?/gi, "生成一段$1秒电影感镜头。")
         .replace(/图片\s*\d+\s*=\s*生成图片中的(产品|人物|角色|道具)/g, "画面中的$1")
         .replace(/\r/g, "")
         .replace(/[ \t]+/g, " ")

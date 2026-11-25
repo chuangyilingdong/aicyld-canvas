@@ -12,7 +12,7 @@ import type { SmartFilmSkillStage } from "@/services/api/smart-film-batches";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { currentArtifact } from "./workflow-shared";
 import { buildSmartFilmEditPrompt } from "./smart-film-edit-prompt";
-import { buildSmartFilmWholeFilmPrompt } from "./smart-film-whole-film-prompt";
+import { buildSmartFilmWholeFilmPrompt, compileSmartFilmWholeFilmPrompt } from "./smart-film-whole-film-prompt";
 import { smartFilmSkillMetadata } from "@/services/smart-film-skill";
 
 const recoveringSmartFilmTaskKeys = new Set<string>();
@@ -21,6 +21,7 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
     const effectiveConfig = useEffectiveConfig();
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const [selectedVideoModel, setSelectedVideoModel] = useState("");
+    const [smartFilmPromptOverride, setSmartFilmPromptOverride] = useState("");
     const smartFilmModel = selectedVideoModel || detail.project.defaultVideoModel || effectiveConfig.videoModel;
     const [smartFilmGenerating, setSmartFilmGenerating] = useState(false);
     const [smartFilmTask, setSmartFilmTask] = useState<GenerationTask | null>(null);
@@ -85,7 +86,7 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
         }).length,
         [detail, shots],
     );
-    const smartFilmPromptPlan = useMemo(() => {
+    const generatedSmartFilmPromptPlan = useMemo(() => {
         if (!shots.length) return { plan: undefined, error: "" };
         const profile = modelCapabilityConfigFor(effectiveConfig, smartFilmModel).video;
         try {
@@ -101,6 +102,20 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
             return { plan: undefined, error: error instanceof Error ? error.message : "整片提示词生成失败" };
         }
     }, [detail, shots, effectiveConfig, smartFilmBatchQuery.data, smartFilmModel]);
+    useEffect(() => {
+        setSmartFilmPromptOverride((current) => current && current !== generatedSmartFilmPromptPlan.plan?.taskPrompt ? "" : current);
+    }, [generatedSmartFilmPromptPlan.plan?.taskPrompt]);
+    const smartFilmPromptPlan = useMemo(() => {
+        const plan = generatedSmartFilmPromptPlan.plan;
+        const override = smartFilmPromptOverride.trim();
+        if (!plan || !override || override === plan.taskPrompt) return generatedSmartFilmPromptPlan;
+        try {
+            const prompt = compileSmartFilmWholeFilmPrompt(override, smartFilmBatchQuery.data?.config.skillSnapshot, modelCapabilityConfigFor(effectiveConfig, smartFilmModel).video?.references.promptMaxChars || 4_000);
+            return { error: "", plan: { ...plan, taskPrompt: override, prompt } };
+        } catch (error) {
+            return { plan: undefined, error: error instanceof Error ? error.message : "整片提示词生成失败" };
+        }
+    }, [effectiveConfig, generatedSmartFilmPromptPlan, smartFilmBatchQuery.data?.config.skillSnapshot, smartFilmModel, smartFilmPromptOverride]);
     const referenceCount = smartFilmPromptPlan.plan?.referenceImages.length || 0;
     const modelRequirements = {
         capability: "video" as const,
@@ -261,5 +276,5 @@ export function useSmartFilmWholeFilm(detail: ProjectDetail, projectId: string, 
         }
     };
 
-    return { smartWholeFilm, smartFilmConfigurationPending, smartFilmConfigurationError, retrySmartFilmConfiguration: () => smartFilmBatchQuery.refetch(), smartFilmGenerating, smartFilmError, smartFilmTask: smartFilmTask || latestSmartFilmTask, smartFilmRecoveryError, latestSmartWholeFilm, staleSmartWholeFilm, smartFilmEditPrompt, readyStoryboardCount, smartFilmPromptPlan, smartFilmModel, smartFilmModelError, setSmartFilmModel, smartFilmBatch: smartFilmBatchQuery.data, generateSmartWholeFilm };
+    return { smartWholeFilm, smartFilmConfigurationPending, smartFilmConfigurationError, retrySmartFilmConfiguration: () => smartFilmBatchQuery.refetch(), smartFilmGenerating, smartFilmError, smartFilmTask: smartFilmTask || latestSmartFilmTask, smartFilmRecoveryError, latestSmartWholeFilm, staleSmartWholeFilm, smartFilmEditPrompt, readyStoryboardCount, smartFilmPromptPlan, smartFilmModel, smartFilmModelError, setSmartFilmModel, smartFilmPromptOverride, setSmartFilmPromptOverride, smartFilmBatch: smartFilmBatchQuery.data, generateSmartWholeFilm };
 }
