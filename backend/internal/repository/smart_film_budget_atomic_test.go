@@ -1,7 +1,6 @@
 package repository
 
 import (
-	"errors"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -28,7 +27,7 @@ func newSmartFilmBudgetRepo(t *testing.T) (*Repository, *gorm.DB) {
 	return New(db), db
 }
 
-func TestTaskAdmissionEnforcesBatchBudgetAtomically(t *testing.T) {
+func TestTaskAdmissionIgnoresBatchBudgetAndTracksConcurrentUsage(t *testing.T) {
 	repo, db := newSmartFilmBudgetRepo(t)
 	batch := model.SmartFilmBatch{
 		ID: "batch", UserID: "user", Title: "并发预算", SourceText: "测试",
@@ -67,26 +66,22 @@ func TestTaskAdmissionEnforcesBatchBudgetAtomically(t *testing.T) {
 	wg.Wait()
 	close(results)
 
-	successes, budgetFailures := 0, 0
+	successes := 0
 	for err := range results {
-		switch {
-		case err == nil:
-			successes++
-		case errors.Is(err, ErrSmartFilmBudgetExceeded):
-			budgetFailures++
-		default:
+		if err != nil {
 			t.Fatalf("unexpected admission error: %v", err)
 		}
+		successes++
 	}
-	if successes != 1 || budgetFailures != 1 {
-		t.Fatalf("successes=%d budgetFailures=%d, want 1/1", successes, budgetFailures)
+	if successes != 2 {
+		t.Fatalf("successes=%d, want 2", successes)
 	}
 	var stored model.SmartFilmBatch
 	if err := db.First(&stored, "id = ?", batch.ID).Error; err != nil {
 		t.Fatal(err)
 	}
-	if stored.BudgetUsedPoints != 6 {
-		t.Fatalf("budget used = %d, want 6", stored.BudgetUsedPoints)
+	if stored.BudgetUsedPoints != 12 {
+		t.Fatalf("budget used = %d, want 12", stored.BudgetUsedPoints)
 	}
 }
 
@@ -152,7 +147,7 @@ func TestTaskBillingSettlementKeepsReservedAndFinalAmounts(t *testing.T) {
 	}
 }
 
-func TestSettledUsageCanExceedBatchCapAndBlocksFutureReservations(t *testing.T) {
+func TestSettledUsageCanExceedBatchCapAndAllowsFutureReservations(t *testing.T) {
 	repo, db := newSmartFilmBudgetRepo(t)
 	batch := model.SmartFilmBatch{ID: "batch-overrun", UserID: "user", Title: "预算超额结算", SourceText: "测试", Status: "draft", BudgetPoints: 10}
 	project := model.Project{ID: "project-overrun", UserID: "user", BatchID: batch.ID, Name: "预算项目", Status: model.ProjectStatusActive}
@@ -185,7 +180,13 @@ func TestSettledUsageCanExceedBatchCapAndBlocksFutureReservations(t *testing.T) 
 		t.Fatalf("actual use = %d, want 14", stored.BudgetUsedPoints)
 	}
 	next := model.Task{ID: "task-after-overrun", UserID: "user", ProjectID: project.ID, Type: "canvas_image", Status: model.TaskStatusQueued, InputJSON: `{}`, BillingHoldID: "hold-next", BillingStatus: "reserved", BillingPoints: 1, BillingReservedPoints: 1}
-	if err := repo.CreateTaskWithActiveLimit(&next, 0); !errors.Is(err, ErrSmartFilmBudgetExceeded) {
-		t.Fatalf("future reservation error = %v, want budget exceeded", err)
+	if err := repo.CreateTaskWithActiveLimit(&next, 0); err != nil {
+		t.Fatalf("future reservation failed: %v", err)
+	}
+	if err := db.First(&stored, "id = ?", batch.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stored.BudgetUsedPoints != 15 {
+		t.Fatalf("actual use = %d, want 15", stored.BudgetUsedPoints)
 	}
 }

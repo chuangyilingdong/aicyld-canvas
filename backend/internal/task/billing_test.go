@@ -18,12 +18,13 @@ func (g *rejectingBudgetGuard) Check(string, *model.Task) error {
 }
 
 type fakeTaskBilling struct {
-	mu        sync.Mutex
-	reserves  int
-	releases  int
-	settles   int
-	quotes    int
-	reserveID string
+	mu         sync.Mutex
+	reserves   int
+	releases   int
+	settles    int
+	quotes     int
+	reserveID  string
+	reserveErr error
 }
 
 func (b *fakeTaskBilling) Enabled() bool { return true }
@@ -39,6 +40,9 @@ func (b *fakeTaskBilling) Reserve(context.Context, string, *model.Task) (*billin
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.reserves++
+	if b.reserveErr != nil {
+		return nil, b.reserveErr
+	}
 	if b.reserveID == "" {
 		b.reserveID = "hold-1"
 	}
@@ -92,6 +96,17 @@ func TestCreateTaskReservesAndStoresBillingMetadata(t *testing.T) {
 	saved := store.tasks[created.ID]
 	if saved.BillingHoldID != "hold-1" || saved.BillingStatus != "reserved" || saved.BillingPoints != 7 {
 		t.Fatalf("stored billing = %+v", saved)
+	}
+}
+
+func TestCreateTaskRejectsInsufficientAccountBalance(t *testing.T) {
+	store := newMemStore()
+	insufficient := errors.New("积分不足")
+	billing := &fakeTaskBilling{reserveErr: insufficient}
+	service := domainService(store, func(deps *Dependencies) { deps.Billing = billing })
+	_, err := service.CreateTask("user", CreateRequest{Type: "canvas_image", Prompt: "cat", Input: map[string]any{"prompt": "cat"}})
+	if !errors.Is(err, insufficient) || billing.reserves != 1 || len(store.tasks) != 0 {
+		t.Fatalf("err=%v reserves=%d persisted=%d", err, billing.reserves, len(store.tasks))
 	}
 }
 

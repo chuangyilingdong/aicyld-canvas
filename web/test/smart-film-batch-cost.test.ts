@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { smartFilmBatchBudgetPoints, smartFilmBatchCostStatus } from "@/lib/canvas/smart-film-batch-cost";
+import { smartFilmBatchCostStatus } from "@/lib/canvas/smart-film-batch-cost";
 
 describe("smart-film batch cost", () => {
     test("distinguishes disabled, affordable and insufficient quotes", () => {
@@ -10,9 +10,4 @@ describe("smart-film batch cost", () => {
         expect(smartFilmBatchCostStatus({ enabled: true, totalPoints: 31, balance: 30 })).toBe("insufficient");
     });
 
-    test("only persists a real enabled quote as the batch budget", () => {
-        expect(smartFilmBatchBudgetPoints()).toBe(0);
-        expect(smartFilmBatchBudgetPoints({ enabled: false, totalPoints: 99 })).toBe(0);
-        expect(smartFilmBatchBudgetPoints({ enabled: true, totalPoints: 42 })).toBe(42);
-    });
 });

@@ -3,7 +3,6 @@ package repository
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -133,31 +132,10 @@ func applyTaskBillingTx(tx *gorm.DB, current, next *model.Task) error {
 	if batchID != "" && oldPoints != newPoints {
 		delta := newPoints - oldPoints
 		if delta > 0 {
-			if next.BillingStatus == "settled" {
-				// Actual upstream charges must be recorded even when they exceed the estimate.
-				if err := tx.Exec(`UPDATE smart_film_batches
-					SET budget_used_points = budget_used_points + ?
-					WHERE id = ? AND user_id = ?`, delta, batchID, next.UserID).Error; err != nil {
-					return err
-				}
-			} else {
-				result := tx.Exec(`UPDATE smart_film_batches
-					SET budget_used_points = budget_used_points + ?
-					WHERE id = ? AND user_id = ?
-						AND (budget_points = 0 OR budget_used_points + ? <= budget_points)`,
-					delta, batchID, next.UserID, delta)
-				if result.Error != nil {
-					return result.Error
-				}
-				if result.RowsAffected != 1 {
-					var batch model.SmartFilmBatch
-					if findErr := tx.Select("budget_points", "budget_used_points").
-						Where("id = ? AND user_id = ?", batchID, next.UserID).First(&batch).Error; findErr == nil {
-						return fmt.Errorf("%w：预算 %d 积分，已占用 %d，本次需要新增 %d",
-							ErrSmartFilmBudgetExceeded, batch.BudgetPoints, batch.BudgetUsedPoints, delta)
-					}
-					return ErrSmartFilmBudgetExceeded
-				}
+			if err := tx.Exec(`UPDATE smart_film_batches
+				SET budget_used_points = budget_used_points + ?
+				WHERE id = ? AND user_id = ?`, delta, batchID, next.UserID).Error; err != nil {
+				return err
 			}
 		} else {
 			if err := tx.Exec(`UPDATE smart_film_batches

@@ -8,7 +8,7 @@ import (
 	localtask "infinite-canvas/backend/internal/task"
 )
 
-func TestSmartFilmScriptStageDefersProductionSpecAndBudget(t *testing.T) {
+func TestSmartFilmScriptStageDefersProductionSpecWithoutBatchBudget(t *testing.T) {
 	for _, mode := range []string{SmartFilmProductionModeFixed, SmartFilmProductionModeSmart} {
 		t.Run(mode, func(t *testing.T) {
 			svc, db := newTestService(t, &recordingWorkflows{})
@@ -42,7 +42,7 @@ func TestSmartFilmScriptStageDefersProductionSpecAndBudget(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if created.Config.ProductionMode != "" || created.Config.ShotCount != 0 || len(created.Config.ShotDurationsSeconds) != 0 || created.Config.TargetDurationSeconds != 0 || created.BudgetPoints != 2 {
+			if created.Config.ProductionMode != "" || created.Config.ShotCount != 0 || len(created.Config.ShotDurationsSeconds) != 0 || created.Config.TargetDurationSeconds != 0 || created.BudgetPoints != 0 {
 				t.Fatalf("creation imposed production settings: %+v", created)
 			}
 			saved, err := svc.SaveSmartFilmBatchScripts("user-1", created.ID, SaveSmartFilmBatchScriptsRequest{
@@ -72,12 +72,11 @@ func TestSmartFilmScriptStageDefersProductionSpecAndBudget(t *testing.T) {
 				t.Fatalf("production preview = %+v err=%v", productionPreview, err)
 			}
 			before, err := svc.SmartFilmBatch("user-1", saved.ID)
-			if err != nil || before.Config.ProductionMode != "" || before.BudgetPoints != 2 || before.Revision != saved.Revision {
+			if err != nil || before.Config.ProductionMode != "" || before.BudgetPoints != 0 || before.Revision != saved.Revision {
 				t.Fatalf("preview changed saved settings: %+v err=%v", before, err)
 			}
-			production.BudgetPoints = &productionPreview.TotalPoints
 			updated, err := svc.UpdateSmartFilmBatchProductionConfig("user-1", saved.ID, production)
-			if err != nil || updated.Config.ProductionMode != mode || updated.BudgetPoints != productionPreview.TotalPoints {
+			if err != nil || updated.Config.ProductionMode != mode || updated.BudgetPoints != 0 {
 				t.Fatalf("confirmed production = %+v err=%v", updated, err)
 			}
 			confirmed, err := svc.ConfirmSmartFilmBatchScripts("user-1", updated.ID, ConfirmSmartFilmBatchScriptsRequest{ExpectedRevision: updated.Revision, ScriptIDs: []string{saved.Scripts[0].ID}})

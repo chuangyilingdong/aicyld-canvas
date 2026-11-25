@@ -164,7 +164,7 @@ func TestSmartFilmBudgetCASDistinguishesStaleRevision(t *testing.T) {
 	}
 }
 
-func TestSmartFilmCreateCanEstimateBeforeAllocatingBatchID(t *testing.T) {
+func TestSmartFilmCreateDoesNotAutomaticallySetBatchBudget(t *testing.T) {
 	svc, _ := newTestService(t, &recordingWorkflows{})
 	svc.encryptSecret = func(value string) (string, error) { return value, nil }
 	svc.decryptSecret = func(value string) (string, error) { return value, nil }
@@ -172,7 +172,7 @@ func TestSmartFilmCreateCanEstimateBeforeAllocatingBatchID(t *testing.T) {
 		return &billing.BillingQuote{Enabled: true, Points: 1, Balance: 100}, nil
 	}
 	created, err := svc.CreateSmartFilmBatch("user-1", CreateSmartFilmBatchRequest{Title: "自动预算", SourceText: "想法", Config: SmartFilmBatchConfig{ScriptCount: 1, ShotCount: 1, AudioMode: SmartFilmAudioModeNone, DefaultTextModel: "text", DefaultImageModel: "image", DefaultVideoModel: "video"}, OrchestrationConfig: map[string]any{"text": map[string]any{"model": "text"}}})
-	if err != nil || created.BudgetPoints <= 0 {
+	if err != nil || created.BudgetPoints != 0 {
 		t.Fatalf("initial estimate=%+v err=%v", created, err)
 	}
 }

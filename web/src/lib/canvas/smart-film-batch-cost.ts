@@ -7,7 +7,3 @@ export function smartFilmBatchCostStatus(cost?: Pick<SmartFilmBatchCost, "enable
     if (!cost.enabled) return "disabled";
     return cost.totalPoints > cost.balance ? "insufficient" : "ready";
 }
-
-export function smartFilmBatchBudgetPoints(cost?: Pick<SmartFilmBatchCost, "enabled" | "totalPoints"> | null) {
-    return cost?.enabled ? Math.max(0, Math.trunc(cost.totalPoints)) : 0;
-}

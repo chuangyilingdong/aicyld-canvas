@@ -56,20 +56,6 @@ func (s *Service) SmartFilmBatchCost(userID, batchID string) (SmartFilmBatchCost
 	return s.smartFilmBatchCostView(userID, batch, config, runs, "")
 }
 
-func (s *Service) estimateInitialSmartFilmBudget(userID string, batch *model.SmartFilmBatch, config SmartFilmBatchConfig, scriptPrompt string) (int, error) {
-	if s.quoteTask == nil {
-		return 0, nil
-	}
-	cost, err := s.smartFilmBatchCostView(userID, batch, config, nil, scriptPrompt)
-	if err != nil {
-		return 0, err
-	}
-	if !cost.Enabled {
-		return 0, nil
-	}
-	return cost.EstimatedPoints, nil
-}
-
 func (s *Service) smartFilmBatchCostView(userID string, batch *model.SmartFilmBatch, config SmartFilmBatchConfig, runs []model.SmartFilmProductionRun, scriptPrompt string) (SmartFilmBatchCostView, error) {
 	committed := 0
 	var err error

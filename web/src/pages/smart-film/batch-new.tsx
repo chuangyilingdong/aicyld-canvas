@@ -11,7 +11,7 @@ import { ModelPicker } from "@/components/model-picker";
 import { WorkspacePage } from "@/components/layout/workspace-page";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { ASSET_CATEGORY_LABELS, normalizeAssetCategory, type AssetCategory } from "@/lib/asset-category";
-import { smartFilmBatchBudgetPoints, smartFilmBatchCostStatus } from "@/lib/canvas/smart-film-batch-cost";
+import { smartFilmBatchCostStatus } from "@/lib/canvas/smart-film-batch-cost";
 import { defaultModelCapabilityConfig, modelCapabilityConfigFor, normalizeVideoValue } from "@/lib/model-capabilities";
 import { createStyleProfileSnapshot, serializeStyleProfile } from "@/lib/canvas/style-profile";
 import { smartFilmScriptPrompt, type SmartFilmScriptReference } from "@/lib/canvas/smart-film-scripts";
@@ -333,10 +333,7 @@ export default function SmartFilmBatchNewPage() {
                 return;
             }
             setStatus("正在创建多剧本项目…");
-            const created = await createSmartFilmBatch({
-                ...request,
-                budgetPoints: smartFilmBatchBudgetPoints(quote),
-            });
+            const created = await createSmartFilmBatch(request);
             batchId = created.batch.id;
             setGenerationProgress(10);
             setStatus(`正在生成 ${resolvedScriptCount} 条独立剧本…`);

@@ -15,7 +15,6 @@ import {
     deleteSmartFilmBatchScript,
     getSmartFilmBatch,
     getSmartFilmBatchCosts,
-    previewSmartFilmBatchProductionConfig,
     recoverSmartFilmBatchScripts,
     saveSmartFilmBatchScripts,
     startSmartFilmProductionStage,
@@ -373,19 +372,8 @@ export default function SmartFilmBatchDetailPage() {
                         const payload = productionSavePayloadRef.current;
                         if (!payload) break;
                         const requestSignature = JSON.stringify(payload);
-                        let budgetPoints: number | undefined;
-                        try {
-                            const preview = await previewSmartFilmBatchProductionConfig(batch.id, {
-                                ...payload,
-                                expectedRevision: productionSaveRevisionRef.current,
-                            });
-                            if (preview.enabled) budgetPoints = preview.totalPoints;
-                        } catch {
-                            // Spec persistence must remain available when pricing is temporarily unavailable.
-                        }
                         const result = await updateSmartFilmBatchProductionConfig(batch.id, {
                             ...payload,
-                            ...(budgetPoints === undefined ? {} : { budgetPoints }),
                             expectedRevision: productionSaveRevisionRef.current,
                         });
                         productionSaveRevisionRef.current = result.batch.revision;

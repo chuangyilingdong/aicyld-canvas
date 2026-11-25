@@ -133,14 +133,14 @@ describe("release regression source contracts", () => {
         expect(picker).toContain("placeholderData: (previousData) => previousData");
         expect(picker).toContain("if (!remoteEnabled || !remoteQuery.data) return;");
         expect(createPage).toContain("previewSmartFilmBatchCost(request)");
-        expect(createPage).toContain("budgetPoints: smartFilmBatchBudgetPoints(quote)");
+        expect(createPage).not.toContain("budgetPoints");
         expect(createPage).toContain("smart-film-batch-quote");
         expect(createPage).toContain("referenceImages: scriptBundle.referenceImages");
         expect(createPage).toContain("smartFilmScriptReferenceLimit");
         expect(createPage).toContain("按实际 Token 差额退还或补扣");
         expect(createPage).toContain("本次未创建剧本项目");
-        expect(detailPage).toContain("previewSmartFilmBatchProductionConfig(batch.id");
-        expect(detailPage).toContain("budgetPoints");
+        expect(detailPage).not.toContain("previewSmartFilmBatchProductionConfig(batch.id");
+        expect(detailPage).not.toContain("budgetPoints");
         expect(detailPage).toContain("getSmartFilmBatchCosts(batchId)");
         expect(detailPage).toContain("quoteSmartFilmScripts");
         expect(detailPage).toContain("approveScriptGeneration");
