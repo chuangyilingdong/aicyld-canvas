@@ -39,6 +39,8 @@ camera_language_guide.md
 .playwright-cli/
 # Local Playwright / browser verification artifacts.
 /output/
+/release-artifacts/
+/web/output/
 /project-memory/
 .workbuddy/
 .worktrees/
