@@ -198,12 +198,13 @@ type CapabilityImageSize struct {
 }
 
 type CapabilitySpec struct {
-	Version    int                         `json:"version"`
-	Capability string                      `json:"capability"`
-	Operations []string                    `json:"operations,omitempty"`
-	Inputs     map[string]InputConstraint  `json:"inputs,omitempty"`
-	Options    map[string]OptionConstraint `json:"options,omitempty"`
-	ImageSize  *CapabilityImageSize        `json:"imageSize,omitempty"`
+	Version         int                                   `json:"version"`
+	Capability      string                                `json:"capability"`
+	Operations      []string                              `json:"operations,omitempty"`
+	Inputs          map[string]InputConstraint            `json:"inputs,omitempty"`
+	OperationInputs map[string]map[string]InputConstraint `json:"operationInputs,omitempty"`
+	Options         map[string]OptionConstraint           `json:"options,omitempty"`
+	ImageSize       *CapabilityImageSize                  `json:"imageSize,omitempty"`
 }
 
 type InputConstraint struct {

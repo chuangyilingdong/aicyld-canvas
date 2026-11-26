@@ -182,24 +182,30 @@ func MatchCapability(spec CapabilitySpec, intent ModelRequestIntent) CapabilityM
 	if operation := normalizeCapabilityValue(intent.Operation); operation != "" && len(spec.Operations) > 0 && !containsNormalized(spec.Operations, operation) {
 		reasons = append(reasons, "不支持操作 "+intent.Operation)
 	}
+	inputConstraints := spec.Inputs
+	if operationInputs, ok := spec.OperationInputs[normalizeCapabilityValue(intent.Operation)]; ok {
+		inputConstraints = operationInputs
+	}
 	for inputType, count := range intent.Inputs {
 		if count < 0 {
 			reasons = append(reasons, "输入数量不能小于 0")
 			continue
 		}
-		constraint, declared := spec.Inputs[inputType]
+		constraint, declared := inputConstraints[inputType]
 		if !declared {
 			if count > 0 {
 				reasons = append(reasons, "不支持 "+capabilityInputLabel(inputType)+"输入")
 			}
 			continue
 		}
-		if count < constraint.Min || count > constraint.Max {
-			reasons = append(reasons, fmt.Sprintf("%s数量需在 %d-%d 之间", capabilityInputLabel(inputType), constraint.Min, constraint.Max))
+		if count < constraint.Min {
+			reasons = append(reasons, fmt.Sprintf("至少需要 %d 个%s", constraint.Min, capabilityInputLabel(inputType)))
+		} else if count > constraint.Max {
+			reasons = append(reasons, fmt.Sprintf("最多支持 %d 个%s", constraint.Max, capabilityInputLabel(inputType)))
 		}
 	}
-	for inputType, constraint := range spec.Inputs {
-		if intent.Inputs[inputType] < constraint.Min {
+	for inputType, constraint := range inputConstraints {
+		if _, present := intent.Inputs[inputType]; !present && constraint.Min > 0 {
 			reasons = append(reasons, fmt.Sprintf("至少需要 %d 个%s", constraint.Min, capabilityInputLabel(inputType)))
 		}
 	}

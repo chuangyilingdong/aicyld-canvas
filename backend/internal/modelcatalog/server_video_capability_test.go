@@ -108,6 +108,41 @@ func TestServerVideoOperationReferencesUseExplicitOperation(t *testing.T) {
 	t.Fatal("Wan fixture missing")
 }
 
+func TestVideoOperationReferencesOverrideGlobalMinimumDuringAdmission(t *testing.T) {
+	zero, one, two, ten := 0, 1, 2, 10
+	profile := &ModelCapabilityConfig{Version: 1, Video: &VideoCapabilityConfig{
+		References: VideoReferenceConfig{MinImages: 1, MaxImages: 10, MaxVideos: 5, MaxAudios: 5},
+		OperationReferences: map[string]VideoOperationReferences{
+			"text_to_video":      {MinImages: &zero, MaxImages: &zero},
+			"image_to_video":     {MinImages: &one, MaxImages: &two},
+			"first_last_frame":   {MinImages: &one, MaxImages: &two},
+			"reference_to_video": {MinImages: &zero, MaxImages: &ten},
+		},
+		Operations:       []string{"text_to_video", "image_to_video", "first_last_frame", "reference_to_video"},
+		DefaultOperation: "text_to_video",
+	}}
+	spec, err := CapabilitySpecFromModelCapabilityConfig(profile, "video")
+	if err != nil {
+		t.Fatal(err)
+	}
+	textIntent := ModelRequestIntent{Capability: "video", Operation: "text_to_video", Inputs: map[string]int{}}
+	if match := MatchCapability(spec, textIntent); !match.Matched {
+		t.Fatalf("text-to-video with no references should match despite global minimum: %#v", match.Reasons)
+	}
+	textIntent.Inputs["image"] = 1
+	if match := MatchCapability(spec, textIntent); match.Matched || !strings.Contains(strings.Join(match.Reasons, "；"), "参考图片输入") {
+		t.Fatalf("text-to-video should reject image references: %#v", match)
+	}
+	imageIntent := ModelRequestIntent{Capability: "video", Operation: "image_to_video", Inputs: map[string]int{}}
+	if match := MatchCapability(spec, imageIntent); match.Matched || !strings.Contains(strings.Join(match.Reasons, "；"), "至少需要 1 个参考图片") {
+		t.Fatalf("image-to-video should require one image: %#v", match)
+	}
+	imageIntent.Inputs["image"] = 1
+	if match := MatchCapability(spec, imageIntent); !match.Matched {
+		t.Fatalf("image-to-video with one image should match: %#v", match.Reasons)
+	}
+}
+
 func TestWan30VideoAndMossImageDefaultCapabilitiesAndQualityAliases(t *testing.T) {
 	for _, modelName := range []string{"wan3.0-video", "wan3.0", "wan3"} {
 		wan := DefaultModelCapabilityConfigForModel("newapi-channel-2", modelName).Video

@@ -358,6 +358,17 @@ func CapabilitySpecFromModelCapabilityConfig(config *ModelCapabilityConfig, capa
 		addInputConstraint(spec.Inputs, "image", video.References.MinImages, video.References.MaxImages)
 		addInputConstraint(spec.Inputs, "video", 0, video.References.MaxVideos)
 		addInputConstraint(spec.Inputs, "audio", 0, video.References.MaxAudios)
+		if len(video.OperationReferences) > 0 {
+			spec.OperationInputs = make(map[string]map[string]InputConstraint, len(video.OperationReferences))
+			for operation := range video.OperationReferences {
+				refs := videoReferencesForOperation(video, operation)
+				inputs := map[string]InputConstraint{}
+				addInputConstraint(inputs, "image", refs.MinImages, refs.MaxImages)
+				addInputConstraint(inputs, "video", 0, refs.MaxVideos)
+				addInputConstraint(inputs, "audio", 0, refs.MaxAudios)
+				spec.OperationInputs[normalizeCapabilityValue(operation)] = inputs
+			}
+		}
 		if video.Duration.Selection == "enum" {
 			values := make([]any, 0, len(video.Duration.Values))
 			for _, value := range video.Duration.Values {
