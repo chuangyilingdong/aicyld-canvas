@@ -253,3 +253,28 @@ func TestExecuteAllowsEmptyPromptForVideoDraftToFinal(t *testing.T) {
 		t.Fatalf("expected empty prompt draft_to_final on canvas_video to pass prompt check, got %v", err)
 	}
 }
+
+type optionalPromptResolvePort struct{ countingResolvePort }
+
+func (p *optionalPromptResolvePort) ApplyCapabilities(_ context.Context, input *Input) error {
+	input.VideoCapability = &VideoCapabilityConfig{OptionalPromptOperations: []string{"image_to_video", "first_last_frame"}}
+	return nil
+}
+
+func TestExecuteAllowsEmptyPromptForPromptOptionalVideoMode(t *testing.T) {
+	ctx := WithRuntime(context.Background(), taskRuntime(func(runtime *Runtime) {
+		runtime.Call.TaskType = "canvas_video"
+		runtime.Config = &optionalPromptResolvePort{}
+	}))
+	_, err := Execute(ctx, Input{
+		Mode:   "video",
+		Prompt: "",
+		Config: Config{ChannelID: "missing-channel"},
+		Metadata: map[string]any{
+			"videoEditOperation": "image_to_video",
+		},
+	})
+	if err != nil && strings.Contains(err.Error(), "prompt is required") {
+		t.Fatalf("prompt-optional MAGI image-to-video was rejected before execution: %v", err)
+	}
+}

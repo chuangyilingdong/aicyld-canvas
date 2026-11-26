@@ -716,7 +716,7 @@ func SelectCatalogTask(
 	if err != nil {
 		return SelectResult{}, err
 	}
-	result := SelectResult{Input: selected.Input}
+	result := SelectResult{Input: selected.Input, PromptOptional: selected.PromptOptional}
 	if selected.Routed != nil {
 		routed := selected.Routed
 		result.Binding = &RouteBinding{

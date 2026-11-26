@@ -49,9 +49,10 @@ type SelectRequest struct {
 }
 
 type SelectResult struct {
-	Input    map[string]any
-	Binding  *RouteBinding
-	Workflow bool
+	Input          map[string]any
+	Binding        *RouteBinding
+	Workflow       bool
+	PromptOptional bool
 }
 
 // RouteBinding is the durable model identity copied onto an admitted task.

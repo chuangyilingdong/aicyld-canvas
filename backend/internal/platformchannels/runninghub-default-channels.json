@@ -51,6 +51,7 @@
       "rh-wan-3-ref",
       "rh-wan-3-i2v",
       "rh-wan-3-t2v",
+      "rh-magi-2",
       "rh-video-upscale",
       "rh-speech-2.8-hd",
       "rh-speech-2.8-turbo",
@@ -3086,6 +3087,127 @@
             },
             "operations": [
               "text_to_video"
+            ],
+            "defaultOperation": "text_to_video"
+          }
+        }
+      },
+      {
+        "model": "rh-magi-2",
+        "displayName": "MAGI-2",
+        "family": "MAGI-2",
+        "capability": "video",
+        "protocol": "runninghub-standard-video",
+        "providerModelKey": "sand-ai/magi-2/text-to-video",
+        "variants": [
+          {
+            "selector": {
+              "operation": "text_to_video"
+            },
+            "providerModelKey": "sand-ai/magi-2/text-to-video"
+          },
+          {
+            "selector": {
+              "operation": "image_to_video"
+            },
+            "providerModelKey": "sand-ai/magi-2/image-to-video"
+          },
+          {
+            "selector": {
+              "operation": "first_last_frame"
+            },
+            "providerModelKey": "sand-ai/magi-2/image-to-video"
+          },
+          {
+            "selector": {
+              "operation": "reference_to_video"
+            },
+            "providerModelKey": "sand-ai/magi-2/reference-to-video"
+          }
+        ],
+        "capabilityConfig": {
+          "version": 1,
+          "video": {
+            "references": {
+              "promptMaxChars": 15000,
+              "promptMaxUtf16Units": 0,
+              "minImages": 0,
+              "maxImages": 10,
+              "maxImageBytes": 10485760,
+              "maxVideos": 5,
+              "maxVideoBytes": 52428800,
+              "minVideoDurationSeconds": 2,
+              "maxVideoDurationSeconds": 30,
+              "maxVideoTotalDurationSeconds": 30,
+              "maxAudios": 5,
+              "maxAudioBytes": 15728640,
+              "minAudioDurationSeconds": 2,
+              "maxAudioDurationSeconds": 30,
+              "maxAudioTotalDurationSeconds": 30
+            },
+            "operationReferences": {
+              "text_to_video": {
+                "minImages": 0,
+                "maxImages": 0,
+                "maxVideos": 0,
+                "maxAudios": 0
+              },
+              "image_to_video": {
+                "minImages": 1,
+                "maxImages": 2,
+                "maxVideos": 0,
+                "maxAudios": 0
+              },
+              "first_last_frame": {
+                "minImages": 1,
+                "maxImages": 2,
+                "maxVideos": 0,
+                "maxAudios": 0
+              },
+              "reference_to_video": {
+                "minImages": 0,
+                "maxImages": 10,
+                "maxVideos": 5,
+                "maxAudios": 5
+              }
+            },
+            "optionalPromptOperations": [
+              "image_to_video",
+              "first_last_frame"
+            ],
+            "duration": {
+              "selection": "range",
+              "min": 4,
+              "max": 30,
+              "step": 1,
+              "default": 5
+            },
+            "ratios": [
+              "21:9",
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16"
+            ],
+            "defaultRatio": "16:9",
+            "resolutions": [
+              "1080p"
+            ],
+            "defaultResolution": "1080p",
+            "generateAudio": {
+              "supported": true,
+              "default": true
+            },
+            "watermark": {
+              "supported": false,
+              "default": false
+            },
+            "operations": [
+              "text_to_video",
+              "image_to_video",
+              "first_last_frame",
+              "reference_to_video"
             ],
             "defaultOperation": "text_to_video"
           }

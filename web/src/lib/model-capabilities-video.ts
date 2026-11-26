@@ -59,6 +59,7 @@ export type VideoCapabilityConfig = {
     returnLastFrame?: { supported: boolean; default: boolean };
     operations: string[];
     defaultOperation: string;
+    optionalPromptOperations?: string[];
     operationReferences?: Record<string, Partial<Pick<VideoCapabilityConfig["references"], "minImages" | "maxImages" | "maxVideos" | "maxAudios">>>;
 };
 
@@ -210,7 +211,12 @@ export function sanitizeServerVideoCapability(value: unknown): VideoCapabilityCo
     const defaultRatio = catalogStringValue(object.defaultRatio);
     const defaultResolution = catalogStringValue(object.defaultResolution);
     const defaultOperation = catalogStringValue(object.defaultOperation);
+    const optionalPromptOperations = "optionalPromptOperations" in object
+        ? catalogStringList(object.optionalPromptOperations, true)
+        : undefined;
+    if (optionalPromptOperations === null) return null;
     if (!references || !duration || !generateAudio || !watermark || !ratios || !resolutions || !operations || defaultRatio === null || defaultResolution === null || !defaultOperation || !operations.includes(defaultOperation)) return null;
+    if (optionalPromptOperations && optionalPromptOperations.some((operation) => !operations.includes(operation))) return null;
     if (ratios.length ? !defaultRatio || !ratios.includes(defaultRatio) : defaultRatio !== "") return null;
     if (resolutions.length ? !defaultResolution || !resolutions.includes(defaultResolution) : defaultResolution !== "") return null;
     const normalizedDuration = sanitizeCatalogDuration(duration);
@@ -227,6 +233,7 @@ export function sanitizeServerVideoCapability(value: unknown): VideoCapabilityCo
         watermark,
         operations,
         defaultOperation,
+        ...(optionalPromptOperations ? { optionalPromptOperations } : {}),
     };
     if ("operationReferences" in object) {
         const byOperation = catalogObject(object.operationReferences);
@@ -285,6 +292,10 @@ export function versionedVideoCapability(value: unknown, version: string | undef
 
 export function videoReferencesForOperation(profile: VideoCapabilityConfig, operation: string): VideoCapabilityConfig["references"] {
     return { ...profile.references, ...profile.operationReferences?.[operation] };
+}
+
+export function videoPromptRequired(profile: VideoCapabilityConfig, operation: string): boolean {
+    return !profile.optionalPromptOperations?.includes(operation);
 }
 
 export function defaultVideoCapabilityConfig(protocol?: ModelProtocol, model = ""): VideoCapabilityConfig {

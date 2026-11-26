@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -988,6 +989,86 @@ func TestRunningHubMurekaSongRequiresLyricsBeforeSubmission(t *testing.T) {
 	}
 	if got := object(spec.Body)["lyrics"]; got != "第一句歌词\n第二句歌词" {
 		t.Fatalf("lyrics = %#v", got)
+	}
+}
+
+func TestRunningHubMagi2VideoModesUseDocumentedPayload(t *testing.T) {
+	adapter, _ := Builtins().Get("runninghub-standard-video")
+	textSpec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
+		Capability:    CapabilityVideo,
+		Model:         "sand-ai/magi-2/text-to-video",
+		Prompt:        "rain tunnel",
+		AspectRatio:   "21:9",
+		Resolution:    "1080p",
+		Duration:      12,
+		GenerateAudio: true,
+		Extra:         map[string]any{"seed": 42},
+		ProviderOptions: map[string]map[string]any{
+			"runninghub-standard-video": {"watermark": true, "firstFrameUrl": "ignored"},
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	textBody := object(textSpec.Body)
+	if textBody["prompt"] != "rain tunnel" || textBody["aspectRatio"] != "21:9" ||
+		textBody["duration"] != "12" || textBody["resolution"] != "1080p" ||
+		textBody["generateAudio"] != true || textBody["seed"] != 42 || textBody["watermark"] != nil || textBody["firstFrameUrl"] != nil {
+		t.Fatalf("MAGI text payload = %#v", textBody)
+	}
+	mediaURL := func(name string) string { return "https:" + "//media.example/" + name }
+	imageSpec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
+		Capability:  CapabilityVideo,
+		Model:       "sand-ai/magi-2/image-to-video",
+		AspectRatio: "16:9",
+		Resolution:  "1080p",
+		Duration:    5,
+		Images: []MediaReference{
+			{URL: mediaURL("first.png"), Role: "first_frame"},
+			{URL: mediaURL("last.png"), Role: "last_frame"},
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	imageBody := object(imageSpec.Body)
+	_, hasPrompt := imageBody["prompt"]
+	if hasPrompt || imageBody["imageUrl"] != mediaURL("first.png") ||
+		imageBody["endImageUrl"] != mediaURL("last.png") ||
+		imageBody["firstFrameUrl"] != nil || imageBody["lastFrameUrl"] != nil || imageBody["watermark"] != nil {
+		t.Fatalf("MAGI image payload = %#v", imageBody)
+	}
+
+	referenceSpec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
+		Capability:  CapabilityVideo,
+		Model:       "sand-ai/magi-2/reference-to-video",
+		Prompt:      "combine characters and sound",
+		AspectRatio: "9:16",
+		Resolution:  "1080p",
+		Duration:    30,
+		Images:      []MediaReference{{URL: mediaURL("character.png"), Role: "reference_image"}},
+		Videos:      []MediaReference{{URL: mediaURL("motion.mp4")}},
+		Audios:      []MediaReference{{URL: mediaURL("voice.mp3")}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	referenceBody := object(referenceSpec.Body)
+	if referenceBody["prompt"] != "combine characters and sound" ||
+		!reflect.DeepEqual(referenceBody["imageUrls"], []string{mediaURL("character.png")}) ||
+		!reflect.DeepEqual(referenceBody["videoUrls"], []string{mediaURL("motion.mp4")}) ||
+		!reflect.DeepEqual(referenceBody["audioUrls"], []string{mediaURL("voice.mp3")}) ||
+		referenceBody["watermark"] != nil {
+		t.Fatalf("MAGI reference payload = %#v", referenceBody)
+	}
+
+	for _, request := range []GenerationRequest{
+		{Capability: CapabilityVideo, Model: "sand-ai/magi-2/text-to-video", Resolution: "1080p", Duration: 5},
+		{Capability: CapabilityVideo, Model: "sand-ai/magi-2/reference-to-video", Prompt: "missing media", Resolution: "1080p", Duration: 5},
+	} {
+		if _, err := adapter.BuildCreate(context.Background(), RequestContext{Request: request}); err == nil {
+			t.Fatalf("MAGI accepted invalid request: %#v", request)
+		}
 	}
 }
 

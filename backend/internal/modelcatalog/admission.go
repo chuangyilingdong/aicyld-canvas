@@ -1,6 +1,7 @@
 package modelcatalog
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -36,8 +37,9 @@ type TaskSelectLookup struct {
 
 // TaskSelectResult is the admitted input plus an optional frontend route binding.
 type TaskSelectResult struct {
-	Input  map[string]any
-	Routed *RoutedModel
+	Input          map[string]any
+	Routed         *RoutedModel
+	PromptOptional bool
 }
 
 // SelectTaskModel is the production admission algorithm for ordinary generation.
@@ -57,7 +59,8 @@ func SelectTaskModel(req TaskSelectRequest, lookup TaskSelectLookup) (TaskSelect
 		if err != nil {
 			return TaskSelectResult{}, err
 		}
-		return TaskSelectResult{Input: ApplyRoutedProviderSelection(input, routed), Routed: routed}, nil
+		resolved := ApplyRoutedProviderSelection(input, routed)
+		return TaskSelectResult{Input: resolved, Routed: routed, PromptOptional: taskVideoPromptOptional(resolved, req.Type, req.Operation, lookup)}, nil
 	}
 
 	if strings.TrimSpace(req.LogicalModelID) != "" {
@@ -68,9 +71,35 @@ func SelectTaskModel(req TaskSelectRequest, lookup TaskSelectLookup) (TaskSelect
 		if err != nil {
 			return TaskSelectResult{}, err
 		}
-		return TaskSelectResult{Input: resolved}, nil
+		return TaskSelectResult{Input: resolved, PromptOptional: taskVideoPromptOptional(resolved, req.Type, req.Operation, lookup)}, nil
 	}
-	return TaskSelectResult{Input: input}, nil
+	return TaskSelectResult{Input: input, PromptOptional: taskVideoPromptOptional(input, req.Type, req.Operation, lookup)}, nil
+}
+
+func taskVideoPromptOptional(input map[string]any, taskType, operation string, lookup TaskSelectLookup) bool {
+	if taskType != "canvas_video" && !strings.HasPrefix(taskType, "video_") {
+		return false
+	}
+	config, _ := input["config"].(map[string]any)
+	var profile *ModelCapabilityConfig
+	if channelID := admissionString(config["channelId"]); channelID != "" {
+		if lookup.ChannelModelByKey == nil {
+			return false
+		}
+		item, err := lookup.ChannelModelByKey(channelID, admissionString(config["model"]))
+		if err != nil || item == nil {
+			return false
+		}
+		profile, _ = normalizedChannelModelCapability(item)
+	} else {
+		raw, _ := json.Marshal(config["capabilityConfig"])
+		profile, _ = DecodeModelCapabilityConfig(string(raw))
+	}
+	if operation == "" {
+		metadata, _ := input["metadata"].(map[string]any)
+		operation = admissionString(metadata["videoEditOperation"])
+	}
+	return profile != nil && VideoPromptOptional(profile.Video, operation)
 }
 
 // ResolveSystemChannelModelSelection rebuilds protocol, capability, execution

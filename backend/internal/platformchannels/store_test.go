@@ -124,6 +124,60 @@ func TestDefaultsIncludeVerifiedMultimodalReviewProfile(t *testing.T) {
 	t.Fatal("default platform profiles are missing openai/gpt-6.2-sol-saver")
 }
 
+func TestDefaultsIncludeMagi2VideoVariantsAndPromptRules(t *testing.T) {
+	for _, channel := range Defaults() {
+		for _, profile := range channel.ModelProfiles {
+			if profile.Model != "rh-magi-2" {
+				continue
+			}
+			if profile.Capability != "video" || profile.Protocol != "runninghub-standard-video" {
+				t.Fatalf("MAGI-2 profile = %#v", profile)
+			}
+			want := map[string]string{
+				"text_to_video":      "sand-ai/magi-2/text-to-video",
+				"image_to_video":     "sand-ai/magi-2/image-to-video",
+				"first_last_frame":   "sand-ai/magi-2/image-to-video",
+				"reference_to_video": "sand-ai/magi-2/reference-to-video",
+			}
+			for _, variant := range profile.Variants {
+				operation := variant.Selector["operation"]
+				if want[operation] != variant.ProviderModelKey {
+					t.Fatalf("MAGI-2 variant %s = %q", operation, variant.ProviderModelKey)
+				}
+				delete(want, operation)
+			}
+			if len(want) != 0 {
+				t.Fatalf("missing MAGI-2 variants: %#v", want)
+			}
+			var config struct {
+				Video struct {
+					OptionalPromptOperations []string `json:"optionalPromptOperations"`
+					Duration                 struct {
+						Min int `json:"min"`
+						Max int `json:"max"`
+					} `json:"duration"`
+					OperationReferences map[string]struct {
+						MaxImages int `json:"maxImages"`
+					} `json:"operationReferences"`
+				} `json:"video"`
+			}
+			if err := json.Unmarshal(profile.CapabilityConfig, &config); err != nil {
+				t.Fatal(err)
+			}
+			if !equalStrings(config.Video.OptionalPromptOperations, []string{"image_to_video", "first_last_frame"}) {
+				t.Fatalf("MAGI-2 optional prompt operations = %#v", config.Video.OptionalPromptOperations)
+			}
+			if config.Video.Duration.Min != 4 || config.Video.Duration.Max != 30 ||
+				config.Video.OperationReferences["image_to_video"].MaxImages != 2 ||
+				config.Video.OperationReferences["first_last_frame"].MaxImages != 2 {
+				t.Fatalf("MAGI-2 video config = %#v", config.Video)
+			}
+			return
+		}
+	}
+	t.Fatal("default platform profiles are missing rh-magi-2")
+}
+
 func TestDefaultsIncludeGPTImage26Capabilities(t *testing.T) {
 	var found *ModelProfile
 	for _, channel := range Defaults() {

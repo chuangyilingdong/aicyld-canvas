@@ -90,21 +90,22 @@ const (
 )
 
 type VideoCapabilityConfig struct {
-	References          VideoReferenceConfig                `json:"references"`
-	OperationReferences map[string]VideoOperationReferences `json:"operationReferences,omitempty"`
-	Duration            VideoDurationConfig                 `json:"duration"`
-	DurationSupported   *bool                               `json:"durationSupported,omitempty"`
-	Ratios              []string                            `json:"ratios"`
-	DefaultRatio        string                              `json:"defaultRatio"`
-	Resolutions         []string                            `json:"resolutions"`
-	DefaultResolution   string                              `json:"defaultResolution"`
-	GenerateAudio       VideoBooleanConfig                  `json:"generateAudio"`
-	Watermark           VideoBooleanConfig                  `json:"watermark"`
-	Draft               VideoBooleanConfig                  `json:"draft"`
-	ReturnLastFrame     VideoBooleanConfig                  `json:"returnLastFrame"`
-	Operations          []string                            `json:"operations"`
-	DefaultOperation    string                              `json:"defaultOperation"`
-	TaskTypeConstraints bool                                `json:"taskTypeConstraints,omitempty"`
+	References               VideoReferenceConfig                `json:"references"`
+	OperationReferences      map[string]VideoOperationReferences `json:"operationReferences,omitempty"`
+	Duration                 VideoDurationConfig                 `json:"duration"`
+	DurationSupported        *bool                               `json:"durationSupported,omitempty"`
+	Ratios                   []string                            `json:"ratios"`
+	DefaultRatio             string                              `json:"defaultRatio"`
+	Resolutions              []string                            `json:"resolutions"`
+	DefaultResolution        string                              `json:"defaultResolution"`
+	GenerateAudio            VideoBooleanConfig                  `json:"generateAudio"`
+	Watermark                VideoBooleanConfig                  `json:"watermark"`
+	Draft                    VideoBooleanConfig                  `json:"draft"`
+	ReturnLastFrame          VideoBooleanConfig                  `json:"returnLastFrame"`
+	Operations               []string                            `json:"operations"`
+	DefaultOperation         string                              `json:"defaultOperation"`
+	OptionalPromptOperations []string                            `json:"optionalPromptOperations,omitempty"`
+	TaskTypeConstraints      bool                                `json:"taskTypeConstraints,omitempty"`
 }
 
 // Nil inherits the model-wide count; a declared zero forbids that media kind.

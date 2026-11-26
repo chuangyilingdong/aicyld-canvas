@@ -195,6 +195,12 @@ func (passCatalog) RequireCustomChannels(map[string]any) error     { return nil 
 func (passCatalog) ValidateCapability(map[string]any) error        { return nil }
 func (passCatalog) HasExecutableVideoConfig(map[string]any) bool   { return true }
 
+type optionalPromptCatalog struct{ passCatalog }
+
+func (optionalPromptCatalog) Select(_ string, req SelectRequest) (SelectResult, error) {
+	return SelectResult{Input: req.Input, PromptOptional: true}, nil
+}
+
 type staticPolicy struct{ limit int }
 
 func (p staticPolicy) ActiveTaskLimit() (int, error) { return p.limit, nil }

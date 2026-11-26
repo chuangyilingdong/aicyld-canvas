@@ -379,6 +379,54 @@ func TestNewCatalogResponseExclusiveSources(t *testing.T) {
 	}
 }
 
+func TestSystemSelectionReportsMagi2OptionalPromptOperation(t *testing.T) {
+	profile := DefaultModelCapabilityConfigForModel(string(model.ChannelInterfaceRunningHubStandardVideo), "sand-ai/magi-2/image-to-video")
+	profile.Video.OptionalPromptOperations = []string{"image_to_video", "first_last_frame"}
+	profile.Video.OperationReferences = map[string]VideoOperationReferences{
+		"image_to_video": {MinImages: magiInt(1), MaxImages: magiInt(2), MaxVideos: magiInt(0), MaxAudios: magiInt(0)},
+	}
+	channel, selectedModel, lookup := selectionLookup(t, "video", model.ChannelInterfaceRunningHubStandardVideo, profile, nil)
+	input := map[string]any{
+		"mode": "video",
+		"config": map[string]any{
+			"channelId":    channel.ID,
+			"model":        selectedModel.ModelKey,
+			"videoSeconds": "5",
+			"size":         "16:9",
+			"vquality":     "1080p",
+		},
+		"referenceImages": []any{map[string]any{"storageKey": "resource:image-1"}},
+		"metadata":        map[string]any{"videoEditOperation": "image_to_video"},
+	}
+	result, err := SelectTaskModel(TaskSelectRequest{Type: "canvas_video", Operation: "image_to_video", Input: input}, lookup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.PromptOptional {
+		t.Fatal("MAGI-2 image-to-video should report a prompt-optional operation")
+	}
+	textInput := map[string]any{
+		"mode": "video",
+		"config": map[string]any{
+			"channelId":    channel.ID,
+			"model":        selectedModel.ModelKey,
+			"videoSeconds": "5",
+			"size":         "16:9",
+			"vquality":     "1080p",
+		},
+		"metadata": map[string]any{"videoEditOperation": "text_to_video"},
+	}
+	result, err = SelectTaskModel(TaskSelectRequest{Type: "canvas_video", Operation: "text_to_video", Input: textInput}, lookup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.PromptOptional {
+		t.Fatal("MAGI-2 text-to-video must require a prompt")
+	}
+}
+
+func magiInt(value int) *int { return &value }
+
 func imageSelectionLookup(t *testing.T) (*model.ModelChannel, *model.ChannelModel, TaskSelectLookup) {
 	t.Helper()
 	profile := DefaultModelCapabilityConfigForModel(string(model.ChannelInterfaceGrokImage), "grok-image")

@@ -16,6 +16,10 @@ func videoDurationSupported(value *VideoCapabilityConfig) bool {
 	return value == nil || value.DurationSupported == nil || *value.DurationSupported
 }
 
+func VideoPromptOptional(profile *VideoCapabilityConfig, operation string) bool {
+	return profile != nil && containsCapabilityString(profile.OptionalPromptOperations, operation)
+}
+
 func defaultVideoCapabilityConfig(protocol string, modelName string) *VideoCapabilityConfig {
 	video := &VideoCapabilityConfig{
 		References:        VideoReferenceConfig{PromptMaxChars: DefaultVideoPromptMaxChars, MinImages: 0, MaxImages: 9, MaxImageBytes: 30 * 1024 * 1024, MaxVideos: 0, MaxVideoBytes: 0, MaxVideoDuration: 0, MaxAudios: 0, MaxAudioBytes: 0, MaxAudioDuration: 0},
@@ -318,6 +322,11 @@ func validateVideoCapabilityConfig(value *VideoCapabilityConfig) error {
 	for name, number := range map[string]int{"最少图片引用数": value.References.MinImages, "最大图片引用数": value.References.MaxImages, "最大视频引用数": value.References.MaxVideos, "最大音频引用数": value.References.MaxAudios} {
 		if number < 0 || number > 100 {
 			return kernel.BadAuthRequest(name + "必须在 0-100 之间")
+		}
+	}
+	for _, operation := range value.OptionalPromptOperations {
+		if !containsCapabilityString(value.Operations, operation) {
+			return kernel.BadAuthRequest("可选提示词对应的生成模式不存在")
 		}
 	}
 	if value.References.MinImages > value.References.MaxImages {

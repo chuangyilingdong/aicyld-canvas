@@ -8,6 +8,7 @@ import (
 
 	"infinite-canvas/backend/internal/mediatools"
 	"infinite-canvas/backend/internal/model"
+	"infinite-canvas/backend/internal/modelcatalog"
 	"infinite-canvas/backend/internal/outbound"
 	"infinite-canvas/backend/internal/provider/workflow"
 )
@@ -44,10 +45,6 @@ func Execute(ctx context.Context, input Input) (result map[string]any, err error
 	if input.SubtitleErase != nil && strings.TrimSpace(input.Prompt) == "" {
 		input.Prompt = "视频去字幕"
 	}
-	if strings.TrimSpace(input.Prompt) == "" && !(input.Mode == "video" && strings.TrimSpace(metadataString(input.Metadata, "videoDraftTaskId")) != "") {
-		return nil, errors.New("prompt is required")
-	}
-
 	if runtime.Config != nil {
 		config, err := runtime.Config.Resolve(input.Config)
 		if err != nil {
@@ -56,6 +53,20 @@ func Execute(ctx context.Context, input Input) (result map[string]any, err error
 		input.Config = config
 	} else if strings.TrimSpace(input.Config.ChannelID) != "" {
 		return nil, errors.New("无法解析系统渠道配置")
+	}
+	if strings.TrimSpace(input.Prompt) == "" && !(input.Mode == "video" && strings.TrimSpace(metadataString(input.Metadata, "videoDraftTaskId")) != "") {
+		if input.Mode == "video" && runtime.Config != nil {
+			if err := runtime.Config.ApplyCapabilities(ctx, &input); err != nil {
+				return nil, err
+			}
+		}
+		profile := input.VideoCapability
+		if profile == nil && input.Config.CapabilityConfig != nil {
+			profile = input.Config.CapabilityConfig.Video
+		}
+		if input.Mode != "video" || !modelcatalog.VideoPromptOptional(profile, metadataString(input.Metadata, "videoEditOperation")) {
+			return nil, errors.New("prompt is required")
+		}
 	}
 	applyCanvasTextStreaming(runtime.Call.TaskType, &input)
 	if input.Upscale != nil {

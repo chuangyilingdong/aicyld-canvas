@@ -1,4 +1,4 @@
-import { defaultImageCapabilityConfig, modelCapabilityConfigFor, normalizeImageValue, normalizeVideoValue, STANDARD_IMAGE_SIZE_VALUES, videoDurationAllowed, videoReferencesForOperation, type ImageCapabilityConfig } from "@/lib/model-capabilities";
+import { defaultImageCapabilityConfig, modelCapabilityConfigFor, normalizeImageValue, normalizeVideoValue, STANDARD_IMAGE_SIZE_VALUES, videoDurationAllowed, videoPromptRequired, videoReferencesForOperation, type ImageCapabilityConfig } from "@/lib/model-capabilities";
 import { normalizeVideoBoolean, normalizeVideoResolutionValue, videoResolutionComparisonKey } from "@/lib/video-generation-options";
 import { imageSizePresets } from "@/lib/image-size-presets";
 import { sanitizeVideoPriceQuote, seedancePortraitLabel, seedancePortraitModel } from "@/lib/seedance-portrait";
@@ -596,6 +596,11 @@ export function videoOperationInputError(input: ModelInputSummary, operation: st
     return totalReferences > 0 ? "" : "该模式至少需要 1 个参考素材";
 }
 
+export function isVideoPromptRequired(config: AiConfig, model: string, operation: string) {
+    const profile = modelCapabilityConfigFor(config, model).video;
+    return !profile || videoPromptRequired(profile, operation);
+}
+
 export function videoOperationRequirementHint(operation: string) {
     if (operation === "text_to_video") return "无需素材";
     if (operation === "image_to_video") return "需 1 张图";
@@ -622,6 +627,7 @@ export function operationForModelSelection(
 ) {
     const operations = videoModelFamilyOperations(config, model);
     if (!operations.length) return storedOperation;
+    if (!storedOperation && input.audioCount > 0 && operations.includes("reference_to_video") && !operations.includes("audio_to_video")) return "reference_to_video";
     const resolved = resolveVideoOperation(input, storedOperation);
     if (operations.includes(resolved)) return resolved;
     const visualInputCount = input.imageCount + input.characterCount;

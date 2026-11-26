@@ -85,4 +85,36 @@ describe("generation quote reference counts", () => {
         expect(input.input.referenceVideos?.[0]?.durationMs).toBe(5_000);
         expect(input.input.referenceAudios?.[0]?.durationMs).toBe(5_000);
     });
+
+    test("quotes an audio-only MAGI reference request as reference-to-video", () => {
+        const magiConfig = structuredClone(config);
+        const channel = magiConfig.channels[0];
+        channel.models = ["rh-magi-2"];
+        channel.modelProfiles = [{
+            model: "rh-magi-2",
+            displayName: "MAGI-2",
+            capability: "video",
+            protocol: "runninghub-standard-video",
+            capabilityConfig: {
+                ...defaultModelCapabilityConfig(),
+                video: {
+                    ...defaultModelCapabilityConfig().video!,
+                    operations: ["text_to_video", "image_to_video", "first_last_frame", "reference_to_video"],
+                    defaultOperation: "text_to_video",
+                    optionalPromptOperations: ["image_to_video", "first_last_frame"],
+                },
+            },
+        }];
+        magiConfig.model = "managed::rh-magi-2";
+        magiConfig.videoModel = "managed::rh-magi-2";
+        const input = buildBackendGenerationTaskQuoteInput({
+            mode: "video",
+            prompt: "use this voice",
+            config: magiConfig,
+            quoteReferenceCounts: { images: 0, videos: 0, audios: 1 },
+        });
+        expect(input.operation).toBe("reference_to_video");
+        expect(input.input.metadata?.videoEditOperation).toBe("reference_to_video");
+        expect(input.input.referenceAudios).toHaveLength(1);
+    });
 });

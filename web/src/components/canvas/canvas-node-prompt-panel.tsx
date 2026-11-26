@@ -13,6 +13,7 @@ import {
     defaultImageParamsForModel,
     displayVideoOperation,
     displayVideoOperations,
+    isVideoPromptRequired,
     modelRequestOptions,
     operationForModelSelection,
     resolveVideoOperation,
@@ -169,8 +170,18 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
         [activeReferences, referenceNodes],
     );
     const billingQuotePlan = useMemo(() => buildGenerationQuotePlan(mode, config), [config, mode]);
+    const videoInputSummary = requirements.input || { textCount: 0, imageCount: 0, videoCount: 0, audioCount: 0, characterCount: 0 };
+    const effectiveVideoOperation = mode === "video"
+        ? operationForModelSelection(
+              config,
+              config.model,
+              videoInputSummary,
+              node.metadata?.videoEditOperation,
+          )
+        : undefined;
+    const promptRequired = mode !== "video" || isVideoPromptRequired(config, config.model, effectiveVideoOperation || "");
     const billingQuoteInput = useMemo(() => {
-        if (mode === "text" || !prompt.trim()) return null;
+        if (mode === "text" || (!prompt.trim() && promptRequired)) return null;
         try {
             return buildCanvasGenerationQuoteInput({
                 projectId,
@@ -185,7 +196,7 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
         } catch {
             return null;
         }
-    }, [billingQuotePlan.quoteConfig, billingQuoteReferences, mode, node.id, node.metadata?.videoEditOperation, projectId, prompt]);
+    }, [billingQuotePlan.quoteConfig, billingQuoteReferences, mode, node.id, node.metadata?.videoEditOperation, projectId, prompt, promptRequired]);
     const billingQuoteQuery = useCanvasGenerationQuote(billingQuoteInput);
     const billingBalanceQuery = useCanvasBillingBalance({ enabled: mode !== "text" });
     const availableBillingBalance = billingBalanceQuery.data?.enabled ? billingBalanceQuery.data.balance : billingQuoteQuery.quote?.balance;
@@ -208,15 +219,6 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
     const videoFrameOptions = useMemo(() => resolvedMentionReferences.filter((item) => item.active && item.kind === "image").map((item) => ({ nodeId: item.nodeId, label: item.label, title: item.title, previewUrl: item.previewUrl })), [resolvedMentionReferences]);
     const h3Model = isH3Model(config.model);
     const h3Max = isH3MaxModel(config.model);
-    const videoInputSummary = requirements.input || { textCount: 0, imageCount: 0, videoCount: 0, audioCount: 0, characterCount: 0 };
-    const effectiveVideoOperation = mode === "video"
-        ? operationForModelSelection(
-              config,
-              config.model,
-              videoInputSummary,
-              node.metadata?.videoEditOperation,
-          )
-        : undefined;
     const videoProfile = mode === "video" ? modelCapabilityConfigFor(config, config.model).video : undefined;
     const videoFamilyOperations = mode === "video" ? videoModelFamilyOperations(config, config.model) : [];
     const endFrameSupported = mode === "video"
@@ -300,9 +302,9 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
         if (!rect?.width || !rect.height) return { width: PROMPT_EDITOR_MODAL_DEFAULT_WIDTH, height: PROMPT_EDITOR_MODAL_DEFAULT_HEIGHT };
         return { width: Math.round(rect.width), height: Math.round(rect.height) };
     };
-    const isSubmitDisabled = !isRunning && !prompt.trim();
+    const isSubmitDisabled = !isRunning && promptRequired && !prompt.trim();
     const submitDisabled = isRunning || isSubmitDisabled || insufficientBillingPoints || billingQuoteUnavailable || Boolean(videoSubmissionError);
-    const submitBlockedReason = !prompt.trim() ? "请先输入提示词" : isRunning ? "当前任务仍在生成中，请等待完成" : videoSubmissionError || (insufficientBillingPoints ? `积分不足：本次预计 ${estimatedBillingPoints} 积分，当前 ${availableBillingBalance ?? 0} 积分` : billingQuoteUnavailable ? billingQuoteErrorMessage : "");
+    const submitBlockedReason = promptRequired && !prompt.trim() ? "请先输入提示词" : isRunning ? "当前任务仍在生成中，请等待完成" : videoSubmissionError || (insufficientBillingPoints ? `积分不足：本次预计 ${estimatedBillingPoints} 积分，当前 ${availableBillingBalance ?? 0} 积分` : billingQuoteUnavailable ? billingQuoteErrorMessage : "");
     const canExpandPrompt = mode === "image" || mode === "video";
     const canOptimizePrompt = Boolean(promptOptimizerProvider) && canExpandPrompt;
     const isPortraitTexture = mode === "image" && Boolean(node.metadata?.portraitTexture);
@@ -380,7 +382,7 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
     const submit = () => {
         setSubmitAttempted(true);
         const text = prompt.trim();
-        if (!text || isRunning || insufficientBillingPoints || billingQuoteUnavailable || videoSubmissionError) {
+        if ((!text && promptRequired) || isRunning || insufficientBillingPoints || billingQuoteUnavailable || videoSubmissionError) {
             if (submitBlockedReason) message.warning(submitBlockedReason);
             return false;
         }
@@ -502,7 +504,7 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
 
     const renderBillingCost = () => {
         if (mode === "text") return null;
-        const hasPrompt = Boolean(prompt.trim());
+        const hasPrompt = Boolean(prompt.trim()) || !promptRequired;
         const billingCostUnavailable = !hasPrompt || billingQuoteUnavailable || (billingQuoteQuery.quote !== undefined && !billingQuoteQuery.quote?.enabled);
         const label = billingPending ? "…" : billingCostUnavailable ? "—" : String(estimatedBillingPoints);
         const detail = !hasPrompt

@@ -483,7 +483,13 @@ func runningHubStandardCreate(namespace string, capability Capability, request G
 	case CapabilityImage:
 		runningHubStandardImageFields(body, lowerEndpoint, request)
 	case CapabilityVideo:
-		runningHubStandardVideoFields(body, lowerEndpoint, request)
+		if strings.Contains(lowerEndpoint, "sand-ai/magi-2/") {
+			if err := runningHubMagiVideoFields(body, lowerEndpoint, request); err != nil {
+				return RequestSpec{}, err
+			}
+		} else {
+			runningHubStandardVideoFields(body, lowerEndpoint, request)
+		}
 	case CapabilityAudio:
 		runningHubStandardAudioFields(body, lowerEndpoint, request)
 	default:
@@ -492,6 +498,11 @@ func runningHubStandardCreate(namespace string, capability Capability, request G
 	if options := object(request.ProviderOptions[namespace]); options != nil {
 		for key, value := range options {
 			body[key] = value
+		}
+	}
+	if strings.Contains(lowerEndpoint, "sand-ai/magi-2/") {
+		for _, key := range []string{"watermark", "aigc_watermark", "firstFrameUrl", "lastFrameUrl"} {
+			delete(body, key)
 		}
 	}
 	if err := validateRunningHubStandardPayload(lowerEndpoint, body); err != nil {
@@ -832,6 +843,8 @@ func runningHubStandardAudioFields(body map[string]any, endpoint string, request
 
 func validateRunningHubStandardPayload(endpoint string, body map[string]any) error {
 	switch {
+	case strings.Contains(endpoint, "sand-ai/magi-2/"):
+		return validateRunningHubMagiPayload(endpoint, body)
 	case strings.Contains(endpoint, "topazlabs/image-upscale-standard-v2"):
 		if !runningHubPayloadString(body, "imageUrl") {
 			return fmt.Errorf("RunningHub 图片超分缺少 imageUrl")

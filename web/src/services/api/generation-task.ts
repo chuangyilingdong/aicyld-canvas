@@ -10,7 +10,7 @@ import { imageAdvancedProviderOptions } from "@/lib/image-advanced-parameters";
 import { resolveGenerationWorkflowExecution, type GenerationWorkflowExecution } from "@/lib/generation-workflow-execution";
 import { isArkPlanBaseUrl } from "@/lib/seedance-video";
 import { seedreamFamily } from "@/lib/seedream-image";
-import { portraitGenerationError, resolveVideoOperation } from "@/lib/model-selection";
+import { operationForModelSelection, portraitGenerationError, resolveVideoOperation } from "@/lib/model-selection";
 import { audioSpeechProfile } from "@/lib/audio-generation";
 import { logicalModelIDForConfig, modelOptionName, resolveModelChannel, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
 import type { ReferenceImage } from "@/types/image";
@@ -210,16 +210,16 @@ export async function runBackendGenerationTaskBatch(options: BackendGenerationTa
 
 function generationOperation(options: BackendGenerationTaskOptions, prepared?: PreparedGenerationReferences) {
     if (options.mode !== "video") return options.mode;
-    return resolveVideoOperation(
-        {
-            textCount: 0,
-            imageCount: Math.max(options.referenceImages?.length ?? 0, prepared?.referenceImages.length ?? 0),
-            videoCount: Math.max(options.referenceVideos?.length ?? 0, prepared?.referenceVideos.length ?? 0),
-            audioCount: Math.max(options.referenceAudios?.length ?? 0, prepared?.referenceAudios.length ?? 0),
-            characterCount: 0,
-        },
-        options.metadata?.videoEditOperation as string | undefined,
-    );
+    const input = {
+        textCount: 0,
+        imageCount: Math.max(options.referenceImages?.length ?? 0, prepared?.referenceImages.length ?? 0),
+        videoCount: Math.max(options.referenceVideos?.length ?? 0, prepared?.referenceVideos.length ?? 0),
+        audioCount: Math.max(options.referenceAudios?.length ?? 0, prepared?.referenceAudios.length ?? 0),
+        characterCount: 0,
+    };
+    const storedOperation = options.metadata?.videoEditOperation as string | undefined;
+    return operationForModelSelection(options.config, options.config.model, input, storedOperation)
+        || resolveVideoOperation(input, storedOperation);
 }
 
 export function isGenerationTaskCancelled(error: unknown, signal?: AbortSignal) {
@@ -428,6 +428,7 @@ function backendGenerationTaskInput(options: BackendGenerationTaskOptions, prepa
             mask: prepared.mask,
             metadata: generationMetadata(config, {
                 ...metadata,
+                ...(mode === "video" ? { videoEditOperation: videoOperation } : {}),
                 ...(options.clientOperationId ? { clientOperationId: options.clientOperationId } : {}),
                 ...(options.retryOf ? { retryOf: options.retryOf } : {}),
                 ...(options.attemptGroupId ? { attemptGroupId: options.attemptGroupId } : {}),

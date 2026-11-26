@@ -113,3 +113,27 @@ func TestDraftToFinalAllowsEmptyPromptWhileStandardVideoRequiresPrompt(t *testin
 		t.Fatalf("unexpected draft_to_final task state: %+v", task)
 	}
 }
+
+func TestVideoAdmissionAllowsPromptOnlyWhenCatalogMarksModeOptional(t *testing.T) {
+	store := newMemStore()
+	svc := domainService(store, func(deps *Dependencies) {
+		deps.Catalog = optionalPromptCatalog{}
+	})
+	task, err := svc.CreateTask("user", CreateRequest{
+		Type: "canvas_video", Prompt: "", ProjectID: "canvas-1", Operation: "image_to_video",
+		Input: map[string]any{
+			"mode":   "video",
+			"config": map[string]any{"channelId": "rh-cn", "model": "rh-magi-2", "videoSeconds": "5"},
+			"metadata": map[string]any{
+				"clientOperationId":  "proposal:gp-1:magi-optional-prompt",
+				"videoEditOperation": "image_to_video",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected prompt-optional video admission, got %v", err)
+	}
+	if task.ID == "" || task.Prompt != "" || task.Operation != "image_to_video" {
+		t.Fatalf("unexpected prompt-optional task: %+v", task)
+	}
+}
