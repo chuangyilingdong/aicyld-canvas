@@ -630,8 +630,9 @@ func SelectCatalogTask(
 	}
 	config, _ := input["config"].(map[string]any)
 	name := kernel.StringValue(config["model"])
+	runningHubTool := runningHubCanvasToolSelection(input, lookup)
 	legacyKind := generation.UpscaleMediaType(name)
-	if input["upscale"] != nil || legacyKind != "" {
+	if (input["upscale"] != nil && !runningHubTool) || legacyKind != "" {
 		kind := kernel.StringValue(input["mode"])
 		if (kind != "image" && kind != "video") || (legacyKind != "" && kind != legacyKind) {
 			return SelectResult{}, kernel.BadAuthRequest("超分模型与任务类型不一致")
@@ -647,7 +648,13 @@ func SelectCatalogTask(
 			return SelectResult{}, kernel.BadAuthRequest("AI 超分需要使用已连接的官方算力账号")
 		}
 	}
-	if input["subtitleErase"] != nil {
+	if input["upscale"] != nil && runningHubTool {
+		kind := kernel.StringValue(input["mode"])
+		if (kind != "image" && kind != "video") || req.Model != name || req.Type != "canvas_"+kind {
+			return SelectResult{}, kernel.BadAuthRequest("RunningHub 超分模型与任务类型不一致")
+		}
+	}
+	if input["subtitleErase"] != nil && !runningHubTool {
 		if req.Model != name || req.Type != "canvas_video" || kernel.StringValue(input["mode"]) != "video" {
 			return SelectResult{}, kernel.BadAuthRequest("视频去字幕模型与任务类型不一致")
 		}
@@ -658,6 +665,35 @@ func SelectCatalogTask(
 		if kernel.StringValue(config["credentialRef"]) != beefapi.CredentialRef || kernel.StringValue(config["apiKey"]) != managed.APIKey || kernel.StringValue(config["baseUrl"]) != managed.BaseURL {
 			return SelectResult{}, kernel.BadAuthRequest("视频去字幕需要使用已连接的官方算力账号")
 		}
+	}
+	if input["subtitleErase"] != nil && runningHubTool {
+		if req.Model != name || req.Type != "canvas_video" || kernel.StringValue(input["mode"]) != "video" {
+			return SelectResult{}, kernel.BadAuthRequest("RunningHub 去字幕模型与任务类型不一致")
+		}
+	}
+	if runningHubTool {
+		selectionInput, cloneErr := cloneTaskInput(input)
+		if cloneErr != nil {
+			return SelectResult{}, kernel.BadAuthRequest("RunningHub 媒体工具模型参数无效")
+		}
+		selectionInput["referenceImages"] = []any{}
+		selectionInput["referenceVideos"] = []any{}
+		selectionInput["referenceAudios"] = []any{}
+		operation := req.Operation
+		if kernel.StringValue(input["mode"]) == "video" {
+			operation = "text_to_video"
+		}
+		resolved, err := modelcatalog.ResolveSystemChannelModelSelection(selectionInput, req.Type, operation, lookup)
+		if err != nil {
+			return SelectResult{}, err
+		}
+		if config, ok := resolved["config"]; ok {
+			input["config"] = config
+		}
+		if options, ok := resolved["capabilityOptions"]; ok {
+			input["capabilityOptions"] = options
+		}
+		return SelectResult{Input: input}, nil
 	}
 	if modelcatalog.TaskInputUsesWorkflowProvider(input) {
 		config, _ := input["config"].(map[string]any)
@@ -733,6 +769,53 @@ func ValidateCatalogCapability(
 		return err
 	}
 	return validatePortraitQuote(input)
+}
+
+func runningHubCanvasToolSelection(input map[string]any, lookup modelcatalog.TaskSelectLookup) bool {
+	config, _ := input["config"].(map[string]any)
+	channelID := strings.TrimSpace(kernel.StringValue(config["channelId"]))
+	modelKey := strings.TrimPrefix(strings.TrimSpace(kernel.FirstNonEmpty(
+		kernel.StringValue(config["channelModelKey"]),
+		kernel.StringValue(config["model"]),
+	)), "models/")
+	if channelID == "" || modelKey == "" || lookup.SystemChannel == nil || lookup.ChannelModelByKey == nil {
+		return false
+	}
+	channel, err := lookup.SystemChannel(channelID)
+	if err != nil || channel == nil || !channel.Enabled || channel.Scope != model.ChannelScopeSystem {
+		return false
+	}
+	channelModel, err := lookup.ChannelModelByKey(channelID, modelKey)
+	if err != nil || channelModel == nil || !channelModel.Enabled {
+		return false
+	}
+	modelName := strings.TrimPrefix(strings.TrimSpace(kernel.FirstNonEmpty(channelModel.ProviderModelKey, channelModel.ModelKey)), "/")
+	switch {
+	case channelModel.Protocol == model.ChannelInterfaceRunningHubStandardImage && channelModel.Capability == "image" &&
+		input["upscale"] != nil && modelName == generation.RunningHubImageUpscaleEndpoint:
+		return true
+	case channelModel.Protocol == model.ChannelInterfaceRunningHubStandardVideo && channelModel.Capability == "video" &&
+		input["upscale"] != nil && modelName == generation.RunningHubVideoUpscaleEndpoint:
+		return true
+	case channelModel.Protocol == model.ChannelInterfaceRunningHubStandardVideo && channelModel.Capability == "video" &&
+		input["subtitleErase"] != nil &&
+		(modelName == generation.RunningHubSubtitleEraseEndpoint || modelName == generation.RunningHubSubtitleEraseProEndpoint):
+		return true
+	default:
+		return false
+	}
+}
+
+func cloneTaskInput(input map[string]any) (map[string]any, error) {
+	raw, err := json.Marshal(input)
+	if err != nil {
+		return nil, err
+	}
+	var cloned map[string]any
+	if err := json.Unmarshal(raw, &cloned); err != nil {
+		return nil, err
+	}
+	return cloned, nil
 }
 
 func ValidateTaskMediaTransport(

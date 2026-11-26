@@ -90,7 +90,7 @@ export function useCanvasUpscaleBatch({pageUi,  projectId, nodesRef, connections
                         continue;
                     }
                     const source = nodesRef.current.find(n => n.id === item.sourceNodeId);
-                    if (!source || !settings.channelId) continue;
+                    if (!source) continue;
                     try {
                         const params = upscaleParamsForNode(settings, structuredClone(source), await prepareResource(source));
                         assertCurrent(); const quote = await estimateUpscale(params); assertCurrent();
@@ -123,7 +123,6 @@ export function useCanvasUpscaleBatch({pageUi,  projectId, nodesRef, connections
                 rejectedRetryBlocked = true;
             }
             if (!batch || (batch.items.length > 0 && deriveUpscaleBatchState(batch, nodesRef.current).succeeded === batch.items.length)) {
-                if (!useConfigStore.getState().config.channels.some(channel => channel.enabled !== false && isBuiltinBeefAPIChannel(channel) && channelHasGenerationCredential(channel))) throw new Error("暂无可用超分模型，请连接灵动TV内置的官方算力");
                 const inputs = structuredClone(getUpscaleInputNodes(processor.id, nodesRef.current, connectionsRef.current));
                 if (!inputs.length) throw new Error("请连接可读取的图片或视频");
                 const defaults = createDefaultUpscaleSettings();
@@ -133,7 +132,6 @@ export function useCanvasUpscaleBatch({pageUi,  projectId, nodesRef, connections
                     image: { ...defaults.image, ...stored?.image, ...passed?.image },
                     video: { ...defaults.video, ...stored?.video, ...passed?.video },
                 });
-                if (!settings.channelId) throw new Error("请选择超分渠道");
                 const items: CanvasUpscaleBatchItem[] = [];
                 // Complete all resource and estimate checks before any paid request.
                 for (const source of inputs) {
@@ -221,7 +219,10 @@ export function useCanvasUpscaleBatch({pageUi,  projectId, nodesRef, connections
                     await save();
                     continue;
                 }
-                if (!useConfigStore.getState().config.channels.some(channel => channel.enabled !== false && isBuiltinBeefAPIChannel(channel) && channelHasGenerationCredential(channel))) {
+                const runningHubTool = item.params?.provider === "runninghub";
+                if (runningHubTool
+                    ? !item.params?.channelId || !item.params?.channelModelKey
+                    : !useConfigStore.getState().config.channels.some(channel => channel.enabled !== false && isBuiltinBeefAPIChannel(channel) && channelHasGenerationCredential(channel))) {
                     update(item, { status: "rejected", error: "暂无可用超分模型，请连接灵动TV内置的官方算力" });
                     await save();
                     continue;

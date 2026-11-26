@@ -4,8 +4,8 @@ import type { UpscaleMode, UpscaleParams } from "@/services/api/media-upscale";
 export type CanvasUpscaleSettings = {
     channelId: string;
     scale: number;
-    image: { mode: UpscaleMode; model: string; outputFormat: string; enhancementStrength?: "low" | "medium" | "high" };
-    video: { mode: UpscaleMode; model: string };
+    image: { mode: UpscaleMode; model: string; outputFormat: string; provider?: "beefapi" | "runninghub"; channelId?: string; channelModelKey?: string; enhancementStrength?: "low" | "medium" | "high" };
+    video: { mode: UpscaleMode; model: string; provider?: "beefapi" | "runninghub"; channelId?: string; channelModelKey?: string; enhancementModel?: "max" | "high" | "medium" | "low" };
 };
 export type CanvasUpscaleBatchItem = {
     sourceNodeId: string; sourceTitle: string; mediaType: "image" | "video";
@@ -26,7 +26,14 @@ export function getUpscaleInputNodes(processorId: string, nodes: CanvasNodeData[
 }
 export function upscaleParamsForNode(settings: CanvasUpscaleSettings, node: CanvasNodeData, resourceId: string): UpscaleParams {
     const config = node.type === CanvasNodeType.Video ? settings.video : settings.image;
-    return { resourceId, channelId: settings.channelId, scale: config.mode === "transparent" ? 4 : settings.scale, ...config };
+    return {
+        resourceId,
+        channelId: config.channelId || settings.channelId,
+        channelModelKey: config.channelModelKey,
+        provider: config.provider,
+        scale: config.mode === "transparent" ? 4 : settings.scale,
+        ...config,
+    };
 }
 export function getUpscaleOutputPosition(processor: CanvasNodeData, index: number, nodes: CanvasNodeData[] = [], bounds = { width: 320, height: 320 }) {
     const x = processor.position.x + processor.width + 96;

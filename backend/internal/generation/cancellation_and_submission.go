@@ -86,8 +86,9 @@ func RequestProviderCancellation(ctx context.Context, repo *repository.Repositor
 	if err != nil {
 		return MarkProviderCancellationUncertain(repo, task, providerCancellationUncertainMessage("读取上游取消配置失败")+"："+err.Error(), logTask)
 	}
-	isUpscaleTask := input.Upscale != nil || task.IsUpscale() || UpscaleMediaType(input.Config.Model) != ""
-	isSubtitleEraseTask := input.SubtitleErase != nil || task.IsSubtitleErase() || input.Config.Model == SubtitleEraseModelName
+	runningHubTool := IsRunningHubManagedMediaTool(input)
+	isUpscaleTask := !runningHubTool && (input.Upscale != nil || task.IsUpscale() || UpscaleMediaType(input.Config.Model) != "")
+	isSubtitleEraseTask := !runningHubTool && (input.SubtitleErase != nil || task.IsSubtitleErase() || input.Config.Model == SubtitleEraseModelName)
 	if !SupportsProviderCancellation(input.Config.InterfaceType) && !isUpscaleTask && !isSubtitleEraseTask {
 		return MarkProviderCancellationUncertain(repo, task, providerCancellationUncertainMessage("当前上游协议不支持取消"), logTask)
 	}
@@ -172,8 +173,9 @@ func ReconcileProviderCancellation(ctx context.Context, repo *repository.Reposit
 	queryCtx = WithProviderRequestKind(queryCtx, "cancel-query")
 	var outcome ProviderCancellationOutcome
 	var providerStatus string
-	isSubtitleEraseTask := input.SubtitleErase != nil || task.IsSubtitleErase() || input.Config.Model == SubtitleEraseModelName
-	isUpscaleTask := input.Upscale != nil || task.IsUpscale() || UpscaleMediaType(input.Config.Model) != ""
+	runningHubTool := IsRunningHubManagedMediaTool(input)
+	isSubtitleEraseTask := !runningHubTool && (input.SubtitleErase != nil || task.IsSubtitleErase() || input.Config.Model == SubtitleEraseModelName)
+	isUpscaleTask := !runningHubTool && (input.Upscale != nil || task.IsUpscale() || UpscaleMediaType(input.Config.Model) != "")
 	if taskRef, managed := managedEnvelopeTaskRef(repo, task); managed && (isSubtitleEraseTask || isUpscaleTask) {
 		kind := "video"
 		if isUpscaleTask {

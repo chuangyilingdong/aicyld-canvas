@@ -494,7 +494,7 @@ func ShouldDeferVideoProviderTask(task model.Task, decryptedInput string, err er
 		return false
 	}
 	providerRequestID := strings.TrimSpace(task.ProviderRequestID)
-	if providerRequestID == "" || (!strings.HasPrefix(task.Type, "canvas_video") && !strings.HasPrefix(task.Type, "video_") && input.Upscale == nil) {
+	if providerRequestID == "" || (!strings.HasPrefix(task.Type, "canvas_video") && !strings.HasPrefix(task.Type, "video_") && input.Upscale == nil && !generation.IsRunningHubManagedMediaTool(input)) {
 		return false
 	}
 	deferSignal := errors.Is(err, context.DeadlineExceeded)
@@ -520,7 +520,7 @@ func ShouldDeferVideoProviderTask(task model.Task, decryptedInput string, err er
 		return true
 	}
 	resolved, resolveErr := resolveConfig(input.Config)
-	return resolveErr == nil && (resolved.InterfaceType == string(model.ChannelInterfaceNewAPIChannel2) || generation.IsBeefAPIVideoConfig(context.Background(), resolved))
+	return resolveErr == nil && (resolved.InterfaceType == string(model.ChannelInterfaceNewAPIChannel2) || generation.IsBeefAPIVideoConfig(context.Background(), resolved) || generation.IsRunningHubManagedMediaTool(input))
 }
 
 func NewAPIChannel2TaskSyncExpired(task model.Task, err error, now time.Time) bool {

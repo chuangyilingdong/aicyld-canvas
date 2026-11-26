@@ -27,7 +27,7 @@ func (s *Service) TaskService() *localtask.Service { return s.taskDomain() }
 
 func (s *Service) taskDependencies() localtask.Dependencies {
 	return localtask.Dependencies{
-		BindTranscriptionModel: s.bindTranscriptionModel, Billing: taskBillingAdapter{s.billing}, Budget: taskbudget.New(s.repo, s.billing),
+		BindTranscriptionModel: s.bindTranscriptionModel, Billing: taskBillingAdapter{client: s.billing, service: s}, Budget: taskbudget.New(s.repo, s.billing),
 		Catalog:    taskCatalogAdapter{s},
 		Secrets:    taskSecretsAdapter{s},
 		Media:      taskMediaAdapter{s},

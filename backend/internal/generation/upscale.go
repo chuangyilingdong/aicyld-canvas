@@ -182,6 +182,9 @@ func RunUpscaleTask(ctx context.Context, input Input) (map[string]any, error) {
 	if err := ValidateUpscaleInput(input); err != nil {
 		return nil, RequestPreparationError{Cause: err}
 	}
+	if IsRunningHubManagedMediaTool(input) {
+		return runRunningHubManagedMediaTool(ctx, input)
+	}
 	if !managedConnection(input.Config) && !IsBeefAPIVideoConfig(ctx, input.Config) {
 		return nil, RequestPreparationError{Cause: errors.New("AI 超分需要连接官方算力账号")}
 	}
@@ -259,6 +262,9 @@ func runManagedUpscaleTask(ctx context.Context, client *beefapi.MediaClient, inp
 
 // BeefAPI owns provider recovery. Client recovery only queries the original task.
 func RecoverUpscaleResult(ctx context.Context, input Input, id string) (map[string]any, string, error) {
+	if IsRunningHubManagedMediaTool(input) {
+		return recoverRunningHubManagedMediaTool(ctx, input, id)
+	}
 	return QueryUpscaleResult(ctx, input, id)
 }
 

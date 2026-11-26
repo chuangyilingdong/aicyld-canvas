@@ -14,9 +14,22 @@ export type SubtitleEraseRegion = {
 export type SubtitleEraseParams = {
     resourceId: string;
     channelId: string;
+    channelModelKey?: string;
+    provider?: "beefapi" | "runninghub";
     eraseMethod: SubtitleEraseMethod;
     subtitleModel: SubtitleEraseModel;
     region?: SubtitleEraseRegion;
+};
+
+export type RunningHubSubtitleEraseModel = {
+    id: string;
+    label: string;
+    endpoint: string;
+    capability: "video";
+    channelId: string;
+    channelModelKey: string;
+    protocol: string;
+    billingSummary: string;
 };
 
 export type SubtitleEraseCapabilities = {
@@ -29,6 +42,7 @@ export type SubtitleEraseCapabilities = {
     billingMode?: string;
     billingSummary?: string;
     billing?: Record<string, unknown>;
+    runningHubModels?: RunningHubSubtitleEraseModel[];
 };
 
 export type SubtitleEraseEstimate = {
@@ -41,6 +55,8 @@ export type SubtitleEraseEstimate = {
     ratePerMinuteCny?: number;
     billingMode?: string;
     billingSummary?: string;
+    points?: number;
+    estimatedCostCny?: number;
     generationSubmitted: false;
     cloudProcessing: boolean;
 };

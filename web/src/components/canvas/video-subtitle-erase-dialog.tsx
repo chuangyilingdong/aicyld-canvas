@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { Button, Segmented } from "antd";
+import { Button, Segmented, Select } from "antd";
 import { Eraser, LoaderCircle, Pause, Play } from "lucide-react";
 
 import { AppModal } from "@/components/ui/product/app-modal/app-modal";
@@ -41,6 +41,9 @@ const SUBTITLE_MODEL_LABELS: Record<string, string> = {
 
 export type VideoSubtitleEraseSubmitOptions = {
     resourceId: string;
+    provider: "beefapi" | "runninghub";
+    channelId: string;
+    channelModelKey?: string;
     eraseMethod: SubtitleEraseMethod;
     subtitleModel: SubtitleEraseModel;
     region?: SubtitleEraseRegion;
@@ -138,6 +141,8 @@ export function CanvasVideoSubtitleEraseDialog({
     const [currentSec, setCurrentSec] = useState(0);
     const [capabilities, setCapabilities] = useState<SubtitleEraseCapabilities | null>(null);
     const [loadingCapabilities, setLoadingCapabilities] = useState(false);
+    const [provider, setProvider] = useState<"beefapi" | "runninghub">("beefapi");
+    const [runningHubModelKey, setRunningHubModelKey] = useState("");
     const [eraseMethod, setEraseMethod] = useState<SubtitleEraseMethod>("auto");
     const [subtitleModel, setSubtitleModel] = useState<SubtitleEraseModel>("standard");
     const [region, setRegion] = useState<SubtitleEraseRegion>(DEFAULT_REGION);
@@ -258,7 +263,7 @@ export function CanvasVideoSubtitleEraseDialog({
     }, [open, node.id, nodeStorageKey, nodeContent, nodePreviewContent, onPrepareResource]);
 
     useEffect(() => {
-        if (!open || !officialConnected) {
+        if (!open) {
             setCapabilities(null);
             setLoadingCapabilities(false);
             return;
@@ -269,6 +274,13 @@ export function CanvasVideoSubtitleEraseDialog({
             .then((nextCaps) => {
                 if (controller.signal.aborted) return;
                 setCapabilities(nextCaps);
+                if ((!officialConnected || !nextCaps.available) && nextCaps.runningHubModels?.length) {
+                    setProvider("runninghub");
+                    setEraseMethod("auto");
+                }
+                if (nextCaps.runningHubModels?.length && !nextCaps.runningHubModels.some(item => `${item.channelId}::${item.channelModelKey}` === runningHubModelKey)) {
+                    setRunningHubModelKey(`${nextCaps.runningHubModels[0].channelId}::${nextCaps.runningHubModels[0].channelModelKey}`);
+                }
                 if (nextCaps.eraseMethods?.length && !nextCaps.eraseMethods.includes(eraseMethod)) {
                     setEraseMethod(nextCaps.eraseMethods[0]);
                 }
@@ -290,24 +302,34 @@ export function CanvasVideoSubtitleEraseDialog({
     }, [open, officialConnected]);
 
     const eraseMethodOptions = useMemo(() => {
-        const methods = capabilities?.eraseMethods?.length ? capabilities.eraseMethods : (["auto", "custom"] as SubtitleEraseMethod[]);
+        const availableMethods = capabilities?.eraseMethods?.length ? capabilities.eraseMethods : (["auto", "custom"] as SubtitleEraseMethod[]);
+        const methods = provider === "runninghub" ? availableMethods.filter(method => method === "auto") : availableMethods;
         return methods.map((method) => ({ label: ERASE_METHOD_LABELS[method] || method, value: method }));
-    }, [capabilities?.eraseMethods]);
+    }, [capabilities?.eraseMethods, provider]);
 
     const subtitleModelOptions = useMemo(() => {
         const models = capabilities?.subtitleModels?.length ? capabilities.subtitleModels : (["standard", "area"] as SubtitleEraseModel[]);
         return models.map((model) => ({ label: SUBTITLE_MODEL_LABELS[model] || model, value: model }));
     }, [capabilities?.subtitleModels]);
 
-    const serviceUnavailable = Boolean(capabilities && !capabilities.available);
-    const regionKey = eraseMethod === "custom" ? `${region.x}:${region.y}:${region.width}:${region.height}` : "auto";
-    const paramKey = `${resourceId}|${eraseMethod}|${subtitleModel}|${regionKey}`;
+    const runningHubModels = capabilities?.runningHubModels || [];
+    const selectedRunningHubModel = runningHubModels.find(item => `${item.channelId}::${item.channelModelKey}` === runningHubModelKey);
+    const providerAvailable = provider === "beefapi"
+        ? officialConnected && Boolean(capabilities?.available)
+        : Boolean(selectedRunningHubModel);
+    const serviceUnavailable = provider === "beefapi" && Boolean(capabilities && !capabilities.available);
+    const regionKey = provider === "runninghub" || eraseMethod !== "custom" ? "auto" : `${region.x}:${region.y}:${region.width}:${region.height}`;
+    const paramKey = `${resourceId}|${provider}|${selectedRunningHubModel?.channelId || ""}|${runningHubModelKey}|${eraseMethod}|${subtitleModel}|${regionKey}`;
+
+    useEffect(() => {
+        if (provider === "runninghub" && eraseMethod !== "auto") setEraseMethod("auto");
+    }, [provider, eraseMethod]);
 
     useEffect(() => {
         setQuote(null);
         setQuoteParamKey("");
         setQuotedAt(0);
-        if (!open || !officialConnected || !resourceId || serviceUnavailable) {
+        if (!open || !providerAvailable || !resourceId || serviceUnavailable) {
             setEstimating(false);
             return;
         }
@@ -320,10 +342,10 @@ export function CanvasVideoSubtitleEraseDialog({
             void estimateVideoSubtitleErase(
                 {
                     resourceId,
-                    channelId: "beefapi",
-                    eraseMethod,
-                    subtitleModel,
-                    ...(eraseMethod === "custom" ? { region } : {}),
+                    provider,
+                    channelId: provider === "runninghub" ? selectedRunningHubModel!.channelId : "beefapi",
+                    ...(provider === "runninghub" ? { channelModelKey: selectedRunningHubModel!.channelModelKey, eraseMethod: "auto" as const, subtitleModel: "standard" as const } : { eraseMethod, subtitleModel }),
+                    ...(provider === "beefapi" && eraseMethod === "custom" ? { region } : {}),
                 },
                 controller.signal,
             )
@@ -359,7 +381,7 @@ export function CanvasVideoSubtitleEraseDialog({
             setEstimating(false);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [open, officialConnected, resourceId, eraseMethod, subtitleModel, regionKey, paramKey, serviceUnavailable, quoteRefreshNonce]);
+    }, [open, providerAvailable, resourceId, provider, selectedRunningHubModel?.channelId, selectedRunningHubModel?.channelModelKey, eraseMethod, subtitleModel, regionKey, paramKey, serviceUnavailable, quoteRefreshNonce]);
 
     const beginRegionDrag = (event: ReactPointerEvent, handle?: HandleId) => {
         const rect = (videoRef.current ?? stageRef.current)?.getBoundingClientRect();
@@ -402,7 +424,7 @@ export function CanvasVideoSubtitleEraseDialog({
     );
 
     const handleSubmit = async () => {
-        if (!officialConnected || !resourceId || !quote || !quoteReady || submitting) return;
+        if (!providerAvailable || !resourceId || !quote || !quoteReady || submitting) return;
         if (quotedAt > 0 && Date.now() - quotedAt > SUBTITLE_ERASE_QUOTE_MAX_AGE_MS) {
             staleRefreshPendingRef.current = true;
             setQuote(null);
@@ -417,9 +439,10 @@ export function CanvasVideoSubtitleEraseDialog({
         try {
             await onConfirm(node, {
                 resourceId,
-                eraseMethod,
-                subtitleModel,
-                ...(eraseMethod === "custom" ? { region } : {}),
+                provider,
+                channelId: provider === "runninghub" ? selectedRunningHubModel!.channelId : "beefapi",
+                ...(provider === "runninghub" ? { channelModelKey: selectedRunningHubModel!.channelModelKey, eraseMethod: "auto" as const, subtitleModel: "standard" as const } : { eraseMethod, subtitleModel }),
+                ...(provider === "beefapi" && eraseMethod === "custom" ? { region } : {}),
                 quote,
             });
             onClose();
@@ -484,7 +507,7 @@ export function CanvasVideoSubtitleEraseDialog({
                             <div className="grid h-full w-full place-items-center text-xs text-white/70">正在载入视频预览…</div>
                         )}
 
-                        {eraseMethod === "custom" && videoUrl ? (
+                        {provider === "beefapi" && eraseMethod === "custom" && videoUrl ? (
                             <div className="absolute inset-0">
                                 <div
                                     aria-label="字幕擦除区域"
@@ -548,6 +571,35 @@ export function CanvasVideoSubtitleEraseDialog({
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">
+                    {(officialConnected || runningHubModels.length > 0) ? (
+                        <div className="space-y-1.5 sm:col-span-2">
+                            <div className="text-xs font-medium">处理渠道</div>
+                            <Segmented
+                                block
+                                value={provider}
+                                options={[
+                                    ...(officialConnected ? [{ label: "灵动TV", value: "beefapi" as const }] : []),
+                                    ...(runningHubModels.length ? [{ label: "RunningHub", value: "runninghub" as const }] : []),
+                                ]}
+                                onChange={value => {
+                                    setProvider(value as "beefapi" | "runninghub");
+                                    setEraseMethod("auto");
+                                }}
+                            />
+                            {provider === "runninghub" ? (
+                                <Select
+                                    className="w-full"
+                                    aria-label="RunningHub 字幕擦除模型"
+                                    value={selectedRunningHubModel ? `${selectedRunningHubModel.channelId}::${selectedRunningHubModel.channelModelKey}` : undefined}
+                                    options={runningHubModels.map(item => ({
+                                        label: `${item.label} · ${item.channelId}`,
+                                        value: `${item.channelId}::${item.channelModelKey}`,
+                                    }))}
+                                    onChange={setRunningHubModelKey}
+                                />
+                            ) : null}
+                        </div>
+                    ) : null}
                     <div className="space-y-1.5">
                         <div className="text-xs font-medium">识别范围</div>
                         <Segmented
@@ -557,13 +609,15 @@ export function CanvasVideoSubtitleEraseDialog({
                             onChange={(value) => setEraseMethod(value as SubtitleEraseMethod)}
                         />
                         <p className="text-xs leading-relaxed" style={{ color: theme.node.muted }}>
-                            {eraseMethod === "auto"
+                            {provider === "runninghub"
+                                ? "自动识别视频中的字幕区域。"
+                                : eraseMethod === "auto"
                                 ? "自动识别中下部常见字幕；位置靠上时可切换框选。"
                                 : "拖动或缩放白色选框覆盖字幕，仅消除框内文字。"}
                         </p>
                     </div>
 
-                    <div className="space-y-1.5">
+                    {provider === "beefapi" ? <div className="space-y-1.5">
                         <div className="text-xs font-medium">消除强度</div>
                         <Segmented
                             block
@@ -576,15 +630,15 @@ export function CanvasVideoSubtitleEraseDialog({
                                 ? "适合常规对白字幕，尽量保留原画面背景细节。"
                                 : "适合综艺花字、大号特效字或带底色条的字幕。"}
                         </p>
-                    </div>
+                    </div> : null}
                 </div>
 
                 <div className="rounded-[var(--r-md)] border px-3.5 py-2.5 text-xs" style={{ background: theme.node.panel, borderColor: theme.node.edge }}>
-                    {!officialConnected ? (
+                    {!officialConnected && !runningHubModels.length ? (
                         <p role="status" style={{ color: theme.node.muted }}>
-                            视频去字幕需要连接灵动TV官方算力。
+                            视频去字幕需要启用灵动TV官方算力或 RunningHub 媒体工具模型。
                             <a href="#/settings?section=channels" className="ml-1 underline" onClick={onClose}>
-                                前往连接官方算力
+                                前往模型渠道设置
                             </a>
                         </p>
                     ) : serviceUnavailable ? (
@@ -624,7 +678,7 @@ export function CanvasVideoSubtitleEraseDialog({
                         type="primary"
                         icon={<Eraser className="size-3.5" />}
                         loading={submitting}
-                        disabled={!officialConnected || !resourceId || !quoteReady}
+                        disabled={!providerAvailable || !resourceId || !quoteReady}
                         onClick={() => void handleSubmit()}
                     >
                         开始去字幕

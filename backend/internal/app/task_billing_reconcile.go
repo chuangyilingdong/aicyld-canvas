@@ -115,7 +115,7 @@ func (s *Service) settleReconciledBilling(task *model.Task) {
 	if task == nil || strings.TrimSpace(task.BillingHoldID) == "" || task.BillingStatus == "settled" || task.BillingStatus == "refunded" {
 		return
 	}
-	settlement, err := taskBillingAdapter{s.billing}.Settle(context.Background(), task, "succeeded", "任务终态对账")
+	settlement, err := taskBillingAdapter{client: s.billing, service: s}.Settle(context.Background(), task, "succeeded", "任务终态对账")
 	if err != nil || settlement == nil {
 		task.BillingStatus = "pending_reconcile"
 		if updateErr := s.repo.UpdateTaskBilling(task); updateErr != nil {
@@ -133,7 +133,7 @@ func (s *Service) releaseReconciledBilling(task *model.Task, reason string) {
 	if task == nil || strings.TrimSpace(task.BillingHoldID) == "" || task.BillingStatus == "refunded" || task.BillingStatus == "settled" {
 		return
 	}
-	settlement, err := taskBillingAdapter{s.billing}.Release(context.Background(), task, reason)
+	settlement, err := taskBillingAdapter{client: s.billing, service: s}.Release(context.Background(), task, reason)
 	if err != nil || settlement == nil {
 		task.BillingStatus = "refund_pending"
 		if updateErr := s.repo.UpdateTaskBilling(task); updateErr != nil {

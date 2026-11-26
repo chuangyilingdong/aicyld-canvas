@@ -337,8 +337,14 @@ export function retryGenerationTask(id: string, options?: { signal?: AbortSignal
     return http.post<GenerationTask>(`/tasks/${encodeURIComponent(id)}/retry`, undefined, options);
 }
 
+// Backend result delivery can take 15 minutes. Allow time for its final response.
+export const TASK_RECOVER_TIMEOUT_MS = 16 * 60 * 1000;
+
 export function recoverTask(id: string, options?: { signal?: AbortSignal }) {
-    return http.post<GenerationTask>(`/tasks/${encodeURIComponent(id)}/recover`, undefined, options);
+    return http.post<GenerationTask>(`/tasks/${encodeURIComponent(id)}/recover`, undefined, {
+        ...options,
+        timeout: TASK_RECOVER_TIMEOUT_MS,
+    });
 }
 
 export function cancelGenerationTask(id: string) {

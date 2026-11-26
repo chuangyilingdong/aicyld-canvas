@@ -474,6 +474,8 @@ func runningHubStandardCreate(namespace string, capability Capability, request G
 	if (capability == CapabilityImage || capability == CapabilityVideo) &&
 		!strings.Contains(lowerEndpoint, "video-upscaler") &&
 		!strings.Contains(lowerEndpoint, "rh-upscale") &&
+		!strings.Contains(lowerEndpoint, "topazlabs/image-upscale-standard-v2") &&
+		!strings.Contains(lowerEndpoint, "volc-subtitle-erase") &&
 		!strings.Contains(lowerEndpoint, "kling-lip-sync/lip-sync-video") {
 		copyIf(body, "prompt", request.Prompt)
 	}
@@ -501,6 +503,12 @@ func runningHubStandardCreate(namespace string, capability Capability, request G
 func runningHubStandardImageFields(body map[string]any, endpoint string, request GenerationRequest) {
 	images, mask := runningHubImages(request.Images)
 	switch {
+	case strings.Contains(endpoint, "topazlabs/image-upscale-standard-v2"):
+		if len(images) > 0 {
+			body["imageUrl"] = images[0]
+		}
+		body["scale"] = defaultValue(runningHubExtraString(request.Extra, "upscaleScale"), "2x")
+		return
 	case strings.Contains(endpoint, "youchuan/text-to-image"):
 		body["aspectRatio"] = runningHubYouchuanAspectRatio(request.AspectRatio)
 		body["quality"] = runningHubYouchuanQuality(endpoint, request.Quality)
@@ -667,7 +675,27 @@ func runningHubStandardVideoFields(body map[string]any, endpoint string, request
 	videos := runningHubMediaValues(request.Videos)
 	audios := runningHubMediaValues(request.Audios)
 	switch {
-	case strings.Contains(endpoint, "video-upscaler"), strings.Contains(endpoint, "rh-upscale"):
+	case strings.Contains(endpoint, "volc-subtitle-erase"):
+		if len(videos) > 0 {
+			body["videoUrl"] = videos[0]
+		}
+		if token := runningHubExtraString(request.Extra, "idempotencyKey"); len(token) > 0 && len(token) <= 64 {
+			body["clientToken"] = token
+		}
+		if strings.Contains(endpoint, "volc-subtitle-erase-pro") {
+			body["eraseType"] = "subtitle"
+			body["encodeMode"] = "size"
+		}
+		return
+	case strings.Contains(endpoint, "rh-upscale"):
+		if len(videos) > 0 {
+			body["fileUrl"] = videos[0]
+		}
+		body["model"] = defaultValue(runningHubExtraString(request.Extra, "upscaleModel"), "max")
+		body["resolution"] = strings.ToLower(defaultValue(request.Resolution, "1080p"))
+		body["outputFps"] = defaultValue(runningHubExtraString(request.Extra, "outputFps"), "1x")
+		return
+	case strings.Contains(endpoint, "video-upscaler"):
 		if len(videos) > 0 {
 			body["videoUrl"] = videos[0]
 		}
@@ -765,6 +793,18 @@ func runningHubStandardVideoFields(body map[string]any, endpoint string, request
 }
 
 func runningHubStandardAudioFields(body map[string]any, endpoint string, request GenerationRequest) {
+	if strings.Contains(endpoint, "text-to-audio/voice-clone") {
+		audios := runningHubMediaValues(request.Audios)
+		if len(audios) > 0 {
+			body["audio"] = audios[0]
+		}
+		copyIf(body, "text", request.Prompt)
+		copyIf(body, "custom_voice_id", runningHubExtraString(request.Extra, "customVoiceId"))
+		body["need_noise_reduction"] = false
+		body["need_volume_normalization"] = false
+		body["model"] = defaultValue(runningHubExtraString(request.Extra, "voiceClonePreviewModel"), "speech-02-hd")
+		return
+	}
 	if strings.Contains(endpoint, "kling-lip-sync/tts") {
 		copyIf(body, "text", request.Prompt)
 		body["voiceId"] = defaultValue(runningHubExtraString(request.Extra, "audioVoice"), "genshin_klee2")
@@ -792,6 +832,14 @@ func runningHubStandardAudioFields(body map[string]any, endpoint string, request
 
 func validateRunningHubStandardPayload(endpoint string, body map[string]any) error {
 	switch {
+	case strings.Contains(endpoint, "topazlabs/image-upscale-standard-v2"):
+		if !runningHubPayloadString(body, "imageUrl") {
+			return fmt.Errorf("RunningHub 图片超分缺少 imageUrl")
+		}
+		scale := strings.TrimSpace(fmt.Sprint(body["scale"]))
+		if scale != "2x" && scale != "4x" && scale != "6x" {
+			return fmt.Errorf("RunningHub 图片超分倍率仅支持 2x、4x 或 6x")
+		}
 	case strings.Contains(endpoint, "layer-decomposition"):
 		if !runningHubPayloadString(body, "imageUrl") {
 			return fmt.Errorf("RunningHub 图层拆分缺少 imageUrl")
@@ -827,9 +875,23 @@ func validateRunningHubStandardPayload(endpoint string, body map[string]any) err
 		if !runningHubPayloadString(body, "imageUrl") || !runningHubPayloadString(body, "videoUrl") {
 			return fmt.Errorf("Kling 动作控制需要 imageUrl 与 videoUrl")
 		}
-	case strings.Contains(endpoint, "video-upscaler"), strings.Contains(endpoint, "rh-upscale"):
+	case strings.Contains(endpoint, "volc-subtitle-erase"):
+		if !runningHubPayloadString(body, "videoUrl") {
+			return fmt.Errorf("RunningHub 字幕擦除缺少 videoUrl")
+		}
+	case strings.Contains(endpoint, "rh-upscale"):
+		if !runningHubPayloadString(body, "fileUrl") {
+			return fmt.Errorf("RunningHub 视频超分缺少 fileUrl")
+		}
+	case strings.Contains(endpoint, "video-upscaler"):
 		if !runningHubPayloadString(body, "videoUrl") && runningHubPayloadEmpty(body["2##file"]) {
 			return fmt.Errorf("RunningHub 视频超分缺少 videoUrl")
+		}
+	case strings.Contains(endpoint, "text-to-audio/voice-clone"):
+		for _, field := range []string{"audio", "custom_voice_id", "text", "model"} {
+			if !runningHubPayloadString(body, field) {
+				return fmt.Errorf("RunningHub 声音克隆缺少 %s", field)
+			}
 		}
 	case strings.Contains(endpoint, "mureka-v9/generate-song"):
 		if !runningHubPayloadString(body, "lyrics") {

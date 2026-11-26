@@ -2,17 +2,68 @@ import { http } from "./request";
 import type { GenerationTask } from "./task-center";
 
 export type UpscaleMode = "precision" | "generative" | "transparent";
-export type UpscaleModelOption = { id: string; label: string; billingMode?: string; billingSummary?: string };
-export type UpscaleParams = { resourceId: string; channelId: string; mode: UpscaleMode; model: string; scale: number; outputFormat?: string; enhancementStrength?: "low" | "medium" | "high" };
+export type UpscaleModelOption = { id: string; label: string; provider?: "beefapi" | "runninghub"; channelId?: string; channelModelKey?: string; billingMode?: string; billingSummary?: string };
+export type RunningHubToolModel = { id: string; label: string; endpoint: string; capability: "image" | "video"; channelId: string; channelModelKey: string; protocol: string; billingSummary: string };
+export type UpscaleParams = { resourceId: string; channelId: string; channelModelKey?: string; provider?: "beefapi" | "runninghub"; mode: UpscaleMode; model: string; scale: number; enhancementModel?: "max" | "high" | "medium" | "low"; outputFormat?: string; enhancementStrength?: "low" | "medium" | "high" };
 export type UpscaleCapability = { mediaType: "image" | "video"; mode: UpscaleMode; models: string[]; modelOptions?: UpscaleModelOption[]; scales: number[]; outputFormats: string[]; fixedScale?: number };
-export type UpscaleCapabilities = { modes: UpscaleCapability[]; cloudProcessing: boolean; maxVideoDurationMs: number };
+export type UpscaleCapabilities = { modes: UpscaleCapability[]; cloudProcessing: boolean; maxVideoDurationMs: number; runningHubModels?: RunningHubToolModel[]; runningHubVideoModels?: RunningHubToolModel[] };
 export type UpscaleEstimate = { mediaType: "image" | "video"; source: { width: number; height: number; durationMs?: number }; output: { width: number; height: number; durationMs?: number }; reservation: number; currency: "CNY"; billingMode?: string; generationSubmitted: false; cloudProcessing: boolean };
 export const UPSCALE_CAPABILITIES_TIMEOUT_MS = 8_000;
 export const UPSCALE_ESTIMATE_TIMEOUT_MS = 120_000;
 export const UPSCALE_CREATE_TIMEOUT_MS = 30_000;
 export const UPSCALE_RECOVER_TIMEOUT_MS = 60_000;
 
-export const getUpscaleCapabilities = (signal?: AbortSignal) => http.get<UpscaleCapabilities>("/media-upscale/capabilities", { timeout: UPSCALE_CAPABILITIES_TIMEOUT_MS, signal });
+export const getUpscaleCapabilities = (signal?: AbortSignal) => http.get<UpscaleCapabilities>("/media-upscale/capabilities", { timeout: UPSCALE_CAPABILITIES_TIMEOUT_MS, signal }).then(mergeRunningHubUpscaleCapabilities);
+
+export function mergeRunningHubUpscaleCapabilities(capabilities: UpscaleCapabilities): UpscaleCapabilities {
+    const runningHubModes: UpscaleCapability[] = [];
+    const imageOptions = (capabilities.runningHubModels || []).map(model => ({
+        id: `${model.channelId}::${model.channelModelKey}`,
+        label: model.label,
+        provider: "runninghub" as const,
+        channelId: model.channelId,
+        channelModelKey: model.channelModelKey,
+        billingMode: "per_request",
+        billingSummary: model.billingSummary,
+    }));
+    const videoOptions = (capabilities.runningHubVideoModels || [])
+        .filter(model => model.endpoint === "rhart-video/rh-upscale/enhance-frame")
+        .map(model => ({
+            id: `${model.channelId}::${model.channelModelKey}`,
+            label: model.label,
+            provider: "runninghub" as const,
+            channelId: model.channelId,
+            channelModelKey: model.channelModelKey,
+            billingMode: "per_second",
+            billingSummary: model.billingSummary,
+        }));
+    if (imageOptions.length) {
+        runningHubModes.push({
+            mediaType: "image", mode: "precision", models: imageOptions.map(option => option.id),
+            modelOptions: imageOptions, scales: [2, 4], outputFormats: ["png", "jpeg"],
+        });
+    }
+    if (videoOptions.length) {
+        runningHubModes.push({
+            mediaType: "video", mode: "precision", models: videoOptions.map(option => option.id),
+            modelOptions: videoOptions, scales: [2, 4], outputFormats: ["mp4"],
+        });
+    }
+    return { ...capabilities, modes: [...capabilities.modes, ...runningHubModes] };
+}
+
+export function selectedUpscaleModelOption(
+    capabilities: UpscaleCapabilities | undefined,
+    mediaType: "image" | "video",
+    mode: UpscaleMode,
+    selectedId: string,
+) {
+    const capability = capabilities?.modes.find(item => item.mediaType === mediaType && item.mode === mode);
+    const options: UpscaleModelOption[] = capability?.modelOptions?.length
+        ? capability.modelOptions
+        : (capability?.models || []).map(id => ({ id, label: id }));
+    return options.find(option => option.id === selectedId) || options[0];
+}
 export const estimateUpscale = (params: UpscaleParams) => http.post<UpscaleEstimate>("/media-upscale/estimate", params, { timeout: UPSCALE_ESTIMATE_TIMEOUT_MS }).then(quote => {
     if (quote.currency !== "CNY" || !Number.isFinite(quote.reservation) || quote.reservation <= 0 || quote.generationSubmitted !== false) throw new Error("超分费用未能确认，请重新获取");
     return quote;

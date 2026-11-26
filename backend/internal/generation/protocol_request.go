@@ -63,6 +63,9 @@ func ProtocolRequestFromInput(input Input) protocol.GenerationRequest {
 			"count":        input.Config.Count,
 		},
 	}
+	if input.Upscale != nil && input.Upscale.Factor > 0 {
+		request.Extra["upscaleScale"] = fmt.Sprintf("%dx", input.Upscale.Factor)
+	}
 	// 显式 false 与未设置必须区分：插件在未设置时省略声音开关，避免把上游默认值
 	// 当成用户的选择；设置过 true/false 时按原值发出。
 	if value, explicit := explicitVideoGenerateAudio(input); explicit {
@@ -137,6 +140,14 @@ func ProtocolRequestFromInput(input Input) protocol.GenerationRequest {
 			if options, ok := raw.(map[string]any); ok {
 				request.ProviderOptions[strings.TrimSpace(namespace)] = options
 			}
+		}
+	}
+	if managedTool, ok := input.Metadata["managedToolBilling"].(map[string]any); ok {
+		if enhancementModel := strings.TrimSpace(fmt.Sprint(managedTool["enhancementModel"])); enhancementModel != "" && enhancementModel != "<nil>" {
+			request.Extra["upscaleModel"] = enhancementModel
+		}
+		if outputFps := strings.TrimSpace(fmt.Sprint(managedTool["outputFps"])); outputFps != "" && outputFps != "<nil>" {
+			request.Extra["outputFps"] = outputFps
 		}
 	}
 	applyImageResponseFormatOption(&request, input)

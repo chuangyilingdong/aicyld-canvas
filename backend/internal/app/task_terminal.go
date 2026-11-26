@@ -24,11 +24,11 @@ func (a taskTerminalServiceAdapter) DeliverSucceededTask(task model.Task) error 
 	return a.service.DeliverSucceededTask(task)
 }
 func (a taskTerminalServiceAdapter) Settle(ctx context.Context, task *model.Task, outcome string, reason string) (*billingclient.BillingSettlement, error) {
-	return taskBillingAdapter{a.service.billing}.Settle(ctx, task, outcome, reason)
+	return taskBillingAdapter{client: a.service.billing, service: a.service}.Settle(ctx, task, outcome, reason)
 }
 
 func (a taskTerminalServiceAdapter) Release(ctx context.Context, task *model.Task, reason string) (*billingclient.BillingSettlement, error) {
-	return taskBillingAdapter{a.service.billing}.Release(ctx, task, reason)
+	return taskBillingAdapter{client: a.service.billing, service: a.service}.Release(ctx, task, reason)
 }
 
 func (a taskTerminalServiceAdapter) RegisterTaskOutputFromTask(task model.Task) error {

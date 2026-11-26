@@ -312,7 +312,11 @@ func ResumeGenerationDownload(
 	}
 	for identity := range cancels {
 		if strings.HasPrefix(identity, task.ID+":") {
-			return nil, errors.New("正在停止取回，请稍后再试")
+			return nil, &kernel.AppError{
+				Status: kernel.CodeConflict, Code: kernel.CodeConflict,
+				Reason: kernel.ReasonConflict, Message: "正在停止取回，请稍后再试",
+				Retryable: true,
+			}
 		}
 	}
 	if err := repo.SetGenerationDeliveryStage(task.UserID, task.ID, "正在取回结果"); err != nil {

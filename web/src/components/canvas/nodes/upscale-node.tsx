@@ -14,8 +14,10 @@ import {
     isUpscaleMediaSelectionAvailable,
     normalizeUpscaleMediaSelection,
     resolveUpscaleCapabilityModel,
+    selectedUpscaleModelOption,
     type UpscaleCapabilities,
     type UpscaleEstimate,
+    type UpscaleModelOption,
     type UpscaleMode,
 } from "@/services/api/media-upscale";
 import { useCanvasNodeActions } from "../canvas-node-action-context";
@@ -55,13 +57,22 @@ export function UpscaleNodeContent({ node, theme }: { node: CanvasNodeData; them
         : batchState.succeeded === batchState.total ? "开始新批次"
         : batch.items.some(item => item.status === "rejected" && !item.taskId) ? "重试未提交项"
         : "查询原批次";
-    const channelId = officialConnected ? "beefapi" : "";
+    const channelId = officialConnected ? "beefapi" : (settings.channelId || "");
     const patch = (change: Partial<typeof settings>) => actions.updateMetadata?.(node.id, { upscale: { ...settings, channelId, ...change } });
     useEffect(() => {
         const controller = new AbortController();
-        void getUpscaleCapabilities(controller.signal).then(value => { if (!controller.signal.aborted) setCapabilities(value); }).catch(cause => { if (!controller.signal.aborted) setNotice(cause instanceof Error ? cause.message : "读取超分能力失败"); });
+        void getUpscaleCapabilities(controller.signal).then(value => {
+            if (!controller.signal.aborted) {
+                setCapabilities({
+                    ...value,
+                    modes: officialConnected
+                        ? value.modes
+                        : value.modes.filter(mode => mode.modelOptions?.some(option => option.provider === "runninghub")),
+                });
+            }
+        }).catch(cause => { if (!controller.signal.aborted) setNotice(cause instanceof Error ? cause.message : "读取超分能力失败"); });
         return () => { controller.abort(); };
-    }, []);
+    }, [officialConnected]);
     const resolveCapabilityModel = (mediaType: "image" | "video", mode: UpscaleMode, desired: string) =>
         resolveUpscaleCapabilityModel(capabilities, mediaType, mode, desired);
     const hasImageInput = imageCount > 0;
@@ -76,7 +87,7 @@ export function UpscaleNodeContent({ node, theme }: { node: CanvasNodeData; them
         let active = true;
         setEstimates({});
         setNotice("");
-        if (!capabilities || !channelId || !inputs.length) return;
+        if (!capabilities || !inputs.length) return;
         const timer = window.setTimeout(() => {
             setEstimating(true);
             void Promise.all(inputs.map(async input => {
@@ -87,7 +98,21 @@ export function UpscaleNodeContent({ node, theme }: { node: CanvasNodeData; them
                 const capability = capabilities.modes.find(item => item.mediaType === mediaType && item.mode === selected.mode);
                 const model = resolveCapabilityModel(mediaType, selected.mode, selected.model);
                 if (!capability || !model) return null;
-                const value = await estimateUpscale({ resourceId, channelId, mode: selected.mode, model, scale: capability.fixedScale || settings.scale, ...(mediaType === "image" ? { outputFormat: settings.image.outputFormat || capability.outputFormats[0], enhancementStrength: settings.image.enhancementStrength } : {}) });
+                const option = selectedUpscaleModelOption(capabilities, mediaType, selected.mode, model);
+                if (option?.provider !== "runninghub" && !officialConnected) return null;
+                const isRunningHub = option?.provider === "runninghub";
+                const scale = capability.fixedScale || (isRunningHub && settings.scale !== 2 && settings.scale !== 4 ? 2 : settings.scale);
+                const value = await estimateUpscale({
+                    resourceId,
+                    channelId: option?.channelId || selected.channelId || channelId,
+                    provider: option?.provider || "beefapi",
+                    channelModelKey: option?.channelModelKey || selected.channelModelKey,
+                    mode: selected.mode,
+                    model: option?.channelModelKey || model,
+                    scale,
+                    ...(mediaType === "image" ? { outputFormat: settings.image.outputFormat || capability.outputFormats[0], enhancementStrength: settings.image.enhancementStrength } : {}),
+                    ...(mediaType === "video" && isRunningHub ? { enhancementModel: settings.video.enhancementModel || "max" } : {}),
+                });
                 return [input.id, value] as const;
             })).then(values => { if (active) setEstimates(Object.fromEntries(values.filter(value => value !== null))); }).catch(cause => { if (active) setNotice(cause instanceof Error ? cause.message : "估价暂不可用，提交前将重新校验"); }).finally(() => { if (active) setEstimating(false); });
         }, 350);
@@ -119,8 +144,14 @@ export function UpscaleNodeContent({ node, theme }: { node: CanvasNodeData; them
                 const nextSettings = {
                     ...settings,
                     channelId,
-                    image: { ...settings.image, model: resolveCapabilityModel("image", settings.image.mode, settings.image.model) || settings.image.model },
-                    video: { ...settings.video, model: resolveCapabilityModel("video", settings.video.mode, settings.video.model) || settings.video.model },
+                    image: (() => {
+                        const option = selectedUpscaleModelOption(capabilities, "image", settings.image.mode, settings.image.model);
+                        return { ...settings.image, model: option?.id || settings.image.model, provider: option?.provider, channelId: option?.channelId, channelModelKey: option?.channelModelKey };
+                    })(),
+                    video: (() => {
+                        const option = selectedUpscaleModelOption(capabilities, "video", settings.video.mode, settings.video.model);
+                        return { ...settings.video, model: option?.id || settings.video.model, provider: option?.provider, channelId: option?.channelId, channelModelKey: option?.channelModelKey };
+                    })(),
                 };
                 patch(nextSettings);
                 await actions.startUpscaleBatch?.({ ...node, metadata: { ...node.metadata, upscale: nextSettings } });
@@ -132,14 +163,17 @@ export function UpscaleNodeContent({ node, theme }: { node: CanvasNodeData; them
         const selected = settings[mediaType];
         const modes = availableUpscaleModesForMedia(capabilities, mediaType);
         const capability = modes.find(item => item.mode === selected.mode);
-        const options = capability?.modelOptions?.length
+        const options: UpscaleModelOption[] = capability?.modelOptions?.length
             ? capability.modelOptions
             : (capability?.models || []).map(item => ({ id: item, label: item }));
         const activeModel = resolveCapabilityModel(mediaType, selected.mode, selected.model) || options[0]?.id;
+        const selectedOption = selectedUpscaleModelOption(capabilities, mediaType, selected.mode, activeModel || "");
+        const runningHub = selectedOption?.provider === "runninghub";
         return <div className="space-y-3" key={mediaType}>
             <div className="text-[var(--fs-tiny)] font-medium">{mediaType === "image" ? "图片" : "视频"}</div>
-            <Segmented block aria-label={`${mediaType === "image" ? "图片" : "视频"}超分模式`} value={selected.mode} options={modes.map(item => ({ label: modeLabels[item.mode], value: item.mode }))} onChange={mode => { const next = modes.find(item => item.mode === mode); const firstModel = next?.modelOptions?.[0]?.id || next?.models[0] || ""; patch({ [mediaType]: { ...selected, mode, model: firstModel, ...(mediaType === "image" ? { outputFormat: next?.outputFormats[0] || "png" } : {}) } }); }} />
-            {options.length > 1 ? <Select getPopupContainer={trigger => trigger.parentElement || document.body} className="w-full" aria-label={`${mediaType === "image" ? "图片" : "视频"}增强模型`} value={activeModel} options={options.map(opt => ({ label: opt.label, value: opt.id }))} onChange={model => patch({ [mediaType]: { ...selected, model } })} /> : null}
+            {modes.length > 1 ? <Segmented block aria-label={`${mediaType === "image" ? "图片" : "视频"}超分模式`} value={selected.mode} options={modes.map(item => ({ label: modeLabels[item.mode], value: item.mode }))} onChange={mode => { const next = modes.find(item => item.mode === mode); const first = selectedUpscaleModelOption(capabilities, mediaType, mode as UpscaleMode, next?.modelOptions?.[0]?.id || next?.models[0] || ""); patch({ [mediaType]: { ...selected, mode: mode as UpscaleMode, model: first?.id || next?.models[0] || "", provider: first?.provider, channelId: first?.channelId, channelModelKey: first?.channelModelKey, ...(mediaType === "image" ? { outputFormat: next?.outputFormats[0] || "png" } : {}), ...(mediaType === "video" && first?.provider === "runninghub" ? { enhancementModel: "max" as const, scale: 2 } : {}) } }); }} /> : null}
+            {options.length > 0 && (options.length > 1 || runningHub) ? <Select getPopupContainer={trigger => trigger.parentElement || document.body} className="w-full" aria-label={`${mediaType === "image" ? "图片" : "视频"}增强模型`} value={activeModel} options={options.map(opt => ({ label: opt.label, value: opt.id }))} onChange={model => { const option = options.find(item => item.id === model); patch({ [mediaType]: { ...selected, model, provider: option?.provider, channelId: option?.channelId, channelModelKey: option?.channelModelKey, ...(mediaType === "video" && option?.provider === "runninghub" ? { enhancementModel: "max" as const, scale: settings.scale === 4 ? 4 : 2 } : {}) } }); }} /> : null}
+            {mediaType === "video" && runningHub ? <Select aria-label="视频增强档位" value={settings.video.enhancementModel || "max"} options={[{ label: "Max", value: "max" }, { label: "High", value: "high" }, { label: "Medium", value: "medium" }, { label: "Low", value: "low" }]} onChange={enhancementModel => patch({ video: { ...settings.video, enhancementModel: enhancementModel as "max" | "high" | "medium" | "low" } })} /> : null}
             {mediaType === "image" && capability?.outputFormats.length ? <Select getPopupContainer={trigger => trigger.parentElement || document.body} className="w-full" aria-label="图片输出格式" value={settings.image.outputFormat || capability.outputFormats[0]} options={capability.outputFormats.map(format => ({ label: format.toUpperCase(), value: format }))} onChange={outputFormat => patch({ image: { ...settings.image, outputFormat } })} /> : null}
             {selected.mode === "generative" ? <p style={{ color: theme.node.muted }}>细节重建可能改变纹理与面部细节。</p> : null}
         </div>;
@@ -164,7 +198,7 @@ export function UpscaleNodeContent({ node, theme }: { node: CanvasNodeData; them
 
         </div>
         <div className="absolute inset-x-0 top-full z-20 mt-3 w-full space-y-5 rounded-[var(--r-lg)] border p-4 text-[var(--fs-tiny)] shadow-lg" style={{ background: theme.node.panel, borderColor: theme.node.edge }} data-canvas-no-drag data-canvas-no-zoom onPointerDown={event => event.stopPropagation()} onMouseDown={event => event.stopPropagation()} onWheel={event => event.stopPropagation()} onDoubleClick={event => event.stopPropagation()}>
-            <div className="flex items-center justify-between gap-3"><span>超分倍率</span><InputNumber aria-label="超分倍率" min={1} max={4} step={1} precision={0} value={settings.scale} onChange={value => patch({ scale: value || 2 })} /></div>
+            <div className="flex items-center justify-between gap-3"><span>超分倍率</span><InputNumber aria-label="超分倍率" min={settings.image.provider === "runninghub" || settings.video.provider === "runninghub" ? 2 : 1} max={4} step={settings.image.provider === "runninghub" || settings.video.provider === "runninghub" ? 2 : 1} precision={0} value={settings.scale} onChange={value => patch({ scale: value || 2 })} /></div>
             {imageCount > 0 || !videoCount ? renderMediaSettings("image") : null}
             {videoCount > 0 ? renderMediaSettings("video") : null}
             {inputs.length > 0 ? <div className="space-y-0.5" style={{ color: theme.node.muted }}>{estimating ? <span className="inline-flex items-center gap-1"><LoaderCircle className="size-3 animate-spin" />估价中</span> : quotedCount ? <>
@@ -173,11 +207,10 @@ export function UpscaleNodeContent({ node, theme }: { node: CanvasNodeData; them
             </> : "提交前获取费用"}</div> : null}
             {Object.keys(estimates).length ? <details><summary className="cursor-pointer" style={{ color: theme.node.muted }}>超分后的分辨率</summary><div className="mt-2 space-y-1">{inputs.map(input => { const estimate = estimates[input.id]; return estimate ? <div key={input.id} className="flex gap-2"><span className="min-w-0 flex-1 truncate">{input.title}</span><span className="shrink-0 tabular-nums">{estimate.output.width} × {estimate.output.height}</span></div> : null; })}</div></details> : null}
             <div className="space-y-3">
-                <Select getPopupContainer={trigger => trigger.parentElement || document.body} className="w-full" aria-label="超分模型" placeholder="暂无可用超分模型" disabled={!officialConnected} value={channelId || undefined} options={officialConnected ? [{ label: "灵动TV超分模型", value: "beefapi" }] : []} onChange={channelId => patch({ channelId })} />
-                {!officialConnected ? <p role="status" style={{ color: theme.node.muted }}>暂无可用超分模型，请连接灵动TV内置的官方算力。<a href="#/settings?section=channels" className="ml-1 underline">连接官方算力</a></p> : capabilities && !hasAvailableMode ? <p role="status" style={{ color: theme.node.muted }}>暂无可用超分模型，请刷新模型目录或更换输入素材类型。</p> : null}
+                {!officialConnected && !capabilities?.runningHubModels?.length && !capabilities?.runningHubVideoModels?.length ? <p role="status" style={{ color: theme.node.muted }}>暂无可用超分模型，请连接官方算力或启用 RunningHub 媒体工具模型。</p> : capabilities && !hasAvailableMode ? <p role="status" style={{ color: theme.node.muted }}>暂无可用超分模型，请刷新模型目录或更换输入素材类型。</p> : null}
             </div>
             {notice ? <p role="alert" className="break-words" style={{ color: "var(--status-error)" }}>{notice}</p> : null}
-            <Button type="primary" block loading={busy} disabled={!inputs.length || !channelId || !hasAvailableMode || !actions.startUpscaleBatch} onClick={() => void run()}>{batchButtonLabel}</Button>
+            <Button type="primary" block loading={busy} disabled={!inputs.length || !hasAvailableMode || !actions.startUpscaleBatch} onClick={() => void run()}>{batchButtonLabel}</Button>
         </div>
     </div>;
 }

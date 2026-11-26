@@ -235,6 +235,59 @@ func TestReserveUsesStableRouteRunIdempotencyKey(t *testing.T) {
 	}
 }
 
+func TestManagedToolQuoteAndReserveUseIsolatedBillingRoutes(t *testing.T) {
+	var quoteCalled, reserveCalled bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/internal/canvas-billing/managed-tool/quote":
+			quoteCalled = true
+		case "/api/internal/canvas-billing/managed-tool/reserve":
+			reserveCalled = true
+		default:
+			t.Fatalf("unexpected billing route: %s", r.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		facts, _ := body["facts"].(map[string]any)
+		if facts["modelKey"] != "rhart-video/rh-upscale/enhance-frame" ||
+			facts["operation"] != "media.upscale.runninghub" ||
+			facts["sourceDurationMs"] != float64(15200) ||
+			facts["enhancementModel"] != "high" {
+			t.Fatalf("managed tool facts = %#v", facts)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/api/internal/canvas-billing/managed-tool/quote" {
+			_, _ = w.Write([]byte(`{"enabled":true,"points":17,"modelKey":"rhart-video/rh-upscale/enhance-frame","balance":100,"estimatedCostCny":0.07,"pointValueYuan":0.1,"breakdown":{"sourceDurationMs":15200}}`))
+		} else {
+			if body["idempotencyKey"] != "operation-1:1" || body["taskId"] != "task-1" {
+				t.Fatalf("managed tool reservation identity = %#v", body)
+			}
+			_, _ = w.Write([]byte(`{"enabled":true,"holdId":"managed-hold","points":17,"balance":83,"status":"reserved"}`))
+		}
+	}))
+	defer server.Close()
+	client := &Client{baseURL: server.URL, secret: "test-secret", http: server.Client()}
+	facts := ManagedToolFacts{
+		Operation: "media.upscale.runninghub", ModelKey: "rhart-video/rh-upscale/enhance-frame",
+		SourceDurationMs: 15200, EnhancementModel: "high",
+	}
+	quote, err := client.QuoteManagedTool(context.Background(), "sso_user-1", facts)
+	if err != nil || quote == nil || quote.Points != 17 {
+		t.Fatalf("managed tool quote = %+v, %v", quote, err)
+	}
+	reservation, err := client.ReserveManagedTool(context.Background(), "sso_user-1", &TaskSnapshot{
+		ID: "task-1", ClientOperationID: "operation-1", RouteRun: 1, ProjectID: "project-1",
+	}, facts)
+	if err != nil || reservation == nil || reservation.HoldID != "managed-hold" {
+		t.Fatalf("managed tool reservation = %+v, %v", reservation, err)
+	}
+	if !quoteCalled || !reserveCalled {
+		t.Fatalf("managed billing routes quote=%v reserve=%v", quoteCalled, reserveCalled)
+	}
+}
+
 func TestAPIErrorClassification(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

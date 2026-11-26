@@ -10,9 +10,12 @@ import (
 type Request struct {
 	ResourceID          string  `json:"resourceId"`
 	ChannelID           string  `json:"channelId"`
+	ChannelModelKey     string  `json:"channelModelKey,omitempty"`
+	Provider            string  `json:"provider,omitempty"`
 	Mode                string  `json:"mode"`
 	Model               string  `json:"model"`
 	Scale               float64 `json:"scale"`
+	EnhancementModel    string  `json:"enhancementModel,omitempty"`
 	OutputFormat        string  `json:"outputFormat,omitempty"`
 	EnhancementStrength string  `json:"enhancementStrength,omitempty"`
 	ClientOperationID   string  `json:"clientOperationId,omitempty"`
@@ -21,10 +24,13 @@ type Request struct {
 }
 
 type ModelOption struct {
-	ID             string `json:"id"`
-	Label          string `json:"label"`
-	BillingMode    string `json:"billingMode,omitempty"`
-	BillingSummary string `json:"billingSummary,omitempty"`
+	ID              string `json:"id"`
+	Label           string `json:"label"`
+	Provider        string `json:"provider,omitempty"`
+	ChannelID       string `json:"channelId,omitempty"`
+	ChannelModelKey string `json:"channelModelKey,omitempty"`
+	BillingMode     string `json:"billingMode,omitempty"`
+	BillingSummary  string `json:"billingSummary,omitempty"`
 }
 
 type UpstreamModel struct {

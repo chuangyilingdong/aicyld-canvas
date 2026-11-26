@@ -240,7 +240,9 @@ export function useCanvasMediaTools({
         try {
             const task = await createVideoSubtitleEraseTask({
                 resourceId: options.resourceId,
-                channelId: "beefapi",
+                provider: options.provider,
+                channelId: options.channelId,
+                ...(options.channelModelKey ? { channelModelKey: options.channelModelKey } : {}),
                 eraseMethod: options.eraseMethod,
                 subtitleModel: options.subtitleModel,
                 ...(options.region ? { region: options.region } : {}),

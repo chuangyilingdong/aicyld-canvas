@@ -38,6 +38,21 @@ type TaskSnapshot struct {
 	InputJSON         string
 	ClientOperationID string
 	BillingHoldID     string
+	ManagedToolFacts  *ManagedToolFacts
+}
+
+// ManagedToolFacts is a dedicated pricing contract for RunningHub canvas
+// media tools. It deliberately stays separate from generic billing Facts and
+// SettlementFacts; the server freezes its quote in the normal billing hold.
+type ManagedToolFacts struct {
+	Operation        string `json:"operation"`
+	ModelKey         string `json:"modelKey"`
+	DisplayName      string `json:"displayName,omitempty"`
+	SourceDurationMs int64  `json:"sourceDurationMs,omitempty"`
+	SourceWidth      int    `json:"sourceWidth,omitempty"`
+	SourceHeight     int    `json:"sourceHeight,omitempty"`
+	Scale            int    `json:"scale,omitempty"`
+	EnhancementModel string `json:"enhancementModel,omitempty"`
 }
 
 type BillingQuote struct {
@@ -104,6 +119,9 @@ func IsRuleMissing(err error) bool {
 func (c *Client) Quote(ctx context.Context, userID string, task *TaskSnapshot) (*BillingQuote, error) {
 	if !c.Enabled() || task == nil || !Billable(task) {
 		return &BillingQuote{Enabled: false}, nil
+	}
+	if task.ManagedToolFacts != nil {
+		return c.QuoteManagedTool(ctx, userID, *task.ManagedToolFacts)
 	}
 	body := map[string]any{"userId": mainUserID(userID), "facts": Facts(task)}
 	var quote BillingQuote
@@ -228,6 +246,9 @@ func (c *Client) Reserve(ctx context.Context, userID string, task *TaskSnapshot)
 	if !c.Enabled() || task == nil || !Billable(task) {
 		return &BillingReservation{Enabled: false, Status: "free"}, nil
 	}
+	if task.ManagedToolFacts != nil {
+		return c.ReserveManagedTool(ctx, userID, task, *task.ManagedToolFacts)
+	}
 	routeRun := task.RouteRun
 	if routeRun < 1 {
 		routeRun = 1
@@ -241,6 +262,40 @@ func (c *Client) Reserve(ctx context.Context, userID string, task *TaskSnapshot)
 	}
 	var reservation BillingReservation
 	if err := c.post(ctx, "/reserve", body, &reservation); err != nil {
+		return nil, err
+	}
+	return &reservation, nil
+}
+
+func (c *Client) QuoteManagedTool(ctx context.Context, userID string, facts ManagedToolFacts) (*BillingQuote, error) {
+	if !c.Enabled() {
+		return &BillingQuote{Enabled: false}, nil
+	}
+	body := map[string]any{"userId": mainUserID(userID), "facts": facts}
+	var quote BillingQuote
+	if err := c.post(ctx, "/managed-tool/quote", body, &quote); err != nil {
+		return nil, err
+	}
+	return &quote, nil
+}
+
+func (c *Client) ReserveManagedTool(ctx context.Context, userID string, task *TaskSnapshot, facts ManagedToolFacts) (*BillingReservation, error) {
+	if !c.Enabled() || task == nil {
+		return &BillingReservation{Enabled: false, Status: "free"}, nil
+	}
+	routeRun := task.RouteRun
+	if routeRun < 1 {
+		routeRun = 1
+	}
+	body := map[string]any{
+		"userId":         mainUserID(userID),
+		"idempotencyKey": reserveIdempotencyKey(task, routeRun),
+		"taskId":         task.ID,
+		"projectId":      task.ProjectID,
+		"facts":          facts,
+	}
+	var reservation BillingReservation
+	if err := c.post(ctx, "/managed-tool/reserve", body, &reservation); err != nil {
 		return nil, err
 	}
 	return &reservation, nil

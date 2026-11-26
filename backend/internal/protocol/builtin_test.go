@@ -828,6 +828,115 @@ func TestRunningHubSeedanceFlashImageVideoForcesAdaptiveRatio(t *testing.T) {
 	}
 }
 
+func TestRunningHubUpscaleUsesDocumentedPayload(t *testing.T) {
+	adapter, _ := Builtins().Get("runninghub-standard-video")
+	request := GenerationRequest{
+		Capability: CapabilityVideo,
+		Model:      "rhart-video/rh-upscale/enhance-frame",
+		Resolution: "4K",
+		Videos:     []MediaReference{{URL: "https://media.example/source.mp4"}},
+	}
+	spec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: request})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := object(spec.Body)
+	if spec.Path != "/openapi/v2/rhart-video/rh-upscale/enhance-frame" ||
+		body["fileUrl"] != "https://media.example/source.mp4" || body["model"] != "max" ||
+		body["resolution"] != "4k" || body["outputFps"] != "1x" {
+		t.Fatalf("upscale request = %#v", spec)
+	}
+	if body["videoUrl"] != nil || body["targetResolution"] != nil || body["prompt"] != nil {
+		t.Fatalf("unexpected upscale parameters: %#v", body)
+	}
+	request.Videos = nil
+	if _, err := adapter.BuildCreate(context.Background(), RequestContext{Request: request}); err == nil {
+		t.Fatal("upscale without a source video was accepted")
+	}
+}
+
+func TestRunningHubTopazImageUpscaleUsesDocumentedPayload(t *testing.T) {
+	adapter, _ := Builtins().Get("runninghub-standard-image")
+	request := GenerationRequest{
+		Capability: CapabilityImage,
+		Model:      "topazlabs/image-upscale-standard-v2",
+		Images:     []MediaReference{{URL: "https://media.example/source.png", Role: "edit_source"}},
+		Extra:      map[string]any{"upscaleScale": "4x"},
+	}
+	spec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: request})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := object(spec.Body)
+	if spec.Path != "/openapi/v2/topazlabs/image-upscale-standard-v2" ||
+		body["imageUrl"] != "https://media.example/source.png" || body["scale"] != "4x" {
+		t.Fatalf("image upscale request = %#v", spec)
+	}
+	if body["prompt"] != nil || body["imageUrls"] != nil || body["outputFormat"] != nil {
+		t.Fatalf("unexpected image upscale parameters: %#v", body)
+	}
+	request.Extra["upscaleScale"] = "3x"
+	if _, err := adapter.BuildCreate(context.Background(), RequestContext{Request: request}); err == nil {
+		t.Fatal("unsupported image upscale factor was accepted")
+	}
+}
+
+func TestRunningHubSubtitleEraseUsesDocumentedPayload(t *testing.T) {
+	adapter, _ := Builtins().Get("runninghub-standard-video")
+	for _, endpoint := range []string{"volc-subtitle-erase/video", "volc-subtitle-erase-pro/video"} {
+		request := GenerationRequest{
+			Capability: CapabilityVideo,
+			Model:      endpoint,
+			Prompt:     "视频去字幕",
+			Videos:     []MediaReference{{URL: "https://media.example/source.mp4"}},
+			Extra:      map[string]any{"idempotencyKey": "submission-key"},
+		}
+		spec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: request})
+		if err != nil {
+			t.Fatal(err)
+		}
+		body := object(spec.Body)
+		if spec.Path != "/openapi/v2/"+endpoint || body["videoUrl"] != "https://media.example/source.mp4" || body["prompt"] != nil || body["clientToken"] != "submission-key" {
+			t.Fatalf("subtitle erase request = %#v", spec)
+		}
+		if strings.Contains(endpoint, "-pro") && (body["eraseType"] != "subtitle" || body["encodeMode"] != "size") {
+			t.Fatalf("subtitle erase options = %#v", body)
+		}
+		request.Videos = nil
+		if _, err := adapter.BuildCreate(context.Background(), RequestContext{Request: request}); err == nil {
+			t.Fatalf("%s accepted a missing source video", endpoint)
+		}
+	}
+}
+
+func TestRunningHubVoiceCloneUsesDocumentedPayload(t *testing.T) {
+	adapter, _ := Builtins().Get("runninghub-standard-audio")
+	request := GenerationRequest{
+		Capability: CapabilityAudio,
+		Model:      "rhart-audio/text-to-audio/voice-clone",
+		Prompt:     "这是声音预览。",
+		Audios:     []MediaReference{{URL: "https://media.example/voice.wav"}},
+		Extra:      map[string]any{"customVoiceId": "Voice1234"},
+	}
+	spec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: request})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := object(spec.Body)
+	if body["audio"] != "https://media.example/voice.wav" || body["custom_voice_id"] != "Voice1234" ||
+		body["text"] != request.Prompt || body["model"] != "speech-02-hd" ||
+		body["need_noise_reduction"] != false || body["need_volume_normalization"] != false {
+		t.Fatalf("voice clone request = %#v", body)
+	}
+	if body["voice_id"] != nil {
+		t.Fatalf("voice clone was treated as ordinary speech: %#v", body)
+	}
+	request.Extra = nil
+	if _, err := adapter.BuildCreate(context.Background(), RequestContext{Request: request}); err == nil {
+		t.Fatal("voice clone without a custom voice ID was accepted")
+	}
+}
+
 func TestRunningHubSpeechSpeedUsesNumericValues(t *testing.T) {
 	adapter, _ := Builtins().Get("runninghub-standard-audio")
 	spec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
