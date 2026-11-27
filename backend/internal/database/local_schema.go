@@ -15,7 +15,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion int64 = 48
+const CurrentSchemaVersion int64 = 49
 
 type localSchemaMigration struct {
 	Version   int64 `gorm:"primaryKey;autoIncrement:false"`
@@ -43,7 +43,7 @@ type SchemaStatus struct {
 // and managed model catalogs are deliberately absent.
 func LocalModels() []any {
 	return []any{
-		&model.Workspace{}, &model.IDSequence{}, &model.SystemSetting{}, &model.UserDailyActivity{},
+		&model.Workspace{}, &model.IDSequence{}, &model.SystemSetting{}, &model.UserDailyActivity{}, &model.ExternalAgentDailyUsage{},
 		&model.ModelChannel{}, &model.ChannelModel{}, &model.ChannelModelVariant{}, &model.ApiCallLog{},
 		&model.LogicalModel{}, &model.LogicalModelRevision{}, &model.LogicalModelRoute{}, &model.RouteAttempt{},
 		&model.ImageSubmission{},
@@ -195,6 +195,9 @@ func canonicalLocalMigrations() []localMigration {
 			return ensureSQLiteColumn(tx, "projects", "default_video_resolution", "TEXT")
 		}},
 		{version: 48, name: "smart-film-atomic-budget-ledger", apply: migrateSmartFilmAtomicBudgetLedger},
+		{version: 49, name: "external-agent-daily-usage", apply: func(tx *gorm.DB) error {
+			return tx.AutoMigrate(&model.ExternalAgentDailyUsage{})
+		}},
 	}
 }
 

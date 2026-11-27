@@ -237,8 +237,8 @@ func ClassifyHTTP(status int, statusText string, body string) Failure {
 	if status == 524 && (failure.Category == CategoryUnknown || failure.Category == CategoryTimeout || failure.Category == CategoryProviderUnavailable || failure.Category == CategoryMalformedResponse) {
 		failure.Category = CategoryTimeout
 		failure.Uncertain = true
-		failure.Reason = "模型服务响应超时，请求可能仍在服务端执行"
-		failure.Action = "请先查询原任务或到供应商核对状态，不要立即重新提交"
+		failure.Reason = "\u4e0a\u6e38\u7f51\u5173\u54cd\u5e94\u8d85\u65f6\uff08HTTP 524\uff09\uff0c\u8bf7\u6c42\u53ef\u80fd\u4ecd\u5728\u670d\u52a1\u7aef\u6267\u884c"
+		failure.Action = "\u8bf7\u5148\u5230\u4f9b\u5e94\u5546\u6216\u4e2d\u8f6c\u540e\u53f0\u6838\u5bf9\u72b6\u6001\uff0c\u4e0d\u8981\u7acb\u5373\u91cd\u65b0\u63d0\u4ea4\uff1b\u82e5\u9891\u7e41\u8d85\u65f6\uff0c\u8bf7\u68c0\u67e5\u4e2d\u8f6c\u7f51\u5173\u8d85\u65f6\u6216\u8fde\u63a5\u4fdd\u6d3b\uff08keep-alive\uff09\u914d\u7f6e\uff0c\u786e\u8ba4\u672a\u51fa\u56fe\u540e\u518d\u91cd\u65b0\u751f\u6210"
 	}
 	_ = statusText
 	return normalizeFailure(failure)

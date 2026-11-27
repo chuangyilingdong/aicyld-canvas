@@ -90,6 +90,12 @@ type ProposedGenerationRecorder interface {
 	RecordAssistantGenerationProposal(userID, turnID, canvasID string, proposal GenerationAuthorization) error
 }
 
+// ExternalGenerationPolicyReader exposes the user-scoped policy for proposal
+// guidance. Submission always re-reads the policy and real quote server-side.
+type ExternalGenerationPolicyReader interface {
+	ExternalGenerationGuardrailForUser(userID string) ExternalGenerationGuardrail
+}
+
 // External clients own execution approval; they still use the same task admission.
 type ExternalGenerationAdmission interface {
 	SubmitExternalGeneration(userID, operationID, canvasID string, targets []GenerationTarget) (any, error)

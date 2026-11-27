@@ -11,6 +11,7 @@ import { listAgentClients, revokeAgentClient, type AgentClientKind } from "@/ser
 
 import { agentClientDisplayLabel, agentClientKindLabel, agentClientKinds, agentClientLastUsedLabel, agentClientModeLabel } from "./agent-client-presentation";
 import { AgentConnectPanel } from "./agent-connect-panel";
+import { ExternalGuardrailSection } from "./external-guardrail-section";
 
 const AGENT_CLIENTS_QUERY_KEY = ["agent-clients"] as const;
 
@@ -55,6 +56,7 @@ export default function AgentsPage() {
                 <EmptyState icon={Plug} title="当前版本还不支持" description="更新到新版本后就能在这里连接 Codex、Claude Code 和 Cursor。" />
             ) : (
                 <div className="agents-settings mt-4 pb-6">
+                    <ExternalGuardrailSection />
                     {clientsQuery.isPending ? <p className="text-xs text-foreground/55">正在读取…</p> : null}
                     {clientsQuery.error ? <div role="alert" className="mb-4 text-sm">无法读取连接状态。<Button type="link" onClick={() => void clientsQuery.refetch()}>重试</Button></div> : null}
                     <div className="agent-tool-list">

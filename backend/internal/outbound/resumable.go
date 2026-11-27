@@ -2,10 +2,13 @@ package outbound
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -16,6 +19,19 @@ import (
 	"sync"
 	"time"
 )
+
+// ExclusiveByteLimit converts an inclusive byte cap (e.g. 2048 MiB) into the
+// exclusive MaxBytes sentinel expected by DownloadResumableToFile so exact
+// at-limit artifacts succeed consistently across all routes.
+func ExclusiveByteLimit(limit int64) int64 {
+	if limit <= 0 {
+		return 0
+	}
+	if limit == math.MaxInt64 {
+		return math.MaxInt64
+	}
+	return limit + 1
+}
 
 // ErrResourceTooLarge marks a download that exceeded the caller's hard byte cap.
 // It is non-retryable so the caller can map it to the product size-limit copy.
@@ -51,10 +67,13 @@ type ResumableProgress struct {
 	State           string // "downloading" | "retrying" | "waiting"
 }
 
-// ResumableResult is a fully materialized artifact. Data is read from the .part
-// file only after the transfer completed, never accumulated during transfer.
-type ResumableResult struct {
-	Data     []byte
+// ResumableFileResult describes a completed resumable download kept on disk so
+// large artifacts (e.g. 1-2 GiB videos) can be validated, remuxed, and persisted
+// without loading the entire file into memory. The caller owns Path and must
+// remove it when done.
+type ResumableFileResult struct {
+	Path     string
+	Size     int64
 	MimeType string
 	FileName string
 }
@@ -74,23 +93,23 @@ type resumableSidecar struct {
 	ETag         string `json:"etag"`
 	LastModified string `json:"lastModified"`
 	Total        int64  `json:"total"`
+	MimeType     string `json:"mimeType,omitempty"`
 }
 
-// DownloadResumable streams a remote artifact to PartialPath and resumes from
-// the existing bytes across transient failures. A sidecar file
-// (PartialPath+".json") records the source URL, validator and total size so a
-// later attempt can send Range/If-Range. Concurrent downloads of the same
-// PartialPath are serialized in-process.
-func DownloadResumable(ctx context.Context, rawURL string, opts ResumableOptions) (ResumableResult, error) {
+// DownloadResumableToFile streams a remote artifact to PartialPath and resumes
+// from existing bytes across transient failures. Once complete, PartialPath is
+// atomically renamed to a unique owned path in the same directory before the
+// per-path lock is released, so large media never enters Go heap memory.
+func DownloadResumableToFile(ctx context.Context, rawURL string, opts ResumableOptions) (ResumableFileResult, error) {
 	parsed, err := url.Parse(strings.TrimSpace(rawURL))
 	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
-		return ResumableResult{}, fmt.Errorf("外部资源地址无效")
+		return ResumableFileResult{}, fmt.Errorf("外部资源地址无效")
 	}
 	if strings.TrimSpace(opts.PartialPath) == "" {
-		return ResumableResult{}, errors.New("下载缓存路径未配置")
+		return ResumableFileResult{}, errors.New("下载缓存路径未配置")
 	}
 	if opts.MaxBytes <= 0 {
-		return ResumableResult{}, errors.New("下载大小上限未配置")
+		return ResumableFileResult{}, errors.New("下载大小上限未配置")
 	}
 	attempts := opts.Attempts
 	if attempts <= 0 {
@@ -105,7 +124,7 @@ func DownloadResumable(ctx context.Context, rawURL string, opts ResumableOptions
 		idleTimeout = defaultResumableIdleTimeout
 	}
 	if err := os.MkdirAll(filepath.Dir(opts.PartialPath), 0o700); err != nil {
-		return ResumableResult{}, err
+		return ResumableFileResult{}, err
 	}
 
 	unlock := lockResumableDownload(opts.PartialPath)
@@ -118,7 +137,7 @@ func DownloadResumable(ctx context.Context, rawURL string, opts ResumableOptions
 		if attempt > 0 {
 			reportResumableRetrying(opts, attemptNumber)
 			if err := waitResumableBackoff(ctx, attempt); err != nil {
-				return ResumableResult{}, err
+				return ResumableFileResult{}, err
 			}
 		}
 		result, retryable, err := downloadResumableAttempt(ctx, parsed, opts, headerTimeout, idleTimeout, attemptNumber, freshConn)
@@ -126,10 +145,10 @@ func DownloadResumable(ctx context.Context, rawURL string, opts ResumableOptions
 			return result, nil
 		}
 		if ctx.Err() != nil {
-			return ResumableResult{}, ctx.Err()
+			return ResumableFileResult{}, ctx.Err()
 		}
 		if !retryable {
-			return ResumableResult{}, err
+			return ResumableFileResult{}, err
 		}
 		if IsConnectionDrop(err) {
 			freshConn = true
@@ -139,7 +158,7 @@ func DownloadResumable(ctx context.Context, rawURL string, opts ResumableOptions
 	if lastErr == nil {
 		lastErr = errors.New("远程资源下载失败")
 	}
-	return ResumableResult{}, lastErr
+	return ResumableFileResult{}, lastErr
 }
 
 func reportResumableRetrying(opts ResumableOptions, attemptNumber int) {
@@ -163,7 +182,7 @@ func reportResumableRetrying(opts ResumableOptions, attemptNumber int) {
 	})
 }
 
-func downloadResumableAttempt(ctx context.Context, parsed *url.URL, opts ResumableOptions, headerTimeout, idleTimeout time.Duration, attemptNumber int, freshConn bool) (ResumableResult, bool, error) {
+func downloadResumableAttempt(ctx context.Context, parsed *url.URL, opts ResumableOptions, headerTimeout, idleTimeout time.Duration, attemptNumber int, freshConn bool) (ResumableFileResult, bool, error) {
 	sidecar := loadResumableSidecar(opts.PartialPath)
 	offset := int64(0)
 	// Combining byte ranges requires a strong validator. Last-Modified alone
@@ -178,6 +197,25 @@ func downloadResumableAttempt(ctx context.Context, parsed *url.URL, opts Resumab
 		// request (including an expired signed URL) must not discard its bytes.
 		sidecar = nil
 	}
+	// If a prior attempt downloaded every byte but failed during local finalize
+	// (e.g. transient AV lock on rename), finalize directly without issuing a
+	// Range request at EOF that would 416 and re-download a 1-2 GiB file.
+	if sidecar != nil && sidecar.Total > 0 && offset == sidecar.Total && offset < opts.MaxBytes {
+		mimeType, sniffErr := resolveStreamedMimeType(opts.PartialPath, sidecar.MimeType)
+		if sniffErr != nil {
+			return ResumableFileResult{}, false, sniffErr
+		}
+		finalPath, renameErr := finalizeResumablePartial(opts.PartialPath)
+		if renameErr != nil {
+			return ResumableFileResult{}, false, renameErr
+		}
+		return ResumableFileResult{
+			Path:     finalPath,
+			Size:     offset,
+			MimeType: mimeType,
+			FileName: resumableFileName(parsed.Path),
+		}, false, nil
+	}
 	sidecarTotal := int64(-1)
 	if sidecar != nil {
 		sidecarTotal = sidecar.Total
@@ -186,19 +224,16 @@ func downloadResumableAttempt(ctx context.Context, parsed *url.URL, opts Resumab
 	emitter.observe(offset)
 	emitter.emit(offset, sidecarTotal, "downloading", true)
 
-	attemptCtx, cancel := context.WithCancelCause(ctx)
+	attemptCtx, stopHeader, cancel := WithHeaderTimeout(ctx, headerTimeout)
 	defer cancel(nil)
+	defer stopHeader()
 	if freshConn {
 		attemptCtx = WithFreshConnection(attemptCtx)
 	}
-	headerTimer := time.AfterFunc(headerTimeout, func() {
-		cancel(fmt.Errorf("等待下载响应超时：%w", context.DeadlineExceeded))
-	})
 
 	request, err := http.NewRequestWithContext(attemptCtx, http.MethodGet, parsed.String(), nil)
 	if err != nil {
-		headerTimer.Stop()
-		return ResumableResult{}, false, err
+		return ResumableFileResult{}, false, err
 	}
 	ApplyDefaultOutboundHeaders(request)
 	for name, values := range opts.Headers {
@@ -208,7 +243,7 @@ func downloadResumableAttempt(ctx context.Context, parsed *url.URL, opts Resumab
 		request.Header.Set("Range", fmt.Sprintf("bytes=%d-", offset))
 		request.Header.Set("If-Range", sidecar.ETag)
 	}
-	if requiresFreshConnection(attemptCtx) {
+	if freshConn || requiresFreshConnection(attemptCtx) {
 		request.Close = true
 	}
 	client := OutboundHTTPClient(0)
@@ -236,9 +271,9 @@ func downloadResumableAttempt(ctx context.Context, parsed *url.URL, opts Resumab
 		open = opts.OpenResponse
 	}
 	response, err := open(request)
-	headerTimer.Stop()
+	stopHeader()
 	if err != nil {
-		return ResumableResult{}, true, resumableTransferError(attemptCtx, err)
+		return ResumableFileResult{}, true, resumableTransferError(attemptCtx, err)
 	}
 	defer response.Body.Close()
 
@@ -247,11 +282,12 @@ func downloadResumableAttempt(ctx context.Context, parsed *url.URL, opts Resumab
 		URL:          resumableSourceURL(parsed),
 		ETag:         response.Header.Get("ETag"),
 		LastModified: response.Header.Get("Last-Modified"),
+		MimeType:     normalizeResumableMimeType(response.Header.Get("Content-Type")),
 	}
 	switch response.StatusCode {
 	case http.StatusRequestedRangeNotSatisfiable:
 		removeResumablePartial(opts.PartialPath)
-		return ResumableResult{}, true, fmt.Errorf("%w：%s", ErrResumeRestart, response.Status)
+		return ResumableFileResult{}, true, fmt.Errorf("%w：%s", ErrResumeRestart, response.Status)
 	case http.StatusOK:
 		// The server ignored Range, or the validator changed. Restart from zero.
 		offset = 0
@@ -261,56 +297,56 @@ func downloadResumableAttempt(ctx context.Context, parsed *url.URL, opts Resumab
 	case http.StatusPartialContent:
 		if offset > 0 && sidecar != nil && strongResumableETag(sidecar.ETag) && response.Header.Get("ETag") != sidecar.ETag {
 			removeResumablePartial(opts.PartialPath)
-			return ResumableResult{}, true, fmt.Errorf("%w：标识已变化", ErrResumeRestart)
+			return ResumableFileResult{}, true, fmt.Errorf("%w：标识已变化", ErrResumeRestart)
 		}
 		start, contentTotal, ok := parseContentRange(response.Header.Get("Content-Range"))
 		if !ok || start != offset {
 			removeResumablePartial(opts.PartialPath)
-			return ResumableResult{}, true, fmt.Errorf("%w：断点位置不匹配", ErrResumeRestart)
+			return ResumableFileResult{}, true, fmt.Errorf("%w：断点位置不匹配", ErrResumeRestart)
 		}
 		// A known total that no longer matches means the remote object changed
 		// size under the same validator; appending would corrupt the artifact.
 		if sidecar != nil && sidecar.Total >= 0 && contentTotal >= 0 && sidecar.Total != contentTotal {
 			removeResumablePartial(opts.PartialPath)
-			return ResumableResult{}, true, fmt.Errorf("%w：总大小已变化", ErrResumeRestart)
+			return ResumableFileResult{}, true, fmt.Errorf("%w：总大小已变化", ErrResumeRestart)
 		}
 		total = contentTotal
 	default:
 		if retryableHTTPStatus(response.StatusCode) {
-			return ResumableResult{}, true, &HTTPStatusError{StatusCode: response.StatusCode, Message: fmt.Sprintf("远程资源下载失败：%s", response.Status)}
+			return ResumableFileResult{}, true, &HTTPStatusError{StatusCode: response.StatusCode, Message: fmt.Sprintf("远程资源下载失败：%s", response.Status)}
 		}
 		// Expired signed links may later be refreshed for the same artifact.
 		// Keep bytes, but require source/validator checks before any reuse.
 		if response.StatusCode != http.StatusUnauthorized && response.StatusCode != http.StatusForbidden {
 			removeResumablePartial(opts.PartialPath)
 		}
-		return ResumableResult{}, false, &HTTPStatusError{StatusCode: response.StatusCode, Message: fmt.Sprintf("远程资源下载失败：%s", response.Status)}
+		return ResumableFileResult{}, false, &HTTPStatusError{StatusCode: response.StatusCode, Message: fmt.Sprintf("远程资源下载失败：%s", response.Status)}
 	}
 	pending.Total = total
 	if total >= 0 && total >= opts.MaxBytes {
 		removeResumablePartial(opts.PartialPath)
-		return ResumableResult{}, false, ErrResourceTooLarge
+		return ResumableFileResult{}, false, ErrResourceTooLarge
 	}
 	file, err := os.OpenFile(opts.PartialPath, os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
-		return ResumableResult{}, false, err
+		return ResumableFileResult{}, false, err
 	}
 	if offset == 0 {
 		if err := file.Truncate(0); err != nil {
 			_ = file.Close()
-			return ResumableResult{}, false, err
+			return ResumableFileResult{}, false, err
 		}
 	}
 	if _, err := file.Seek(offset, io.SeekStart); err != nil {
 		_ = file.Close()
-		return ResumableResult{}, false, err
+		return ResumableFileResult{}, false, err
 	}
 	// A full response replaces the old representation: discard its bytes before
 	// publishing the new validator. Never stream without successfully saving the
 	// matching sidecar, or a later retry could combine two different artifacts.
 	if err := saveResumableSidecar(opts.PartialPath, pending); err != nil {
 		_ = file.Close()
-		return ResumableResult{}, false, err
+		return ResumableFileResult{}, false, err
 	}
 	emitter.observe(offset)
 	emitter.emit(offset, total, "downloading", true)
@@ -319,58 +355,131 @@ func downloadResumableAttempt(ctx context.Context, parsed *url.URL, opts Resumab
 		cancel(fmt.Errorf("下载长时间没有收到数据：%w", context.DeadlineExceeded))
 	})
 	defer idleTimer.Stop()
-	reader := &idleResetReader{body: response.Body, timer: idleTimer, idle: idleTimeout}
 
-	written := offset
-	buffer := make([]byte, resumableReadBuffer)
-	var readErr error
-	for {
-		n, err := reader.Read(buffer)
-		if n > 0 {
-			if written+int64(n) >= opts.MaxBytes {
-				_ = file.Close()
-				removeResumablePartial(opts.PartialPath)
-				return ResumableResult{}, false, ErrResourceTooLarge
-			}
-			if _, writeErr := file.Write(buffer[:n]); writeErr != nil {
-				_ = file.Close()
-				return ResumableResult{}, true, writeErr
-			}
-			written += int64(n)
-			emitter.observe(written)
-			emitter.emit(written, total, "downloading", false)
-		}
-		if err != nil {
-			if !errors.Is(err, io.EOF) {
-				readErr = err
-			}
-			break
-		}
+	written, writeErr, readErr := copyStreamWithIdle(file, response.Body, offset, total, opts.MaxBytes, idleTimer, idleTimeout, emitter)
+	idleTimer.Stop()
+	closeErr := file.Close()
+	if errors.Is(readErr, ErrResourceTooLarge) {
+		removeResumablePartial(opts.PartialPath)
+		return ResumableFileResult{}, false, ErrResourceTooLarge
 	}
-	if closeErr := file.Close(); closeErr != nil && readErr == nil {
+	if writeErr != nil {
+		return ResumableFileResult{}, true, writeErr
+	}
+	if readErr == nil && closeErr != nil {
 		readErr = closeErr
 	}
 	if readErr != nil {
-		return ResumableResult{}, true, resumableTransferError(attemptCtx, readErr)
+		return ResumableFileResult{}, true, resumableTransferError(attemptCtx, readErr)
 	}
 	if total >= 0 && written != total {
-		return ResumableResult{}, true, resumableConnectionDropError(io.ErrUnexpectedEOF)
+		return ResumableFileResult{}, true, resumableConnectionDropError(io.ErrUnexpectedEOF)
 	}
 
-	data, err := os.ReadFile(opts.PartialPath)
-	if err != nil {
-		return ResumableResult{}, true, err
+	mimeType, sniffErr := resolveStreamedMimeType(opts.PartialPath, response.Header.Get("Content-Type"))
+	if sniffErr != nil {
+		return ResumableFileResult{}, false, sniffErr
 	}
-	removeResumablePartial(opts.PartialPath)
-	mimeType := normalizeResumableMimeType(response.Header.Get("Content-Type"))
-	if mimeType == "" || mimeType == "application/octet-stream" {
-		mimeType = http.DetectContentType(data)
+	finalPath, renameErr := finalizeResumablePartial(opts.PartialPath)
+	if renameErr != nil {
+		return ResumableFileResult{}, false, renameErr
 	}
-	return ResumableResult{
-		Data:     data,
+	return ResumableFileResult{
+		Path:     finalPath,
+		Size:     written,
 		MimeType: mimeType,
 		FileName: resumableFileName(parsed.Path),
 	}, false, nil
+}
+
+var resumableRenameFile = os.Rename
+
+// finalizeResumablePartial atomically moves a completed .part file to a unique
+// owned .complete-<random> sibling inside the per-path lock and deletes the
+// .json sidecar. Exponential backoff retries handle transient Windows AV locks
+// without triggering an HTTP re-download, and unique suffixes prevent concurrent
+// callers from colliding on the same finalized path after the lock releases.
+func finalizeResumablePartial(partialPath string) (string, error) {
+	var suffix [8]byte
+	if _, err := rand.Read(suffix[:]); err != nil {
+		return "", err
+	}
+	finalPath := partialPath + ".complete-" + hex.EncodeToString(suffix[:])
+	backoff := 50 * time.Millisecond
+	var lastErr error
+	for attempt := 0; attempt < 5; attempt++ {
+		if err := resumableRenameFile(partialPath, finalPath); err != nil {
+			lastErr = err
+			if attempt < 4 {
+				time.Sleep(backoff)
+				backoff *= 2
+			}
+			continue
+		}
+		_ = os.Remove(partialPath + ".json")
+		return finalPath, nil
+	}
+	return "", lastErr
+}
+
+// SweepResumableArtifacts reclaims orphaned download/scratch artifacts older
+// than maxAge inside dir (.part, .part.json, .part.complete-*, .beeftv-remux-*,
+// plus legacy suffixes from older versions). Active downloads protected by
+// lockResumableDownload are never removed.
+func SweepResumableArtifacts(dir string, maxAge time.Duration) {
+	dir = strings.TrimSpace(dir)
+	if dir == "" || maxAge <= 0 {
+		return
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().Add(-maxAge)
+	for _, entry := range entries {
+		name := entry.Name()
+		isScratchDir := entry.IsDir() && (strings.HasPrefix(name, ".beeftv-remux-") || strings.HasPrefix(name, ".beeftv-probe-"))
+		fullPath := filepath.Join(dir, name)
+		partialKey, isArtifactFile := "", false
+		if !entry.IsDir() {
+			partialKey, isArtifactFile = resumableArtifactLockKey(fullPath, name)
+		}
+		if !isScratchDir && !isArtifactFile {
+			continue
+		}
+		info, infoErr := entry.Info()
+		if infoErr != nil || info.ModTime().After(cutoff) {
+			continue
+		}
+		if isScratchDir {
+			_ = os.RemoveAll(fullPath)
+			continue
+		}
+		unlock := lockResumableDownload(partialKey)
+		if fresh, statErr := os.Stat(fullPath); statErr == nil && !fresh.ModTime().After(cutoff) {
+			_ = os.Remove(fullPath)
+		}
+		unlock()
+	}
+}
+
+func resumableArtifactLockKey(fullPath, name string) (string, bool) {
+	switch {
+	case strings.HasSuffix(name, ".part"):
+		return fullPath, true
+	case strings.HasSuffix(name, ".part.json"):
+		return strings.TrimSuffix(fullPath, ".json"), true
+	case strings.HasSuffix(name, ".complete"):
+		return strings.TrimSuffix(fullPath, ".complete"), true
+	case strings.HasPrefix(name, "beeftv-content-") && strings.HasSuffix(name, ".bin"):
+		return fullPath, true
+	}
+	for _, marker := range []string{".part.complete-", ".part.done-"} {
+		if idx := strings.Index(fullPath, marker); idx > 0 {
+			return fullPath[:idx+len(".part")], true
+		}
+	}
+	return "", false
 }
 
 const ResumableConnectionDropMessage = "生成结果下载失败：连接意外中断，请检查网络或代理设置后重试取回"
@@ -391,6 +500,8 @@ func resumableTransferError(ctx context.Context, err error) error {
 	return err
 }
 
+// IsConnectionDrop reports whether err represents an unexpected connection drop
+// or premature EOF during transfer (such as a stale proxy/keep-alive socket).
 func IsConnectionDrop(err error) bool {
 	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || IsConnectionInterrupted(err)
 }
@@ -505,7 +616,7 @@ func waitResumableBackoff(ctx context.Context, attempt int) error {
 }
 
 type idleResetReader struct {
-	body  io.ReadCloser
+	body  io.Reader
 	timer *time.Timer
 	idle  time.Duration
 }

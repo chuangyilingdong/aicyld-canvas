@@ -1,7 +1,10 @@
 package repository
 
 import (
-	"slices"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"strconv"
 	"strings"
 
 	"infinite-canvas/backend/internal/assets"
@@ -9,29 +12,6 @@ import (
 
 	"gorm.io/gorm"
 )
-
-// ResourceReferenceDocument 是资源删除校验使用的只读业务文档快照。
-// repository 只按用户范围读取记录；JSON 中的资源引用合同由 service 统一解释。
-type ResourceReferenceDocument struct {
-	Kind          string
-	ID            string
-	Title         string
-	PrimaryJSON   string
-	SecondaryJSON string
-	TaskStatus    model.TaskStatus
-}
-
-type ResourceDirectReference struct {
-	Kind       string
-	ID         string
-	Title      string
-	ResourceID string
-}
-
-type ResourceReferenceSnapshot struct {
-	Documents []ResourceReferenceDocument
-	Direct    []ResourceDirectReference
-}
 
 func (r *Repository) AssetResourceRecords(assetID string) ([]model.AssetVersion, []model.AssetRepresentation, error) {
 	var versions []model.AssetVersion
@@ -82,260 +62,6 @@ func (r *Repository) ResourceStorageReferenceCount(resource *model.Resource, exc
 	return count, err
 }
 
-func (r *Repository) ResourceReferenceSnapshot(userID string, excludingAssetID string, resourceIDs []string) (ResourceReferenceSnapshot, error) {
-	snapshot := ResourceReferenceSnapshot{Documents: []ResourceReferenceDocument{}, Direct: []ResourceDirectReference{}}
-	if len(resourceIDs) == 0 {
-		return snapshot, nil
-	}
-	history, err := r.CanvasHistoryResourceReferences(resourceIDs)
-	if err != nil {
-		return snapshot, err
-	}
-	snapshot.Direct = append(snapshot.Direct, history...)
-	exports, err := r.ProjectExportResourceReferences(userID, resourceIDs)
-	if err != nil {
-		return snapshot, err
-	}
-	snapshot.Direct = append(snapshot.Direct, exports...)
-	if r.db.Migrator().HasTable(&model.CanvasWorkflowResource{}) {
-		var refs []model.CanvasWorkflowResource
-		if err := r.db.Where("user_id = ? AND resource_id IN ?", userID, resourceIDs).Find(&refs).Error; err != nil {
-			return snapshot, err
-		}
-		for _, ref := range refs {
-			snapshot.Direct = append(snapshot.Direct, ResourceDirectReference{Kind: "可复用工作流", ID: ref.OwnerID, Title: "工作流模板或运行结果", ResourceID: ref.ResourceID})
-		}
-	}
-
-	var assets []model.Asset
-	assetQuery := r.db.Where("user_id = ? AND id <> ?", userID, excludingAssetID)
-	if err := assetQuery.Find(&assets).Error; err != nil {
-		return snapshot, err
-	}
-	for _, asset := range assets {
-		snapshot.Documents = append(snapshot.Documents, ResourceReferenceDocument{Kind: "素材", ID: asset.ID, Title: asset.Title, PrimaryJSON: asset.PayloadJSON})
-	}
-
-	var canvases []model.CanvasProject
-	if err := r.db.Where("user_id = ?", userID).Find(&canvases).Error; err != nil {
-		return snapshot, err
-	}
-	for _, canvas := range canvases {
-		snapshot.Documents = append(snapshot.Documents, ResourceReferenceDocument{Kind: "画布", ID: canvas.ID, Title: canvas.Title, PrimaryJSON: canvas.PayloadJSON})
-	}
-
-	var tasks []model.Task
-	if err := r.db.Select("id", "prompt", "status", "input_json", "result_json").Where("user_id = ?", userID).Find(&tasks).Error; err != nil {
-		return snapshot, err
-	}
-	taskStatuses := make(map[string]model.TaskStatus, len(tasks))
-	for _, task := range tasks {
-		taskStatuses[task.ID] = task.Status
-		snapshot.Documents = append(snapshot.Documents, ResourceReferenceDocument{Kind: "任务", ID: task.ID, Title: task.Prompt, PrimaryJSON: task.InputJSON, SecondaryJSON: task.ResultJSON, TaskStatus: task.Status})
-	}
-
-	var runs []model.CreationRun
-	if err := r.db.Where("user_id = ?", userID).Find(&runs).Error; err != nil {
-		return snapshot, err
-	}
-	for _, run := range runs {
-		snapshot.Documents = append(snapshot.Documents, ResourceReferenceDocument{Kind: "创作会话", ID: run.ID, Title: "智能创作", PrimaryJSON: run.StateJSON, SecondaryJSON: run.ApprovedOperationsJSON})
-	}
-	var submissions []model.CreationSubmission
-	if err := r.db.Where("user_id = ? AND revoked_at IS NULL", userID).Find(&submissions).Error; err != nil {
-		return snapshot, err
-	}
-	for _, submission := range submissions {
-		snapshot.Documents = append(snapshot.Documents, ResourceReferenceDocument{Kind: "创作执行项", ID: submission.ID, Title: submission.ItemKey, PrimaryJSON: submission.RequestJSON})
-	}
-
-	var taskLogs []model.TaskLog
-	if err := r.db.Select("id", "task_id", "message", "payload").Where("user_id = ?", userID).Find(&taskLogs).Error; err != nil {
-		return snapshot, err
-	}
-	for _, taskLog := range taskLogs {
-		snapshot.Documents = append(snapshot.Documents, ResourceReferenceDocument{Kind: "任务日志", ID: taskLog.ID, Title: taskLog.Message, PrimaryJSON: taskLog.Payload, TaskStatus: taskStatuses[taskLog.TaskID]})
-	}
-
-	var results []model.Result
-	if err := r.db.Select("id", "task_id", "kind", "url", "payload").Where("user_id = ?", userID).Find(&results).Error; err != nil {
-		return snapshot, err
-	}
-	for _, result := range results {
-		snapshot.Documents = append(snapshot.Documents, ResourceReferenceDocument{Kind: "任务结果", ID: result.ID, Title: result.Kind, PrimaryJSON: result.URL, SecondaryJSON: result.Payload, TaskStatus: taskStatuses[result.TaskID]})
-	}
-
-	var projects []model.Project
-	if err := r.db.Where("user_id = ?", userID).Find(&projects).Error; err != nil {
-		return snapshot, err
-	}
-	for _, project := range projects {
-		snapshot.Documents = append(snapshot.Documents, ResourceReferenceDocument{Kind: "项目", ID: project.ID, Title: project.Name, PrimaryJSON: project.StyleProfileJSON})
-		if project.CoverResourceID != "" && slices.Contains(resourceIDs, project.CoverResourceID) {
-			snapshot.Direct = append(snapshot.Direct, ResourceDirectReference{Kind: "项目主图", ID: project.ID, Title: project.Name, ResourceID: project.CoverResourceID})
-		}
-	}
-
-	var styles []model.StyleProfile
-	if err := r.db.Where("user_id = ?", userID).Find(&styles).Error; err != nil {
-		return snapshot, err
-	}
-	for _, style := range styles {
-		snapshot.Documents = append(snapshot.Documents, ResourceReferenceDocument{Kind: "风格", ID: style.ID, Title: style.Name, PrimaryJSON: style.CoverURL, SecondaryJSON: style.ProfileJSON})
-	}
-
-	type joinedDocument struct {
-		ID            string
-		Title         string
-		PrimaryJSON   string
-		SecondaryJSON string
-	}
-	var versions []joinedDocument
-	versionQuery := r.db.Table("asset_versions").
-		Select("asset_versions.id, assets.title, asset_versions.definition_json AS primary_json").
-		Joins("JOIN assets ON assets.id = asset_versions.asset_id").
-		Where("assets.user_id = ? AND assets.id <> ?", userID, excludingAssetID)
-	if err := versionQuery.Scan(&versions).Error; err != nil {
-		return snapshot, err
-	}
-	for _, version := range versions {
-		snapshot.Documents = append(snapshot.Documents, ResourceReferenceDocument{Kind: "素材", ID: version.ID, Title: version.Title, PrimaryJSON: version.PrimaryJSON})
-	}
-
-	var candidates []joinedDocument
-	candidateQuery := r.db.Table("project_asset_candidates").
-		Select("project_asset_candidates.id, projects.name AS title, project_asset_candidates.details_json AS primary_json").
-		Joins("JOIN projects ON projects.id = project_asset_candidates.project_id").
-		Where("projects.user_id = ?", userID)
-	if err := candidateQuery.Scan(&candidates).Error; err != nil {
-		return snapshot, err
-	}
-	for _, candidate := range candidates {
-		snapshot.Documents = append(snapshot.Documents, ResourceReferenceDocument{Kind: "项目", ID: candidate.ID, Title: candidate.Title, PrimaryJSON: candidate.PrimaryJSON})
-	}
-
-	var steps []joinedDocument
-	stepQuery := r.db.Table("workflow_step_instances").
-		Select("workflow_step_instances.id, workflow_step_instances.name AS title, workflow_step_instances.input_json AS primary_json, workflow_step_instances.output_json AS secondary_json").
-		Joins("JOIN workflow_instances ON workflow_instances.id = workflow_step_instances.workflow_instance_id").
-		Joins("JOIN projects ON projects.id = workflow_instances.project_id").
-		Where("projects.user_id = ?", userID)
-	if err := stepQuery.Scan(&steps).Error; err != nil {
-		return snapshot, err
-	}
-	for _, step := range steps {
-		snapshot.Documents = append(snapshot.Documents, ResourceReferenceDocument{Kind: "工作流", ID: step.ID, Title: step.Title, PrimaryJSON: step.PrimaryJSON, SecondaryJSON: step.SecondaryJSON})
-	}
-
-	var shotArtifacts []joinedDocument
-	artifactDocumentQuery := r.db.Table("shot_artifacts").
-		Select("shot_artifacts.id, shots.title, shot_artifacts.metadata_json AS primary_json").
-		Joins("JOIN shots ON shots.id = shot_artifacts.shot_id").
-		Joins("JOIN projects ON projects.id = shots.project_id").
-		Where("projects.user_id = ?", userID)
-	if err := artifactDocumentQuery.Scan(&shotArtifacts).Error; err != nil {
-		return snapshot, err
-	}
-	for _, artifact := range shotArtifacts {
-		snapshot.Documents = append(snapshot.Documents, ResourceReferenceDocument{Kind: "镜头产物", ID: artifact.ID, Title: artifact.Title, PrimaryJSON: artifact.PrimaryJSON})
-	}
-
-	type joinedRepresentation struct {
-		ID         string
-		Title      string
-		ResourceID string
-	}
-	var representations []joinedRepresentation
-	if err := r.db.Table("asset_representations").
-		Select("asset_representations.id, assets.title, asset_representations.resource_id").
-		Joins("JOIN asset_versions ON asset_versions.id = asset_representations.asset_version_id").
-		Joins("JOIN assets ON assets.id = asset_versions.asset_id").
-		Where("assets.user_id = ? AND assets.id <> ? AND asset_representations.resource_id IN ?", userID, excludingAssetID, resourceIDs).
-		Scan(&representations).Error; err != nil {
-		return snapshot, err
-	}
-	for _, representation := range representations {
-		snapshot.Direct = append(snapshot.Direct, ResourceDirectReference{Kind: "素材", ID: representation.ID, Title: representation.Title, ResourceID: representation.ResourceID})
-	}
-
-	var candidatePreviews []joinedRepresentation
-	if r.db.Migrator().HasTable(&model.ProjectAssetCandidatePreview{}) && r.db.Migrator().HasTable(&model.ProjectAssetCandidate{}) {
-		if err := r.db.Table("project_asset_candidate_previews").
-			Select("project_asset_candidate_previews.id, project_asset_candidates.name AS title, project_asset_candidate_previews.resource_id").
-			Joins("JOIN project_asset_candidates ON project_asset_candidates.id = project_asset_candidate_previews.candidate_id").
-			Joins("JOIN projects ON projects.id = project_asset_candidates.project_id").
-			Where("projects.user_id = ? AND project_asset_candidate_previews.resource_id IN ? AND project_asset_candidate_previews.status <> ?", userID, resourceIDs, "deleted").
-			Scan(&candidatePreviews).Error; err != nil {
-			return snapshot, err
-		}
-		for _, preview := range candidatePreviews {
-			snapshot.Direct = append(snapshot.Direct, ResourceDirectReference{Kind: "资产候选历史", ID: preview.ID, Title: preview.Title, ResourceID: preview.ResourceID})
-		}
-	}
-
-	var selectedCandidates []joinedRepresentation
-	if r.db.Migrator().HasTable(&model.ProjectAssetCandidate{}) {
-		if err := r.db.Table("project_asset_candidates").
-			Select("project_asset_candidates.id, project_asset_candidates.name AS title, project_asset_candidates.preview_resource_id").
-			Joins("JOIN projects ON projects.id = project_asset_candidates.project_id").
-			Where("projects.user_id = ? AND project_asset_candidates.preview_resource_id IN ?", userID, resourceIDs).
-			Scan(&selectedCandidates).Error; err != nil {
-			return snapshot, err
-		}
-		for _, candidate := range selectedCandidates {
-			snapshot.Direct = append(snapshot.Direct, ResourceDirectReference{Kind: "资产候选", ID: candidate.ID, Title: candidate.Title, ResourceID: candidate.ResourceID})
-		}
-	}
-
-	if r.db.Migrator().HasTable(&model.ProjectUnitArtifact{}) {
-		var unitArtifacts []joinedRepresentation
-		if err := r.db.Table("project_unit_artifacts").
-			Select("project_unit_artifacts.id, projects.name AS title, project_unit_artifacts.resource_id").
-			Joins("JOIN projects ON projects.id = project_unit_artifacts.project_id").
-			Where("projects.user_id = ? AND project_unit_artifacts.resource_id IN ?", userID, resourceIDs).
-			Scan(&unitArtifacts).Error; err != nil {
-			return snapshot, err
-		}
-		for _, artifact := range unitArtifacts {
-			snapshot.Direct = append(snapshot.Direct, ResourceDirectReference{Kind: "智能整片", ID: artifact.ID, Title: artifact.Title, ResourceID: artifact.ResourceID})
-		}
-	}
-
-	var voices []model.VoiceProfile
-	if err := r.db.Where("user_id = ? AND sample_resource_id IN ?", userID, resourceIDs).Find(&voices).Error; err != nil {
-		return snapshot, err
-	}
-	for _, voice := range voices {
-		snapshot.Direct = append(snapshot.Direct, ResourceDirectReference{Kind: "声音", ID: voice.ID, Title: voice.Name, ResourceID: voice.SampleResourceID})
-	}
-
-	type joinedShotArtifact struct {
-		ID         string
-		Title      string
-		ResourceID string
-	}
-	var artifacts []joinedShotArtifact
-	if err := r.db.Table("shot_artifacts").
-		Select("shot_artifacts.id, shots.title, shot_artifacts.resource_id").
-		Joins("JOIN shots ON shots.id = shot_artifacts.shot_id").
-		Joins("JOIN projects ON projects.id = shots.project_id").
-		Where("projects.user_id = ? AND shot_artifacts.resource_id IN ?", userID, resourceIDs).
-		Scan(&artifacts).Error; err != nil {
-		return snapshot, err
-	}
-	for _, artifact := range artifacts {
-		snapshot.Direct = append(snapshot.Direct, ResourceDirectReference{Kind: "镜头产物", ID: artifact.ID, Title: artifact.Title, ResourceID: artifact.ResourceID})
-	}
-
-	libraryRefs, err := r.CanvasLibraryResourceReferences(userID, resourceIDs)
-	if err != nil {
-		return snapshot, err
-	}
-	snapshot.Direct = append(snapshot.Direct, libraryRefs...)
-
-	return snapshot, nil
-}
-
 func (r *Repository) AssetBusinessReferences(userID string, assetID string) ([]ResourceDirectReference, error) {
 	type projectReference struct {
 		ID    string
@@ -374,10 +100,456 @@ func (r *Repository) AssetBusinessReferences(userID string, assetID string) ([]R
 	return result, nil
 }
 
+// TwinAutoGeneratedAssetIDs returns unlinked auto-generated sibling asset IDs
+// belonging to the same user that share one of resourceIDs with assetID
+// (e.g. a pure generation-history twin alongside a personal Canvas copy, or an
+// auto-synced canvas-generation duplicate alongside a generation-history row).
+func (r *Repository) TwinAutoGeneratedAssetIDs(userID string, assetID string, resourceIDs []string, expectedStatus string) ([]string, error) {
+	if len(resourceIDs) == 0 {
+		return nil, nil
+	}
+	var primary model.Asset
+	if err := r.db.Where("id = ? AND user_id = ?", assetID, userID).First(&primary).Error; err != nil {
+		return nil, err
+	}
+	return twinAutoGeneratedAssetIDsTx(r.db, userID, primary, resourceIDs, strings.TrimSpace(expectedStatus))
+}
+
+func twinAutoGeneratedAssetIDsTx(tx *gorm.DB, userID string, primary model.Asset, resourceIDs []string, expectedStatus string) ([]string, error) {
+	if len(resourceIDs) == 0 {
+		return nil, nil
+	}
+	targetSet := make(map[string]struct{}, len(resourceIDs))
+	clauses := make([]string, 0, len(resourceIDs))
+	args := make([]any, 0, len(resourceIDs))
+	for _, id := range resourceIDs {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		targetSet[id] = struct{}{}
+		clauses = append(clauses, "instr(payload_json, ?) > 0")
+		args = append(args, id)
+	}
+	if len(clauses) == 0 {
+		return nil, nil
+	}
+	var candidates []model.Asset
+	q := tx.Where("user_id = ? AND id <> ? AND kind IN ?", userID, primary.ID, []string{"image", "video", "audio"}).
+		Where("("+strings.Join(clauses, " OR ")+")", args...)
+	if err := q.Find(&candidates).Error; err != nil {
+		return nil, err
+	}
+	twins := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		if !assetPayloadReferencesAny(candidate.PayloadJSON, targetSet) {
+			continue
+		}
+		if !isDeletableAutoGeneratedTwin(primary, candidate, expectedStatus) {
+			continue
+		}
+		if err := guardAssetBusinessLinks(tx, candidate.ID); err != nil {
+			continue
+		}
+		twins = append(twins, candidate.ID)
+	}
+	return twins, nil
+}
+
+func assetPayloadReferencesAny(payloadJSON string, targetSet map[string]struct{}) bool {
+	if len(targetSet) == 0 || strings.TrimSpace(payloadJSON) == "" {
+		return false
+	}
+	refs := map[string]struct{}{}
+	if err := assets.CollectOwnedDocumentReferences(payloadJSON, refs); err != nil {
+		return false
+	}
+	for id := range refs {
+		if _, ok := targetSet[id]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+type assetClassificationPayload struct {
+	Source   string `json:"source"`
+	FolderID string `json:"folderId"`
+	Metadata struct {
+		Source              string `json:"source"`
+		TaskID              string `json:"taskId"`
+		OutputIndex         *int   `json:"outputIndex"`
+		GenerationEffectKey any    `json:"generationEffectKey"`
+		SavedToLibrary      any    `json:"savedToLibrary"`
+		Favorite            any    `json:"favorite"`
+	} `json:"metadata"`
+}
+
+func decodeAssetClassification(payloadJSON string) (assetClassificationPayload, bool) {
+	var parsed assetClassificationPayload
+	if strings.TrimSpace(payloadJSON) == "" || json.Unmarshal([]byte(payloadJSON), &parsed) != nil {
+		return parsed, false
+	}
+	return parsed, true
+}
+
+func isTruthyJSONFlag(value any) bool {
+	switch v := value.(type) {
+	case bool:
+		return v
+	case float64:
+		return v == 1
+	case string:
+		return v == "true" || v == "1"
+	default:
+		return false
+	}
+}
+
+func isGeneratedAssetRecord(asset model.Asset) bool {
+	switch asset.Kind {
+	case "image", "video", "audio":
+	default:
+		return false
+	}
+	parsed, ok := decodeAssetClassification(asset.PayloadJSON)
+	if !ok {
+		return false
+	}
+	if parsed.Source == "生成任务" {
+		return true
+	}
+	if _, isStr := parsed.Metadata.GenerationEffectKey.(string); isStr {
+		return true
+	}
+	return false
+}
+
+func isPersonalAssetRecord(asset model.Asset) bool {
+	if !isGeneratedAssetRecord(asset) {
+		return true
+	}
+	if strings.TrimSpace(asset.FolderID) != "" {
+		return true
+	}
+	parsed, ok := decodeAssetClassification(asset.PayloadJSON)
+	if !ok {
+		return false
+	}
+	return isTruthyJSONFlag(parsed.Metadata.SavedToLibrary) ||
+		parsed.Metadata.Source == "canvas-manual" ||
+		strings.TrimSpace(parsed.FolderID) != "" ||
+		isTruthyJSONFlag(parsed.Metadata.Favorite)
+}
+
+func isAutoSyncedCanvasGenerationTwin(asset model.Asset) bool {
+	if strings.TrimSpace(asset.FolderID) != "" {
+		return false
+	}
+	parsed, ok := decodeAssetClassification(asset.PayloadJSON)
+	if !ok {
+		return false
+	}
+	return parsed.Source == "Canvas" &&
+		parsed.Metadata.Source == "canvas-generation" &&
+		strings.TrimSpace(parsed.FolderID) == "" &&
+		!isTruthyJSONFlag(parsed.Metadata.SavedToLibrary) &&
+		!isTruthyJSONFlag(parsed.Metadata.Favorite)
+}
+
+type generationIdentity struct {
+	taskID      string
+	effectKey   string
+	outputIndex *int
+}
+
+func extractGenerationIdentity(asset model.Asset) generationIdentity {
+	parsed, ok := decodeAssetClassification(asset.PayloadJSON)
+	if !ok {
+		return generationIdentity{}
+	}
+	id := generationIdentity{
+		taskID:      strings.TrimSpace(parsed.Metadata.TaskID),
+		outputIndex: parsed.Metadata.OutputIndex,
+	}
+	if rawEffect, isStr := parsed.Metadata.GenerationEffectKey.(string); isStr {
+		id.effectKey = strings.TrimSpace(rawEffect)
+		if strings.HasPrefix(id.effectKey, "materialize:") {
+			rest := strings.TrimPrefix(id.effectKey, "materialize:")
+			if sep := strings.LastIndex(rest, ":"); sep > 0 {
+				if id.taskID == "" {
+					id.taskID = strings.TrimSpace(rest[:sep])
+				}
+				if id.outputIndex == nil {
+					if idx, err := strconv.Atoi(strings.TrimSpace(rest[sep+1:])); err == nil && idx >= 0 {
+						id.outputIndex = &idx
+					}
+				}
+			}
+		}
+	}
+	return id
+}
+
+func canonicalMaterializedAssetID(taskID string, outputIndex int) string {
+	sum := sha256.Sum256([]byte("materialize:" + strings.TrimSpace(taskID) + ":" + strconv.Itoa(outputIndex)))
+	return "generation_" + hex.EncodeToString(sum[:])
+}
+
+func sharesGenerationIdentity(primary model.Asset, candidate model.Asset) bool {
+	p := extractGenerationIdentity(primary)
+	c := extractGenerationIdentity(candidate)
+	if p.effectKey != "" && c.effectKey != "" {
+		return p.effectKey == c.effectKey
+	}
+	if p.taskID == "" || c.taskID == "" || p.taskID != c.taskID {
+		return false
+	}
+	if p.outputIndex != nil && c.outputIndex != nil && *p.outputIndex != *c.outputIndex {
+		return false
+	}
+	// When the canonical generation_ asset ID is present alongside a known outputIndex,
+	// verify the SHA-256 identity matches so distinct outputs are never conflated.
+	if strings.HasPrefix(candidate.ID, "generation_") {
+		idx := 0
+		if c.outputIndex != nil {
+			idx = *c.outputIndex
+		} else if p.outputIndex != nil {
+			idx = *p.outputIndex
+		}
+		if candidate.ID != canonicalMaterializedAssetID(p.taskID, idx) {
+			return false
+		}
+	}
+	if strings.HasPrefix(primary.ID, "generation_") {
+		idx := 0
+		if p.outputIndex != nil {
+			idx = *p.outputIndex
+		} else if c.outputIndex != nil {
+			idx = *c.outputIndex
+		}
+		if primary.ID != canonicalMaterializedAssetID(c.taskID, idx) {
+			return false
+		}
+	}
+	return true
+}
+
+func isDeletableAutoGeneratedTwin(primary model.Asset, candidate model.Asset, expectedStatus string) bool {
+	if expectedStatus != "" && string(candidate.Status) != expectedStatus {
+		return false
+	}
+	if isGeneratedAssetRecord(primary) {
+		if !isAutoSyncedCanvasGenerationTwin(candidate) {
+			return false
+		}
+	} else {
+		if !isGeneratedAssetRecord(candidate) || isPersonalAssetRecord(candidate) {
+			return false
+		}
+	}
+	return sharesGenerationIdentity(primary, candidate)
+}
+
+type deletedTaskOutputMatcher struct {
+	outputIndex *int
+	resourceIDs map[string]struct{}
+}
+
+type deletedGenerationOutputMatcher struct {
+	assetIDs    map[string]struct{}
+	effectKeys  map[string]struct{}
+	taskOutputs map[string][]deletedTaskOutputMatcher
+	taskIDs     []string
+}
+
+func newDeletedGenerationOutputMatcher(deletedAssets []model.Asset) *deletedGenerationOutputMatcher {
+	m := &deletedGenerationOutputMatcher{
+		assetIDs:    make(map[string]struct{}, len(deletedAssets)),
+		effectKeys:  make(map[string]struct{}, len(deletedAssets)),
+		taskOutputs: make(map[string][]deletedTaskOutputMatcher, len(deletedAssets)),
+		taskIDs:     make([]string, 0, len(deletedAssets)),
+	}
+	seenTask := make(map[string]struct{}, len(deletedAssets))
+	for _, a := range deletedAssets {
+		if id := strings.TrimSpace(a.ID); id != "" {
+			m.assetIDs[id] = struct{}{}
+		}
+		genID := extractGenerationIdentity(a)
+		if genID.effectKey != "" {
+			m.effectKeys[genID.effectKey] = struct{}{}
+		}
+		if genID.taskID != "" {
+			if _, exists := seenTask[genID.taskID]; !exists {
+				seenTask[genID.taskID] = struct{}{}
+				m.taskIDs = append(m.taskIDs, genID.taskID)
+			}
+			refs := map[string]struct{}{}
+			if strings.TrimSpace(a.PayloadJSON) != "" {
+				_ = assets.CollectOwnedDocumentReferences(a.PayloadJSON, refs)
+			}
+			m.taskOutputs[genID.taskID] = append(m.taskOutputs[genID.taskID], deletedTaskOutputMatcher{
+				outputIndex: genID.outputIndex,
+				resourceIDs: refs,
+			})
+		}
+	}
+	return m
+}
+
+func (m *deletedGenerationOutputMatcher) matches(tx *gorm.DB, userID string, taskID string, doc map[string]any) (bool, error) {
+	if m == nil {
+		return false, nil
+	}
+	matID, _ := doc["materializedAssetId"].(string)
+	matID = strings.TrimSpace(matID)
+	effectKey, _ := doc["effectKey"].(string)
+	effectKey = strings.TrimSpace(effectKey)
+	resID, _ := doc["resourceId"].(string)
+	resID = strings.TrimSpace(resID)
+	outIdx, hasOutIdx := docOutputIndex(doc)
+
+	if matID != "" {
+		if _, ok := m.assetIDs[matID]; ok {
+			return true, nil
+		}
+		var liveAssetCount int64
+		if err := tx.Model(&model.Asset{}).Where("id = ? AND user_id = ?", matID, userID).Count(&liveAssetCount).Error; err != nil {
+			return false, err
+		}
+		if liveAssetCount > 0 {
+			return false, nil
+		}
+	}
+	if effectKey != "" {
+		if _, ok := m.effectKeys[effectKey]; ok {
+			return true, nil
+		}
+	}
+	if matchers := m.taskOutputs[strings.TrimSpace(taskID)]; len(matchers) > 0 {
+		for _, matcher := range matchers {
+			if matcher.outputIndex != nil {
+				if (hasOutIdx && *matcher.outputIndex == outIdx) || (!hasOutIdx && *matcher.outputIndex == 0) {
+					return true, nil
+				}
+				continue
+			}
+			if resID == "" || len(matcher.resourceIDs) == 0 {
+				return true, nil
+			}
+			if _, ok := matcher.resourceIDs[resID]; ok {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
+// isRetainedCompletedGenerationOutput reports whether a completed task's
+// generation_output result row is still live (not asset_deleted) and will NOT
+// be tombstoned by deleting the assets in matcher, so its referenced resource
+// must be retained.
+func isRetainedCompletedGenerationOutput(tx *gorm.DB, userID string, resultKind string, taskID string, payloadJSON string, matcher *deletedGenerationOutputMatcher) (bool, error) {
+	if strings.TrimSpace(resultKind) != "generation_output" || matcher == nil {
+		return false, nil
+	}
+	var doc map[string]any
+	if strings.TrimSpace(payloadJSON) == "" || json.Unmarshal([]byte(payloadJSON), &doc) != nil {
+		return false, nil
+	}
+	if code, _ := doc["materializationErrorCode"].(string); strings.TrimSpace(code) == "asset_deleted" {
+		return false, nil
+	}
+	willTombstone, err := matcher.matches(tx, userID, taskID, doc)
+	if err != nil {
+		return false, err
+	}
+	return !willTombstone, nil
+}
+
+func docOutputIndex(doc map[string]any) (int, bool) {
+	raw, ok := doc["outputIndex"]
+	if !ok || raw == nil {
+		return 0, false
+	}
+	switch v := raw.(type) {
+	case float64:
+		return int(v), true
+	case int:
+		return v, true
+	default:
+		return 0, false
+	}
+}
+
+func tombstoneDeletedAssetGenerationOutputs(tx *gorm.DB, userID string, deletedAssets []model.Asset) error {
+	if !tx.Migrator().HasTable(&model.Result{}) || len(deletedAssets) == 0 {
+		return nil
+	}
+	matcher := newDeletedGenerationOutputMatcher(deletedAssets)
+	clauses := make([]string, 0, len(matcher.assetIDs)+len(matcher.effectKeys)+1)
+	args := make([]any, 0, len(matcher.assetIDs)+len(matcher.effectKeys)+1)
+	for id := range matcher.assetIDs {
+		clauses = append(clauses, "instr(payload, ?) > 0")
+		args = append(args, id)
+	}
+	for effectKey := range matcher.effectKeys {
+		clauses = append(clauses, "instr(payload, ?) > 0")
+		args = append(args, effectKey)
+	}
+	if len(matcher.taskIDs) > 0 {
+		clauses = append(clauses, "task_id IN ?")
+		args = append(args, matcher.taskIDs)
+	}
+	if len(clauses) == 0 {
+		return nil
+	}
+	var rows []model.Result
+	if err := tx.Where("user_id = ? AND kind = ?", userID, "generation_output").
+		Where("("+strings.Join(clauses, " OR ")+")", args...).
+		Find(&rows).Error; err != nil {
+		return err
+	}
+	for _, row := range rows {
+		var doc map[string]any
+		if strings.TrimSpace(row.Payload) == "" || json.Unmarshal([]byte(row.Payload), &doc) != nil {
+			continue
+		}
+		matched, err := matcher.matches(tx, userID, row.TaskID, doc)
+		if err != nil {
+			return err
+		}
+		if !matched {
+			continue
+		}
+		delete(doc, "materializedAssetId")
+		delete(doc, "resourceId")
+		delete(doc, "providerArtifactRef")
+		doc["materializationErrorCode"] = "asset_deleted"
+		encoded, err := json.Marshal(doc)
+		if err != nil {
+			return err
+		}
+		if err := tx.Model(&model.Result{}).
+			Where("id = ? AND user_id = ?", row.ID, userID).
+			Updates(map[string]any{"payload": string(encoded), "url": ""}).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // DeleteAssetAndResources removes the owned asset and its resources in one
 // IMMEDIATE writer transaction. expectedStatus, when set, is checked against
 // the row and applied to the delete so a restore cannot commit with this TX.
 func (r *Repository) DeleteAssetAndResources(userID string, assetID string, resourceIDs []string, deletionJobs []model.ResourceDeletionJob, expectedStatus ...string) error {
+	return r.DeleteAssetsAndResources(userID, assetID, nil, resourceIDs, deletionJobs, expectedStatus...)
+}
+
+// DeleteAssetsAndResources atomically removes the owned asset, any verified
+// auto-generated twin assets, its unreferenced resources, and tombstones
+// corresponding generation_output records so deleted media never reappears.
+func (r *Repository) DeleteAssetsAndResources(userID string, assetID string, twinAssetIDs []string, resourceIDs []string, deletionJobs []model.ResourceDeletionJob, expectedStatus ...string) error {
 	expected := ""
 	if len(expectedStatus) > 0 {
 		expected = strings.TrimSpace(expectedStatus[0])
@@ -390,13 +562,47 @@ func (r *Repository) DeleteAssetAndResources(userID string, assetID string, reso
 		if expected != "" && string(asset.Status) != expected {
 			return ErrAssetExpectedStatusMismatch
 		}
-		if err := guardAssetDeletionReferences(tx, userID, assetID, resourceIDs); err != nil {
+		if err := guardAssetBusinessLinks(tx, assetID); err != nil {
 			return err
 		}
-		if err := New(tx).RequireNoCanvasHistoryReferences(resourceIDs); err != nil {
+		allAssetIDs := make([]string, 0, 1+len(twinAssetIDs))
+		allAssetIDs = append(allAssetIDs, assetID)
+		deletedAssets := make([]model.Asset, 0, 1+len(twinAssetIDs))
+		deletedAssets = append(deletedAssets, asset)
+		verifiedTwinIDs := make([]string, 0, len(twinAssetIDs))
+		seen := map[string]struct{}{assetID: {}}
+		for _, twinID := range twinAssetIDs {
+			twinID = strings.TrimSpace(twinID)
+			if twinID == "" {
+				continue
+			}
+			if _, dup := seen[twinID]; dup {
+				continue
+			}
+			var twin model.Asset
+			if err := tx.Where("id = ? AND user_id = ?", twinID, userID).First(&twin).Error; err != nil {
+				continue
+			}
+			if !isDeletableAutoGeneratedTwin(asset, twin, expected) {
+				continue
+			}
+			if err := guardAssetBusinessLinks(tx, twinID); err != nil {
+				continue
+			}
+			seen[twinID] = struct{}{}
+			verifiedTwinIDs = append(verifiedTwinIDs, twinID)
+			allAssetIDs = append(allAssetIDs, twinID)
+			deletedAssets = append(deletedAssets, twin)
+		}
+		if err := guardAssetDeletionReferencesExcluding(tx, userID, allAssetIDs, deletedAssets, resourceIDs); err != nil {
 			return err
 		}
-		versionIDs := tx.Model(&model.AssetVersion{}).Select("id").Where("asset_id = ?", assetID)
+		if tx.Migrator().HasTable(&model.CanvasSnapshotResource{}) {
+			if err := New(tx).RequireNoCanvasHistoryReferences(resourceIDs); err != nil {
+				return err
+			}
+		}
+		versionIDs := tx.Model(&model.AssetVersion{}).Select("id").Where("asset_id IN ?", allAssetIDs)
 		if err := tx.Where("asset_version_id IN (?)", versionIDs).Delete(&model.ShotAssetReference{}).Error; err != nil {
 			return err
 		}
@@ -406,13 +612,13 @@ func (r *Repository) DeleteAssetAndResources(userID string, assetID string, reso
 		if err := tx.Where("asset_version_id IN (?)", versionIDs).Delete(&model.AssetRepresentation{}).Error; err != nil {
 			return err
 		}
-		if err := tx.Where("asset_id = ?", assetID).Delete(&model.ProjectAssetLink{}).Error; err != nil {
+		if err := tx.Where("asset_id IN ?", allAssetIDs).Delete(&model.ProjectAssetLink{}).Error; err != nil {
 			return err
 		}
-		if err := tx.Where("resolved_asset_id = ?", assetID).Delete(&model.ProjectAssetCandidate{}).Error; err != nil {
+		if err := tx.Where("resolved_asset_id IN ?", allAssetIDs).Delete(&model.ProjectAssetCandidate{}).Error; err != nil {
 			return err
 		}
-		if err := tx.Where("asset_id = ?", assetID).Delete(&model.AssetVersion{}).Error; err != nil {
+		if err := tx.Where("asset_id IN ?", allAssetIDs).Delete(&model.AssetVersion{}).Error; err != nil {
 			return err
 		}
 		if expected != "" {
@@ -424,6 +630,18 @@ func (r *Repository) DeleteAssetAndResources(userID string, assetID string, reso
 				return ErrAssetExpectedStatusMismatch
 			}
 		} else if err := tx.Delete(&model.Asset{}, "id = ? AND user_id = ?", assetID, userID).Error; err != nil {
+			return err
+		}
+		if len(verifiedTwinIDs) > 0 {
+			twinDelete := tx.Where("id IN ? AND user_id = ?", verifiedTwinIDs, userID)
+			if expected != "" {
+				twinDelete = twinDelete.Where("status = ?", expected)
+			}
+			if err := twinDelete.Delete(&model.Asset{}).Error; err != nil {
+				return err
+			}
+		}
+		if err := tombstoneDeletedAssetGenerationOutputs(tx, userID, deletedAssets); err != nil {
 			return err
 		}
 		if len(deletionJobs) > 0 {
@@ -446,174 +664,6 @@ func (r *Repository) DeleteAssetAndResources(userID string, assetID string, reso
 		}
 		return tx.Where("user_id = ? AND id IN ?", userID, resourceIDs).Delete(&model.Resource{}).Error
 	})
-}
-
-// guardAssetDeletionReferences re-checks live documents and direct links inside
-// the delete transaction so a reference added after the service snapshot cannot
-// commit with the resource rows and outbox.
-func guardAssetDeletionReferences(tx *gorm.DB, userID string, assetID string, resourceIDs []string) error {
-	if err := guardAssetBusinessLinks(tx, assetID); err != nil {
-		return err
-	}
-	if len(resourceIDs) == 0 {
-		return nil
-	}
-	var assetDocuments []string
-	if err := tx.Model(&model.Asset{}).Where("user_id = ? AND id <> ?", userID, assetID).Pluck("payload_json", &assetDocuments).Error; err != nil {
-		return err
-	}
-	var canvasDocuments []string
-	if err := tx.Model(&model.CanvasProject{}).Where("user_id = ?", userID).Pluck("payload_json", &canvasDocuments).Error; err != nil {
-		return err
-	}
-	documents := append(assetDocuments, canvasDocuments...)
-	for _, resourceID := range resourceIDs {
-		storageKey := "resource:" + resourceID + `"`
-		fileURL := "/api/resources/" + resourceID + "/"
-		for _, document := range documents {
-			if strings.Contains(document, storageKey) || strings.Contains(document, fileURL) {
-				return ErrResourceCleanupStillReferenced
-			}
-		}
-	}
-	var representationCount int64
-	if err := tx.Table("asset_representations").
-		Joins("JOIN asset_versions ON asset_versions.id = asset_representations.asset_version_id").
-		Where("asset_versions.asset_id <> ? AND asset_representations.resource_id IN ?", assetID, resourceIDs).
-		Count(&representationCount).Error; err != nil {
-		return err
-	}
-	if representationCount > 0 {
-		return ErrResourceCleanupStillReferenced
-	}
-	for _, check := range []struct {
-		model any
-		query string
-	}{
-		{&model.VoiceProfile{}, "sample_resource_id IN ?"},
-		{&model.ShotArtifact{}, "resource_id IN ?"},
-	} {
-		var count int64
-		if err := tx.Model(check.model).Where(check.query, resourceIDs).Count(&count).Error; err != nil {
-			return err
-		}
-		if count > 0 {
-			return ErrResourceCleanupStillReferenced
-		}
-	}
-	if err := guardCanvasLibraryResourceReferences(tx, userID, resourceIDs); err != nil {
-		return err
-	}
-	if err := guardCanvasWorkflowResourceReferences(tx, userID, resourceIDs); err != nil {
-		return err
-	}
-	return guardTaskResourceReferences(tx, userID, resourceIDs, true)
-}
-
-func guardCanvasWorkflowResourceReferences(tx *gorm.DB, userID string, resourceIDs []string) error {
-	if len(resourceIDs) == 0 || !tx.Migrator().HasTable(&model.CanvasWorkflowResource{}) {
-		return nil
-	}
-	var count int64
-	if err := tx.Model(&model.CanvasWorkflowResource{}).Where("user_id = ? AND resource_id IN ?", userID, resourceIDs).Count(&count).Error; err != nil {
-		return err
-	}
-	if count > 0 {
-		return ErrResourceCleanupStillReferenced
-	}
-	return nil
-}
-
-func guardCanvasLibraryResourceReferences(tx *gorm.DB, userID string, resourceIDs []string) error {
-	if len(resourceIDs) == 0 {
-		return nil
-	}
-	if tx.Migrator().HasTable(&model.CanvasDrawing{}) {
-		var count int64
-		if err := liveCanvasDrawings(tx.Model(&model.CanvasDrawing{})).
-			Where("user_id = ? AND (preview_resource_id IN ? OR render_resource_id IN ?)", userID, resourceIDs, resourceIDs).
-			Count(&count).Error; err != nil {
-			return err
-		}
-		if count > 0 {
-			return ErrResourceCleanupStillReferenced
-		}
-	}
-	if tx.Migrator().HasTable(&model.CanvasLibraryFolder{}) {
-		var count int64
-		if err := liveCanvasLibraryFolders(tx.Model(&model.CanvasLibraryFolder{})).
-			Where("user_id = ? AND cover_resource_id IN ?", userID, resourceIDs).
-			Count(&count).Error; err != nil {
-			return err
-		}
-		if count > 0 {
-			return ErrResourceCleanupStillReferenced
-		}
-	}
-	return nil
-}
-
-func guardActiveTaskResourceReferences(tx *gorm.DB, userID string, resourceIDs []string) error {
-	return guardTaskResourceReferences(tx, userID, resourceIDs, true)
-}
-
-func guardTaskResourceReferences(tx *gorm.DB, userID string, resourceIDs []string, skipCompletedOutput bool) error {
-	if len(resourceIDs) == 0 {
-		return nil
-	}
-	owned := make(map[string]struct{}, len(resourceIDs))
-	for _, resourceID := range resourceIDs {
-		owned[resourceID] = struct{}{}
-	}
-	var tasks []model.Task
-	if err := tx.Select("id", "prompt", "status", "input_json", "result_json").Where("user_id = ?", userID).Find(&tasks).Error; err != nil {
-		return err
-	}
-	statuses := make(map[string]model.TaskStatus, len(tasks))
-	for _, task := range tasks {
-		statuses[task.ID] = task.Status
-		primary, secondary := task.InputJSON, task.ResultJSON
-		if skipCompletedOutput {
-			switch task.Status {
-			case model.TaskStatusSucceeded, model.TaskStatusFailed, model.TaskStatusCancelled:
-				secondary = ""
-			}
-		}
-		if len(assets.DocumentReferencedIDs(primary, owned)) > 0 || len(assets.DocumentReferencedIDs(secondary, owned)) > 0 {
-			return ErrResourceCleanupStillReferenced
-		}
-	}
-	var logs []model.TaskLog
-	if err := tx.Select("id", "task_id", "payload").Where("user_id = ?", userID).Find(&logs).Error; err != nil {
-		return err
-	}
-	for _, log := range logs {
-		if skipCompletedOutput {
-			switch statuses[log.TaskID] {
-			case model.TaskStatusSucceeded, model.TaskStatusFailed, model.TaskStatusCancelled:
-				continue
-			}
-		}
-		if len(assets.DocumentReferencedIDs(log.Payload, owned)) > 0 {
-			return ErrResourceCleanupStillReferenced
-		}
-	}
-	var results []model.Result
-	if err := tx.Select("id", "task_id", "url", "payload").Where("user_id = ?", userID).Find(&results).Error; err != nil {
-		return err
-	}
-	for _, result := range results {
-		if skipCompletedOutput {
-			switch statuses[result.TaskID] {
-			case model.TaskStatusSucceeded, model.TaskStatusFailed, model.TaskStatusCancelled:
-				continue
-			}
-		}
-		if len(assets.DocumentReferencedIDs(result.URL, owned)) > 0 || len(assets.DocumentReferencedIDs(result.Payload, owned)) > 0 {
-			return ErrResourceCleanupStillReferenced
-		}
-	}
-	return nil
 }
 
 func withImmediateTransaction(db *gorm.DB, fn func(*gorm.DB) error) error {
@@ -702,34 +752,4 @@ func (r *Repository) RequireReadyOwnedResources(userID string, resourceIDs []str
 		return gorm.ErrInvalidDB
 	}
 	return RequireReadyOwnedResourcesTx(r.db, userID, resourceIDs)
-}
-
-func guardAssetBusinessLinks(tx *gorm.DB, assetID string) error {
-	for _, check := range []struct {
-		model any
-		query string
-		args  []any
-	}{
-		{&model.ProjectAssetLink{}, "asset_id = ?", []any{assetID}},
-		{&model.ProjectAssetCandidate{}, "resolved_asset_id = ?", []any{assetID}},
-	} {
-		var count int64
-		if err := tx.Model(check.model).Where(check.query, check.args...).Count(&count).Error; err != nil {
-			return err
-		}
-		if count > 0 {
-			return ErrResourceCleanupStillReferenced
-		}
-	}
-	var shotCount int64
-	if err := tx.Table("shot_asset_references").
-		Joins("JOIN asset_versions ON asset_versions.id = shot_asset_references.asset_version_id").
-		Where("asset_versions.asset_id = ?", assetID).
-		Count(&shotCount).Error; err != nil {
-		return err
-	}
-	if shotCount > 0 {
-		return ErrResourceCleanupStillReferenced
-	}
-	return nil
 }

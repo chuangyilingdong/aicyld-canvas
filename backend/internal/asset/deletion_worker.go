@@ -229,3 +229,11 @@ func deletionRetryDelay(attempts int) time.Duration {
 	exponent := math.Min(float64(max(attempts-1, 0)), 8)
 	return time.Duration(math.Pow(2, exponent)) * 15 * time.Second
 }
+
+// signalDeletionWorker is retained for callers migrated from the wakeable
+// worker. This runtime drains on its existing periodic worker loop.
+func (s *Service) signalDeletionWorker() {}
+
+// RemovePreviewCache is a no-op where this runtime has no derived preview disk
+// cache. Keeping the seam lets shared deletion code remain provider-neutral.
+func (s *Service) RemovePreviewCache(string, string) {}

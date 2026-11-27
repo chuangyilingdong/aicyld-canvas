@@ -213,19 +213,10 @@ func (s *operationSession) admitProductionTargets(userID, canvasID string, plan 
 		n, _ := v.(map[string]any)
 		nodes[fmt.Sprint(n["id"])] = n
 	}
-	policy, err := s.service.runtimePolicyWithRepo(s.repo)
+	domain, err := s.productionTaskDomain()
 	if err != nil {
 		return nil, err
 	}
-	adapter := operationRenderDependencies{s: s, policy: policy}
-	deps := s.service.taskDependencies()
-	deps.Projects = adapter
-	deps.Policy = adapter
-	deps.Persist = adapter
-	deps.Present = operationRenderPresenter{}
-	deps.Logs = nil
-	deps.Activity = nil
-	domain := localtask.NewService(localtask.NewStore(s.repo), deps)
 	taskIDs := []string{}
 	nodeIDs := []string{}
 	changed := false

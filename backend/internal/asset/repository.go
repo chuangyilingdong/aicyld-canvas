@@ -1,6 +1,13 @@
 package asset
 
-import "infinite-canvas/backend/internal/repository"
+import (
+	"time"
+
+	"infinite-canvas/backend/internal/model"
+	"infinite-canvas/backend/internal/repository"
+
+	"gorm.io/gorm"
+)
 
 type gormRepository struct {
 	*repository.Repository
@@ -12,4 +19,22 @@ func NewRepository(repo *repository.Repository) Repository {
 		return nil
 	}
 	return gormRepository{Repository: repo}
+}
+
+func (r gormRepository) NextResourceDeletionWakeAt() (*time.Time, error) {
+	return nil, nil
+}
+func (r gormRepository) SaveResources(resources []*model.Resource) error {
+	return r.DB().Transaction(func(tx *gorm.DB) error {
+		bound := r.Repository.WithTx(tx)
+		for _, resource := range resources {
+			if resource == nil {
+				continue
+			}
+			if err := bound.SaveResource(resource); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }

@@ -24,6 +24,9 @@ func RegisterTaskRoutes(r *gin.RouterGroup, svc *app.Service, hostedProfile ...b
 			failService(c, err)
 			return
 		}
+		if !requireExternalBusinessPaidGuard(c, svc, user.ID) {
+			return
+		}
 		policy, available := loadRuntimePolicy(c, svc)
 		if !available || !enforceRateLimit(c, "tasks:"+user.ID, policy.Request.TaskCreatePerMinute, time.Minute) {
 			return
@@ -90,6 +93,9 @@ func RegisterTaskRoutes(r *gin.RouterGroup, svc *app.Service, hostedProfile ...b
 		user, err := currentUser(c, svc)
 		if err != nil {
 			failService(c, err)
+			return
+		}
+		if !requireExternalBusinessPaidGuard(c, svc, user.ID) {
 			return
 		}
 		policy, available := loadRuntimePolicy(c, svc)
@@ -248,6 +254,9 @@ func RegisterTaskRoutes(r *gin.RouterGroup, svc *app.Service, hostedProfile ...b
 			failService(c, err)
 			return
 		}
+		if !requireExternalBusinessPaidGuard(c, svc, user.ID) {
+			return
+		}
 		task, err := svc.RetryTask(user.ID, c.Param("id"))
 		if err != nil {
 			var appErr *app.AppError
@@ -264,6 +273,9 @@ func RegisterTaskRoutes(r *gin.RouterGroup, svc *app.Service, hostedProfile ...b
 		user, err := currentUser(c, svc)
 		if err != nil {
 			failService(c, err)
+			return
+		}
+		if !requireExternalBusinessPaidGuard(c, svc, user.ID) {
 			return
 		}
 		// 用户点「继续取回」：只有这个入口允许把 BeefAPI 没收到的托管原请求按原编号补交一次。

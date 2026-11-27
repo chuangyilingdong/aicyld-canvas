@@ -89,10 +89,10 @@ func NewBusinessCatalog(routes gin.RoutesInfo) *BusinessCatalog {
 	enrichBusinessSchemas(c)
 	for i := range c.Tools {
 		t := &c.Tools[i]
-		if t.Method == "POST" && (t.Path == "/tasks" || t.Path == "/tasks/:id/retry" || t.Path == "/creation-runs/:id/execute") {
+		if t.Method == "POST" && (t.Path == "/tasks" || t.Path == "/tasks/:id/retry" || t.Path == "/tasks/:id/recover" || t.Path == "/timeline/transcriptions" || t.Path == "/creation-runs/:id/execute") {
 			t.SubmitsGeneration = true
 			t.Cost = "selected-channel"
-			t.Summary += "；提交生成，按所选渠道计费，由外部调用方审批"
+			t.Summary += "；提交付费生成，受外部 Agent 护栏约束"
 		}
 	}
 	return c

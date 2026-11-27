@@ -43,7 +43,18 @@ var ErrCanvasRevisionConflict = errors.New("canvas revision changed")
 var ErrAssetExpectedStatusMismatch = errors.New("asset expected status mismatch")
 
 type Repository struct {
-	db *gorm.DB
+	db            *gorm.DB
+	singleProcess bool
+}
+
+func (r *Repository) SetSingleProcess(enabled bool) {
+	if r != nil {
+		r.singleProcess = enabled
+	}
+}
+
+func (r *Repository) SingleProcess() bool {
+	return r != nil && r.singleProcess
 }
 
 // DB 暴露底层连接，供同一进程内的操作层复用同一个数据库（不新建第二个库）。
@@ -57,10 +68,7 @@ func (r *Repository) DB() *gorm.DB {
 // WithTx 返回绑定到同一事务的仓储，使领域写入与操作记录一起提交。
 // 这是操作层幂等能成立的前提：不做内存去重，也不用第二个数据库假装满足。
 func (r *Repository) WithTx(tx *gorm.DB) *Repository {
-	if r == nil {
-		return &Repository{db: tx}
-	}
-	return &Repository{db: tx}
+	return &Repository{db: tx, singleProcess: r.SingleProcess()}
 }
 
 // HoldsTransaction reports that this repository is already bound to a GORM
@@ -89,7 +97,7 @@ func New(db *gorm.DB) *Repository {
 }
 
 func (r *Repository) WithContext(ctx context.Context) *Repository {
-	return &Repository{db: r.db.WithContext(ctx)}
+	return &Repository{db: r.db.WithContext(ctx), singleProcess: r.SingleProcess()}
 }
 
 func (r *Repository) Transaction(fn func(*Repository) error) error {

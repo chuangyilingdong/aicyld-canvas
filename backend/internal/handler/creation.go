@@ -10,6 +10,7 @@ import (
 
 type creationRouteService interface {
 	workspaceOwners
+	externalPaidGuardrailService
 	Creation() *creation.Service
 }
 
@@ -45,6 +46,9 @@ func RegisterCreationRoutes(r *gin.RouterGroup, svc creationRouteService) {
 			user, err := currentUser(c, svc)
 			if err != nil {
 				failService(c, err)
+				return
+			}
+			if action == "execute" && !requireExternalBusinessPaidGuard(c, svc, user.ID) {
 				return
 			}
 			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, max(int64(agentOpsMaxBody), canvas.EffectiveRequestMaxBodyBytes()))

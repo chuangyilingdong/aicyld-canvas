@@ -14,6 +14,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"infinite-canvas/backend/internal/agentops"
 	"infinite-canvas/backend/internal/model"
+	"infinite-canvas/backend/internal/operations"
 )
 
 // Official MCP transport and real task admission; the worker is never started,
@@ -21,6 +22,9 @@ import (
 func TestExternalMCPGenerationApprovalAndReceipt(t *testing.T) {
 	h := newDesktopHarness(t)
 	owner, canvasID, _ := seedOpsAcceptanceCanvas(t, h)
+	if _, err := operations.SetExternalGenerationGuardrail(h.rt.service.Database(), owner, operations.ExternalGenerationGuardrail{Mode: operations.ExternalGuardrailModeAllow}); err != nil {
+		t.Fatal(err)
+	}
 	if err := h.rt.service.SaveLocalModelConfig([]byte(`{"imageModel":"custom::qwen-image-2.1","channels":[{"id":"custom","enabled":true,"baseUrl":"https://example.invalid/v1","apiKey":"fixture","models":["qwen-image-2.1"],"modelProfiles":[{"model":"qwen-image-2.1","capability":"image","protocol":"openai-image"}]}]}`)); err != nil {
 		t.Fatal(err)
 	}

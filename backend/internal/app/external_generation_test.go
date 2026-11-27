@@ -29,6 +29,9 @@ func externalGenerationFixture(t *testing.T) (*Service, *operations.Registry, st
 	if _, err := svc.UpsertUserCanvasProject("local", raw); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := operations.SetExternalGenerationGuardrail(svc.Database(), "local", operations.ExternalGenerationGuardrail{Mode: operations.ExternalGuardrailModeAllow}); err != nil {
+		t.Fatal(err)
+	}
 	r := operations.NewRegistry(svc, operations.NewStore(svc.Database()))
 	operations.RegisterDefaultOps(r)
 	return svc, r, canvasID, canvasRevisionOf(t, svc, canvasID)
@@ -277,5 +280,34 @@ func TestConfirmAssistantProductionHandlesOrdinarySingleBatchProposal(t *testing
 	orders, err := svc.ListGenerationOrders("local", canvasID)
 	if err != nil || len(orders) != 1 || orders[0].Status != operations.GenerationOrderSubmitted || orders[0].ApprovedBy != "ui" {
 		t.Fatalf("expected submitted generation order approved by ui, got %+v (%v)", orders, err)
+	}
+}
+
+func TestExternalGenerationGuardrailProposeOnlyBlocksDirectSpend(t *testing.T) {
+	svc, r, canvasID, revision := externalGenerationFixture(t)
+	if _, err := operations.SetExternalGenerationGuardrail(svc.Database(), "local", operations.ExternalGenerationGuardrail{Mode: operations.ExternalGuardrailModePropose}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := r.Execute(externalGenerationRequest(canvasID, revision, "external-propose-only"))
+	if err == nil || operations.AsError(err).Reason != "external_generation_propose_only" {
+		t.Fatalf("err = %v", err)
+	}
+	var tasks int64
+	if err := svc.Database().Model(&model.Task{}).Count(&tasks).Error; err != nil {
+		t.Fatal(err)
+	}
+	if tasks != 0 {
+		t.Fatalf("propose_only admitted %d tasks", tasks)
+	}
+}
+
+func TestBillingQuoteCostFailsClosedWhenPointsHaveNoCNYValue(t *testing.T) {
+	amount, known := billingQuoteAmount(true, 7, 0, 0)
+	if known || amount != 0 {
+		t.Fatalf("amount=%v known=%v", amount, known)
+	}
+	amount, known = billingQuoteAmount(true, 7, 0, 0.1)
+	if !known || amount != 0.7 {
+		t.Fatalf("amount=%v known=%v", amount, known)
 	}
 }

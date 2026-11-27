@@ -59,6 +59,22 @@ describe("release regression source contracts", () => {
         expect(board).toContain("技能规范会在提交时自动附加");
     });
 
+    test("keeps external agent spend guardrails fail-closed and wired", () => {
+        const api = source("services/api/agent-guardrails.ts");
+        expect(api).toContain('"/agent-clients/guardrails"');
+        expect(api).toContain("updateExternalAgentGuardrails");
+        const ui = source("pages/agents/external-guardrail-section.tsx");
+        expect(ui).toContain('"propose_only"');
+        expect(ui).toContain("今日预估消耗");
+        const guard = readFileSync(new URL("../../backend/internal/operations/external_guardrail.go", import.meta.url), "utf8");
+        expect(guard).toContain("ExternalGuardrailModePropose");
+        expect(guard).toContain("external_budget_price_unknown");
+        expect(guard).toContain("ReserveExternalEstimatedSpend");
+        const app = readFileSync(new URL("../../backend/internal/app/external_generation.go", import.meta.url), "utf8");
+        expect(app).toContain("quoteExternalGeneration");
+        expect(app).toContain("ReserveExternalEstimatedSpend");
+    });
+
     test("keeps quote reference counts in the task contract", () => {
         const generation = source("services/api/generation-task.ts");
         expect(generation).toContain("quoteReferenceCounts");

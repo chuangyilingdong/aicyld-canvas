@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	localasset "infinite-canvas/backend/internal/asset"
 	"infinite-canvas/backend/internal/generation"
 	"infinite-canvas/backend/internal/kernel"
 	"infinite-canvas/backend/internal/mediatools"
@@ -452,5 +453,60 @@ func TestRestoreManagedUpscaleAudioPreservesSubtitleEraseAudio(t *testing.T) {
 	facts, err := mediatools.ProbeLocal(context.Background(), outPath)
 	if err != nil || !facts.HasAudio || facts.Width != 64 || facts.Height != 48 {
 		t.Fatalf("expected restored audio and 64x48 dimensions, got facts=%+v err=%v", facts, err)
+	}
+}
+
+func TestPersistRemoteRunningHubVideoStreamsToFileAndCleansTemps(t *testing.T) {
+	t.Setenv("CANVAS_ALLOW_PRIVATE_UPSTREAMS", "true")
+	_, db, _ := specializedSQLite(t, nil)
+	if err := db.AutoMigrate(&model.UserDailyUploadUsage{}, &model.UserUploadReservation{}); err != nil {
+		t.Fatal(err)
+	}
+	dataDir := t.TempDir()
+	videoBytes := sqliteTestClip(t, 64, 48, true)
+	if err := db.Create(&model.Task{
+		ID: "task-runninghub-stream", UserID: "owner", Type: "canvas_video", Model: "rh-video",
+		Status:    model.TaskStatusRunning,
+		InputJSON: `{"mode":"video","config":{"channelId":"aicyld-runninghub","model":"rh-video"}}`,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("ETag", `"runninghub-stream-1"`)
+		w.Header().Set("Content-Type", "video/mp4")
+		http.ServeContent(w, r, "runninghub.mp4", time.Time{}, bytes.NewReader(videoBytes))
+	}))
+	defer server.Close()
+
+	repo := repository.New(db)
+	resources := localasset.NewService(localasset.Dependencies{
+		Repository: localasset.NewRepository(repo),
+		Blobs:      localasset.NewFileStore(dataDir),
+		Quota: localasset.NewFileQuota(repo, func() (localasset.FileQuotaPolicy, error) {
+			return localasset.FileQuotaPolicy{ResourceUploadMB: 2048, GeneratedFileMB: 2048, DailyUploadMB: 999999, StoredFileGB: 999}, nil
+		}, nil),
+		DataDir: dataDir, LocalStorage: true,
+	})
+	deps := DeliveryMediaDeps{
+		Repo: repo, DataDir: dataDir, AllowHTTPForTest: true, Resources: resources,
+		BeginDownload: func(_, _ string, timeout time.Duration) (context.Context, func(error), error) {
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			return ctx, func(error) { cancel() }, nil
+		},
+		MaxBytes:         func() (int64, error) { return 2048 << 20, nil },
+		DecryptTaskInput: func(s string) (string, error) { return s, nil },
+		DecryptSetting:   func(s string) (string, error) { return s, nil },
+		ResolveConfig:    func(c generation.Config) (generation.Config, error) { return c, nil },
+	}
+	res, err := PersistRemoteGenerationArtifact(deps, "owner", "video", server.URL+"/runninghub.mp4", "task-runninghub-stream:0", 15*time.Second)
+	if err != nil {
+		t.Fatalf("PersistRemoteGenerationArtifact failed: %v", err)
+	}
+	if res.Status != model.ResourceStatusReady || res.MimeType != "video/mp4" || res.Size != int64(len(videoBytes)) {
+		t.Fatalf("unexpected persisted video resource: %+v", res)
+	}
+	cacheDir := filepath.Join(dataDir, "cache", "artifact-downloads")
+	if entries, err := os.ReadDir(cacheDir); err == nil && len(entries) != 0 {
+		t.Fatalf("expected download cache dir to be clean after persistence, got %d leftover files", len(entries))
 	}
 }

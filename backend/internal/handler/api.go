@@ -81,6 +81,7 @@ func registerDesktopCanvasAPI(api *gin.RouterGroup, svc *app.Service, dependenci
 	RegisterAgentUISessionRoutes(api, svc, uiSessions, dependencies.DesktopTrust)
 	// 外部 Agent 凭据的签发与吊销：只有受信任的桌面界面能进，外部客户端拿不到桌面启动令牌。
 	RegisterAgentClientRoutes(api, svc, clients, dependencies.DesktopTrust)
+	RegisterExternalGuardrailRoutes(api, svc, dependencies.DesktopTrust)
 	RegisterAgentProxyRoutes(api, svc, clients, uiSessions, dependencies.AssistantHost)
 	// 宿主生命周期：配置当前文本模型与启动命令，显式启停；未配置时返回明确未就绪。
 	RegisterAgentHostLifecycleRoutes(api, svc, dependencies.AssistantHost)

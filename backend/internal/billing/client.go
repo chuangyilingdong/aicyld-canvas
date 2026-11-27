@@ -64,6 +64,7 @@ type BillingQuote struct {
 	RuleVersion      int            `json:"ruleVersion,omitempty"`
 	Balance          int            `json:"balance"`
 	EstimatedCostCNY float64        `json:"estimatedCostCny,omitempty"`
+	PointValueYuan   float64        `json:"pointValueYuan,omitempty"`
 	Breakdown        map[string]any `json:"breakdown,omitempty"`
 }
 

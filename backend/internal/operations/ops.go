@@ -306,13 +306,17 @@ func opCanvasGenerationPropose(ctx *Context, params json.RawMessage) (any, error
 		result["order"] = order
 	}
 	if ctx.Caller.Kind == CallerExternal && !ctx.Caller.ReadOnly {
-		if approvalMode == ApprovalModeAsk {
+		guardProposeOnly := false
+		if reader, ok := ctx.Domain.(ExternalGenerationPolicyReader); ok {
+			guardProposeOnly = reader.ExternalGenerationGuardrailForUser(ctx.UserID).Mode == ExternalGuardrailModePropose
+		}
+		if approvalMode == ApprovalModeAsk || guardProposeOnly {
 			result["nextAction"] = map[string]any{
 				"operation":  "beeftv approve " + proposalID,
 				"approval":   "owner-required",
 				"proposalId": proposalID,
 				"params":     map[string]any{"canvasId": args.CanvasID, "proposalId": proposalID, "nodeIds": nodeIDs, "kind": args.Kind, "expectedRevision": doc["revision"], "expectedModelConfigRevision": resolved.Revision},
-				"message":    "生成单已开出（待人工批准）。请在 BeefTV 界面确认，或在终端运行 `beeftv approve " + proposalID + "` 批准并执行；Agent 自身凭据不能自批。",
+				"message":    "生成单已开出（待人工批准）。当前护栏要求人工确认；请在灵动TV 界面确认，或在终端运行 `beeftv approve " + proposalID + "` 批准并执行；Agent 自身凭据不能自批。",
 			}
 		} else {
 			result["nextAction"] = map[string]any{
