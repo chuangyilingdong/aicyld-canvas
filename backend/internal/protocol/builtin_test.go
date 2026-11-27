@@ -829,6 +829,100 @@ func TestRunningHubSeedanceFlashImageVideoForcesAdaptiveRatio(t *testing.T) {
 	}
 }
 
+func TestRunningHubSeedanceMediaVideoEnablesRealPersonAssets(t *testing.T) {
+	adapter, _ := Builtins().Get("runninghub-standard-video")
+	for _, model := range []string{
+		"rhart-video/sparkvideo-2.0/image-to-video",
+		"rhart-video/sparkvideo-2.0/multimodal-video",
+		"rhart-video/sparkvideo-2.0-fast/image-to-video",
+		"rhart-video/sparkvideo-2.0-fast/multimodal-video",
+		"rhart-video/sparkvideo-2.0-mini/image-to-video",
+		"rhart-video/sparkvideo-2.0-mini/multimodal-video",
+		"bytedance/seedance-2.5-token/image-to-video",
+		"bytedance/seedance-2.5-token/multimodal-video",
+		"bytedance/seedance-2.5-flash-token/image-to-video",
+		"bytedance/seedance-2.5-flash-token/multimodal-video",
+	} {
+		t.Run(model, func(t *testing.T) {
+			spec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
+				Capability: CapabilityVideo,
+				Model:      model,
+				Prompt:     "animate the portrait",
+				Images: []MediaReference{
+					{URL: "https://media.example/source.png", Role: "first_frame"},
+				},
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			body := object(spec.Body)
+			if body["realPersonMode"] != true {
+				t.Fatalf("realPersonMode = %#v", body["realPersonMode"])
+			}
+			slots, ok := body["conversionSlots"].([]string)
+			if !ok || len(slots) != 1 || slots[0] != "all" {
+				t.Fatalf("conversionSlots = %#v", body["conversionSlots"])
+			}
+		})
+	}
+}
+
+func TestRunningHubSeedanceRealPersonFieldsAllowProviderOverrides(t *testing.T) {
+	adapter, _ := Builtins().Get("runninghub-standard-video")
+	spec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
+		Capability: CapabilityVideo,
+		Model:      "bytedance/seedance-2.5-token/image-to-video",
+		Prompt:     "animate the portrait",
+		Images: []MediaReference{
+			{URL: "https://media.example/source.png", Role: "first_frame"},
+		},
+		ProviderOptions: map[string]map[string]any{
+			"runninghub-standard-video": {
+				"realPersonMode":  false,
+				"conversionSlots": []any{"firstFrameUrl"},
+			},
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := object(spec.Body)
+	if body["realPersonMode"] != false {
+		t.Fatalf("realPersonMode override = %#v", body["realPersonMode"])
+	}
+	slots, ok := body["conversionSlots"].([]any)
+	if !ok || len(slots) != 1 || slots[0] != "firstFrameUrl" {
+		t.Fatalf("conversionSlots override = %#v", body["conversionSlots"])
+	}
+}
+
+func TestRunningHubSeedanceRealPersonFieldsStayOffUnsupportedEndpoints(t *testing.T) {
+	adapter, _ := Builtins().Get("runninghub-standard-video")
+	for _, model := range []string{
+		"rhart-video/sparkvideo-2.0/text-to-video",
+		"bytedance/seedance-2.5-token/text-to-video",
+		"seedance-v1.5-pro/image-to-video",
+	} {
+		t.Run(model, func(t *testing.T) {
+			spec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
+				Capability: CapabilityVideo,
+				Model:      model,
+				Prompt:     "animate a scene",
+				Images: []MediaReference{
+					{URL: "https://media.example/source.png", Role: "first_frame"},
+				},
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			body := object(spec.Body)
+			if body["realPersonMode"] != nil || body["conversionSlots"] != nil {
+				t.Fatalf("unsupported endpoint gained real-person fields: %#v", body)
+			}
+		})
+	}
+}
+
 func TestRunningHubUpscaleUsesDocumentedPayload(t *testing.T) {
 	adapter, _ := Builtins().Get("runninghub-standard-video")
 	request := GenerationRequest{

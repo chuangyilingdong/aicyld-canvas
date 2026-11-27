@@ -22,6 +22,15 @@ describe("RunningHub parameter release contracts", () => {
         );
     });
 
+    test("enables documented Seedance real-person asset conversion for media-to-video endpoints", () => {
+        const source = backendSource("protocol/builtin.go");
+        expect(source).toContain("runningHubSeedanceSupportsRealPersonMode");
+        expect(source).toContain('body["realPersonMode"] = true');
+        expect(source).toContain('body["conversionSlots"] = []string{"all"}');
+        expect(source).toContain('strings.Contains(endpoint, "rhart-video/sparkvideo-2.0")');
+        expect(source).toContain('strings.Contains(endpoint, "bytedance/seedance-2.5")');
+    });
+
     test("keeps lyrics and numeric audio speed in the protocol request", () => {
         expect(backendSource("generation/protocol_request.go")).toMatch(
             /"audioLyrics":\s+input\.Config\.AudioLyrics/,

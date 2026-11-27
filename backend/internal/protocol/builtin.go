@@ -801,6 +801,22 @@ func runningHubStandardVideoFields(body map[string]any, endpoint string, request
 		body["webSearch"] = false
 		body["draft"] = false
 	}
+	// RunningHub documents real-person asset conversion on Seedance 2.0/2.5
+	// media-to-video endpoints. Keep it explicit so upstream default changes do
+	// not reintroduce the real-person upload rejection; providerOptions below
+	// can still override either value for an individual request.
+	if runningHubSeedanceSupportsRealPersonMode(endpoint) {
+		body["realPersonMode"] = true
+		body["conversionSlots"] = []string{"all"}
+	}
+}
+
+func runningHubSeedanceSupportsRealPersonMode(endpoint string) bool {
+	if !strings.Contains(endpoint, "image-to-video") && !strings.Contains(endpoint, "multimodal-video") {
+		return false
+	}
+	return strings.Contains(endpoint, "rhart-video/sparkvideo-2.0") ||
+		strings.Contains(endpoint, "bytedance/seedance-2.5")
 }
 
 func runningHubStandardAudioFields(body map[string]any, endpoint string, request GenerationRequest) {
